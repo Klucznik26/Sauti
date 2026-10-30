@@ -1,0 +1,46 @@
+name: Sauti ASM core
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install NASM and optional SDL2 window adapter dependencies
+        run: sudo apt-get update && sudo apt-get install -y nasm libsdl2-dev libpipewire-0.3-dev pkg-config
+      - name: Compile and test assembly engine
+        run: make test
+      - name: Sanitizer regression (C harness only; ASM guarded by canaries)
+        run: |
+          make clean
+          make test CFLAGS="-O1 -g -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer"
+      - name: Generate reference PPM
+        run: make demo
+      - name: Verify reference image signature
+        run: test "$(head -c 2 build/sauti-demo.ppm)" = P6
+      - name: Build Linux window adapter
+        run: make window
+      - name: Headless window-event/present smoke test (software renderer)
+        run: |
+          make smoke-headless
+          SDL_VIDEODRIVER=dummy ./build/sauti_window --software --frames 3
+
+      - name: Build optional PipeWire capture adapter
+        run: make window-pipewire
+      - name: PipeWire-linked binary generator mode (does not require audio server)
+        run: make smoke-headless-pipewire
+      - name: Reject unavailable audio capture in normal executable
+        run: |
+          set +e
+          SDL_VIDEODRIVER=dummy ./build/sauti_window --source monitor --frames 2 > build/unsupported.log 2>&1
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q 'not enabled' build/unsupported.log

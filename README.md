@@ -1,4 +1,4 @@
-# Sayari Sauti — assembly-first multiplatform audio visualization
+# Sauti — assembly-first multiplatform audio visualization
 
 **Stage 6: automatic oscilloscope gain and on-screen Peak/RMS meters in ASM.**
 The core remains independent of PipeWire, SDL2, Wayland and operating-system
@@ -23,7 +23,8 @@ calls. There is no native AyoOS/Windows audio adapter yet.
 ## Fedora x86-64 install/build
 
     sudo dnf install nasm gcc make SDL2-devel pipewire-devel pkgconf-pkg-config
-    cd apps/sayari-sauti
+    git clone https://github.com/Klucznik26/Sauti.git
+    cd Sauti
     make test
     make window-pipewire
     SDL_VIDEODRIVER=wayland ./build/sauti_window_pw
@@ -96,3 +97,12 @@ actual output sink and its `node.name`/serial. Select the corresponding
 PipeWire sink explicitly with `--target NAME`; never assume the configured
 HDMI sink is the currently routed analog output. Real capture and desktop
 flicker are separate issues until demonstrated otherwise.
+
+## Independent repository
+
+Sauti is developed independently at [Klucznik26/Sauti](https://github.com/Klucznik26/Sauti).
+The original, byte-identical source snapshot was extracted from
+[Sayari-for-Linux](https://github.com/Klucznik26/Sayari-for-Linux),
+branch `feature/sauti-stereo-neon-spectrum`, directory `apps/sayari-sauti/`.
+Previous project history remains available on that archived source branch.
+
