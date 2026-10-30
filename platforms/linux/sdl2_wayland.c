@@ -1213,7 +1213,7 @@ static void write_output_volume(int value){
     char cmd[120];
     snprintf(cmd,sizeof(cmd),"wpctl set-volume @DEFAULT_AUDIO_SINK@ %d%%",clamp100(value));
     if (system(cmd) != 0) {
-        fprintf(stderr,"Sauti: wpctl could not set the system output volume\\n");
+        fprintf(stderr,"Sauti: wpctl could not set the system output volume\n");
     }
 }
 #endif
