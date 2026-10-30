@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Run the full Sauti player; optional isolated YM audio listening builds.
+set -euo pipefail
+
+APP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$APP_DIR"
+
+mode="classic"
+if [[ "${1:-}" == "--ym-reference" ]]; then
+  mode="reference"
+  shift
+elif [[ "${1:-}" == "--ym-pre-tick" ]]; then
+  mode="pre-tick"
+  shift
+elif [[ "${1:-}" == "--ym-classic" ]]; then
+  shift
+fi
+
+case "$mode" in
+  classic)
+    make window-pipewire
+    binary="$APP_DIR/build/sauti_window_pw"
+    ;;
+  reference)
+    make window-pipewire-reference
+    binary="$APP_DIR/build/sauti_window_pw_reference"
+    ;;
+  pre-tick)
+    make window-pipewire-pre-tick
+    binary="$APP_DIR/build/sauti_window_pw_pre_tick"
+    ;;
+esac
+
+printf 'Sauti YM listening mode: %s\n' "$mode" >&2
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-wayland}"
+exec "$binary" --view stereo-bars --source monitor --software "$@"
