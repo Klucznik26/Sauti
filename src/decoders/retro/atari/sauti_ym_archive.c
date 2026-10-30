@@ -11,10 +11,12 @@
 #endif
 #define MAX_YM_ARCHIVE (16u*1024u*1024u)
 #define MAX_YM_UNPACKED (32u*1024u*1024u)
+#ifdef SAUTI_HAVE_LIBARCHIVE
 static int is_raw_ym(const uint8_t *p,size_t n){
  return p && ((n>=4&&(!memcmp(p,"YM2!",4)||!memcmp(p,"YM3!",4)))||
   (n>=12&&(!memcmp(p,"YM5!LeOnArD!",12)||!memcmp(p,"YM6!LeOnArD!",12))));
 }
+#endif
 int sauti_ym_unpack_lha(const uint8_t *data,size_t size,
                         uint8_t **out,size_t *out_size){
  if(!out||!out_size)return -1;
