@@ -566,3 +566,8 @@ AAC-26 jest etapem przyrostowym, NIE ukończeniem AAC-LC stereo.
 Dalsze zadania: dekodowanie i zastosowanie per-band maski MS
 na wspólnych widmach, Intensity Stereo, stereo-PNS, transjenty,
 pełne porównanie PCM lewego/prawego kanału z FFmpeg.
+
+Diagnostyka odróżnia teraz `mid_side` od `intensity`; oba
+narzędzia nie są jeszcze wykonywane w torze CPE. Próbki stereo
+z `ms_mask_present=1/2` i aktywną maską muszą pozostać jawnie
+odrzucone do czasu implementacji rekonstrukcji dwóch widm.
