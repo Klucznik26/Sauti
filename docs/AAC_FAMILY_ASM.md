@@ -1149,3 +1149,35 @@ raportuje teraz ostatnią żądaną próbkę
 handoff ponownie używa rzeczywistej pozycji SDL
 (`submitted - queued`). Inne kodeki bez wątku
 seek zachowują poprzednią ścieżkę.
+
+
+### AAC-29 — diagnoza 10/36 FAIL przy aktywnym PNS
+
+Na Fedorze matryca 36/36 przechodzi z `-aac_pns 0`,
+natomiast domyślny enkoder FFmpeg daje 26/36,
+z 10 niezgodnościami PCM tylko w materiale transient.
+Nie wolno osłabiać progów strict gate.
+
+Przegląd ścieżki FFmpeg `aacdec_proc_template.c` oraz
+`aacdec_dsp_template.c` wykazał różnicę znaku:
+dla `NOISE_BT` FFmpeg ustawia ujemny skalefaktor
+w dekoderze float i skaluje nim próbki generatora
+LCG. Sauti przed poprawką używał dodatniego
+`gain/sqrt(energy)`, przez co odwracał znak pasm
+PNS względem FFmpeg, choć energia, stan RNG i
+testy normalizacji były poprawne. Zmieniono
+skalowanie na `-gain/sqrt(energy)` i dodano
+asercję znaku dla deterministycznego pierwszego
+prążka PNS zarówno dla długich, jak krótkich okien.
+To hipoteza przyczynowa do weryfikacji pełną
+matrycą (wyniki sprzed poprawki: 26/36).
+
+Dodano także diagnostykę:
+```sh
+make test-aac-native test-aac-sanitize PKG_CONFIG=/bin/false
+make inspect-aac-29-full
+python3 scripts/diagnose_aac_pns_frames.py --case transient_44100_128k
+```
+Raport diagnostyczny zestawia nRMSE każdej ramki
+z jej licznikami PNS/TNS/MS/intensity i typem okna,
+bez zmiany walidatora ani progów testowych.
