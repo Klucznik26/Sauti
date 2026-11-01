@@ -952,3 +952,50 @@ formalnym dowodem bezpieczeństwa wszystkich strumieni.
 make -B test-aac-cpe PKG_CONFIG=/bin/false
 make test-aac-sanitize PKG_CONFIG=/bin/false
 ```
+
+
+## AAC-LC — integracja z odtwarzaczem (pierwszy etap)
+
+Nowy `sauti_decoder_aac_native_ops` wykorzystuje
+**bezpośrednio natywny C/NASM AAC-LC stereo** w
+interfejsie `SautiDecoderOps` (bez bibliotek FFmpeg).
+Wymaga strumienia ADTS z jednym blokiem raw AAC
+na ramkę, AAC-LC, 2 kanały, bez CRC. Nie dekoduje
+kontenera MP4/M4A ani profili SBR/PS.
+
+- `probe/open`: waliduje nagłówki i wszystkie ramki,
+  **odrzuca** cały strumień, jeśli choć jedna ramka
+  jest uszkodzona albo wymaga nieobsługiwanego
+  narzędzia. Brak cichego pomijania uszkodzeń.
+- `read`: generuje PCM 32-bit float LRLR po 1024
+  próbki na kanał, buforując tylko jedną ramkę;
+  nie trzyma w pamięci całego PCM.
+- `seek`: odtwarza historię overlap, okien i PNS
+  od początku pliku do żądanej pozycji. Jest poprawne
+  semantycznie, ale może być wolne w długich plikach;
+  przyszły indeks checkpointów przyspieszy seek.
+- `close`: zwalnia indeks ramek; wejściowe bajty
+  pozostają własnością wywołującego.
+- Odtwarzacz SDL próbuje natywnego AAC-LC ADTS
+  **przed** dotychczasowym adapterem libavcodec,
+  który pozostaje fallbackiem dla innych profili
+  i kontenerów. Gdy native zawiedzie, ta ścieżka
+  nadal może użyć FFmpeg — nie deklarować wtedy
+  odtwarzania bez FFmpeg.
+
+Pierwszy test `test-aac-native-adapter` buduje
+syntetyczny dwu-ramkowy strumień ADTS i sprawdza
+otwieranie, metadane, odczyt, przejście przez granicę
+ramek, przewijanie do próbki wewnątrz ramki,
+EOF, granice zakresu oraz odrzucenie uszkodzeń.
+
+```sh
+make test-aac-native-adapter PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Nie zamyka to jeszcze AAC-LC.** Wymagane jest
+potwierdzenie kompilacji, realne wielominutowe
+pliki stereo, test odsłuchowy, przewijanie i dalsza
+walidacja przypadków PNS. Natywny dekoder nie jest
+jeszcze deklarowany jako kompletny MPEG-4 AAC-LC.
