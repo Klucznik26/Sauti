@@ -240,17 +240,23 @@ int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
     }
     SautiAacLcSynthesis next[2]={state[0],state[1]};
     float spectral[2][1024],left[1024],right[1024],pcm[2048];
+    /* AAC PNS uses one decoder-wide RNG stream. Consume left bands
+     * before right bands; never independently reseed the channels.
+     * Keep the public two-state API synchronized after success. */
+    uint32_t pns_stream=next[0].pns_seed;
     for(unsigned ch=0;ch<2;ch++){
         SautiAacLcMonoData *data=&parsed.channel[ch];
         if(!sauti_aac_lc_dequantize(data->quant,rate,
                     &data->ics,&data->sections,&data->factors,
                     spectral[ch]) ||
            !sauti_aac_pns_apply(&data->ics,rate,&data->sections,
-                               &data->factors,&next[ch].pns_seed,
+                               &data->factors,&pns_stream,
                                spectral[ch])){
             *reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;
         }
     }
+    next[0].pns_seed=pns_stream;
+    next[1].pns_seed=pns_stream;
     int ms_status=apply_ms(&parsed,rate,spectral[0],spectral[1],reason);
     if(ms_status!=1){
         if(ms_status==0)*reason=SAUTI_AAC_REASON_INVALID_SYNTH;
