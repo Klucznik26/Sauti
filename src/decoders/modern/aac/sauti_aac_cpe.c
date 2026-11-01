@@ -6,6 +6,7 @@
 #include "sauti_aac_headers.h"
 #include "sauti_aac_spectral_data.h"
 #include "sauti_aac_syntax.h"
+#include "sauti_aac_pns.h"
 #include <math.h>
 #include <string.h>
 
@@ -93,6 +94,44 @@ int sauti_aac_lc_cpe_parse(const uint8_t *raw,size_t length,
     *reason=SAUTI_AAC_REASON_OK;
     return 1;
 }
+/* AAC Mid/Side: dequantized M,S -> L=M+S, R=M-S.
+ * Reconstruct per SFB/window before applying TNS or inverse MDCT.
+ * Reject MS over PNS until correlated stereo noise is implemented. */
+static int apply_ms(const SautiAacCpeData *cpe,unsigned rate,
+                    float left[1024],float right[1024],
+                    SautiAacReason *reason){
+    if(!cpe->common_window || !cpe->ms_mask_present)return 1;
+    const SautiAacIcsInfo *ics=&cpe->channel[0].ics;
+    const unsigned shortwin=ics->window_sequence==2u;
+    const uint16_t *offsets=NULL;unsigned bands=0;
+    if(!sauti_aac_band_offsets(rate,shortwin,&offsets,&bands) ||
+       ics->max_sfb>bands)return 0;
+    unsigned first_window=0;
+    for(unsigned g=0;g<ics->group_count;g++){
+        for(unsigned band=0;band<ics->max_sfb;band++){
+            if(!cpe->ms_used[g][band])continue;
+            const unsigned a=cpe->channel[0].factors.codebook[g][band];
+            const unsigned b=cpe->channel[1].factors.codebook[g][band];
+            if(a>11u || b>11u){
+                *reason=SAUTI_AAC_REASON_MID_SIDE;return -1;
+            }
+            const unsigned start=offsets[band],end=offsets[band+1u];
+            if(end<=start || end>(shortwin?128u:1024u))return 0;
+            for(unsigned w=first_window;
+                 w<first_window+ics->group_length[g];w++){
+                const unsigned base=w*(shortwin?128u:1024u);
+                for(unsigned i=base+start;i<base+end;i++){
+                    const float mid=left[i],side=right[i];
+                    const float l=mid+side,r=mid-side;
+                    if(!isfinite(l)||!isfinite(r))return 0;
+                    left[i]=l;right[i]=r;
+                }
+            }
+        }
+        first_window+=ics->group_length[g];
+    }
+    return first_window==ics->window_count;
+}
 int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
                                       SautiAacLcSynthesis state[2],
                                       float interleaved[2048],
@@ -150,13 +189,28 @@ int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
         *reason=SAUTI_AAC_REASON_UNSUPPORTED_HISTORY;return -1;
     }
     SautiAacLcSynthesis next[2]={state[0],state[1]};
-    float left[1024],right[1024],pcm[2048];
+    float spectral[2][1024],left[1024],right[1024],pcm[2048];
     for(unsigned ch=0;ch<2;ch++){
         SautiAacLcMonoData *data=&parsed.channel[ch];
-        if(!sauti_aac_lc_synthesis_frame_tns(&next[ch],rate,
-                   &data->ics,&data->sections,&data->factors,data->quant,
-                   data->tns_present?&data->tns:NULL,
-                   ch==0?left:right)){
+        if(!sauti_aac_lc_dequantize(data->quant,rate,
+                    &data->ics,&data->sections,&data->factors,
+                    spectral[ch]) ||
+           !sauti_aac_pns_apply(&data->ics,rate,&data->sections,
+                               &data->factors,&next[ch].pns_seed,
+                               spectral[ch])){
+            *reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;
+        }
+    }
+    int ms_status=apply_ms(&parsed,rate,spectral[0],spectral[1],reason);
+    if(ms_status!=1){
+        if(ms_status==0)*reason=SAUTI_AAC_REASON_INVALID_SYNTH;
+        return ms_status;
+    }
+    for(unsigned ch=0;ch<2;ch++){
+        const SautiAacLcMonoData *data=&parsed.channel[ch];
+        if(!sauti_aac_lc_synthesis_spectral(&next[ch],&data->ics,
+                   data->tns_present?&data->tns:NULL,rate,
+                   spectral[ch],ch==0?left:right)){
             *reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;
         }
     }
