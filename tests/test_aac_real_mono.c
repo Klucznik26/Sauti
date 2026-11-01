@@ -63,8 +63,9 @@ int main(int argc,char **argv){
             }
         }else if(result==-1){
             unsupported++;
-            /* Do not reuse prior overlap after a skipped frame. */
-            if(!sauti_aac_lc_synthesis_init(&state,0)){invalid++;break;}
+            /* An unseen AAC frame destroys continuous overlap history;
+             * do not silently replace it with a freshly initialized one. */
+            state.initialized=0u;
         }else invalid++;
         offset+=adts.frame_bytes;
         if(invalid)break;
