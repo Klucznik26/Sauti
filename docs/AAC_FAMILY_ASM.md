@@ -929,3 +929,26 @@ uzupełniają asercje logiki dekodera, ale nie zastępują
 fuzzingu ani pełnej analizy assemblera. Normalny
 `test-aac-native` pozostaje osobną, niezmienioną
 ścieżką.
+
+
+### AAC-29E — deterministyczne mutacje bitów ADTS
+
+Po pomyślnym uruchomieniu ASan/UBSan na Fedorze
+rozszerzono `test_aac_cpe` o serię wszystkich
+jednobitowych mutacji krótkiej, poprawnej ramki
+ADTS stereo. Każda mutacja uruchamia dekoder od
+tego samego stanu początkowego. Sprawdzane są:
+
+- zwrot 1/-1/0 zamiast nieprawidłowej wartości;
+- przy poprawnym dekodowaniu wszystkie 2048 próbek
+  PCM są skończone, a oba stany pozostają aktywne;
+- przy odrzuceniu ramki nie zmienia się ani bufor
+  PCM, ani którykolwiek stan syntezy;
+- test wykonuje się także w celu `test-aac-sanitize`.
+
+Ten test **nie jest** fuzzingiem z pokryciem ani
+formalnym dowodem bezpieczeństwa wszystkich strumieni.
+```sh
+make -B test-aac-cpe PKG_CONFIG=/bin/false
+make test-aac-sanitize PKG_CONFIG=/bin/false
+```
