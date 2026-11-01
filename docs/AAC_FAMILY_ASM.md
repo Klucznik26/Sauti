@@ -107,3 +107,24 @@ osiągnięciu poprawności i pokrycia testami.
 - Własne odtwarzanie AAC-LC/HE-AAC/HE-AAC v2 do PCM nadal niegotowe;
   działający adapter FFmpeg pozostaje w użyciu.
 
+
+
+## AAC Spectral — indeksy kodbooków, znaki i ESCAPE w NASM
+
+- \`sauti_aac_spectral.asm\` odwzorowuje indeksy symboli dla książek
+  widmowych 1–11 na pary/czwórki wartości skwantowanych. Uwzględnia
+  zakresy podpisane (1/2, 5/6) i bez znaku (3/4, 7–11), nie tworzy
+  tablic Huffmana ISO/IEC w tym kroku.
+- \`sauti_aac_spectral.c\` spina działający dekoder Huffmana w NASM,
+  dekoder indeksów w NASM i istniejący czytnik bitów w NASM.
+  Dla książek bez znaku odczytuje bity znaku; książka 11 odczytuje
+  dodatkowo escape (do |x_quant|=8191) **po wszystkich bitach znaku**.
+- \`make test-aac-spectral\` weryfikuje mapowanie indeksów we wszystkich
+  grupach książek, sign/ESC, granice, błędne indexy, atomowe odrzucenie
+  niekompletnych danych i ścieżkę Huffman → tuple → sign → ESC.
+- Test Huffmana nadal korzysta z **syntetycznej** tablicy kodów.
+  Nie można jeszcze dekodować standardowego strumienia AAC do widma:
+  brak pełnych, zweryfikowanych tablic kodowych MPEG-4 (codebooks
+  Huffmana 1–11 i skali). Nie interpretować przejścia testów
+  jako obsługi samodzielnego odtwarzania AAC.
+

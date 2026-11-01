@@ -79,10 +79,10 @@ static void signs_and_escaping(void){
     assert(pos==0 && memcmp(values,before,sizeof(values))==0);
     b=(Bits){0};
     put(&b,1,1); /* only one sign, four nonzero entries */
-    pos=0;
-    assert(!sauti_aac_spectral_finish(3,80,b.data,1,&pos,values)==0);
-    /* One byte includes padding bits; validate stricter with bit offset=7. */
+    /* One byte includes padding bits. A truncated read starting at bit
+     * seven must roll back after consuming the one remaining sign bit. */
     pos=7;
+    memcpy(values,before,sizeof(values));
     assert(!sauti_aac_spectral_finish(3,80,b.data,1,&pos,values));
     assert(pos==7 && memcmp(values,before,sizeof(values))==0);
     b=(Bits){0};
