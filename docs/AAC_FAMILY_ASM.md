@@ -876,3 +876,35 @@ nie są jeszcze kompletną certyfikacją zgodności wszystkich
 wariantów PNS stereo. Porównanie próbka-po-próbce z FFmpeg
 przy włączonym PNS może różnić się z powodu generatora
 pseudolosowego.
+
+
+## AAC-29D — regresja uszkodzonych ramek i wznowienia
+
+Do `tests/test_aac_cpe.c` dodano przypadki dla
+**rzeczywistych ramek ADTS skonstruowanych testowo**:
+ucięta ramka, uszkodzony syncword, niepoprawny indeks
+częstotliwości, niezgodna konfiguracja kanałów,
+zawyżona długość ramki, niepoprawne bity dopełnienia
+oraz zarezerwowana wartość maski stereo. Sprawdzane
+są też ucięte prefiksy surowego CPE.
+
+Każdy nieudany dekod ma pozostawić bez zmian:
+- oba stany syntezy (overlap, sequence/shape, PNS RNG);
+- cały bufor PCM dostarczony przez użytkownika;
+- zawartość struktury wyjściowej parsera CPE
+  oraz wejściowy kursor bitowy.
+
+Po każdym takim błędzie następuje dekodowanie
+**poprawnej** ramki z zachowanego stanu, a wynik PCM
+i stan końcowy są porównywane z niezaburzonym
+przebiegiem referencyjnym tego samego Sauti.
+
+```sh
+make -B test-aac-cpe PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+Ten zestaw nie jest fuzzingiem ani kompletnym
+audytorem bezpieczeństwa parsera. Dalsze testy
+sanityzowane oraz realne uszkodzone pliki pozostają
+oddzielnym zadaniem.
