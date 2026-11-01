@@ -2,10 +2,10 @@
 #define SAUTI_AAC_CPE_H
 #include "sauti_aac_lc_frame.h"
 
-/* AAC-26: one ID_CPE (channel pair) in a raw AAC-LC block.
- * Supports independent ICS and common_window including per-band Mid/Side.
- * Intensity, pulse, gain-control and unsupported MS/PNS combinations
- * remain explicitly rejected.
+/* AAC-26/29C: one ID_CPE (channel pair) in a raw AAC-LC block.
+ * Handles independent ICS and common_window with per-band Mid/Side,
+ * intensity and correlated PNS when both bands are NOISE_HCB.
+ * Non-conforming mixed MS/PNS, pulse and gain-control are rejected.
  * Returns 1 success, 0 malformed/truncated, -1 unsupported. */
 typedef struct {
     SautiAacLcMonoData channel[2];
@@ -20,7 +20,7 @@ int sauti_aac_lc_cpe_parse(const uint8_t *raw,size_t length,
 
 /* Atomic stereo ADTS decode: interleaved LRLR, 1024 frames per channel.
  * On any failure neither channel state nor PCM is modified.
- * Stereo MS/intensity tools are deliberately rejected until implemented. */
+ * Correlated PNS requires both SFBs to carry NOISE_HCB plus ms_used. */
 int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
                                       SautiAacLcSynthesis state[2],
                                       float pcm_interleaved[2048],
