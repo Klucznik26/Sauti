@@ -21,6 +21,7 @@ TOOLS_LINE = re.compile(
     r"^    tools: groups=(\d+) max_sfb=(\d+) TNS=(\d+)/(\d+)"
     r" PNS=(\d+)/(\d+) MS=(\d+) intensity=(\d+)"
 )
+RNG_LINE = re.compile(r"^    pns_rng: before=([0-9a-f]{8}) after=([0-9a-f]{8})")
 WINDOW_LINE = re.compile(
     r"^    windows L=sequence:(\d+) shape:(\d+) R=sequence:(\d+) shape:(\d+)"
 )
@@ -48,6 +49,11 @@ def trace_tools(aac, decoder):
         if match:
             current = int(match.group(1))
             records[current] = {"status": match.group(2)}
+            continue
+        match = RNG_LINE.match(line)
+        if match and current is not None:
+            records[current]["rng_before"] = match.group(1)
+            records[current]["rng_after"] = match.group(2)
             continue
         match = TOOLS_LINE.match(line)
         if match and current is not None:
@@ -125,12 +131,13 @@ def main():
     print("Worst frames (diagnostic only; NOT a frame-level pass/fail gate):")
     for row in ordered[:max(1,args.top)]:
         print("frame=%d t=%.3fs nRMSE L=%.6f R=%.6f PNS=%d/%d "
-              "TNS=%d MS=%d intensity=%d window=%s/%s"%
+              "TNS=%d MS=%d intensity=%d window=%s/%s RNG=%s->%s"%
               (row["frame"],row["time_s"],row["left"]["nrmse"],
                row["right"]["nrmse"],row.get("pns_left",0),
                row.get("pns_right",0),row.get("tns",0),row.get("ms",0),
                row.get("intensity",0),row.get("window_left","?"),
-               row.get("window_right","?")))
+               row.get("window_right","?"),row.get("rng_before","?"),
+               row.get("rng_after","?")))
     output=base.with_suffix(".pns-diagnostic.json")
     output.write_text(json.dumps({"case":args.case,"frames":rows},indent=2))
     print("Detailed frame data: %s"%output)
