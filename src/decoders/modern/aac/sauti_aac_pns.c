@@ -67,7 +67,11 @@ int sauti_aac_pns_apply(const SautiAacIcsInfo *ics,
                     energy+=sample*sample;
                 }
                 if(!(energy>0.0))return 0;
-                const double factor=gain/sqrt(energy);
+                /* FFmpeg's floating-point AAC PNS uses a negative
+                 * scalefactor for NOISE_BT. The sign is observable in
+                 * decoded PCM even though it cancels in band energy.
+                 * Preserve magnitude/normalization and RNG progression. */
+                const double factor=-gain/sqrt(energy);
                 for(unsigned i=from;i<to;i++){
                     double scaled=(double)next[base+i]*factor;
                     if(!isfinite(scaled) || fabs(scaled)>3.402823466e38)
