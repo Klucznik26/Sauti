@@ -19,12 +19,30 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
        *bit_offset>length*8u||rate_index>=13u)return 0;
     *reason=SAUTI_AAC_REASON_INVALID_SCE;
     size_t pos=*bit_offset;
-    SautiAacRawPrefix prefix={0};
-    int kind=sauti_aac_raw_prefix_parse(raw,length,&pos,&prefix);
-    if(kind!=2){*reason=kind==0?SAUTI_AAC_REASON_INVALID_SCE:SAUTI_AAC_REASON_UNSUPPORTED_PREFIX;return kind==0?0:-1;}
-    /* A preceding FIL may carry implicit SBR/PS; no extension path yet.
-     * Even if only filler, conservative refusal avoids silent misdecode. */
-    if(prefix.fill_count || prefix.first_audio_id!=0u){*reason=prefix.fill_count?SAUTI_AAC_REASON_UNSUPPORTED_FIL:SAUTI_AAC_REASON_UNSUPPORTED_PREFIX;return -1;}
+    /* The encoder can put EXT_FILL (type 0) before the SCE, often
+     * carrying an encoder identification string. Inspect each FIL
+     * extension before skipping it; never discard SBR/PS or arbitrary
+     * unknown extensions, which may alter output sample rate/content. */
+    for(;;){
+        size_t probe=pos;
+        uint32_t id=0;
+        if(!read(raw,length,&probe,3,&id))return 0;
+        if(id!=6u)break;
+        pos=probe;
+        SautiAacFillInfo fill;
+        if(!sauti_aac_fill_parse(raw,length,&pos,&fill))return 0;
+        if(fill.payload_bytes!=0u && fill.extension_type!=0u){
+            *reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;
+            return -1;
+        }
+    }
+    size_t probe=pos;
+    uint32_t first_id=0;
+    if(!read(raw,length,&probe,3,&first_id))return 0;
+    if(first_id!=0u){
+        *reason=SAUTI_AAC_REASON_UNSUPPORTED_PREFIX;
+        return -1;
+    }
     SautiAacScePrefix sce;
     if(!sauti_aac_lc_sce_prefix_parse(raw,length,&pos,&sce)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
     const uint16_t *offsets=NULL;unsigned count=0;
