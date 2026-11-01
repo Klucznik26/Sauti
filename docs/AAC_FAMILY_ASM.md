@@ -504,3 +504,34 @@ nie aktywuje dekodowania ramek z TNS i NIE naprawia jeszcze
 próby multitone. Przed aktywacją konieczne są normatywne
 współczynniki, mapowanie pasm, kierunek predykcji i niezależne
 porównanie PCM; brak filtru nie może być maskowany jako sukces.
+
+
+## AAC-25 — odwrotna filtracja TNS AAC-LC mono (2026-11-01)
+
+- Po zaliczeniu 15/15 testów AAC-24 dodano `sauti_aac_tns_apply()`.
+  Wykorzystuje skalefaktorowe granice pasm 1024/128, tabele
+  `tns_max_bands` dla indeksów częstotliwości 0–12, kierunek
+  filtrowania oraz kilka filtrów na ramkę.
+- Kwantowane PARCOR są mapowane przez funkcję sinus i algorytm
+  step-up do współczynników predykcji LPC. Dekoder stosuje
+  odwrotny filtr AR na zdekodowanym widmie przed IMDCT. Dla
+  długich i krótkich okien sprawdza granice, skończoność
+  próbek i nie nadpisuje wejścia, jeśli filtr zawiedzie.
+- `sauti_aac_lc_mono_parse` odczytuje `tns_data()` po fladze
+  zamiast automatycznie odrzucać ramkę. Dodatkowe pole
+  `SautiAacLcMonoData.tns` przenosi parametry do nowego
+  `sauti_aac_lc_synthesis_frame_tns()`, które zachowuje
+  atomowość stanu i PCM; dotychczasowe wejścia syntezy nadal
+  pozostają dostępne.
+- `test_aac_tns` ma przypadki filtrów obu kierunków, obu
+  rozmiarów okien, niezależne oczekiwane wyniki pierwszego
+  rzędu, granice i rollback. `test_aac_lc_frame` obejmuje
+  poprawny TNS order=0 oraz ucięty payload.
+- **Kryterium integracji**: `make -B test-aac-native
+  PKG_CONFIG=/bin/false` i `make inspect-aac-lc-matrix
+  PKG_CONFIG=/bin/false`. Multitone może ujawnić kolejne
+  różnice PCM lub narzędzia AAC. Do uzyskania rzeczywistego
+  raportu z pięciu sygnałów nie deklarować osiągnięcia 23/23.
+- Nadal brak natywnego dekodera AAC-LC stereo, SBR, PS i
+  pełnej obsługi opcjonalnych narzędzi. Nie aktywować
+  bezwarunkowego zastępowania FFmpeg w odtwarzaczu.
