@@ -258,3 +258,28 @@ samodzielnie**: do tego potrzebne są normatywne tablice i dalsze etapy DSP.
 - Kod pozostaje niezintegrowanym modułem syntezy. Do pełnego AAC-LC
   brakuje m.in. TNS/PNS, kontrolowanej kolejności przejść okien,
   obsługi ramek i testów PCM względem prawdziwych plików.
+
+
+## AAC-12 — zintegrowana synteza AAC-LC kanału (2026-11-01)
+
+- Nowy `sauti_aac_lc_synth.c` łączy wyjście wcześniejszego parsera
+  widma: 1024 skwantowane współczynniki i współczynniki skali →
+  `dequantize` → IMDCT 1024 albo 8×128 → okna SIN/KBD → overlap-add
+  przez nasz moduł NASM. Zwraca 1024 próbek czasowych na kanał.
+- `SautiAacLcSynthesis` przechowuje 1024 próbek historii, poprzedni
+  kształt i sekwencję okien. Stan jest jawnie inicjalizowany i wymaga
+  resetu przy nowym strumieniu albo seek. Przejścia: ONLY_LONG →
+  ONLY_LONG/LONG_START; LONG_START → EIGHT_SHORT; EIGHT_SHORT →
+  EIGHT_SHORT/LONG_STOP; LONG_STOP → ONLY_LONG/LONG_START.
+- Zmiany PCM, historii i stanu są atomowe: brak częściowego zatwierdzenia
+  w przypadku błędnych parametrów, widma lub niewspieranego przejścia.
+  PNS i intensity są jawnie odrzucane zamiast ukrytego wyciszania.
+- `make test-aac-lc-synth`: test przejść przez pięć ramek,
+  porównanie z niezależnie złożonymi funkcjami etapowymi,
+  testy niepoprawnych zakresów i niezmienności stanu po błędzie.
+- **Nie jest to jeszcze dekoder pliku AAC do PCM**: wejście jest
+  już sparsowanym strumieniem współczynników, brakuje pełnego parsera
+  raw_data_block, obsługi TNS/PNS/elementów stereo i testów
+  porównawczych na realnych ramkach. Wywołujący musi odrzucić TNS
+  i inne nieobsługiwane narzędzia przed syntezą. IMDCT nadal O(N²)
+  i wymaga optymalizacji/porównania poziomów PCM przed odsłuchem.
