@@ -45,7 +45,8 @@ typedef enum {
     SAUTI_AAC_REASON_INVALID_SPECTRAL,
     SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT,
     SAUTI_AAC_REASON_INVALID_TRAILING,
-    SAUTI_AAC_REASON_INVALID_SYNTH
+    SAUTI_AAC_REASON_INVALID_SYNTH,
+    SAUTI_AAC_REASON_UNSUPPORTED_HISTORY
 } SautiAacReason;
 const char *sauti_aac_reason_name(SautiAacReason reason);
 int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
