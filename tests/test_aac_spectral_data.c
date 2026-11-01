@@ -45,7 +45,8 @@ static void long_window(void){
     add(&s,0,1,0,1);add(&s,0,0,1,2);add(&s,0,5,2,3);
     Bits b={0};put(&b,3,5);
     symbol(&b,1,80); /* 4 coefficients, each +1 */
-    symbol(&b,5,80); /* 2 coefficients +4,+4 */
+    symbol(&b,5,80); /* first pair: +4,+4 */
+    symbol(&b,5,80); /* second pair: +4,+4 */
     int32_t spectrum[1024];for(unsigned j=0;j<1024;j++)spectrum[j]=123;
     size_t pos=3;
     assert(sauti_aac_lc_spectral_data_parse(b.bytes,sizeof(b.bytes),
@@ -53,8 +54,9 @@ static void long_window(void){
     assert(pos==b.bit);
     for(unsigned j=0;j<4;j++)assert(spectrum[j]==1);
     for(unsigned j=4;j<8;j++)assert(spectrum[j]==0);
-    assert(spectrum[8]==4 && spectrum[9]==4);
-    for(unsigned j=10;j<1024;j++)assert(spectrum[j]==0);
+    assert(spectrum[8]==4 && spectrum[9]==4 &&
+           spectrum[10]==4 && spectrum[11]==4);
+    for(unsigned j=12;j<1024;j++)assert(spectrum[j]==0);
     int32_t saved[1024];memcpy(saved,spectrum,sizeof(saved));
     pos=3;
     assert(!sauti_aac_lc_spectral_data_parse(b.bytes,1,&pos,
