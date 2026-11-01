@@ -524,6 +524,16 @@ $(OBJDIR)/test_aac_pns: tests/test_aac_pns.c include/sauti_aac_pns.h $(AAC_PNS_S
 test-aac-pns: $(OBJDIR)/test_aac_pns
 	./$(OBJDIR)/test_aac_pns
 
+# AAC-23: deterministic five-signal matrix; FFmpeg used only for fixture
+# encoding and reference PCM generation, never for native decoding.
+.PHONY: test-aac-pcm-compare
+test-aac-pcm-compare:
+	python3 tests/test_compare_aac_pcm.py
+
+.PHONY: inspect-aac-lc-matrix
+inspect-aac-lc-matrix: $(OBJDIR)/test_aac_real_mono test-aac-pcm-compare
+	sh scripts/inspect_aac_lc_matrix.sh
+
 # Runs all native AAC modules without requiring libav*/FFmpeg.
 .PHONY: test-aac-native
 test-aac-native: test-aac-headers test-aac-syntax test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns
