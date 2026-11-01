@@ -405,3 +405,21 @@ porównań wyjścia PCM na nagraniach, skokach i seek;
 testów błędnych ramek, ciągłości stanu i odpowiedniej wydajności
 na docelowym sprzęcie. Dopiero po tych testach wolno rozważać
 domyślne zastąpienie dotychczasowego adaptera FFmpeg.
+
+
+## AAC-21 — dopuszczenie wyłącznie EXT_FILL przed SCE (2026-11-01)
+
+Po uruchomieniu PNS 14/14 testów natywnych przeszło, ale próbka
+440 Hz wciąż nie dawała PCM: pierwszy blok był odrzucany jako FIL,
+a następne jako brakujące overlap history. W osobnym odtworzeniu
+komendy kodującej początkowy ADTS miał ID_FIL (6), pole count=15 +
+escape, extension_type=0 (EXT_FILL), po którym następował identyfikator
+kodera ASCII `Lavc...`. To nie jest samo w sobie SBR.
+
+Parser mono teraz sprawdza każde poprzedzające SCE ID_FIL i może
+pominąć wyłącznie rozpoznane EXT_FILL (type 0) albo FIL z zerową
+liczbą bajtów. EXT_SBR_DATA=13, EXT_SBR_DATA_CRC=14 i pozostałe
+rozszerzenia nadal kończą się `unsupported_fil`, bez zmiany stanu.
+Dopisano regresję EXT_FILL=0 / EXT_SBR_DATA=13. Wciąż nie obsługujemy
+FIL po SCE i wszystkich payloadów MPEG-4. Nie wolno utożsamiać
+tej poprawki z pełnym dekodowaniem rozszerzeń.
