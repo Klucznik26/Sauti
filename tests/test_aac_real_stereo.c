@@ -3,6 +3,7 @@
  * counted and reported, not silently interpreted as valid PCM. */
 #include "sauti_aac_cpe.h"
 #include "sauti_aac_headers.h"
+#include "sauti_aac_syntax.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -56,8 +57,39 @@ int main(int argc,char **argv){
         if(mask_out)fprintf(mask_out,"%zu %d %s\n",total-1,result,
                             sauti_aac_reason_name(reason));
         if(trace_windows && result==1){
-            /* The successful decoder has committed the current ICS
-             * window sequence and shape for each channel. */
+            /* Inspect the same CPE's tool metadata without changing the
+             * decoder state or the frame's PCM. */
+            const uint8_t *raw=bytes+offset+adts.header_bytes;
+            const size_t raw_length=adts.frame_bytes-adts.header_bytes;
+            const unsigned rate=(bytes[offset+2u]>>2u)&15u;
+            size_t bitpos=0;
+            SautiAacRawPrefix prefix;
+            SautiAacCpeData cpe;
+            SautiAacReason diagnostic_reason=SAUTI_AAC_REASON_OK;
+            unsigned tns_count[2]={0,0},pns_count[2]={0,0};
+            unsigned intensity_count=0,ms_count=0;
+            int prefix_status=sauti_aac_raw_prefix_parse(raw,raw_length,
+                                                          &bitpos,&prefix);
+            if(prefix_status==2 &&
+               sauti_aac_lc_cpe_parse(raw,raw_length,&bitpos,rate,&cpe,
+                                      &diagnostic_reason)==1){
+                for(unsigned ch=0;ch<2;ch++){
+                    for(unsigned w=0;w<cpe.channel[ch].ics.window_count;w++)
+                        tns_count[ch]+=cpe.channel[ch].tns.filter_count[w];
+                    for(unsigned g=0;g<cpe.channel[ch].ics.group_count;g++)
+                        for(unsigned b=0;b<cpe.channel[ch].ics.max_sfb;b++){
+                            unsigned cb=cpe.channel[ch].factors.codebook[g][b];
+                            if(cb==13u)pns_count[ch]++;
+                            if(ch==1u && cb>=14u)intensity_count++;
+                            if(ch==0u && cpe.ms_used[g][b])ms_count++;
+                        }
+                }
+                printf("    tools: groups=%u max_sfb=%u TNS=%u/%u PNS=%u/%u MS=%u intensity=%u\n",
+                       cpe.channel[0].ics.group_count,
+                       cpe.channel[0].ics.max_sfb,
+                       tns_count[0],tns_count[1],pns_count[0],pns_count[1],
+                       ms_count,intensity_count);
+            }
             printf("    windows L=sequence:%u shape:%u R=sequence:%u shape:%u\n",
                    state[0].previous_sequence,state[0].previous_shape,
                    state[1].previous_sequence,state[1].previous_shape);
