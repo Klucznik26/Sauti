@@ -91,7 +91,9 @@ sauti_aac_adts_parse_asm:
     mov [rdx+12],r11d
     mov [rdx+16],r9d
     mov eax,1
+    ret
 .fail:
+    xor eax,eax               ; success must never leak through error paths
     ret
 
 ; int read_bits(const u8 *data, size_t bytes, size_t *bit_offset,
