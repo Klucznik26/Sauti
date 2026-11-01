@@ -89,11 +89,11 @@ def main(argv=None):
         native = base.with_suffix(".native.f32")
         reference = base.with_suffix(".reference.f32")
         mask = base.with_suffix(".mask")
-        cmd_encode = ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
-                      "-y", "-i", wav, "-ac", "2", "-ar", str(rate),
-                      "-c:a", "aac", "-b:a", "%sk" % kbps] +
-                     (["-aac_pns", "0"] if opts.disable_pns else []) +
-                     ["-f", "adts", aac]
+        cmd_encode = (["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
+                       "-y", "-i", wav, "-ac", "2", "-ar", str(rate),
+                       "-c:a", "aac", "-b:a", "%sk" % kbps] +
+                      (["-aac_pns", "0"] if opts.disable_pns else []) +
+                      ["-f", "adts", aac])
         cmd_ref = ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
                    "-y", "-i", aac, "-ac", "2", "-ar", str(rate),
                    "-f", "f32le", reference]
