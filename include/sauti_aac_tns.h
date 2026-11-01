@@ -21,9 +21,16 @@ typedef struct {
     SautiAacTnsFilter filter[SAUTI_AAC_TNS_MAX_WINDOWS][SAUTI_AAC_TNS_MAX_FILTERS];
 } SautiAacTnsData;
 
+/* Apply inverse TNS to dequantized spectra, before IMDCT.
+ * Transactional: malformed filters or nonfinite output do not change input.
+ * tns_max_bands is bounded by the AAC-LC sample-rate band tables. */
+int sauti_aac_tns_apply(const SautiAacTnsData *tns,
+                        const SautiAacIcsInfo *ics,unsigned sample_rate_index,
+                        float spectral[1024]);
+
 /* Consume tns_data() immediately after tns_data_present=1.
  * Output and bit position are atomic on error.
- * This is structural parsing only: it does NOT apply inverse TNS. */
+ * Parsing is distinct from applying inverse TNS. */
 int sauti_aac_tns_parse(const uint8_t *data,size_t size,size_t *bit_offset,
                         const SautiAacIcsInfo *ics,SautiAacTnsData *out);
 #endif
