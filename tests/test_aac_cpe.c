@@ -174,12 +174,47 @@ static void intensity_stereo(unsigned book,unsigned mask,unsigned position_delta
     }
     assert(energy>0.0);
 }
+static void shared_pns_stream(void){
+    Bits raw={0};
+    put(&raw,3,1);put(&raw,4,0);put(&raw,1,1);
+    ics(&raw,1);put(&raw,2,0); /* common, no MS */
+    for(unsigned ch=0;ch<2;ch++){
+        put(&raw,8,100); /* gain */
+        put(&raw,4,13);put(&raw,5,1); /* PNS band 0 */
+        put(&raw,9,256); /* first noise energy delta = 0 */
+        put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);
+        /* PNS has no coded spectral values */
+    }
+    put(&raw,3,7);
+    while(raw.bits%8u)put(&raw,1,0);
+    uint8_t frame[128];unsigned length=7u+(unsigned)(raw.bits/8u);
+    header(frame,length);memcpy(frame+7,raw.b,raw.bits/8u);
+    SautiAacLcSynthesis state[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    assert(state[0].pns_seed==0x1f2e3d4cu);
+    float pcm[2048];SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    uint32_t expected=0x1f2e3d4cu;
+    for(unsigned frame_index=0;frame_index<2;frame_index++){
+        assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                                  state,pcm,&reason)==1);
+        for(unsigned i=0;i<8;i++)
+            expected=expected*1664525u+1013904223u;
+        assert(state[0].pns_seed==expected);
+        assert(state[1].pns_seed==expected);
+        double difference=0.0;
+        for(unsigned i=0;i<1024;i++)
+            difference+=fabs((double)pcm[2*i]-(double)pcm[2*i+1]);
+        assert(difference>0.0); /* Sequential RNG, not duplicated noise */
+    }
+}
 int main(void){
     run(0,0);run(1,0);run(1,1);run(1,2);
     nonzero_ms(0);nonzero_ms(1);nonzero_ms(2);unsupported();
     intensity_stereo(15,0,0);intensity_stereo(14,0,0);
     intensity_stereo(15,1,0);intensity_stereo(14,2,0);
     intensity_stereo(15,0,4);
-    puts("PASS AAC-26/28 CPE: common, MS, intensity stereo position/phase, rollback");
+    shared_pns_stream();
+    puts("PASS AAC-26/29 CPE: MS, intensity, shared PNS stream, rollback");
     return 0;
 }
