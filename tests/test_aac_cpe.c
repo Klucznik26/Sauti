@@ -79,7 +79,7 @@ static void unsupported(void){
     SautiAacCpeData out={0},old=out;
     SautiAacReason reason=SAUTI_AAC_REASON_OK;
     assert(sauti_aac_lc_cpe_parse(b.b,b.bits/8,&pos,4,&out,&reason)==-1);
-    assert(reason==SAUTI_AAC_REASON_INTENSITY);
+    assert(reason==SAUTI_AAC_REASON_MID_SIDE);
     assert(pos==0 && memcmp(&out,&old,sizeof(out))==0);
     sample(&b,1,3); /* reserved mask */
     reason=SAUTI_AAC_REASON_OK;pos=0;
