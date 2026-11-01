@@ -51,7 +51,7 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
     if(!read(raw,length,&pos,1,&flag))return 0;
     if(flag){*reason=SAUTI_AAC_REASON_GAIN_CONTROL;return -1;} /* gain_control_data_present */
     for(unsigned i=0;i<next.sections.section_count;i++)
-        if(next.sections.sections[i].codebook>=13u){*reason=next.sections.sections[i].codebook==13u?SAUTI_AAC_REASON_PNS:SAUTI_AAC_REASON_INTENSITY;return -1;}
+        if(next.sections.sections[i].codebook>=14u){*reason=SAUTI_AAC_REASON_INTENSITY;return -1;}
     if(!sauti_aac_lc_spectral_data_parse(raw,length,&pos,rate_index,
                         &next.ics,&next.sections,next.quant)){*reason=SAUTI_AAC_REASON_INVALID_SPECTRAL;return 0;}
     *out=next;
@@ -110,7 +110,7 @@ int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
     }
     SautiAacLcSynthesis next=*state;
     float result[1024];
-    if(!sauti_aac_lc_synthesis_frame(&next,rate,&parsed.ics,
+    if(!sauti_aac_lc_synthesis_frame_pns(&next,rate,&parsed.ics,
           &parsed.sections,&parsed.factors,parsed.quant,result)){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;}
     *state=next;
     memcpy(pcm,result,sizeof(result));
