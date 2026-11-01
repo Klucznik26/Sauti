@@ -482,6 +482,40 @@ test-aac-real-mono: $(OBJDIR)/test_aac_real_mono
 	  ./$(OBJDIR)/test_aac_real_mono build/audio-fixtures/aac_native_mono.aac; \
 	else echo "SKIP AAC-14 real fixture: ffmpeg CLI unavailable"; fi
 
+# AAC-15: generate a *non-silent* AAC-LC mono tone, render native PCM,
+# and compare against the FFmpeg CLI reference (no libav* dependency).
+.PHONY: test-aac-tone
+test-aac-tone: $(OBJDIR)/test_aac_real_mono
+	@if command -v ffmpeg >/dev/null 2>&1; then \
+	  mkdir -p build/audio-fixtures; \
+	  ffmpeg -hide_banner -nostdin -loglevel error -y -f lavfi \
+	    -i "sine=frequency=440:sample_rate=44100:duration=0.45" \
+	    -ac 1 -c:a aac -b:a 96k -f adts \
+	    build/audio-fixtures/aac_native_tone.aac && \
+	  ffmpeg -hide_banner -nostdin -loglevel error -y \
+	    -i build/audio-fixtures/aac_native_tone.aac -f f32le \
+	    -ac 1 -ar 44100 build/audio-fixtures/aac_ref_tone.f32 && \
+	  ./$(OBJDIR)/test_aac_real_mono \
+	    build/audio-fixtures/aac_native_tone.aac \
+	    build/audio-fixtures/aac_native_tone.f32 \
+	    build/audio-fixtures/aac_native_tone.mask && \
+	  python3 tools/compare_aac_pcm.py \
+	    build/audio-fixtures/aac_native_tone.f32 \
+	    build/audio-fixtures/aac_ref_tone.f32 \
+	    build/audio-fixtures/aac_native_tone.mask; \
+	else echo "SKIP AAC tone diagnostic: ffmpeg CLI unavailable"; fi
+
+$(OBJDIR)/bench_aac_imdct: tests/bench_aac_imdct.c include/sauti_aac_imdct.h $(AAC_IMDCT_SRC) $(AAC_IMDCT_ASM) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/bench_aac_imdct.c $(AAC_IMDCT_SRC) $(AAC_IMDCT_ASM) -lm -no-pie
+
+.PHONY: bench-aac-imdct
+bench-aac-imdct: $(OBJDIR)/bench_aac_imdct
+	./$(OBJDIR)/bench_aac_imdct
+
+# AAC-15..18 remains diagnostic, not part of the codec conformance gate.
+.PHONY: inspect-aac-15-18
+inspect-aac-15-18: test-aac-tone bench-aac-imdct
+
 # Runs all native AAC modules without requiring libav*/FFmpeg.
 .PHONY: test-aac-native
 test-aac-native: test-aac-headers test-aac-syntax test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame
