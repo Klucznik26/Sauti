@@ -208,6 +208,47 @@ static void shared_pns_stream(void){
         assert(difference>0.0); /* Sequential RNG, not duplicated noise */
     }
 }
+/* AAC-29C: ms_used over two PNS bands means correlated noise,
+ * not the M/S butterfly. Both synthesized channels must have the
+ * prescribed gain ratio, for two consecutive ADTS frames. */
+static void correlated_pns(unsigned mask,unsigned right_delta){
+    Bits raw={0};
+    put(&raw,3,1);put(&raw,4,0);put(&raw,1,1);
+    ics(&raw,1);
+    put(&raw,2,mask);
+    if(mask==1u)put(&raw,1,1);
+    for(unsigned ch=0;ch<2;ch++){
+        put(&raw,8,100);
+        put(&raw,4,13);put(&raw,5,1);
+        put(&raw,9,256u+(ch?right_delta:0u));
+        put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);
+    }
+    put(&raw,3,7);
+    while(raw.bits%8u)put(&raw,1,0);
+    uint8_t frame[128];unsigned length=7u+(unsigned)(raw.bits/8u);
+    header(frame,length);memcpy(frame+7,raw.b,raw.bits/8u);
+    SautiAacLcSynthesis state[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    for(unsigned n=0;n<2;n++){
+        float pcm[2048];
+        assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                                  state,pcm,&reason)==1);
+        const float scale=exp2f((float)right_delta/4.0f);
+        double lenergy=0,renergy=0;
+        for(unsigned i=0;i<1024;i++){
+            const float left=pcm[2*i],right=pcm[2*i+1];
+            assert(isfinite(left)&&isfinite(right));
+            assert(fabsf(right-left*scale)<1e-5f);
+            lenergy+=(double)left*left;
+            renergy+=(double)right*right;
+        }
+        assert(lenergy>0);
+        assert(fabs(renergy/lenergy-(double)scale*scale)<0.001);
+        assert(state[0].pns_seed==state[1].pns_seed);
+    }
+}
 int main(void){
     run(0,0);run(1,0);run(1,1);run(1,2);
     nonzero_ms(0);nonzero_ms(1);nonzero_ms(2);unsupported();
@@ -215,6 +256,7 @@ int main(void){
     intensity_stereo(15,1,0);intensity_stereo(14,2,0);
     intensity_stereo(15,0,4);
     shared_pns_stream();
-    puts("PASS AAC-26/29 CPE: MS, intensity, shared PNS stream, rollback");
+    correlated_pns(1,0);correlated_pns(2,4);
+    puts("PASS AAC-26/29C CPE: MS, intensity, shared and correlated PNS, rollback");
     return 0;
 }
