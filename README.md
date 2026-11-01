@@ -33,6 +33,16 @@ Run `make test-voc` for the bounded parser/PCM regression.
 - Without FFmpeg development files Sauti still compiles; AAC/ALAC/WebM
   adapters remain disabled.
 
+## Native AAC family (ASM, work in progress)
+
+A shared AAC-LC / HE-AAC (SBR) / HE-AAC v2 (SBR+PS) decoder is being
+developed in NASM. The new ADTS parser and MSB-first bitreader are written
+in ASM, with a small AudioSpecificConfig grammar helper for explicit
+AOT 2 / 5 / 29 signaling. Run `make test-aac-headers`.
+**These modules do not yet decode AAC audio to PCM.** Playback still uses
+the optional FFmpeg adapter until all three profiles pass real PCM tests.
+See `docs/AAC_FAMILY_ASM.md` for milestones and limitations.
+
 ## Features available
 
 - NASM auto-gain (1..64x, visual only), on-screen Peak/RMS dBFS bars.
