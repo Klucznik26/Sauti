@@ -39,6 +39,7 @@ int main(int argc,char **argv){
     }
     size_t offset=0,decoded=0,unsupported=0,invalid=0,total=0;
     float samples[2048];
+    const int trace_windows=getenv("SAUTI_AAC_TRACE_WINDOWS")!=NULL;
     while(offset<(size_t)end){
         SautiAacAdts adts={0};
         if(!sauti_aac_adts_parse_asm(bytes+offset,(size_t)end-offset,
@@ -54,6 +55,13 @@ int main(int argc,char **argv){
                sauti_aac_reason_name(reason));
         if(mask_out)fprintf(mask_out,"%zu %d %s\n",total-1,result,
                             sauti_aac_reason_name(reason));
+        if(trace_windows && result==1){
+            /* The successful decoder has committed the current ICS
+             * window sequence and shape for each channel. */
+            printf("    windows L=sequence:%u shape:%u R=sequence:%u shape:%u\n",
+                   state[0].previous_sequence,state[0].previous_shape,
+                   state[1].previous_sequence,state[1].previous_shape);
+        }
         if(pcm_out){
             float silence[2048]={0};
             if(fwrite(result==1?samples:silence,sizeof(float),2048,
