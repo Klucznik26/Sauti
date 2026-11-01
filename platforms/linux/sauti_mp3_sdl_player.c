@@ -58,7 +58,17 @@ static int aac_seek_worker(void *userdata){
         p->seek_pending=0;
         SDL_UnlockMutex(p->seek_mutex);
         const int ok=sauti_decoder_seek(&p->decoder,frame);
+        SDL_LockMutex(p->seek_mutex);
+        if(p->seek_pending){
+            /* Slider was moved again while this seek was running.
+             * Keep the old audio queued until the final target is ready. */
+            SDL_UnlockMutex(p->seek_mutex);
+            continue;
+        }
         if(ok){
+            /* Atomically switch from old queued PCM to the prepared target.
+             * Clearing at request time caused 0.5-1 s of silence. */
+            SDL_ClearQueuedAudio(p->device);
             p->submitted=frame;
             p->ended=0;
             p->diagnosed=0;
@@ -67,6 +77,9 @@ static int aac_seek_worker(void *userdata){
             fprintf(stderr,"Sauti AAC: failed to seek to frame %llu\\n",
                     (unsigned long long)frame);
         }
+        SDL_AtomicSet(&p->seek_busy,0);
+        SDL_UnlockMutex(p->seek_mutex);
+        return 0;
     }
 }
 static void aac_seek_join(SautiMp3SdlPlayer *p){
@@ -235,7 +248,10 @@ void sauti_mp3_sdl_pump(SautiMp3SdlPlayer *p){
         }
         return;
     }
-    const uint64_t limit=p->decoder.info.sample_rate/2;
+    /* A two-second safety buffer keeps the current song audible while
+     * an AAC seek worker reconstructs history for a distant target. */
+    const uint64_t limit=(uint64_t)p->decoder.info.sample_rate*
+                         (p->seek_mutex?2u:1u)/ (p->seek_mutex?1u:2u);
     float pcm[4096];
     while(queued_frames(p)<limit){
         size_t frames=sauti_decoder_read(&p->decoder,pcm,
@@ -305,7 +321,6 @@ void sauti_mp3_sdl_seek(SautiMp3SdlPlayer *p,double sec){
     double total=sauti_mp3_sdl_duration(p);
     if(sec>total)sec=total;
     uint64_t frame=(uint64_t)(sec*p->decoder.info.sample_rate);
-    SDL_ClearQueuedAudio(p->device);
     if(p->seek_mutex){
         SDL_LockMutex(p->seek_mutex);
         p->seek_request=frame;
@@ -332,6 +347,7 @@ void sauti_mp3_sdl_seek(SautiMp3SdlPlayer *p,double sec){
         SDL_UnlockMutex(p->seek_mutex);
         return;
     }
+    SDL_ClearQueuedAudio(p->device);
     if(sauti_decoder_seek(&p->decoder,frame)){
         p->submitted=frame;p->ended=0;
         if(p->active && !p->paused)sauti_mp3_sdl_pump(p);
