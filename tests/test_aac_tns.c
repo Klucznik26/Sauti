@@ -2,6 +2,8 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
+#include "sauti_aac_bands.h"
 typedef struct{uint8_t bytes[64];size_t bit;}Bits;
 static void writebits(Bits *b,unsigned width,unsigned value){
     assert(b->bit+width<=sizeof(b->bytes)*8u);
@@ -61,8 +63,59 @@ static void invalid_order(void){
     assert(!sauti_aac_tns_parse(b.bytes,(b.bit+7)/8,&pos,&ics,&out));
     assert(pos==0);
 }
+static void inverse_filter(unsigned shortwin,unsigned reverse){
+    SautiAacIcsInfo ics={0};
+    ics.window_sequence=shortwin?2u:0u;
+    ics.window_count=shortwin?8u:1u;
+    ics.max_sfb=shortwin?12u:41u;
+    SautiAacTnsData tns={0};
+    tns.filter_count[0]=1;
+    SautiAacTnsFilter *f=&tns.filter[0][0];
+    f->length=(uint8_t)ics.max_sfb;
+    f->order=1;
+    f->resolution=4;
+    f->coefficients[0]=1;
+    f->direction=(uint8_t)reverse;
+    const uint16_t *offsets=NULL;
+    unsigned bands=0;
+    assert(sauti_aac_band_offsets(4,shortwin,&offsets,&bands));
+    (void)bands;
+    const unsigned cap=shortwin?9u:31u;
+    unsigned width=offsets[cap];
+    assert(width>=3);
+    float spectrum[1024]={0};
+    unsigned first=reverse?width-1u:0u;
+    unsigned next=reverse?first-1u:first+1u;
+    unsigned third=reverse?first-2u:first+2u;
+    spectrum[first]=1.0f;
+    uint32_t marker=0;
+    /* Independent first-order inverse LPC reference. */
+    const double pi=3.14159265358979323846264338327950288;
+    const double reflection=sin((pi/2.0)/7.5);
+    assert(sauti_aac_tns_apply(&tns,&ics,4,spectrum));
+    assert(fabs(spectrum[first]-1.0f)<1e-6f);
+    assert(fabs(spectrum[next]+reflection)<1e-6f);
+    assert(fabs(spectrum[third]-reflection*reflection)<1e-6f);
+    assert(spectrum[width]==0);
+    float saved[1024];
+    memcpy(saved,spectrum,sizeof(saved));
+    f->resolution=2; /* invalid resolution */
+    assert(!sauti_aac_tns_apply(&tns,&ics,4,spectrum));
+    assert(memcmp(saved,spectrum,sizeof(saved))==0);
+    f->resolution=4;
+    f->order=21; /* larger than AAC long max */
+    assert(!sauti_aac_tns_apply(&tns,&ics,4,spectrum));
+    assert(memcmp(saved,spectrum,sizeof(saved))==0);
+    f->order=1;
+    assert(!sauti_aac_tns_apply(&tns,&ics,13,spectrum));
+    assert(memcmp(saved,spectrum,sizeof(saved))==0);
+    marker++;
+    assert(marker==1);
+}
 int main(void){
     run(0);run(1);invalid_order();
-    puts("PASS AAC-24 TNS syntax: long/short filters, signed coefficients, bounds, rollback");
+    inverse_filter(0,0);inverse_filter(0,1);
+    inverse_filter(1,0);inverse_filter(1,1);
+    puts("PASS AAC-24/25 TNS: syntax, inverse LPC, directions, long/short, rollback");
     return 0;
 }
