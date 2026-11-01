@@ -15,7 +15,7 @@ int sauti_aac_lc_synthesis_init(SautiAacLcSynthesis *state,
     next.previous_shape=previous_shape;
     next.previous_sequence=0u;
     next.initialized=1u;
-    next.pns_seed=0x12345678u;
+    next.pns_seed=0x1f2e3d4cu; /* FFmpeg AAC decoder initial PNS seed */
     *state=next;
     return 1;
 }
