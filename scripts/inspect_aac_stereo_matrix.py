@@ -32,6 +32,24 @@ def combinations(mode):
     return itertools.product(KINDS, RATES, BITRATES)
 
 
+
+def failure_detail(entry):
+    """Report precise channels/metrics without hiding partial coverage."""
+    metrics = entry.get("metrics", {})
+    if metrics.get("reason"):
+        return str(metrics["reason"])
+    channels = metrics.get("channels", {})
+    bad = []
+    for label, values in channels.items():
+        if not values.get("ok", False):
+            bad.append("%s corr=%.9f RMS=%.6f nRMSE=%.6f max=%.7g" %
+                       (label, values["corr"], values["ratio"],
+                        values["nrmse"], values["max_error"]))
+    if bad:
+        return "; ".join(bad)
+    return entry.get("error", "")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--mode", choices=("smoke", "full"), default="full")
@@ -100,7 +118,7 @@ def main(argv=None):
         base.with_suffix(".log").write_text("\n".join(output), encoding="utf-8")
         summary.append(entry)
         verdict = "PASS" if entry["ok"] else "FAIL"
-        detail = entry.get("metrics", {}).get("reason") or entry.get("error", "")
+        detail = failure_detail(entry) if not entry["ok"] else ""
         print("[%02d/%02d] %-26s %s %s" %
               (number, len(cases), label, verdict, detail), flush=True)
     report = {"mode": opts.mode, "count": len(summary),
