@@ -364,8 +364,26 @@ int sauti_mp3_sdl_paused(const SautiMp3SdlPlayer *p){
 }
 double sauti_mp3_sdl_position(const SautiMp3SdlPlayer *p){
     if(!p)return 0.0;
-    uint64_t queued=queued_frames(p);
-    uint64_t consumed=p->submitted>queued?p->submitted-queued:0;
+    uint64_t queued,submitted;
+    if(p->seek_mutex){
+        /* The SDL timeline must display the user's requested position
+         * throughout an async seek, not the old PCM still playing while
+         * the worker reconstructs history. Lock also synchronizes the
+         * worker's update of submitted and SDL queue handoff. */
+        SDL_LockMutex(p->seek_mutex);
+        if(SDL_AtomicGet(&p->seek_busy)){
+            const uint64_t requested=p->seek_request;
+            SDL_UnlockMutex(p->seek_mutex);
+            return (double)requested/p->decoder.info.sample_rate;
+        }
+        queued=queued_frames(p);
+        submitted=p->submitted;
+        SDL_UnlockMutex(p->seek_mutex);
+    }else{
+        queued=queued_frames(p);
+        submitted=p->submitted;
+    }
+    uint64_t consumed=submitted>queued?submitted-queued:0;
     if(p->has_loop && consumed>=p->decoder.info.total_frames){
         uint64_t span=p->decoder.info.total_frames-p->loop_start;
         consumed=p->loop_start+(consumed-p->decoder.info.total_frames)%span;
