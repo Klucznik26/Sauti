@@ -1131,3 +1131,21 @@ Dla odległych seek dłuższych niż czas bufora
 wciąż może wystąpić przerwa; mechanizm nie
 gwarantuje bezprzerwowości przy każdej pozycji.
 Inne kodeki zachowują dotychczasową kolejkę.
+
+
+### AAC-LC — stabilna pozycja suwaka przy asynchronicznym seek
+
+Test użytkownika potwierdził brak przerwy w audio,
+ale pasek po kliknięciu pokazywał przez moment
+nowy czas, wracał do starego i następnie skakał
+ponownie na nowy. Przyczyną był interfejs:
+`sauti_mp3_sdl_position` raportował pozycję
+starego odtwarzanego PCM do czasu zakończenia
+seek, mimo że użytkownik wskazał już nową pozycję.
+
+Podczas asynchronicznego seek funkcja pozycji
+raportuje teraz ostatnią żądaną próbkę
+(`seek_request`) pod mutexem. Po zakończeniu
+handoff ponownie używa rzeczywistej pozycji SDL
+(`submitted - queued`). Inne kodeki bez wątku
+seek zachowują poprzednią ścieżkę.
