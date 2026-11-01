@@ -8,8 +8,8 @@
 
 /* AAC-13/14: restricted mono, one-raw-block ADTS -> 1024 float samples.
  * Return 1 decoded, 0 malformed/truncated, -1 valid but unsupported tool.
- * Only raw AAC-LC SCE with pulse=tns=gain_control=0 is supported.
- * CPE/stereo, PNS, intensity, SBR, pulse and TNS are NOT approximated.
+ * Mono SCE supports PNS and inverse TNS; pulse/gain control are rejected.
+ * CPE/stereo, intensity stereo, SBR and unsupported extensions remain gated.
  * On any failure PCM and synthesis state stay unchanged. */
 int sauti_aac_lc_adts_mono_decode(const uint8_t *frame,size_t length,
                                  SautiAacLcSynthesis *state,
