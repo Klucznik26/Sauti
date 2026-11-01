@@ -2,6 +2,7 @@
 #define SAUTI_AAC_LC_FRAME_H
 #include "sauti_aac_lc_synth.h"
 #include "sauti_aac_headers.h"
+#include "sauti_aac_tns.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -23,6 +24,8 @@ typedef struct {
     SautiAacScaleFactors factors;
     int32_t quant[1024];
     uint32_t global_gain;
+    unsigned tns_present;
+    SautiAacTnsData tns;
 } SautiAacLcMonoData;
 int sauti_aac_lc_mono_parse(const uint8_t *raw,size_t length,
                            size_t *bit_offset,unsigned sample_rate_index,
