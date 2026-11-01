@@ -17,6 +17,7 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
                            SautiAacLcMonoData *out,SautiAacReason *reason){
     if(!raw||!bit_offset||!out||length>SIZE_MAX/8u||
        *bit_offset>length*8u||rate_index>=13u)return 0;
+    *reason=SAUTI_AAC_REASON_INVALID_SCE;
     size_t pos=*bit_offset;
     SautiAacRawPrefix prefix={0};
     int kind=sauti_aac_raw_prefix_parse(raw,length,&pos,&prefix);
@@ -90,7 +91,7 @@ int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
      * until extension contents can be inspected for implicit SBR. */
     for(;;){
         uint32_t id=0;
-        if(!read(raw,raw_length,&pos,3,&id))return 0;
+        if(!read(raw,raw_length,&pos,3,&id)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
         if(id==7u)break;
         if(id==6u){*reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;return -1;}
         *reason=SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;return -1; /* extra element */
@@ -98,7 +99,7 @@ int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
     /* ADTS bitstream is padded to a whole byte after ID_END. */
     while((pos&7u)!=0u){
         uint32_t pad=1;
-        if(!read(raw,raw_length,&pos,1,&pad) || pad)return 0;
+        if(!read(raw,raw_length,&pos,1,&pad) || pad){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
     }
     if(pos!=raw_length*8u){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
     SautiAacLcSynthesis next=*state;
