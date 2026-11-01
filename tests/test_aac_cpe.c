@@ -308,6 +308,45 @@ static void robustness(void){
         assert(bitpos==0 && memcmp(&output,&saved,sizeof(output))==0);
     }
 }
+
+/* AAC-29E: deterministic single-bit ADTS mutation sweep. Successful
+ * decodes must return finite PCM; rejected frames must preserve both
+ * synthesis states and the complete user PCM buffer. This is not a
+ * coverage-guided fuzzer, but supplements selected malformed fixtures. */
+static void mutation_sweep(void){
+    Bits valid;sample(&valid,1,0);
+    uint8_t frame[128]={0};
+    const size_t length=7u+valid.bits/8u;
+    header(frame,(unsigned)length);
+    memcpy(frame+7,valid.b,valid.bits/8u);
+    SautiAacLcSynthesis baseline[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&baseline[0],0));
+    assert(sauti_aac_lc_synthesis_init(&baseline[1],0));
+    unsigned accepted=0,rejected=0;
+    for(size_t bit=0;bit<length*8u;bit++){
+        uint8_t broken[128];
+        memcpy(broken,frame,length);
+        broken[bit/8u]^=(uint8_t)(0x80u>>(bit%8u));
+        SautiAacLcSynthesis state[2]={baseline[0],baseline[1]};
+        float pcm[2048];
+        for(unsigned i=0;i<2048;i++)pcm[i]=-37.125f;
+        SautiAacReason reason=SAUTI_AAC_REASON_OK;
+        const int status=sauti_aac_lc_adts_stereo_decode_ex(
+            broken,length,state,pcm,&reason);
+        assert(status>=-1 && status<=1);
+        if(status==1){
+            accepted++;
+            for(unsigned i=0;i<2048;i++)assert(isfinite(pcm[i]));
+            assert(state[0].initialized==1 && state[1].initialized==1);
+        }else{
+            rejected++;
+            assert(memcmp(state,baseline,sizeof(state))==0);
+            for(unsigned i=0;i<2048;i++)assert(pcm[i]==-37.125f);
+        }
+    }
+    assert(accepted+rejected==length*8u);
+    assert(rejected>0);
+}
 int main(void){
     run(0,0);run(1,0);run(1,1);run(1,2);
     nonzero_ms(0);nonzero_ms(1);nonzero_ms(2);unsupported();
@@ -317,6 +356,7 @@ int main(void){
     shared_pns_stream();
     correlated_pns(1,0);correlated_pns(2,4);
     robustness();
-    puts("PASS AAC-26/29D CPE: stereo PNS, malformed ADTS, truncation, state rollback and recovery");
+    mutation_sweep();
+    puts("PASS AAC-26/29D CPE: stereo PNS, malformed ADTS, bit mutations, rollback and recovery");
     return 0;
 }
