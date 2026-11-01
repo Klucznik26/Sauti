@@ -111,6 +111,19 @@ static void failure(void){
     assert(reason==SAUTI_AAC_REASON_UNSUPPORTED_ADTS);
     assert(strcmp(sauti_aac_reason_name(reason),"unsupported_adts")==0);
     assert(memcmp(&old,&state,sizeof(old))==0);
+    /* A structurally valid frame cannot resume audio when a previous
+     * frame was skipped and its overlap history is unknown. */
+    prepare(&raw,0,0);
+    size=7u+raw.bits/8u;
+    init_header(frame,(unsigned)size,4);
+    memcpy(frame+7,raw.bytes,raw.bits/8u);
+    state.initialized=0u;
+    SautiAacLcSynthesis missing=state;
+    reason=SAUTI_AAC_REASON_OK;
+    assert(sauti_aac_lc_adts_mono_decode_ex(frame,size,&state,pcm,
+                                            &reason)==-1);
+    assert(reason==SAUTI_AAC_REASON_UNSUPPORTED_HISTORY);
+    assert(memcmp(&missing,&state,sizeof(missing))==0);
     for(unsigned j=0;j<1024;j++)assert(pcm[j]==18);
 }
 int main(void){
