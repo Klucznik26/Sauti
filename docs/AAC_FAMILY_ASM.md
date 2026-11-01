@@ -214,3 +214,24 @@ samodzielnie**: do tego potrzebne są normatywne tablice i dalsze etapy DSP.
   wartości, krótkich grupowanych okien i atomowości błędów.
 - Nadal nie ma kompletnej syntezy AAC do PCM; następne etapy:
   PNS/TNS, IMDCT, okna, testy referencyjne całych ramek.
+
+
+## AAC-10 — niezależna IMDCT 128/1024 (2026-11-01)
+
+- `sauti_aac_imdct.c`: transformuje N współczynników widmowych w 2N próbek
+  w dziedzinie czasu, N=128 lub N=1024. W tym etapie stosuje jawną
+  konwencję normalizacji `2/N` i klasyczną definicję IMDCT
+  `cos(pi/N * (t+0.5+N/2)*(k+0.5))`.
+- `sauti_aac_imdct.asm`: autorski wewnętrzny iloczyn skalarny SSE2.
+  Współczynniki kosinusowe powstają w C (`cos`/libm); brak FFmpeg
+  w linkowaniu i w runtime. Suma jest akumulowana w double.
+- Jest to implementacja poprawnościowa O(N²), nie docelowa szybka
+  transformacja FFT/rotated MDCT. Wymaga pomiarów wydajności przed
+  włączeniem do odtwarzacza. Przed integracją z syntezą AAC należy także
+  zweryfikować konwencję skali z referencyjnym PCM.
+- `make test-aac-imdct` porównuje wyniki dla okien 128 i 1024 z
+  niezależnie liczonym kosinusem (sygnały rzadkie i gęste), bada
+  niepoprawne rozmiary, NaN/Inf i niezmienność bufora po błędzie.
+- Sama IMDCT nie obsługuje przejść między długimi/krótkimi oknami,
+  okna SIN/KBD, TNS ani PNS. Istniejący `window_overlap_asm` pozostaje
+  osobną procedurą; pełnego dekodowania AAC do PCM nadal NIE ma.
