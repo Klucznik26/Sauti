@@ -14,9 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install NASM and optional SDL2 window adapter dependencies
-        run: sudo apt-get update && sudo apt-get install -y nasm libsdl2-dev libsdl2-mixer-dev libpipewire-0.3-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y nasm libsdl2-dev libsdl2-mixer-dev libpipewire-0.3-dev pkg-config ffmpeg libavformat-dev libavcodec-dev libavutil-dev libswresample-dev
       - name: Compile and test assembly engine
         run: make test
+      - name: Decode actual AAC, ALAC and WebM fixtures
+        run: make test-container-formats
       - name: Sanitizer regression (C harness only; ASM guarded by canaries)
         run: |
           make clean
