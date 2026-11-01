@@ -908,3 +908,24 @@ Ten zestaw nie jest fuzzingiem ani kompletnym
 audytorem bezpieczeństwa parsera. Dalsze testy
 sanityzowane oraz realne uszkodzone pliki pozostają
 oddzielnym zadaniem.
+
+
+## AAC-29E — ASan/UBSan dla testów odporności CPE
+
+Osobna kompilacja `build/test_aac_cpe_san` buduje
+cały tor C dekodera CPE i testy AAC-29D z
+`-fsanitize=address,undefined`, `-fno-omit-frame-pointer`,
+`-O1 -g`. Obiekty NASM są linkowane bez zmian,
+więc nie są instrumentowane sanitizerami.
+
+```sh
+make test-aac-sanitize PKG_CONFIG=/bin/false
+```
+
+Testy sprawdzają błędne nagłówki i długości ADTS,
+maski stereo, ucięte CPE, atomowość zmian stanu i PCM
+oraz poprawne wznowienie po błędzie. ASan/UBSan
+uzupełniają asercje logiki dekodera, ale nie zastępują
+fuzzingu ani pełnej analizy assemblera. Normalny
+`test-aac-native` pozostaje osobną, niezmienioną
+ścieżką.
