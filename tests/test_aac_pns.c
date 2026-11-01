@@ -89,6 +89,10 @@ static void energy_matrix(unsigned shortwin){
     assert(sauti_aac_pns_apply(&ics,4,&sec,&sf,&second,b));
     assert(first==second);
     assert(memcmp(a,b,sizeof(a))==0);
+    /* FFmpeg float NOISE_BT applies a negative spectral gain.
+     * First LCG sample from 0x1f2e3d4c is positive: output must
+     * therefore be negative, regardless of long/short window mode. */
+    assert(a[0]<0.0f);
     unsigned start_window=0;
     uint32_t expected=0x1f2e3d4cu;
     for(unsigned g=0;g<ics.group_count;g++){
