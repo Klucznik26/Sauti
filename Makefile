@@ -395,6 +395,10 @@ $(OBJDIR)/test_aac_spectral: tests/test_aac_spectral.c include/sauti_aac_spectra
 test-aac-spectral: $(OBJDIR)/test_aac_spectral
 	./$(OBJDIR)/test_aac_spectral
 
+# Runs all native AAC modules without requiring libav*/FFmpeg.
+.PHONY: test-aac-native
+test-aac-native: test-aac-headers test-aac-syntax test-aac-lc-sections test-aac-huffman test-aac-spectral
+
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm
 

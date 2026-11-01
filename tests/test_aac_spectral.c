@@ -85,6 +85,9 @@ static void signs_and_escaping(void){
     memcpy(values,before,sizeof(values));
     assert(!sauti_aac_spectral_finish(3,80,b.data,1,&pos,values));
     assert(pos==7 && memcmp(values,before,sizeof(values))==0);
+    pos=9;
+    assert(!sauti_aac_spectral_finish(1,40,b.data,1,&pos,values));
+    assert(pos==9 && memcmp(values,before,sizeof(values))==0);
     b=(Bits){0};
     put(&b,1,0);put(&b,1,1); /* signs for codebook 8 pair */
     pos=0;

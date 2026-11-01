@@ -33,7 +33,8 @@ static int esc(const uint8_t *bytes,size_t length,size_t *pos,
 int sauti_aac_spectral_finish(uint32_t codebook,uint32_t index,
                               const uint8_t *bytes,size_t length,
                               size_t *bit_offset,int32_t output[4]){
-    if(!bytes||!bit_offset||!output)return 0;
+    if(!bytes||!bit_offset||!output ||
+       length>SIZE_MAX/8u || *bit_offset>length*8u)return 0;
     int16_t digits[4];
     if(!sauti_aac_spectral_index_asm(codebook,index,digits))return 0;
     int32_t next[4]={digits[0],digits[1],digits[2],digits[3]};

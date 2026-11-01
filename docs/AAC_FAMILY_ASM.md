@@ -128,3 +128,12 @@ osiągnięciu poprawności i pokrycia testami.
   Huffmana 1–11 i skali). Nie interpretować przejścia testów
   jako obsługi samodzielnego odtwarzania AAC.
 
+
+## Niezależny zestaw testów bez FFmpeg
+
+`make test-aac-native` wykonuje testy całej dotychczas napisanej warstwy AAC
+(parserów, sekcji, znaków, ESC, DSP i Huffmana). W CI jest uruchamiany
+z `PKG_CONFIG=/bin/false`, co wyłącza wykrywanie zewnętrznych bibliotek
+i wymusza osobną rekompilację z `-B`. Testy nie wymagają zainstalowania
+bibliotek FFmpeg. **To nie oznacza jeszcze, że program odtwarza AAC
+samodzielnie**: do tego potrzebne są normatywne tablice i dalsze etapy DSP.
