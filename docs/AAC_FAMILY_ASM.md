@@ -195,3 +195,22 @@ samodzielnie**: do tego potrzebne są normatywne tablice i dalsze etapy DSP.
 - To jeszcze **nie jest poprawny PCM**: przed odtworzeniem potrzebne
   są odwrotna kwantyzacja, PNS/TNS, IMDCT i okna. Ponadto nie wykonano
   jeszcze pełnego testu przejścia przez prawdziwą ramkę do końca widma.
+
+
+## AAC-9 — odwrotna kwantyzacja (2026-11-01)
+
+- `sauti_aac_dequant.c`: dla właściwych pasm spectral 1..11 oblicza
+  `sign(q) * abs(q)^(4/3) * 2^((sf-100)/4)`. Skala jest liczona
+  dla każdej grupy i pasma, z rozłożeniem okien [window][line].
+- Nowa procedura `sauti_aac_dequant.asm` (SSE scalar) wykonuje
+  znakowanie i mnożenie przez skalę. Referencyjna potęga 4/3 jest
+  liczona przez `powf` z libm; w późniejszej optymalizacji można
+  zastąpić ją własnym LUT/SIMD. Brak zależności runtime od FFmpeg.
+- PNS, ZERO i intensity pozostają zerowe; PNS i intensity wymagają
+  osobnych etapów syntezy. Walidacja kontroluje SFB, grupy, mapowanie
+  codebooków, zakresy sf=0..255 i q=-8191..8191, a po błędzie
+  bufor wyjściowy pozostaje niezmieniony.
+- `make test-aac-dequant` dodaje testy znaku, skali, skrajnych
+  wartości, krótkich grupowanych okien i atomowości błędów.
+- Nadal nie ma kompletnej syntezy AAC do PCM; następne etapy:
+  PNS/TNS, IMDCT, okna, testy referencyjne całych ramek.
