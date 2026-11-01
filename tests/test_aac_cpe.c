@@ -249,6 +249,65 @@ static void correlated_pns(unsigned mask,unsigned right_delta){
         assert(state[0].pns_seed==state[1].pns_seed);
     }
 }
+/* AAC-29D: reject malformed/truncated ADTS frames without changing
+ * either channel's overlap, PNS seed, or caller-owned PCM. A clean
+ * replay after each failure must match a pristine decoder state. */
+static void robustness(void){
+    Bits valid;sample(&valid,1,0);
+    uint8_t frame[128];
+    const size_t length=7u+valid.bits/8u;
+    header(frame,(unsigned)length);
+    memcpy(frame+7,valid.b,valid.bits/8u);
+    SautiAacLcSynthesis state[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    float clean[2048];SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                              state,clean,&reason)==1);
+    SautiAacLcSynthesis baseline[2]={state[0],state[1]};
+    float expected[2048];
+    assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                              state,expected,&reason)==1);
+    for(unsigned variant=0;variant<7;variant++){
+        SautiAacLcSynthesis retry[2]={baseline[0],baseline[1]};
+        float pcm[2048];
+        for(unsigned i=0;i<2048;i++)pcm[i]=42.125f;
+        uint8_t broken[128];memcpy(broken,frame,length);
+        size_t size=length;
+        switch(variant){
+        case 0: size=length-1u;break; /* physically truncated */
+        case 1: broken[0]=0;break;   /* invalid sync */
+        case 2: broken[2]|=0x3cu;break; /* invalid sample rate */
+        case 3: broken[3]&=(uint8_t)~0x80u;break; /* mono ADTS */
+        case 4: broken[5]|=0xe0u;break; /* declared length too large */
+        case 5: broken[length-1u]|=1u;break; /* invalid byte padding */
+        case 6: {
+            Bits reserved;sample(&reserved,1,3);
+            assert(reserved.bits==valid.bits);
+            memcpy(broken+7,reserved.b,valid.bits/8u);
+            break;
+        }
+        }
+        assert(sauti_aac_lc_adts_stereo_decode_ex(broken,size,
+                                                   retry,pcm,&reason)!=1);
+        assert(memcmp(baseline,retry,sizeof(baseline))==0);
+        for(unsigned i=0;i<2048;i++)assert(pcm[i]==42.125f);
+        assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                                   retry,pcm,&reason)==1);
+        assert(reason==SAUTI_AAC_REASON_OK);
+        assert(memcmp(expected,pcm,sizeof(expected))==0);
+        assert(memcmp(state,retry,sizeof(state))==0);
+    }
+    /* Reject every truncated byte prefix of a well-formed raw CPE;
+     * preserve both parser output and caller bit cursor. */
+    for(size_t bytes=0;bytes<valid.bits/8u;bytes++){
+        SautiAacCpeData output={0},saved=output;
+        size_t bitpos=0;
+        assert(sauti_aac_lc_cpe_parse(valid.b,bytes,&bitpos,4,
+                                      &output,&reason)!=1);
+        assert(bitpos==0 && memcmp(&output,&saved,sizeof(output))==0);
+    }
+}
 int main(void){
     run(0,0);run(1,0);run(1,1);run(1,2);
     nonzero_ms(0);nonzero_ms(1);nonzero_ms(2);unsupported();
@@ -257,6 +316,7 @@ int main(void){
     intensity_stereo(15,0,4);
     shared_pns_stream();
     correlated_pns(1,0);correlated_pns(2,4);
-    puts("PASS AAC-26/29C CPE: MS, intensity, shared and correlated PNS, rollback");
+    robustness();
+    puts("PASS AAC-26/29D CPE: stereo PNS, malformed ADTS, truncation, state rollback and recovery");
     return 0;
 }
