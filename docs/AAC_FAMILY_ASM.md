@@ -1181,3 +1181,30 @@ python3 scripts/diagnose_aac_pns_frames.py --case transient_44100_128k
 Raport diagnostyczny zestawia nRMSE każdej ramki
 z jej licznikami PNS/TNS/MS/intensity i typem okna,
 bez zmiany walidatora ani progów testowych.
+
+
+### AAC-29 — wynik po zmianie znaku i dalsza izolacja
+
+Po zmianie znaku skalowania PNS ponowna pełna matryca
+nadal daje 26/36 PASS, a testy natywne i sanitizery PASS.
+Nie ma potwierdzenia, że znak był przyczyną. Diagnostyka
+`transient_44100_128k` (24 ramki) wykazała PNS w 23
+ramkach, zerowy błąd jedynej ramki bez PNS oraz
+duże błędy szczególnie w ramkach 0 (nRMSE 0,944 L),
+22 (0,130 L) i 1 (0,090 L). Nie należy mylić
+tej lokalizacji z dowodem przyczyny.
+
+Rozszerzono diagnostykę o przejścia 32-bitowego
+stanu PNS RNG przed/po każdej ramce, aby sprawdzić
+deterministyczną konsumpcję pseudolosowych próbek
+przez wspólne stereo i zmiany okien.
+
+```sh
+make test-aac-native PKG_CONFIG=/bin/false
+python3 scripts/diagnose_aac_pns_frames.py --case transient_44100_128k --top 24
+```
+
+Stan RNG jest lokalnie deterministyczny; docelowo
+trzeba go porównać z niezależną implementacją
+lub śladem FFmpeg, zanim zmienimy kolejność
+pasm, współdzielenie szumu czy resztę syntezy.
