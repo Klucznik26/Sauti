@@ -34,7 +34,8 @@ int sauti_aac_pns_apply(const SautiAacIcsInfo *ics,
         if(s->group!=expected_group || s->first_sfb!=expected_band ||
            s->end_sfb<=s->first_sfb || s->end_sfb>ics->max_sfb ||
            s->codebook==12 || s->codebook>15)return 0;
-        if(s->codebook==14 || s->codebook==15)return 0;
+        /* Intensity bands carry no PNS data. Stereo CPE reconstructs
+         * these bands separately; mono synthesis still rejects them. */
         for(unsigned band=s->first_sfb;band<s->end_sfb;band++)
             if(sf->codebook[s->group][band]!=s->codebook)return 0;
         expected_band=s->end_sfb;
