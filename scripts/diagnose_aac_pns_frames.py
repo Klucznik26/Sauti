@@ -102,10 +102,24 @@ def main():
     for path in (aac,native_file,reference_file,decoder):
         if not path.is_file():
             parser.error("missing %s (run make inspect-aac-29-full first)"%path)
+    # The AAC native unit-test target does not build this trace binary.
+    # Rebuild it explicitly rather than silently accepting stale metadata.
+    build=subprocess.run(["make","build/test_aac_real_stereo"],
+                         cwd=ROOT, text=True, capture_output=True,
+                         check=False)
+    if build.returncode:
+        parser.error("cannot rebuild AAC trace binary:\n"+
+                     (build.stdout+build.stderr)[-3500:])
     native,ref=load(native_file),load(reference_file)
     if len(native)!=len(ref) or len(native)%(FRAME*2):
         parser.error("PCM buffers differ or frame alignment invalid")
     tools=trace_tools(aac,decoder)
+    missing=[i for i in range(len(native)//(FRAME*2))
+             if tools.get(i,{}).get("status")=="decoded"
+             and ("rng_before" not in tools[i] or "rng_after" not in tools[i])]
+    if missing:
+        parser.error("RNG trace missing for frame(s) %s; update/rebuild "
+                     "build/test_aac_real_stereo" % missing[:10])
     rows=[]
     counts=Counter()
     for n in range(len(native)//(FRAME*2)):
