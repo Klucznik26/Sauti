@@ -26,7 +26,8 @@ static int valid_transition(unsigned previous,unsigned current){
     if(previous==3u)return current==0u || current==1u;
     return 0;
 }
-static int synth_internal(int allow_pns,SautiAacLcSynthesis *state,
+static int synth_internal(int allow_pns,const SautiAacTnsData *tns,
+                                SautiAacLcSynthesis *state,
                                 unsigned sample_rate_index,
                                 const SautiAacIcsInfo *ics,
                                 const SautiAacSections *sections,
@@ -53,6 +54,7 @@ static int synth_internal(int allow_pns,SautiAacLcSynthesis *state,
     uint32_t next_seed=state->pns_seed;
     if(allow_pns && !sauti_aac_pns_apply(ics,sample_rate_index,sections,
                                         factors,&next_seed,spectral))return 0;
+    if(tns && !sauti_aac_tns_apply(tns,ics,sample_rate_index,spectral))return 0;
     if(ics->window_sequence==2u){
         for(unsigned block=0;block<8;block++)
             if(!sauti_aac_imdct(spectral+128u*block,128u,
@@ -74,11 +76,19 @@ int sauti_aac_lc_synthesis_frame_pns(SautiAacLcSynthesis *state,
        unsigned rate,const SautiAacIcsInfo *ics,
        const SautiAacSections *sections,const SautiAacScaleFactors *factors,
        const int32_t quant[1024],float pcm[1024]){
-    return synth_internal(1,state,rate,ics,sections,factors,quant,pcm);
+    return synth_internal(1,NULL,state,rate,ics,sections,factors,quant,pcm);
 }
 int sauti_aac_lc_synthesis_frame(SautiAacLcSynthesis *state,
        unsigned rate,const SautiAacIcsInfo *ics,
        const SautiAacSections *sections,const SautiAacScaleFactors *factors,
        const int32_t quant[1024],float pcm[1024]){
-    return synth_internal(0,state,rate,ics,sections,factors,quant,pcm);
+    return synth_internal(0,NULL,state,rate,ics,sections,factors,quant,pcm);
+}
+
+int sauti_aac_lc_synthesis_frame_tns(SautiAacLcSynthesis *state,
+       unsigned rate,const SautiAacIcsInfo *ics,
+       const SautiAacSections *sections,const SautiAacScaleFactors *factors,
+       const int32_t quant[1024],const SautiAacTnsData *tns,
+       float pcm[1024]){
+    return synth_internal(1,tns,state,rate,ics,sections,factors,quant,pcm);
 }
