@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <math.h>
 
 /* Two valid AAC-LC stereo ADTS frames, each containing a CPE with
  * common_window, max_sfb=0 (silence), followed by ID_END and padding. */
@@ -36,7 +38,47 @@ static size_t make_frame(uint8_t *out){
     memcpy(out+7,raw.data,raw.bits/8u);
     return length;
 }
-int main(void){
+/* Optional real-world ADTS path: check repeated random-access reads of
+ * non-silent native PCM without using FFmpeg in the decoder itself. */
+static void real_stream(const char *path){
+    FILE *f=fopen(path,"rb");
+    assert(f);
+    assert(fseek(f,0,SEEK_END)==0);
+    const long len=ftell(f);
+    assert(len>0 && len<20000000L);
+    assert(fseek(f,0,SEEK_SET)==0);
+    uint8_t *bytes=malloc((size_t)len);
+    assert(bytes);
+    assert(fread(bytes,1,(size_t)len,f)==(size_t)len);
+    fclose(f);
+    const SautiDecoderOps *registry[]={&sauti_decoder_aac_native_ops};
+    SautiDecoder decoder={0};
+    assert(sauti_decoder_open(&decoder,registry,1,bytes,(size_t)len));
+    assert(decoder.info.channels==2 && decoder.info.total_frames>=2048);
+    const uint64_t target=decoder.info.total_frames/2u+13u;
+    float a[512],b[512];
+    assert(sauti_decoder_seek(&decoder,target));
+    assert(sauti_decoder_read(&decoder,a,256)==256);
+    assert(sauti_decoder_seek(&decoder,0));
+    float trash[512];
+    assert(sauti_decoder_read(&decoder,trash,256)==256);
+    assert(sauti_decoder_seek(&decoder,target));
+    assert(sauti_decoder_read(&decoder,b,256)==256);
+    assert(memcmp(a,b,sizeof(a))==0);
+    double energy=0;
+    for(unsigned i=0;i<512;i++){
+        assert(isfinite(a[i]));
+        energy+=(double)a[i]*a[i];
+    }
+    assert(energy>0);
+    printf("PASS native AAC-LC real ADTS: %u Hz, %llu PCM frames, repeatable seek\\n",
+           decoder.info.sample_rate,
+           (unsigned long long)decoder.info.total_frames);
+    sauti_decoder_close(&decoder);
+    free(bytes);
+}
+int main(int argc,char **argv){
+    if(argc!=1 && argc!=2)return 2;
     uint8_t bytes[64]={0};
     size_t n=make_frame(bytes);
     memcpy(bytes+n,bytes,n);
@@ -67,6 +109,7 @@ int main(void){
     assert(!sauti_decoder_open(&decoder,registry,1,bytes,2*n-1));
     bytes[n]=0;
     assert(!sauti_decoder_open(&decoder,registry,1,bytes,2*n));
+    if(argc==2)real_stream(argv[1]);
     puts("PASS AAC-LC native adapter: complete ADTS, read, seek, EOF, fail-closed");
     return 0;
 }
