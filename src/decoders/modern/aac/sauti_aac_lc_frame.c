@@ -170,7 +170,7 @@ const char *sauti_aac_reason_name(SautiAacReason reason){
         "unsupported_fil","invalid_sce","invalid_scalefactors",
         "pulse","tns","gain_control","pns","intensity",
         "invalid_spectral","unsupported_element","invalid_trailing",
-        "invalid_synthesis","unsupported_history"
+        "invalid_synthesis","unsupported_history","mid_side"
     };
     return (unsigned)reason<sizeof(names)/sizeof(names[0])?
         names[reason]:"unknown";
