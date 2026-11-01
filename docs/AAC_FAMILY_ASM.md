@@ -441,3 +441,41 @@ miejscach ani uważać tego za walidację zgodności specyfikacyjnej.
 Wymagane ponowne testy 440 Hz oraz inne częstotliwości, dynamika,
 okna krótkie i stereo. PNS pozostaje pseudolosowe i nie musi
 przechodzić porównania próbek 1:1 z FFmpeg.
+
+
+## AAC-23 — testy PCM dla różnych sygnałów i ciągłości (2026-11-01)
+
+Po AAC-22 użytkownik potwierdził test 440 Hz: 21/21 ramek mono,
+korelacja 1.000000, RMS native/ref 1.00001, lag 0.
+Dla dokładniejszej oceny dodano:
+
+- `tools/generate_aac_fixtures.py`: pięć deterministycznych próbek
+  WAV mono 44,1 kHz: 440 Hz, 1000 Hz, wieloton 220/880/3000 Hz,
+  transjenty i chirp 150–7000 Hz.
+- `scripts/inspect_aac_lc_matrix.sh`: każda próbka jest kodowana
+  do prawdziwego AAC-LC ADTS przez program `ffmpeg`. Sauti
+  dekoduje ten sam plik natywnie, a FFmpeg dostarcza PCM referencyjne.
+  Obsługa stereo **nie** jest deklarowana.
+- `tools/compare_aac_pcm.py`: jawna kontrola liczby ramek,
+  niezależnych ciągłych odcinków i ramek bez historii,
+  porównanie bez automatycznego dopasowywania gain:
+  korelacja, native/ref RMS, RMSE, maksymalny błąd bezwzględny
+  i znormalizowane RMSE. Dopasowanie opóźnienia szuka
+  przesunięć do 2048 próbek (najpierw zgrubnie, potem co próbkę).
+  Pierwsza ramka każdego ciągłego odcinka jest pomijana jako
+  warm-up overlap. Wyniki nie są podawane jako conformance.
+  `--lag N` umożliwia kontrolę przy zadanym przesunięciu.
+- `tests/test_compare_aac_pcm.py`: samodzielne testy
+  błędu amplitudy mimo korelacji 1.0, przerw w ciągłości,
+  poprawnego sygnału oraz NaN/niepełnego PCM.
+- Polecenie: `make inspect-aac-lc-matrix PKG_CONFIG=/bin/false`
+  (wymaga `ffmpeg` i `python3`). W tym zadaniu wyniki
+  NOT VERIFIED i INCONCLUSIVE pozostają raportami, a nie
+  fałszywym PASS; awaria parsowania lub regresji przerywa test.
+
+**Ważne:** próby na 440 Hz nie dowodzą jeszcze poprawnego
+dekodowania muzyki i krótkich okien. Jeśli transjenty uruchomią
+TNS albo inne niewspierane narzędzia, raport pokaże powód,
+a test nie będzie udawał poprawnego odtworzenia. Zgodność
+normatywna wymaga także osobnych przypadków stereo, impulsowych
+okien i różnych częstotliwości próbkowania.
