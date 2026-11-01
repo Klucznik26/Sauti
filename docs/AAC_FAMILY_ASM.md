@@ -423,3 +423,21 @@ rozszerzenia nadal kończą się `unsupported_fil`, bez zmiany stanu.
 Dopisano regresję EXT_FILL=0 / EXT_SBR_DATA=13. Wciąż nie obsługujemy
 FIL po SCE i wszystkich payloadów MPEG-4. Nie wolno utożsamiać
 tej poprawki z pełnym dekodowaniem rozszerzeń.
+
+
+## AAC-22 — publiczna skala PCM (2026-11-01)
+
+Pierwszy całkowicie zdekodowany test 440 Hz: 21/21 ramek,
+korelacja raportowana 1.000000, lag=0, native/reference RMS=65536.4.
+To niemal dokładnie 2^16, a więc zauważono spójne niedopasowanie
+amplitudy, pomimo wysokiej korelacji kształtu sygnału.
+
+Do `sauti_aac_lc_adts_mono_decode_ex` dodano **prowizoryczny**
+współczynnik `ldexpf(result[i], -16)` na granicy wyjścia float PCM.
+Niezależne moduły dequant, IMDCT i overlap-add pozostają w tej
+samej wewnętrznej skali. W przypadku wartości nie-skończonej nie
+zatwierdza się PCM ani stanu. Nie należy wprowadzać skali w kilku
+miejscach ani uważać tego za walidację zgodności specyfikacyjnej.
+Wymagane ponowne testy 440 Hz oraz inne częstotliwości, dynamika,
+okna krótkie i stereo. PNS pozostaje pseudolosowe i nie musi
+przechodzić porównania próbek 1:1 z FFmpeg.
