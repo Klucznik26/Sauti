@@ -71,7 +71,9 @@ static void inverse_filter(unsigned shortwin,unsigned reverse){
     SautiAacTnsData tns={0};
     tns.filter_count[0]=1;
     SautiAacTnsFilter *f=&tns.filter[0][0];
-    f->length=(uint8_t)ics.max_sfb;
+    /* TNS filter length counts downward from the full SWB table,
+     * not from ics.max_sfb. Cover enough bands to reach SFB zero. */
+    f->length=(uint8_t)(shortwin?14u:49u);
     f->order=1;
     f->resolution=4;
     f->coefficients[0]=1;
