@@ -7,6 +7,7 @@
 #include "sauti_aac_headers.h"
 #include "sauti_aac_bands.h"
 #include <string.h>
+#include <math.h>
 
 static int read(const uint8_t *p,size_t n,size_t *pos,
                 unsigned bits,uint32_t *v){
@@ -130,6 +131,20 @@ int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
     float result[1024];
     if(!sauti_aac_lc_synthesis_frame_pns(&next,rate,&parsed.ics,
           &parsed.sections,&parsed.factors,parsed.quant,result)){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;}
+    /* AAC-22: the internal synthesis uses an unscaled spectral
+     * amplitude convention. Real 440 Hz ADTS comparison established
+     * native/reference RMS = 65536.4 (2^16), with correlation 1.0.
+     * Apply the provisional 2^-16 conversion ONLY at the public ADTS
+     * PCM boundary, leaving IMDCT and overlap in internal units.
+     * Reference validation on other signals is still mandatory. */
+    for(unsigned i=0;i<1024;i++){
+        const float value=ldexpf(result[i],-16);
+        if(!isfinite(value)){
+            *reason=SAUTI_AAC_REASON_INVALID_SYNTH;
+            return 0;
+        }
+        result[i]=value;
+    }
     *state=next;
     memcpy(pcm,result,sizeof(result));
     *reason=SAUTI_AAC_REASON_OK;
