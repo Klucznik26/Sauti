@@ -999,3 +999,23 @@ potwierdzenie kompilacji, realne wielominutowe
 pliki stereo, test odsłuchowy, przewijanie i dalsza
 walidacja przypadków PNS. Natywny dekoder nie jest
 jeszcze deklarowany jako kompletny MPEG-4 AAC-LC.
+
+
+### Odtwarzanie prawdziwego strumienia AAC-LC przez adapter
+
+Rozszerzony `test_decoder_aac_native` może przyjąć
+ścieżkę do istniejącego pliku ADTS AAC-LC stereo.
+Otwiera go **wyłącznie natywnym SautiDecoderOps**,
+sprawdza PCM oraz powtarzalność przewijania do próbki
+wewnątrz ramki (identyczny wynik po odczycie
+pośredniego fragmentu).
+
+Po wygenerowaniu dotychczasowej matrycy:
+
+```sh
+./build/test_decoder_aac_native build/audio-fixtures/aac-29/encoder-pns-off/transient_44100_128k.aac
+```
+
+Podana ścieżka zależy od układu plików fixture
+w danej wersji skryptu; test nie tworzy własnego
+pliku audio i nie uruchamia FFmpeg.
