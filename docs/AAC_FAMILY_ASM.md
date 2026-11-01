@@ -1045,3 +1045,24 @@ make test-aac-native-adapter PKG_CONFIG=/bin/false
 make window-pipewire
 ./build/sauti_window_pw --source monitor
 ```
+
+
+### AAC-LC — checkpointy historii przy przewijaniu
+
+Po zgłoszeniu zawieszenia i zrzutu pamięci podczas
+przewijania 90-sekundowego utworu dodano zapisy
+**pełnego stanu obu kanałów** co 64 zdekodowane
+ramki ADTS (overlap, okna, PNS RNG). Przy przewinięciu
+do obszaru już wcześniej odtworzonego dekoder
+odtwarza stan z najbliższego checkpointu i dekoduje
+najwyżej 63 wcześniejsze pełne ramki; test obejmuje
+granice 64 i 128 ramek.
+
+**Ograniczenie:** pierwsze przewinięcie daleko naprzód,
+poza zdekodowany zakres, nadal wykonuje synchroniczny
+replay od najbliższego checkpointu i może blokować UI.
+Nie zidentyfikowano jeszcze przyczyny samego zrzutu
+pamięci — wymagany jest backtrace z coredumpctl/GDB.
+Checkpointy są optymalizacją, nie potwierdzoną naprawą
+crasha. W przyszłości niezbędne będą asynchroniczne
+seek i propagacja błędów czytania PCM.
