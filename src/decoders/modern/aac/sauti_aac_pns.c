@@ -71,12 +71,22 @@ int sauti_aac_pns_apply(const SautiAacIcsInfo *ics,
                  * scalefactor for NOISE_BT. The sign is observable in
                  * decoded PCM even though it cancels in band energy.
                  * Preserve magnitude/normalization and RNG progression. */
+                /* Diagnostic-only modes retain RNG consumption and
+                 * band selection; production uses negative NOISE_BT gain. */
+#ifdef SAUTI_AAC_DIAG_PNS_POSITIVE
+                const double factor=gain/sqrt(energy);
+#else
                 const double factor=-gain/sqrt(energy);
+#endif
                 for(unsigned i=from;i<to;i++){
                     double scaled=(double)next[base+i]*factor;
                     if(!isfinite(scaled) || fabs(scaled)>3.402823466e38)
                         return 0;
+#ifdef SAUTI_AAC_DIAG_PNS_ZERO
+                    next[base+i]=0.0f;
+#else
                     next[base+i]=(float)scaled;
+#endif
                 }
             }
         }
