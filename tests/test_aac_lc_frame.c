@@ -91,7 +91,12 @@ static void failure(void){
         size=7u+(raw.bits+7u)/8u;
         init_header(frame,(unsigned)size,4);
         memcpy(frame+7,raw.bytes,(raw.bits+7u)/8u);
-        assert(sauti_aac_lc_adts_mono_decode(frame,size,&state,pcm)==-1);
+        SautiAacReason reason=SAUTI_AAC_REASON_OK;
+        assert(sauti_aac_lc_adts_mono_decode_ex(frame,size,&state,pcm,
+                                                &reason)==-1);
+        assert(reason==(tool==1?SAUTI_AAC_REASON_PULSE:
+                        tool==2?SAUTI_AAC_REASON_TNS:
+                                SAUTI_AAC_REASON_GAIN_CONTROL));
         assert(memcmp(&old,&state,sizeof(old))==0);
     }
     /* Stereo frames are explicitly unsupported. */
@@ -100,12 +105,16 @@ static void failure(void){
     init_header(frame,(unsigned)size,4);
     memcpy(frame+7,raw.bytes,raw.bits/8u);
     frame[3]=(uint8_t)((frame[3]&0x3fu)|0x80u); /* mono -> stereo */
-    assert(sauti_aac_lc_adts_mono_decode(frame,size,&state,pcm)==-1);
+    SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    assert(sauti_aac_lc_adts_mono_decode_ex(frame,size,&state,pcm,
+                                            &reason)==-1);
+    assert(reason==SAUTI_AAC_REASON_UNSUPPORTED_ADTS);
+    assert(strcmp(sauti_aac_reason_name(reason),"unsupported_adts")==0);
     assert(memcmp(&old,&state,sizeof(old))==0);
     for(unsigned j=0;j<1024;j++)assert(pcm[j]==18);
 }
 int main(void){
     simple();failure();
-    puts("PASS AAC-13/14: SCE syntax -> Huffman -> spectral -> mono PCM, fail-closed");
+    puts("PASS AAC-13/17: SCE -> PCM, explicit tool rejection reasons, rollback");
     return 0;
 }
