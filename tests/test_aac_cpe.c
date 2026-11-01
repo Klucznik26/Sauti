@@ -58,7 +58,7 @@ static void run(unsigned common,unsigned mask){
     size_t length=7+raw.bits/8;
     header(frame,(unsigned)length);
     memcpy(frame+7,raw.b,raw.bits/8);
-    SautiAacLcSynthesis state[2]={{0},{0}};
+    SautiAacLcSynthesis state[2]={0};
     assert(sauti_aac_lc_synthesis_init(&state[0],0));
     assert(sauti_aac_lc_synthesis_init(&state[1],0));
     float pcm[2048];for(unsigned i=0;i<2048;i++)pcm[i]=42;
