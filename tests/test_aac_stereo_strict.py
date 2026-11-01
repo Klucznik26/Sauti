@@ -50,8 +50,8 @@ class StrictStereoTests(unittest.TestCase):
 
     def test_nonfinite(self):
         self.native[2049] = float("nan")
-        result = assess(self.native, self.reference, self.rows)
-        self.assertFalse(result["ok"])
+        with self.assertRaises(ValueError):
+            assess(self.native, self.reference, self.rows)
 
     def test_size_mismatch(self):
         with self.assertRaises(ValueError):
