@@ -1,7 +1,8 @@
 /* Native AAC-LC stereo ADTS bridge into Sauti's portable decoder API.
  * No libavcodec / SDL / file I/O. One cached PCM frame; seek replays
  * earlier ADTS frames to recover exact IMDCT overlap and PNS state.
- * Open rejects unsupported frames rather than masking discontinuities. */
+ * Open validates all ADTS headers and the first AAC payload; later
+ * payloads are decoded incrementally during read/seek. */
 #include "sauti_decoder_aac_native.h"
 #include "sauti_aac_cpe.h"
 #include "sauti_aac_headers.h"
@@ -89,12 +90,12 @@ static void *open_native(const uint8_t *data,size_t length,SautiPcmInfo *info){
     s->bytes=data;s->bytes_length=length;
     s->offsets=offsets;s->frame_count=count;
     if(!reset(s)){release(s);return NULL;}
-    /* Verify complete, uninterrupted decoding at open. The caller will
-     * never see a half-playable stream using unsupported AAC-LC tools. */
-    for(size_t i=0;i<count;i++){
-        if(!decode_next(s)){release(s);return NULL;}
-    }
-    if(!reset(s)){release(s);return NULL;}
+    /* Prime only the first frame. The former full-stream decode on
+     * open blocked the SDL UI on long songs (thousands of IMDCT frames),
+     * then decoded the same stream again during playback. Future frames
+     * are decoded lazily and a failure stops read() rather than inserting
+     * invented PCM. Header validation above remains whole-stream. */
+    if(!decode_next(s)){release(s);return NULL;}
     s->position=0;
     info->sample_rate=rate;
     info->channels=2;
