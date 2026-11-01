@@ -568,6 +568,14 @@ inspect-aac-stereo: $(OBJDIR)/test_aac_real_stereo
 	  ./$(OBJDIR)/test_aac_real_stereo \
 	    build/audio-fixtures/aac-26/native_stereo.aac \
 	    build/audio-fixtures/aac-26/native_stereo.f32 \
+	    build/audio-fixtures/aac-26/native_stereo.mask && \
+	  ffmpeg -hide_banner -nostdin -loglevel error -y \
+	    -i build/audio-fixtures/aac-26/native_stereo.aac \
+	    -ac 2 -ar 44100 -f f32le \
+	    build/audio-fixtures/aac-26/reference_stereo.f32 && \
+	  python3 tools/compare_aac_stereo_pcm.py \
+	    build/audio-fixtures/aac-26/native_stereo.f32 \
+	    build/audio-fixtures/aac-26/reference_stereo.f32 \
 	    build/audio-fixtures/aac-26/native_stereo.mask; \
 	else echo "SKIP AAC-26 real stereo: ffmpeg CLI unavailable"; fi
 
