@@ -3,13 +3,15 @@
 #include "sauti_aac_lc_frame.h"
 
 /* AAC-26: one ID_CPE (channel pair) in a raw AAC-LC block.
- * Supports independent ICS or common_window with no MS-used bands.
- * Unsupported MS, intensity, pulse or gain-control return -1.
+ * Supports independent ICS and common_window including per-band Mid/Side.
+ * Intensity, pulse, gain-control and unsupported MS/PNS combinations
+ * remain explicitly rejected.
  * Returns 1 success, 0 malformed/truncated, -1 unsupported. */
 typedef struct {
     SautiAacLcMonoData channel[2];
     unsigned common_window;
     unsigned ms_mask_present;
+    uint8_t ms_used[8][64];
 } SautiAacCpeData;
 
 int sauti_aac_lc_cpe_parse(const uint8_t *raw,size_t length,
