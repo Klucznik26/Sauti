@@ -7,7 +7,7 @@
 
 typedef struct { uint8_t bytes[1024]; size_t size; } Fixture;
 static void init(Fixture *f) {
-    static const uint8_t magic[20] = "Creative Voice File\x1a";
+    static const uint8_t magic[] = "Creative Voice File\x1a"; /* NUL is not copied into the 20-byte signature. */
     memset(f, 0, sizeof(*f));
     memcpy(f->bytes, magic, 20);
     f->bytes[20] = 26;
