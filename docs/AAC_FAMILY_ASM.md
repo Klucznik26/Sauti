@@ -174,3 +174,24 @@ samodzielnie**: do tego potrzebne są normatywne tablice i dalsze etapy DSP.
 - Jest to parser danych skali, **nie** gotowy dekoder widma/PCM:
   rzeczywiste scale factor band offsets, spectral_data, TNS/IMDCT i
   testy odkodowania realnych ramek pozostają do wykonania.
+
+
+## AAC-8 — spectral_data i granice SFB (2026-11-01)
+
+- `sauti_aac_bands.c` dostarcza standardowe tabele SFB dla 13 indeksów
+  sample rate, w oknach 1024 (długie) i 128 (krótkie). Dane liczbowe
+  zweryfikowane na podstawie FFmpeg `aactab.c` (LGPL-2.1+);
+  przed dystrybucją przeanalizować licencję.
+- `sauti_aac_spectral_data.c` przetwarza section_data w kolejności grupy →
+  pasma → okna → krotki i odtwarza naturalny układ [okno][próbka] widma.
+  Korzysta z istniejących tablic AAC i dekodera NASM. Sekcje ZERO/PNS/
+  intensity nie mają kodowanych współczynników widmowych.
+- Waliduje częstotliwość, strukturę sekcji i grupy, maksymalny SFB,
+  szerokość pasm względem wymiaru krotek oraz odczyt poza końcem danych.
+  Niepowodzenie nie zmienia ani widma wyjściowego, ani offsetu bitowego.
+- `make test-aac-spectral-data` weryfikuje komplet tabel 1024/128,
+  długie okno, zgrupowane krótkie okna, prawdziwe kody Huffmana,
+  odrzucenie błędnych sekcji i uciętego bufora.
+- To jeszcze **nie jest poprawny PCM**: przed odtworzeniem potrzebne
+  są odwrotna kwantyzacja, PNS/TNS, IMDCT i okna. Ponadto nie wykonano
+  jeszcze pełnego testu przejścia przez prawdziwą ramkę do końca widma.
