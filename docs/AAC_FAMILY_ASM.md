@@ -156,3 +156,21 @@ samodzielnie**: do tego potrzebne są normatywne tablice i dalsze etapy DSP.
 - To na razie warstwa kodowa Huffmana. Jeszcze nie ma kompletnej ścieżki
   scale_factor_data/spectral_data w ICS, odwrotnej kwantyzacji i IMDCT,
   więc Sauti NIE dekoduje samodzielnie AAC do PCM.
+
+
+## AAC-7 — `scale_factor_data()` AAC-LC (2026-11-01)
+
+- Nowy `sauti_aac_scalefactors.c` dekoduje standardowym scalefactor Huffman
+  w NASM wartości dla codebooków spectral 1..11, PNS 13 i intensity 14/15,
+  bez czytania danych dla ZERO_HCB 0.
+- Pierwsza energia PNS jest pobierana jako podpisany offset 9-bitowy od
+  `global_gain-90`; następne szumy korzystają z tablicy scalefactor.
+  Pozycje intensity i spectral mają odrębne akumulatory, a spectral startuje
+  od `global_gain`.
+- Walidacja mapy sekcji obejmuje kolejność i pełne pokrycie pasm grup,
+  a niepowodzenie pozostawia wyjście i offset wejściowy nietknięte.
+- `make test-aac-scalefactors` obejmuje grupowanie, spectral, PNS,
+  intensity, niebajtowy offset, ucięcie i błędne mapy sekcji.
+- Jest to parser danych skali, **nie** gotowy dekoder widma/PCM:
+  rzeczywiste scale factor band offsets, spectral_data, TNS/IMDCT i
+  testy odkodowania realnych ramek pozostają do wykonania.
