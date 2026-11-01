@@ -82,7 +82,9 @@ static void inverse_filter(unsigned shortwin,unsigned reverse){
     unsigned bands=0;
     assert(sauti_aac_band_offsets(4,shortwin,&offsets,&bands));
     (void)bands;
-    const unsigned cap=shortwin?9u:31u;
+    /* At 44.1 kHz TNS caps are 14 short / 42 long, so max_sfb
+     * (12/41) is the active endpoint in this constructed fixture. */
+    const unsigned cap=ics.max_sfb;
     unsigned width=offsets[cap];
     assert(width>=3);
     float spectrum[1024]={0};
