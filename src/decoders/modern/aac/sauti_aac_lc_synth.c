@@ -1,6 +1,6 @@
-/* AAC-12 isolated LC mono synthesis pipeline.
- * TNS/PNS/intensity and full raw_data_block element parsing remain absent;
- * callers must not bypass the unsupported-tools gate. */
+/* Native mono AAC-LC synthesis: dequant -> PNS -> inverse TNS -> IMDCT
+ * -> windowing -> overlap-add. Stereo/intensity and other unsupported
+ * bitstream tools remain explicitly gated by the frame parser. */
 #include "sauti_aac_lc_synth.h"
 #include "sauti_aac_imdct.h"
 #include "sauti_aac_window.h"
@@ -41,8 +41,8 @@ static int synth_internal(int allow_pns,const SautiAacTnsData *tns,
         return 0;
     for(unsigned j=0;j<1024;j++)
         if(!isfinite(state->overlap[j]))return 0;
-    /* Current synthesis pipeline cannot synthesize PNS or intensity
-     * data. Refuse these bands explicitly, including valid bitstreams. */
+    /* The legacy strict entry point still rejects PNS; the newer mono
+     * synthesis path accepts PNS but always rejects intensity stereo. */
     if(sections->section_count>SAUTI_AAC_MAX_SECTIONS)return 0;
     for(unsigned s=0;s<sections->section_count;s++){
         unsigned cb=sections->sections[s].codebook;
