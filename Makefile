@@ -82,13 +82,14 @@ AAC_DEQUANT_ASM := $(OBJDIR)/sauti_aac_dequant.o
 AAC_IMDCT_SRC := src/decoders/modern/aac/sauti_aac_imdct.c
 AAC_IMDCT_ASM := $(OBJDIR)/sauti_aac_imdct.o
 AAC_WINDOW_SRC := src/decoders/modern/aac/sauti_aac_window.c
+AAC_LC_SYNTH_SRC := src/decoders/modern/aac/sauti_aac_lc_synth.c
 AAC_SPECTRAL_ASM := $(OBJDIR)/sauti_aac_spectral.o
 AAC_DSP_ASM := $(OBJDIR)/sauti_aac_dsp.o
 
 ASMOBJ := $(OBJDIR)/sauti_core.o $(OBJDIR)/sauti_fft.o $(OBJDIR)/sauti_spectrum.o $(OBJDIR)/sauti_frame.o $(OBJDIR)/sauti_db_log.o $(OBJDIR)/sauti_audio_ring.o $(OBJDIR)/sauti_stereo_ring.o $(OBJDIR)/sauti_stereo_analysis.o $(OBJDIR)/sauti_stereo_bars.o $(OBJDIR)/sauti_peak_hold.o $(OBJDIR)/sauti_levels.o
 
 .PHONY: all test demo window window-pipewire run-wayland run-pipewire-mic run-pipewire-monitor smoke-headless smoke-headless-pipewire clean
-all: $(OBJDIR)/test_core $(OBJDIR)/test_fft $(OBJDIR)/test_frame $(OBJDIR)/test_db_log $(OBJDIR)/test_audio_ring $(OBJDIR)/test_stereo_ring $(OBJDIR)/test_stereo_analysis $(OBJDIR)/test_stereo_bars $(OBJDIR)/test_peak_hold $(OBJDIR)/test_auto_gain $(OBJDIR)/test_playlist $(OBJDIR)/test_transport $(OBJDIR)/test_app_state $(OBJDIR)/test_library $(OBJDIR)/test_wav $(OBJDIR)/test_record_ring $(OBJDIR)/test_audio_backend $(OBJDIR)/test_playback_time $(OBJDIR)/test_playback_backend $(OBJDIR)/test_decoder $(OBJDIR)/test_decoder_wav $(OBJDIR)/test_decoder_avr $(OBJDIR)/test_decoder_dvsm $(OBJDIR)/test_decoder_ym $(OBJDIR)/test_ym_archive $(OBJDIR)/test_decoder_mp3 $(OBJDIR)/test_decoder_voc $(OBJDIR)/test_decoder_aiff $(OBJDIR)/test_decoder_ffmpeg $(OBJDIR)/test_aac_headers $(OBJDIR)/test_aac_syntax $(OBJDIR)/test_aac_lc_sections $(OBJDIR)/test_aac_huffman $(OBJDIR)/test_aac_spectral $(OBJDIR)/test_aac_tables $(OBJDIR)/test_aac_scalefactors $(OBJDIR)/test_aac_spectral_data $(OBJDIR)/test_aac_dequant $(OBJDIR)/test_aac_imdct $(OBJDIR)/test_aac_window $(OBJDIR)/test_pcm_output $(OBJDIR)/test_decoder_vorbis $(OBJDIR)/test_decoder_midi $(OBJDIR)/test_decoder_opus $(OBJDIR)/sauti_demo
+all: $(OBJDIR)/test_core $(OBJDIR)/test_fft $(OBJDIR)/test_frame $(OBJDIR)/test_db_log $(OBJDIR)/test_audio_ring $(OBJDIR)/test_stereo_ring $(OBJDIR)/test_stereo_analysis $(OBJDIR)/test_stereo_bars $(OBJDIR)/test_peak_hold $(OBJDIR)/test_auto_gain $(OBJDIR)/test_playlist $(OBJDIR)/test_transport $(OBJDIR)/test_app_state $(OBJDIR)/test_library $(OBJDIR)/test_wav $(OBJDIR)/test_record_ring $(OBJDIR)/test_audio_backend $(OBJDIR)/test_playback_time $(OBJDIR)/test_playback_backend $(OBJDIR)/test_decoder $(OBJDIR)/test_decoder_wav $(OBJDIR)/test_decoder_avr $(OBJDIR)/test_decoder_dvsm $(OBJDIR)/test_decoder_ym $(OBJDIR)/test_ym_archive $(OBJDIR)/test_decoder_mp3 $(OBJDIR)/test_decoder_voc $(OBJDIR)/test_decoder_aiff $(OBJDIR)/test_decoder_ffmpeg $(OBJDIR)/test_aac_headers $(OBJDIR)/test_aac_syntax $(OBJDIR)/test_aac_lc_sections $(OBJDIR)/test_aac_huffman $(OBJDIR)/test_aac_spectral $(OBJDIR)/test_aac_tables $(OBJDIR)/test_aac_scalefactors $(OBJDIR)/test_aac_spectral_data $(OBJDIR)/test_aac_dequant $(OBJDIR)/test_aac_imdct $(OBJDIR)/test_aac_window $(OBJDIR)/test_aac_lc_synth $(OBJDIR)/test_pcm_output $(OBJDIR)/test_decoder_vorbis $(OBJDIR)/test_decoder_midi $(OBJDIR)/test_decoder_opus $(OBJDIR)/sauti_demo
 
 $(OBJDIR):
 	mkdir -p $@
@@ -452,9 +453,16 @@ $(OBJDIR)/test_aac_window: tests/test_aac_window.c include/sauti_aac_window.h $(
 test-aac-window: $(OBJDIR)/test_aac_window
 	./$(OBJDIR)/test_aac_window
 
+$(OBJDIR)/test_aac_lc_synth: tests/test_aac_lc_synth.c include/sauti_aac_lc_synth.h $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_lc_synth.c $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) -lm -no-pie
+
+.PHONY: test-aac-lc-synth
+test-aac-lc-synth: $(OBJDIR)/test_aac_lc_synth
+	./$(OBJDIR)/test_aac_lc_synth
+
 # Runs all native AAC modules without requiring libav*/FFmpeg.
 .PHONY: test-aac-native
-test-aac-native: test-aac-headers test-aac-syntax test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window
+test-aac-native: test-aac-headers test-aac-syntax test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth
 
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm
