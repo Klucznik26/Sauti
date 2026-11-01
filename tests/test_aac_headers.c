@@ -29,7 +29,10 @@ static void test_adts(void){
     assert(out.core_sample_rate==24000 && out.core_channels==1 &&
            out.header_bytes==9 && out.crc_present && out.raw_blocks==4);
     assert(!sauti_aac_adts_parse_asm(p,8,&out));
-    assert(!sauti_aac_adts_parse_asm(p,99,&out));
+    { int ok=sauti_aac_adts_parse_asm(p,99,&out);
+      if(ok)fprintf(stderr,"ADTS short frame accepted: declared=%u core_rate=%u header=%u bytes[3..5]=%02x %02x %02x\n",out.frame_bytes,out.core_sample_rate,out.header_bytes,p[3],p[4],p[5]);
+      assert(!ok);
+    }
     p[2]|=0xc0;assert(!sauti_aac_adts_parse_asm(p,sizeof(p),&out));
     adts_make(p,sizeof(p),4,2,0,1);
     p[1]|=0x02;assert(!sauti_aac_adts_parse_asm(p,sizeof(p),&out));
