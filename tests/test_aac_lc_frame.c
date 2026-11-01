@@ -74,6 +74,38 @@ static void simple(void){
         for(unsigned i=0;i<1024;i++)assert(pcm[i]==0);
     }
 }
+static void prefixed_fil(void){
+    Bits payload;
+    prepare(&payload,0,0); /* SCE + ID_END */
+    SautiAacLcSynthesis state={0};
+    assert(sauti_aac_lc_synthesis_init(&state,0));
+    float pcm[1024];
+    for(unsigned ext=0;ext<=13;ext+=13){
+        Bits raw={0};
+        put(&raw,3,6); /* ID_FIL */
+        put(&raw,4,1); /* one byte extension payload */
+        put(&raw,4,ext); /* EXT_FILL=0 allowed; EXT_SBR_DATA=13 denied */
+        put(&raw,4,0);
+        for(size_t bit=0;bit<payload.bits;bit++)
+            put(&raw,1,(payload.bytes[bit/8]>>(7-bit%8))&1u);
+        while(raw.bits%8u)put(&raw,1,0);
+        uint8_t frame[128];
+        unsigned size=7u+(unsigned)(raw.bits/8u);
+        init_header(frame,size,4);
+        memcpy(frame+7,raw.bytes,raw.bits/8u);
+        SautiAacReason reason=SAUTI_AAC_REASON_OK;
+        SautiAacLcSynthesis old=state;
+        int status=sauti_aac_lc_adts_mono_decode_ex(frame,size,
+                                                    &state,pcm,&reason);
+        if(ext==0){
+            assert(status==1 && reason==SAUTI_AAC_REASON_OK);
+            for(unsigned i=0;i<1024;i++)assert(pcm[i]==0);
+        }else{
+            assert(status==-1 && reason==SAUTI_AAC_REASON_UNSUPPORTED_FIL);
+            assert(memcmp(&state,&old,sizeof(state))==0);
+        }
+    }
+}
 static void failure(void){
     Bits raw;prepare(&raw,1,0);
     size_t size=7u+raw.bits/8u;
@@ -127,7 +159,7 @@ static void failure(void){
     for(unsigned j=0;j<1024;j++)assert(pcm[j]==18);
 }
 int main(void){
-    simple();failure();
+    simple();prefixed_fil();failure();
     puts("PASS AAC-13/17: SCE -> PCM, explicit tool rejection reasons, rollback");
     return 0;
 }
