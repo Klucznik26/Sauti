@@ -803,3 +803,38 @@ należy uzupełnić go niezależnymi testami energii PNS
 i stereofonii — nie oznaczać automatycznie
 rozbieżności losowego PCM jako niezgodności ze
 standardem AAC.
+
+
+## AAC-29B — niezależne testy PNS
+
+Do dotychczasowego `test-aac-pns` dodano kontrolę:
+- energii **każdego** z dwóch pasm PNS w kolejnych
+  grupach okien i oddzielnie w każdym oknie;
+  energia widma powinna wynosić
+  `2^((scalefactor - 100)/2)`;
+- różnych wartości skalefaktorów w pasmach,
+  oraz braku modyfikacji pozostałych pasm;
+- deterministycznej reprodukcji dla tego samego
+  stanu LCG oraz różnego szumu dla różnych ziaren;
+- zgodności z oczekiwaną liczbą kroków generatora
+  przy przejściu przez pasma/okna;
+- ciągłej sekwencji RNG przez dwa kanały stereo
+  (bez ponownego inicjowania ziarna);
+- atomowego wycofania zmian w widmie i stanie
+  generatora po błędzie danych.
+
+Uruchomienie:
+
+```sh
+make -B test-aac-pns test-aac-cpe PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Granica tego etapu:** testy sprawdzają normowanie
+energii, inicjalizację i ciągłość RNG dla PNS, ale
+nie dowodzą jeszcze prawidłowego *skorelowanego PNS*
+sterowanego maską MS w CPE. Obecny dekoder nadal
+odrzuca ten przypadek; nie należy deklarować pełnej
+obsługi wszystkich kombinacji AAC-LC.
+Powtórzenie 36/36 PASS przy kodowaniu bez PNS jest
+punktem kontrolnym niepodlegającym zmianie.
