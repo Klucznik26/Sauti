@@ -571,3 +571,33 @@ Diagnostyka odróżnia teraz `mid_side` od `intensity`; oba
 narzędzia nie są jeszcze wykonywane w torze CPE. Próbki stereo
 z `ms_mask_present=1/2` i aktywną maską muszą pozostać jawnie
 odrzucone do czasu implementacji rekonstrukcji dwóch widm.
+
+
+## AAC-27 — natywna rekonstrukcja Mid/Side dla stereo (2026-11-01)
+
+W diagnostyce AAC-26 rzeczywiste stereo (440 Hz + 880 Hz)
+zostało rozpoznane jako `mid_side`: 0 z 21 ramek PCM, zero
+nieprawidłowych ramek. To brak narzędzia stereo, nie błąd formatu.
+
+AAC-27 dodaje:
+- Zachowanie `ms_used[group][sfb]` dla masek
+  `ms_mask_present=0/1/2` wewnątrz CPE.
+- Po odkwantowaniu obu kanałów, przed TNS i IMDCT,
+  rekonstrukcję `L = M + S`, `R = M - S` na wskazanych
+  pasmach, osobno dla każdego okna/grupy, bez sztucznego
+  skalowania 1/sqrt(2).
+- Oddzielny punkt wejścia syntezy z już przygotowanym
+  widmem `sauti_aac_lc_synthesis_spectral`; istniejące
+  API mono zachowują się jak wcześniej.
+- Jawne odrzucenie MS na pasmach PNS/intensity
+  (`mid_side`) do czasu poprawnej obsługi skorelowanego
+  szumu stereo. Nie wyciszać takich pasm.
+- Regresję z niezerowym widmem i maskami 0/1/2.
+- `make inspect-aac-stereo PKG_CONFIG=/bin/false`
+  generuje odtwarzalną próbkę AAC-LC ADTS stereo,
+  wywołuje dekoder natywny, a następnie raportuje
+  osobno lewy i prawy PCM względem FFmpeg CLI.
+
+**Wynik rzeczywistego PCM i pełna ciągłość stereo weryfikujemy
+dopiero po uruchomieniu matrycy.** AAC-27 nie oznacza jeszcze
+obsługi Intensity Stereo, PNS skorelowanego z MS ani SBR/PS.
