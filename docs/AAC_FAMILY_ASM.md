@@ -601,3 +601,35 @@ AAC-27 dodaje:
 **Wynik rzeczywistego PCM i pełna ciągłość stereo weryfikujemy
 dopiero po uruchomieniu matrycy.** AAC-27 nie oznacza jeszcze
 obsługi Intensity Stereo, PNS skorelowanego z MS ani SBR/PS.
+
+
+## AAC-28 — Intensity Stereo (2026-11-01)
+
+W AAC-27 CPE stereo na rzeczywistym 440/880 Hz:
+16/16 testów modułów PASS, ale dekoder osiągnął tylko 1/21
+ramek (kolejne posiadały `intensity` lub odrzucano je
+ze względu na brak historii po pominięciu).
+
+AAC-28:
+- Dopuszczono pseudo-codebooki 14 (odwrócona faza)
+  i 15 (ta sama faza) **wyłącznie po prawej stronie**
+  elementu CPE z `common_window`.
+- PNS ignoruje pasma intensity (nie wytwarza dla nich szumu);
+  zwykła ścieżka mono nadal odrzuca intensity.
+- Po odkwantowaniu obu kanałów i Mid/Side, przed TNS,
+  prawe widmo intensity jest rekonstruowane z lewego:
+  `R = L * (cb==15 ? +1 : -1) *
+  (ms_used ? -1 : +1) * 2^(-is_pos/4)`.
+  `is_pos` pochodzi z dekodera delta skalefaktorów.
+  Maski MS na pasmach intensity zmieniają wyłącznie fazę,
+  nie uruchamiają zwykłego sumowania M/S na tych pasmach.
+- Test CPE sprawdza 14/15, inwersję fazy maską MS 1/2,
+  zerowe i niezerowe `is_pos` oraz niezerowy PCM.
+- Zakazane wciąż połączenie intensity z nośnym pasmem
+  PNS; brak prób przybliżania nieobsługiwanej
+  korelacji szumu stereo.
+- Po uruchomieniu:
+  `make -B test-aac-native PKG_CONFIG=/bin/false &&
+   make inspect-aac-stereo PKG_CONFIG=/bin/false`.
+  Dopiero porównanie PCM kanału LEFT i RIGHT z referencją
+  pozwala nazwać obsługę rzeczywistego stereo potwierdzoną.
