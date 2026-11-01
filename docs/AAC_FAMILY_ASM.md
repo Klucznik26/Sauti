@@ -479,3 +479,28 @@ TNS albo inne niewspierane narzędzia, raport pokaże powód,
 a test nie będzie udawał poprawnego odtworzenia. Zgodność
 normatywna wymaga także osobnych przypadków stereo, impulsowych
 okien i różnych częstotliwości próbkowania.
+
+
+## AAC-23 wynik matrycy / AAC-24 parser TNS (2026-11-01)
+
+Wynik pięciu nagrań AAC-LC mono na Fedorze:
+- tone440: 23/23, korelacja 0.999999974, nRMSE 0.00022724;
+- tone1000: 23/23, korelacja 0.999999914, nRMSE 0.00041431;
+- multitone: tylko 1/23; ramka #1 `tns`, dalsze `unsupported_history`;
+- transient: 23/23, korelacja 0.999986594, nRMSE 0.00517798;
+- chirp: 23/23, korelacja 0.999991119, nRMSE 0.00421438.
+
+Oznacza to, że TNS jest następną konkretną barierą.
+Dodano `sauti_aac_tns_parse()` z ograniczeniami liczby filtrów,
+rzędu i szerokości skwantowanych współczynników, zarówno dla
+1 okna długiego jak i 8 krótkich. Wejściem są bity bezpośrednio po
+`tns_data_present=1`, a wynik i pozycja bitowa są zatwierdzane tylko
+po sukcesie. `make test-aac-tns` sprawdza długość, kolejność,
+współczynniki ze znakiem, odcięcia oraz rollback.
+
+**Świadome ograniczenie:** AAC-24 obejmuje wyłącznie strukturalny
+parser TNS. Nie stosuje jeszcze odwrotnego filtru TNS w widmie,
+nie aktywuje dekodowania ramek z TNS i NIE naprawia jeszcze
+próby multitone. Przed aktywacją konieczne są normatywne
+współczynniki, mapowanie pasm, kierunek predykcji i niezależne
+porównanie PCM; brak filtru nie może być maskowany jako sukces.
