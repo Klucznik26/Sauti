@@ -594,6 +594,10 @@ inspect-aac-29-smoke: $(OBJDIR)/test_aac_real_stereo test-aac-stereo-strict
 inspect-aac-29-full: $(OBJDIR)/test_aac_real_stereo test-aac-stereo-strict
 	python3 scripts/inspect_aac_stereo_matrix.py --mode full
 
+.PHONY: inspect-aac-29-tools
+inspect-aac-29-tools: $(OBJDIR)/test_aac_real_stereo
+	python3 scripts/diagnose_aac_stereo_tools.py
+
 # Runs all native AAC modules without requiring libav*/FFmpeg.
 .PHONY: test-aac-native
 test-aac-native: test-aac-headers test-aac-syntax test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict
