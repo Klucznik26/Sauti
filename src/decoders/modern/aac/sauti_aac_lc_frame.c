@@ -102,6 +102,12 @@ int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
         if(!read(raw,raw_length,&pos,1,&pad) || pad){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
     }
     if(pos!=raw_length*8u){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
+    /* Once earlier frames were skipped, the overlap history cannot be
+     * reconstructed. This is a capability gap, not malformed AAC. */
+    if(state->initialized!=1u){
+        *reason=SAUTI_AAC_REASON_UNSUPPORTED_HISTORY;
+        return -1;
+    }
     SautiAacLcSynthesis next=*state;
     float result[1024];
     if(!sauti_aac_lc_synthesis_frame(&next,rate,&parsed.ics,
@@ -124,7 +130,7 @@ const char *sauti_aac_reason_name(SautiAacReason reason){
         "unsupported_fil","invalid_sce","invalid_scalefactors",
         "pulse","tns","gain_control","pns","intensity",
         "invalid_spectral","unsupported_element","invalid_trailing",
-        "invalid_synthesis"
+        "invalid_synthesis","unsupported_history"
     };
     return (unsigned)reason<sizeof(names)/sizeof(names[0])?
         names[reason]:"unknown";
