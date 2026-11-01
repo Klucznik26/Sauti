@@ -12,61 +12,69 @@ static int read(const uint8_t *p,size_t n,size_t *pos,
                 unsigned bits,uint32_t *v){
     return sauti_aac_bits_read_asm(p,n,pos,bits,v);
 }
-int sauti_aac_lc_mono_parse(const uint8_t *raw,size_t length,
+static int mono_parse_ex(const uint8_t *raw,size_t length,
                            size_t *bit_offset,unsigned rate_index,
-                           SautiAacLcMonoData *out){
+                           SautiAacLcMonoData *out,SautiAacReason *reason){
     if(!raw||!bit_offset||!out||length>SIZE_MAX/8u||
        *bit_offset>length*8u||rate_index>=13u)return 0;
     size_t pos=*bit_offset;
     SautiAacRawPrefix prefix={0};
     int kind=sauti_aac_raw_prefix_parse(raw,length,&pos,&prefix);
-    if(kind!=2)return kind==0?0:-1;
+    if(kind!=2){*reason=kind==0?SAUTI_AAC_REASON_INVALID_SCE:SAUTI_AAC_REASON_UNSUPPORTED_PREFIX;return kind==0?0:-1;}
     /* A preceding FIL may carry implicit SBR/PS; no extension path yet.
      * Even if only filler, conservative refusal avoids silent misdecode. */
-    if(prefix.fill_count || prefix.first_audio_id!=0u)return -1;
+    if(prefix.fill_count || prefix.first_audio_id!=0u){*reason=prefix.fill_count?SAUTI_AAC_REASON_UNSUPPORTED_FIL:SAUTI_AAC_REASON_UNSUPPORTED_PREFIX;return -1;}
     SautiAacScePrefix sce;
-    if(!sauti_aac_lc_sce_prefix_parse(raw,length,&pos,&sce))return 0;
+    if(!sauti_aac_lc_sce_prefix_parse(raw,length,&pos,&sce)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
     const uint16_t *offsets=NULL;unsigned count=0;
     if(!sauti_aac_band_offsets(rate_index,
                                sce.ics.window_sequence==2u,
                                &offsets,&count))return 0;
     (void)offsets;
-    if(sce.ics.max_sfb>count)return 0;
+    if(sce.ics.max_sfb>count){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
     SautiAacLcMonoData next;
     memset(&next,0,sizeof(next));
     next.ics=sce.ics;
     next.sections=sce.sections;
     next.global_gain=sce.global_gain;
     if(!sauti_aac_lc_scalefactors_parse(raw,length,&pos,sce.global_gain,
-                                      &next.sections,&next.factors))return 0;
+                                      &next.sections,&next.factors)){*reason=SAUTI_AAC_REASON_INVALID_SCALEFACTORS;return 0;}
     /* The three presence flags immediately follow scale_factor_data.
      * Pulse, TNS and gain control payloads have variable lengths.
      * Never interpret their bits as spectral_data. */
     uint32_t flag=0;
     if(!read(raw,length,&pos,1,&flag))return 0;
-    if(flag)return -1; /* pulse_data_present */
+    if(flag){*reason=SAUTI_AAC_REASON_PULSE;return -1;} /* pulse_data_present */
     if(!read(raw,length,&pos,1,&flag))return 0;
-    if(flag)return -1; /* tns_data_present */
+    if(flag){*reason=SAUTI_AAC_REASON_TNS;return -1;} /* tns_data_present */
     if(!read(raw,length,&pos,1,&flag))return 0;
-    if(flag)return -1; /* gain_control_data_present */
+    if(flag){*reason=SAUTI_AAC_REASON_GAIN_CONTROL;return -1;} /* gain_control_data_present */
     for(unsigned i=0;i<next.sections.section_count;i++)
-        if(next.sections.sections[i].codebook>=13u)return -1;
+        if(next.sections.sections[i].codebook>=13u){*reason=next.sections.sections[i].codebook==13u?SAUTI_AAC_REASON_PNS:SAUTI_AAC_REASON_INTENSITY;return -1;}
     if(!sauti_aac_lc_spectral_data_parse(raw,length,&pos,rate_index,
-                        &next.ics,&next.sections,next.quant))return 0;
+                        &next.ics,&next.sections,next.quant)){*reason=SAUTI_AAC_REASON_INVALID_SPECTRAL;return 0;}
     *out=next;
     *bit_offset=pos;
     return 1;
 }
-int sauti_aac_lc_adts_mono_decode(const uint8_t *frame,size_t length,
+int sauti_aac_lc_mono_parse(const uint8_t *raw,size_t length,
+                           size_t *bit_offset,unsigned rate_index,
+                           SautiAacLcMonoData *out){
+    SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    return mono_parse_ex(raw,length,bit_offset,rate_index,out,&reason);
+}
+int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
                                  SautiAacLcSynthesis *state,
-                                 float pcm[1024]){
+                                 float pcm[1024],SautiAacReason *reason){
+    if(!reason)return 0;
+    *reason=SAUTI_AAC_REASON_INVALID_ADTS;
     if(!frame || !state || !pcm)return 0;
     SautiAacAdts adts={0};
     if(!sauti_aac_adts_parse_asm(frame,length,&adts))return 0;
     if(adts.frame_bytes>length || adts.header_bytes>adts.frame_bytes)
         return 0;
     if(adts.core_channels!=1u || adts.core_aot!=2u ||
-       adts.raw_blocks!=1u || adts.crc_present)return -1;
+       adts.raw_blocks!=1u || adts.crc_present){*reason=SAUTI_AAC_REASON_UNSUPPORTED_ADTS;return -1;}
     /* ADTS sample-rate index occupies bits 2..5 in header byte 2.
      * 0..12 only; explicit 15 is not valid ADTS sample frequency. */
     unsigned rate=(frame[2]>>2u)&15u;
@@ -75,7 +83,7 @@ int sauti_aac_lc_adts_mono_decode(const uint8_t *frame,size_t length,
     size_t raw_length=adts.frame_bytes-adts.header_bytes;
     size_t pos=0;
     SautiAacLcMonoData parsed;
-    int status=sauti_aac_lc_mono_parse(raw,raw_length,&pos,rate,&parsed);
+    int status=mono_parse_ex(raw,raw_length,&pos,rate,&parsed,reason);
     if(status!=1)return status;
     /* The one SCE should be followed by zero or more filler elements,
      * then ID_END and zero byte alignment. Refuse all FIL conservatively
@@ -84,20 +92,39 @@ int sauti_aac_lc_adts_mono_decode(const uint8_t *frame,size_t length,
         uint32_t id=0;
         if(!read(raw,raw_length,&pos,3,&id))return 0;
         if(id==7u)break;
-        if(id==6u)return -1;
-        return -1; /* CPE, DSE, PCE, LFE, CCE, another SCE */
+        if(id==6u){*reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;return -1;}
+        *reason=SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;return -1; /* extra element */
     }
     /* ADTS bitstream is padded to a whole byte after ID_END. */
     while((pos&7u)!=0u){
         uint32_t pad=1;
         if(!read(raw,raw_length,&pos,1,&pad) || pad)return 0;
     }
-    if(pos!=raw_length*8u)return 0;
+    if(pos!=raw_length*8u){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
     SautiAacLcSynthesis next=*state;
     float result[1024];
     if(!sauti_aac_lc_synthesis_frame(&next,rate,&parsed.ics,
-          &parsed.sections,&parsed.factors,parsed.quant,result))return 0;
+          &parsed.sections,&parsed.factors,parsed.quant,result)){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;}
     *state=next;
     memcpy(pcm,result,sizeof(result));
+    *reason=SAUTI_AAC_REASON_OK;
     return 1;
+}
+
+int sauti_aac_lc_adts_mono_decode(const uint8_t *frame,size_t length,
+                                 SautiAacLcSynthesis *state,
+                                 float pcm[1024]){
+    SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    return sauti_aac_lc_adts_mono_decode_ex(frame,length,state,pcm,&reason);
+}
+const char *sauti_aac_reason_name(SautiAacReason reason){
+    static const char *const names[]={
+        "ok","invalid_adts","unsupported_adts","unsupported_prefix",
+        "unsupported_fil","invalid_sce","invalid_scalefactors",
+        "pulse","tns","gain_control","pns","intensity",
+        "invalid_spectral","unsupported_element","invalid_trailing",
+        "invalid_synthesis"
+    };
+    return (unsigned)reason<sizeof(names)/sizeof(names[0])?
+        names[reason]:"unknown";
 }
