@@ -579,9 +579,24 @@ inspect-aac-stereo: $(OBJDIR)/test_aac_real_stereo
 	    build/audio-fixtures/aac-26/native_stereo.mask; \
 	else echo "SKIP AAC-26 real stereo: ffmpeg CLI unavailable"; fi
 
+# AAC-29: strict diagnostics are separate from the earlier exploratory
+# comparators. No FFmpeg is needed for verifier unit tests.
+.PHONY: test-aac-stereo-strict
+test-aac-stereo-strict:
+	python3 tests/test_aac_stereo_strict.py
+
+# Fast three-case smoke test; full matrix covers 3 materials x 3 rates x
+# 4 bitrates = 36 cases. Both exit nonzero on missing/incorrect PCM.
+.PHONY: inspect-aac-29-smoke inspect-aac-29-full
+inspect-aac-29-smoke: $(OBJDIR)/test_aac_real_stereo test-aac-stereo-strict
+	python3 scripts/inspect_aac_stereo_matrix.py --mode smoke
+
+inspect-aac-29-full: $(OBJDIR)/test_aac_real_stereo test-aac-stereo-strict
+	python3 scripts/inspect_aac_stereo_matrix.py --mode full
+
 # Runs all native AAC modules without requiring libav*/FFmpeg.
 .PHONY: test-aac-native
-test-aac-native: test-aac-headers test-aac-syntax test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe
+test-aac-native: test-aac-headers test-aac-syntax test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict
 
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm
