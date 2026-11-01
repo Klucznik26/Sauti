@@ -4,6 +4,7 @@
 #include "sauti_aac_cpe.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
+#include "sauti_aac_bands.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -88,6 +89,29 @@ int main(int argc,char **argv){
                             if(ch==0u && cpe.ms_used[g][b])ms_count++;
                         }
                 }
+                /* Independent accounting of the PNS LCG steps:
+                 * one draw per coefficient, per band/window and channel.
+                 * The synthesizer's RNG may advance through PNS bands only. */
+                uint64_t noise_draws=0;
+                for(unsigned ch=0;ch<2;ch++){
+                    const SautiAacIcsInfo *ics=&cpe.channel[ch].ics;
+                    const uint16_t *off=NULL;unsigned count=0;
+                    if(sauti_aac_band_offsets(rate,
+                             ics->window_sequence==2u,&off,&count)){
+                        for(unsigned g=0;g<ics->group_count;g++)
+                            for(unsigned b=0;b<ics->max_sfb;b++)
+                                if(cpe.channel[ch].factors.codebook[g][b]==13u)
+                                    noise_draws+=(uint64_t)ics->group_length[g]*
+                                                 (off[b+1u]-off[b]);
+                    }
+                }
+                uint32_t independently_advanced=seed_before;
+                for(uint64_t j=0;j<noise_draws;j++)
+                    independently_advanced=
+                        independently_advanced*1664525u+1013904223u;
+                printf("    pns_draws: expected=%llu rng_match=%u\n",
+                       (unsigned long long)noise_draws,
+                       (unsigned)(independently_advanced==state[0].pns_seed));
                 printf("    tools: groups=%u max_sfb=%u TNS=%u/%u PNS=%u/%u MS=%u intensity=%u\n",
                        cpe.channel[0].ics.group_count,
                        cpe.channel[0].ics.max_sfb,
