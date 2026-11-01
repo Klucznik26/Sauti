@@ -71,7 +71,7 @@ static void real_stream(const char *path){
         energy+=(double)a[i]*a[i];
     }
     assert(energy>0);
-    printf("PASS native AAC-LC real ADTS: %u Hz, %llu PCM frames, repeatable seek\\n",
+    printf("PASS native AAC-LC real ADTS: %u Hz, %llu PCM frames, repeatable seek\n",
            decoder.info.sample_rate,
            (unsigned long long)decoder.info.total_frames);
     sauti_decoder_close(&decoder);
