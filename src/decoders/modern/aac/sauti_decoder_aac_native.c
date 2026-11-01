@@ -11,6 +11,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+enum { AAC_CHECKPOINT_FRAMES = 64 };
+typedef struct {
+    SautiAacLcSynthesis history[2];
+    unsigned char valid;
+} NativeCheckpoint;
 typedef struct {
     const uint8_t *bytes;
     size_t bytes_length;
@@ -21,6 +26,8 @@ typedef struct {
     SautiAacLcSynthesis history[2];
     float cache[2048];
     size_t cache_frame;
+    NativeCheckpoint *checkpoints;
+    size_t checkpoint_count;
 } NativeAac;
 
 static int probe(const uint8_t *data,size_t size){
@@ -50,12 +57,20 @@ static int decode_next(NativeAac *s){
     for(size_t i=0;i<2048;i++)
         if(!isfinite(s->cache[i]))return 0;
     s->next_frame++;
+    if(s->checkpoints && s->next_frame%AAC_CHECKPOINT_FRAMES==0){
+        const size_t k=s->next_frame/AAC_CHECKPOINT_FRAMES;
+        if(k<s->checkpoint_count && !s->checkpoints[k].valid){
+            memcpy(s->checkpoints[k].history,s->history,
+                   sizeof(s->history));
+            s->checkpoints[k].valid=1;
+        }
+    }
     s->cache_frame=0;
     return 1;
 }
 static void release(void *ctx){
     NativeAac *s=ctx;
-    if(s){free(s->offsets);free(s);}
+    if(s){free(s->checkpoints);free(s->offsets);free(s);}
 }
 static void *open_native(const uint8_t *data,size_t length,SautiPcmInfo *info){
     if(!info || !probe(data,length))return NULL;
@@ -90,6 +105,14 @@ static void *open_native(const uint8_t *data,size_t length,SautiPcmInfo *info){
     s->bytes=data;s->bytes_length=length;
     s->offsets=offsets;s->frame_count=count;
     if(!reset(s)){release(s);return NULL;}
+    s->checkpoint_count=count/AAC_CHECKPOINT_FRAMES+1u;
+    if(s->checkpoint_count>SIZE_MAX/sizeof(*s->checkpoints)){
+        release(s);return NULL;
+    }
+    s->checkpoints=calloc(s->checkpoint_count,sizeof(*s->checkpoints));
+    if(!s->checkpoints){release(s);return NULL;}
+    memcpy(s->checkpoints[0].history,s->history,sizeof(s->history));
+    s->checkpoints[0].valid=1;
     /* Prime only the first frame. The former full-stream decode on
      * open blocked the SDL UI on long songs (thousands of IMDCT frames),
      * then decoded the same stream again during playback. Future frames
@@ -129,13 +152,27 @@ static int seek_native(void *ctx,uint64_t position){
     NativeAac *s=ctx;
     if(!s || position>(uint64_t)s->frame_count*1024u)return 0;
     if(position==s->position)return 1;
-    /* Replaying from the start gives exact overlap, window and RNG
-     * history, including when seeking into the middle of a frame. */
-    if(!reset(s))return 0;
-    const uint64_t frame_index=position/1024u;
-    for(uint64_t i=0;i<frame_index;i++)
+    const size_t target=(size_t)(position/1024u);
+    size_t origin=0;
+    /* Reuse the nearest known history snapshot. During ordinary playback
+     * a checkpoint is saved every 64 frames. Repeated seeks into already
+     * decoded regions then replay at most 63 full frames. For a first
+     * forward jump to untouched audio, replay is still proportional to
+     * distance; a background seek worker remains future work. */
+    for(size_t k=target/AAC_CHECKPOINT_FRAMES+1u;k>0;--k){
+        const size_t slot=k-1u;
+        if(slot<s->checkpoint_count && s->checkpoints[slot].valid){
+            memcpy(s->history,s->checkpoints[slot].history,
+                   sizeof(s->history));
+            origin=slot*AAC_CHECKPOINT_FRAMES;
+            break;
+        }
+    }
+    s->next_frame=origin;
+    s->cache_frame=1024u;
+    for(size_t i=origin;i<target;i++)
         if(!decode_next(s))return 0;
-    s->cache_frame=1024u; /* consumed history frames, no pending PCM */
+    s->cache_frame=1024u;
     if(position%1024u){
         if(!decode_next(s))return 0;
         s->cache_frame=(size_t)(position%1024u);
