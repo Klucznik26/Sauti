@@ -127,9 +127,59 @@ static void nonzero_ms(unsigned mask){
     assert(parsed.ms_mask_present==mask);
     assert(parsed.ms_used[0][0]==(mask!=0));
 }
+static void intensity_stereo(unsigned book,unsigned mask,unsigned position_delta){
+    Bits raw={0};
+    put(&raw,3,1);put(&raw,4,0);put(&raw,1,1);
+    ics(&raw,1);
+    put(&raw,2,mask);
+    if(mask==1u)put(&raw,1,1); /* MS changes intensity sign */
+    put(&raw,8,100);          /* left global_gain */
+    put(&raw,4,1);put(&raw,5,1);
+    symbol(&raw,0,60);       /* spectral scalefactor = 100 */
+    put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);
+    symbol(&raw,1,80);       /* left = +1,+1,+1,+1 */
+    put(&raw,8,100);         /* right global_gain */
+    put(&raw,4,book);put(&raw,5,1); /* intensity codebook 14/15 */
+    symbol(&raw,0,60u+position_delta); /* first is_pos = delta */
+    put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);
+    /* No coded right spectral data for intensity bands */
+    put(&raw,3,7);
+    while(raw.bits%8u)put(&raw,1,0);
+    uint8_t frame[128];
+    const unsigned size=7u+(unsigned)(raw.bits/8u);
+    header(frame,size);
+    memcpy(frame+7,raw.b,raw.bits/8u);
+    SautiAacCpeData parsed={0};
+    SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    size_t pos=0;
+    assert(sauti_aac_lc_cpe_parse(raw.b,raw.bits/8u,&pos,4,
+                                  &parsed,&reason)==1);
+    assert(parsed.channel[1].factors.codebook[0][0]==book);
+    assert(parsed.channel[1].factors.value[0][0]==(int)position_delta);
+    SautiAacLcSynthesis state[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    float pcm[2048];
+    assert(sauti_aac_lc_adts_stereo_decode_ex(frame,size,state,
+                                              pcm,&reason)==1);
+    const float sign=(book==15u?1.0f:-1.0f)*
+                     (mask? -1.0f:1.0f);
+    const float scale=exp2f(-(float)position_delta/4.0f)*sign;
+    double energy=0;
+    for(unsigned i=0;i<1024;i++){
+        const float l=pcm[i*2],r=pcm[i*2+1];
+        assert(isfinite(l) && isfinite(r));
+        assert(fabsf(r-l*scale)<1.e-6f);
+        energy+=(double)l*l;
+    }
+    assert(energy>0.0);
+}
 int main(void){
     run(0,0);run(1,0);run(1,1);run(1,2);
     nonzero_ms(0);nonzero_ms(1);nonzero_ms(2);unsupported();
-    puts("PASS AAC-26/27 CPE: independent/common, MS spectral recovery, atomic channels");
+    intensity_stereo(15,0,0);intensity_stereo(14,0,0);
+    intensity_stereo(15,1,0);intensity_stereo(14,2,0);
+    intensity_stereo(15,0,4);
+    puts("PASS AAC-26/28 CPE: common, MS, intensity stereo position/phase, rollback");
     return 0;
 }
