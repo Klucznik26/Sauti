@@ -99,6 +99,30 @@ int main(void){
     SautiAacLcSynthesis prior=state;
     assert(!sauti_aac_lc_synthesis_frame(&state,4,&ics,&sec,&sf,q,pcm));
     assert(memcmp(&prior,&state,sizeof(state))==0);
-    puts("PASS AAC-LC synthesis: dequant -> IMDCT -> window -> NASM overlap, state rollback");
+    /* Opt-in PNS succeeds and keeps RNG state continuous, while the
+     * original strict synthesis API continues to reject PNS. */
+    setup(0,0,&ics,&sec,&sf,q);
+    sec.sections[0].codebook=13;
+    sf.codebook[0][0]=13;
+    sf.value[0][0]=100;
+    SautiAacLcSynthesis strict={0},left={0},right={0};
+    assert(sauti_aac_lc_synthesis_init(&strict,0));
+    assert(sauti_aac_lc_synthesis_init(&left,0));
+    assert(sauti_aac_lc_synthesis_init(&right,0));
+    assert(!sauti_aac_lc_synthesis_frame(&strict,4,&ics,&sec,&sf,q,pcm));
+    float left_pcm[1024],right_pcm[1024];
+    assert(sauti_aac_lc_synthesis_frame_pns(&left,4,&ics,&sec,&sf,
+                                             q,left_pcm));
+    assert(sauti_aac_lc_synthesis_frame_pns(&right,4,&ics,&sec,&sf,
+                                             q,right_pcm));
+    assert(memcmp(left_pcm,right_pcm,sizeof(left_pcm))==0);
+    assert(left.pns_seed==right.pns_seed);
+    assert(left.pns_seed!=strict.pns_seed);
+    assert(sauti_aac_lc_synthesis_frame_pns(&left,4,&ics,&sec,&sf,
+                                             q,left_pcm));
+    assert(sauti_aac_lc_synthesis_frame_pns(&right,4,&ics,&sec,&sf,
+                                             q,right_pcm));
+    assert(memcmp(left_pcm,right_pcm,sizeof(left_pcm))==0);
+    puts("PASS AAC-LC synthesis: PNS, dequant -> IMDCT -> window -> NASM overlap, state rollback");
     return 0;
 }
