@@ -55,6 +55,8 @@ def main(argv=None):
     ap.add_argument("--mode", choices=("smoke", "full"), default="full")
     ap.add_argument("--output", type=Path,
                     default=Path("build/audio-fixtures/aac-29"))
+    ap.add_argument("--disable-pns", action="store_true",
+                    help="control experiment: use FFmpeg encoder with -aac_pns 0")
     opts = ap.parse_args(argv)
     if shutil.which("ffmpeg") is None:
         print("FAIL AAC-29: ffmpeg CLI is required", file=sys.stderr)
@@ -64,6 +66,8 @@ def main(argv=None):
               file=sys.stderr)
         return 2
     root = opts.output
+    if opts.disable_pns:
+        root = root / "encoder-pns-off"
     if not root.is_absolute():
         root = HERE / root
     root.mkdir(parents=True, exist_ok=True)
@@ -87,7 +91,9 @@ def main(argv=None):
         mask = base.with_suffix(".mask")
         cmd_encode = ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
                       "-y", "-i", wav, "-ac", "2", "-ar", str(rate),
-                      "-c:a", "aac", "-b:a", "%sk" % kbps, "-f", "adts", aac]
+                      "-c:a", "aac", "-b:a", "%sk" % kbps] +
+                     (["-aac_pns", "0"] if opts.disable_pns else []) +
+                     ["-f", "adts", aac]
         cmd_ref = ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
                    "-y", "-i", aac, "-ac", "2", "-ar", str(rate),
                    "-f", "f32le", reference]
@@ -121,7 +127,8 @@ def main(argv=None):
         detail = failure_detail(entry) if not entry["ok"] else ""
         print("[%02d/%02d] %-26s %s %s" %
               (number, len(cases), label, verdict, detail), flush=True)
-    report = {"mode": opts.mode, "count": len(summary),
+    report = {"mode": opts.mode, "pns_enabled_in_encoder": not opts.disable_pns,
+              "count": len(summary),
               "passed": sum(x["ok"] for x in summary),
               "failed": sum(not x["ok"] for x in summary),
               "cases": summary}
