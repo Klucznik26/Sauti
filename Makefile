@@ -594,6 +594,11 @@ inspect-aac-29-smoke: $(OBJDIR)/test_aac_real_stereo test-aac-stereo-strict
 inspect-aac-29-full: $(OBJDIR)/test_aac_real_stereo test-aac-stereo-strict
 	python3 scripts/inspect_aac_stereo_matrix.py --mode full
 
+# Control only: does NOT replace the default PNS-enabled 36-case matrix.
+.PHONY: inspect-aac-29-no-pns
+inspect-aac-29-no-pns: $(OBJDIR)/test_aac_real_stereo test-aac-stereo-strict
+	python3 scripts/inspect_aac_stereo_matrix.py --mode full --disable-pns
+
 .PHONY: inspect-aac-29-tools
 inspect-aac-29-tools: $(OBJDIR)/test_aac_real_stereo
 	python3 scripts/diagnose_aac_stereo_tools.py
