@@ -24,5 +24,6 @@ ffmpeg -hide_banner -nostdin -loglevel error -y \
     -ac 2 -c:a libopus -b:a 96k -f webm build/audio-fixtures/opus.webm
 ./build/test_decoder_ffmpeg build/audio-fixtures/aac.m4a aac
 ./build/test_decoder_ffmpeg build/audio-fixtures/aac.aac aac
+./build/test_aac_syntax build/audio-fixtures/aac.aac
 ./build/test_decoder_ffmpeg build/audio-fixtures/alac.m4a alac
 ./build/test_decoder_ffmpeg build/audio-fixtures/opus.webm webm

@@ -46,3 +46,24 @@ Nie implementować trzech niezależnych dekoderów ani trzech osobnych ścieżek
 Wymagania: Ring 3, zero OS zależności w parserze/rdzeniu ASM, kontrola
 rozmiarów i brak odczytów poza buforem. Docelowe SIMD SSE2/AVX2 po
 osiągnięciu poprawności i pokrycia testami.
+
+## Kolejna część: elementy syntaktyczne i DSP (2026-11-01)
+
+- `sauti_aac_syntax.c`: czyta `ics_info` AAC-LC dla długich i ośmiu krótkich okien,
+  grupowanie krótkich okien, z odrzuceniem nieobsługiwanej predykcji.
+- `sauti_aac_fill_parse`: czyta długość `fill_element`, w tym escape count;
+  odróżnia typy rozszerzeń 13/14 jako **kandydat SBR**, bez ogłaszania
+  prawidłowego odtworzenia SBR ani wykrycia PS z samej obecności FIL.
+- `sauti_aac_raw_prefix_parse`: identyfikuje ID_FIL / ID_END, ale ZATRZYMUJE
+  się na SCE/CPE i pozostałych elementach audio. Nie skanuje Huffmana
+  w poszukiwaniu pozornych nagłówków.
+- `sauti_aac_sbr_header_parse`: czyta składnię nagłówka SBR (częstotliwości,
+  parametry extra1/extra2), nie dekoduje obwiedni/QMF.
+- `sauti_aac_ps_header_parse`: czyta nagłówek PS i tryby IID/ICC, odrzuca
+  zarezerwowane wartości, bez dekodowania parametrów i rekonstrukcji stereo.
+- `sauti_aac_dsp.asm`: autorski NASM SSE overlap-add okien 128/1024;
+  nie jest jeszcze podłączony do transformacji IMDCT.
+- Testy: `make test-aac-syntax`; `make test-container-formats` sprawdza
+  także parser na prawdziwym zakodowanym pliku ADTS z testów.
+- Stan nadal **bez własnego dekodowania AAC do PCM**; zachować dotychczasowy
+  odtwarzacz FFmpeg do czasu zakończenia Huffmana, IMDCT, SBR, PS.
