@@ -364,3 +364,44 @@ z tego fragmentu nie może służyć do porównania z referencją.
 Dopiero wsparcie PNS i świadome zarządzanie ciągłością pozwolą
 zweryfikować pełny przebieg. Następny krok: normatywna synteza PNS
 oraz kontrola FIL/SBR bez przyjmowania nieznanych rozszerzeń.
+
+
+## AAC-19 i AAC-20 — PNS mono i szybsza IMDCT (2026-11-01)
+
+- Dodano `sauti_aac_pns.c` i `sauti_aac_pns_apply`: generowanie
+  deterministycznego pseudolosowego widma dla pasm codebook 13,
+  z normalizacją sumy kwadratów szumu w każdej grupie/oknie do
+  energii wskazanej przez noise scalefactor. Zakresy i kolejność SFB
+  są kontrolowane, a na błędzie wynik i stan RNG są niezmienione.
+- Stan `SautiAacLcSynthesis` przechowuje dodatkowo `pns_seed`,
+  inicjowany przy rozpoczęciu strumienia. Nowa funkcja
+  `sauti_aac_lc_synthesis_frame_pns` obsługuje PNS w mono;
+  poprzednie `sauti_aac_lc_synthesis_frame` pozostaje jawnie
+  zachowawczą wersją i nadal odrzuca PNS, chroniąc starsze kontrakty.
+  Ścieżka mono ADTS korzysta z wersji PNS.
+- `make test-aac-pns` sprawdza energię, powtarzalność, stan RNG,
+  okna krótkie z grupami i niezapisanie wyniku po błędzie. Dodatkowy
+  test syntezy sprawdza integrację i zachowanie starego API.
+- Przyspieszono IMDCT przez rekurencję kosinusów obliczaną w double:
+  dla każdego wiersza zamiast N wywołań `cos` używamy dwóch,
+  a iloczyn skalarny nadal wykonuje NASM SSE2. Złożoność pozostaje
+  O(N²), więc benchmark wciąż jest obowiązkowy; stary niezależny
+  test bezpośredniego wzoru powinien wykrywać błędy numeryczne.
+- **Ograniczenia:** PNS jest pierwszą wersją dla mono. Jej stan PRNG
+  nie ma jeszcze potwierdzonej zgodności próbka-w-próbkę z FFmpeg;
+  szum jest z natury zależny od generatora, więc korelacja PCM
+  jest słabym kryterium w pasmach PNS. Brakuje TNS, CPE/MS/intensity,
+  SBR, PS, MP4/M4A demux, oceny rzeczywistych nagrań i testów
+  odsłuchowych. FIL nadal świadomie odrzucamy, gdyż może zawierać
+  rozszerzenie SBR/PS. **Nie oznaczać dekodera jako kompletnego.**
+
+## Definicja końca projektu AAC
+
+Uznanie natywnego AAC za gotowy wymaga oddzielnych bramek:
+pełnego AAC-LC mono/stereo z TNS/PNS/pulse/intensity/MS i
+przełączaniem okien; poprawnego FIL/SBR (HE-AAC);
+PS/QMF (HE-AAC v2); kontenerów ADTS i MP4/M4A;
+porównań wyjścia PCM na nagraniach, skokach i seek;
+testów błędnych ramek, ciągłości stanu i odpowiedniej wydajności
+na docelowym sprzęcie. Dopiero po tych testach wolno rozważać
+domyślne zastąpienie dotychczasowego adaptera FFmpeg.
