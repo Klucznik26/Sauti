@@ -312,12 +312,17 @@ int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
         if(ms_status==0)*reason=SAUTI_AAC_REASON_INVALID_SYNTH;
         return ms_status;
     }
+    /* Diagnostic build only: FFmpeg's float AAC decoder does not
+     * correlate NOISE_BT bands in its MS butterfly. Keep the normal
+     * Sauti behavior untouched until the PCM matrix settles this. */
+#ifndef SAUTI_AAC_DIAG_INDEPENDENT_PNS
     int pns_status=apply_correlated_pns(&parsed,rate,
                                         spectral[0],spectral[1],reason);
     if(pns_status!=1){
         if(pns_status==0)*reason=SAUTI_AAC_REASON_INVALID_SYNTH;
         return pns_status;
     }
+#endif
     if(!apply_intensity(&parsed,rate,spectral[0],spectral[1])){
         *reason=SAUTI_AAC_REASON_INTENSITY;return 0;
     }
