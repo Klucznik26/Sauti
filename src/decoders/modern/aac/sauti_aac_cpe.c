@@ -143,6 +143,7 @@ static int apply_ms(const SautiAacCpeData *cpe,unsigned rate,
  * the right transmitted noise gain. Both channels' RNG streams have
  * already been consumed; modification remains within the atomic CPE
  * transaction and never changes the stored state on failure. */
+#ifndef SAUTI_AAC_DIAG_INDEPENDENT_PNS
 static int apply_correlated_pns(const SautiAacCpeData *cpe,unsigned rate,
                                 const float left[1024],float right[1024],
                                 SautiAacReason *reason){
@@ -186,6 +187,7 @@ static int apply_correlated_pns(const SautiAacCpeData *cpe,unsigned rate,
     }
     return start_window==ics->window_count?1:0;
 }
+#endif /* SAUTI_AAC_DIAG_INDEPENDENT_PNS */
 /* Intensity Stereo (AAC-LC): only right-channel pseudo-codebooks
  * 14 (out-of-phase) and 15 (in-phase), with common_window.
  * Right spectrum = left spectrum * sign * 2^(-is_pos/4).
