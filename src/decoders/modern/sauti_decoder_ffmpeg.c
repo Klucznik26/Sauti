@@ -97,7 +97,7 @@ static int convert_frame(FfmpegState *s,SwrContext *swr,AVFrame *frame){
     if (!scratch) return 0;
     uint8_t *out=(uint8_t *)scratch;
     int count=swr_convert(swr,&out,cap,
-                          (const uint8_t *const *)frame->extended_data,
+                          (const uint8_t **)frame->extended_data,
                           frame->nb_samples);
     int ok=count>=0 && append_samples(s,scratch,(size_t)(count<0?0:count));
     free(scratch);
