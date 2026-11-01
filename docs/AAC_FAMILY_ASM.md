@@ -88,3 +88,22 @@ osiągnięciu poprawności i pokrycia testami.
 - Następny etap: rzeczywiste tablice scalefactor band zależne od sample
   rate, Huffman scalefactor/codebooks, PNS, IMDCT; dopiero wtedy PCM.
 
+
+
+## Huffman: autorski, ograniczony dekoder symboli NASM
+
+- \`sauti_aac_huffman.asm\`: odczyt pojedynczego symbolu Huffmana z
+  walidowanego drzewa binarnego; MSB-first; kontrola końca bufora i indeksów
+  tablicy. W przypadku błędu pozycja bitowa i wynik pozostają niezmienione.
+- \`sauti_aac_huffman.c\`: buduje drzewo z zewnętrznej listy par
+  kod/symbol, odrzuca duplikaty, niepełne długości, kolizje prefiksów,
+  za mały bufor i niepoprawne tablice. Nie ma alokacji na stercie.
+- \`make test-aac-huffman\`: testy syntetycznego słownika prefiksowego,
+  wartości dodatnich/ujemnych, 32-bitowych kodów i uciętych danych.
+- **Testowy słownik nie jest standardową tablicą AAC.** To ogólny silnik,
+  nie dekodowanie współczynników widmowych. W kolejnych etapach należy
+  dostarczyć zweryfikowane tablice Huffmana AAC scalefactor/spectral oraz
+  dekodowanie krotek współczynników, znaków i escape codebook 11.
+- Własne odtwarzanie AAC-LC/HE-AAC/HE-AAC v2 do PCM nadal niegotowe;
+  działający adapter FFmpeg pozostaje w użyciu.
+
