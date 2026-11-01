@@ -49,8 +49,12 @@ int main(int argc,char **argv){
         }
         total++;
         SautiAacReason reason=SAUTI_AAC_REASON_OK;
+        const uint32_t seed_before=state[0].pns_seed;
         int result=sauti_aac_lc_adts_stereo_decode_ex(bytes+offset,
                                       adts.frame_bytes,state,samples,&reason);
+        if(trace_windows && result==1)
+            printf("    pns_rng: before=%08x after=%08x\\n",
+                   (unsigned)seed_before,(unsigned)state[0].pns_seed);
         printf("  frame %zu: %s (%s)\n",total-1,
                result==1?"decoded":result==-1?"unsupported":"invalid",
                sauti_aac_reason_name(reason));
