@@ -374,7 +374,7 @@ test-aiff: $(OBJDIR)/test_decoder_aiff
 	./$(OBJDIR)/test_decoder_aiff
 test-ffmpeg: $(OBJDIR)/test_decoder_ffmpeg
 	./$(OBJDIR)/test_decoder_ffmpeg
-test-container-formats: $(OBJDIR)/test_decoder_ffmpeg
+test-container-formats: $(OBJDIR)/test_decoder_ffmpeg $(OBJDIR)/test_aac_syntax
 	sh scripts/test_container_formats.sh
 
 $(OBJDIR)/test_decoder_voc: tests/test_decoder_voc.c include/sauti_decoder_voc.h include/sauti_decoder.h src/sauti_decoder.c $(VOC_SRC) | $(OBJDIR)
