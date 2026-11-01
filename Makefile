@@ -548,6 +548,18 @@ AAC_CPE_SRC := src/decoders/modern/aac/sauti_aac_cpe.c
 $(OBJDIR)/test_aac_cpe: tests/test_aac_cpe.c include/sauti_aac_cpe.h $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_cpe.c $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) -lm -no-pie
 
+# ASan/UBSan is applied to the C sources of the CPE decoder and test.
+# Existing NASM objects are linked unchanged; sanitizer coverage does not
+# extend into hand-written assembly. Use a separate binary to keep normal
+# tests unaffected.
+AAC_SAN_FLAGS := -O1 -g -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer
+$(OBJDIR)/test_aac_cpe_san: tests/test_aac_cpe.c include/sauti_aac_cpe.h $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_cpe.c $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) -lm -no-pie
+
+.PHONY: test-aac-sanitize
+test-aac-sanitize: $(OBJDIR)/test_aac_cpe_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_cpe_san
+
 .PHONY: test-aac-cpe
 test-aac-cpe: $(OBJDIR)/test_aac_cpe
 	./$(OBJDIR)/test_aac_cpe
