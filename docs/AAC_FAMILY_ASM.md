@@ -67,3 +67,24 @@ osiągnięciu poprawności i pokrycia testami.
   także parser na prawdziwym zakodowanym pliku ADTS z testów.
 - Stan nadal **bez własnego dekodowania AAC do PCM**; zachować dotychczasowy
   odtwarzacz FFmpeg do czasu zakończenia Huffmana, IMDCT, SBR, PS.
+
+
+## AAC-LC — section_data() i rzeczywista ramka mono
+
+- \`sauti_aac_lc_sections_parse\` interpretuje section_data() bez flag
+  error resilience: 4-bitowy wybór codebook, długości 3/5 bitów,
+  escape 7/31 i maksymalny zakres grupy scalefactor band.
+- Zapamiętuje przypisanie codebook do każdej sekcji (SFB od/do),
+  nie udaje, że już dekoduje współczynniki Huffmana.
+- \`sauti_aac_lc_sce_prefix_parse\` czyta początek ID_SCE:
+  element_instance_tag, global_gain, ics_info oraz section_data;
+  kończy na wejściu scale_factor_data.
+- Test \`make test-aac-lc-sections\`: sztuczne ramki mono, krótkie okna,
+  wiele grup, escape, błędne codebooki, przekroczenia długości
+  i niezmienność po błędzie.
+- \`make test-container-formats\` dodatkowo generuje prawdziwy AAC-LC
+  mono 44,1 kHz, pomija poprzedzające ID_FIL, czyta sekcje i sprawdza
+  ich spójność. Stary test ADTS stereo pozostaje.
+- Następny etap: rzeczywiste tablice scalefactor band zależne od sample
+  rate, Huffman scalefactor/codebooks, PNS, IMDCT; dopiero wtedy PCM.
+

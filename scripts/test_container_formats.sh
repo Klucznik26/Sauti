@@ -17,6 +17,9 @@ ffmpeg -hide_banner -nostdin -loglevel error -y \
     -f lavfi -i "sine=frequency=330:sample_rate=44100:duration=0.4" \
     -ac 2 -c:a aac -f adts build/audio-fixtures/aac.aac
 ffmpeg -hide_banner -nostdin -loglevel error -y \
+    -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=0.4" \
+    -ac 1 -c:a aac -f adts build/audio-fixtures/aac_mono.aac
+ffmpeg -hide_banner -nostdin -loglevel error -y \
     -f lavfi -i "sine=frequency=660:sample_rate=44100:duration=0.4" \
     -ac 2 -c:a alac build/audio-fixtures/alac.m4a
 ffmpeg -hide_banner -nostdin -loglevel error -y \
@@ -25,5 +28,6 @@ ffmpeg -hide_banner -nostdin -loglevel error -y \
 ./build/test_decoder_ffmpeg build/audio-fixtures/aac.m4a aac
 ./build/test_decoder_ffmpeg build/audio-fixtures/aac.aac aac
 ./build/test_aac_syntax build/audio-fixtures/aac.aac
+./build/test_aac_lc_sections build/audio-fixtures/aac_mono.aac
 ./build/test_decoder_ffmpeg build/audio-fixtures/alac.m4a alac
 ./build/test_decoder_ffmpeg build/audio-fixtures/opus.webm webm
