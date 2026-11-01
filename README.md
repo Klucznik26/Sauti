@@ -4,6 +4,16 @@
 The core remains independent of PipeWire, SDL2, Wayland and operating-system
 calls. There is no native AyoOS/Windows audio adapter yet.
 
+## Creative VOC (initial PCM support)
+
+The native decoder accepts Creative Voice File blocks 1/2 (8-bit PCM),
+3 (silence), 8 (extended mono/stereo PCM), and 9 (8-bit unsigned or
+16-bit signed little-endian PCM). It supports multiple chunks and seeking.
+Files with Creative ADPCM, repeat blocks (6/7), unknown audio codecs,
+incompatible sample rates, or invalid/truncated headers are rejected
+instead of guessed. The Linux audio browser accepts .voc files.
+Run `make test-voc` for the bounded parser/PCM regression.
+
 ## Features available
 
 - NASM auto-gain (1..64x, visual only), on-screen Peak/RMS dBFS bars.

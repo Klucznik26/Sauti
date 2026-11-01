@@ -48,10 +48,11 @@ $(OBJDIR)/atariaudio/%.o: $(ATARIAUDIO_DIR)/src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) -O2 -std=c++17 -I$(ATARIAUDIO_DIR)/src -c $< -o $@
 
+VOC_SRC := src/decoders/retro/pc/sauti_decoder_voc.c
 DTM_SRC := src/decoders/retro/atari/sauti_decoder_dtm.c
 AVR_SRC := src/decoders/retro/atari/sauti_decoder_avr.c
 DVSM_SRC := src/decoders/retro/atari/sauti_decoder_dvsm.c
-PORTABLE_SRC := src/sauti_playlist.c src/sauti_transport.c src/sauti_app_state.c src/sauti_library.c src/sauti_wav.c src/sauti_record_ring.c src/sauti_audio_backend.c src/sauti_playback_time.c src/sauti_playback_backend.c src/sauti_decoder.c src/decoders/modern/sauti_decoder_wav.c src/decoders/modern/sauti_decoder_mp3.c src/decoders/modern/sauti_decoder_vorbis.c src/decoders/modern/sauti_decoder_midi.c src/decoders/modern/sauti_decoder_opus.c src/decoders/modern/sauti_decoder_flac.c src/sauti_pcm_output.c $(AVR_SRC) $(DVSM_SRC) $(DTM_SRC)
+PORTABLE_SRC := src/sauti_playlist.c src/sauti_transport.c src/sauti_app_state.c src/sauti_library.c src/sauti_wav.c src/sauti_record_ring.c src/sauti_audio_backend.c src/sauti_playback_time.c src/sauti_playback_backend.c src/sauti_decoder.c src/decoders/modern/sauti_decoder_wav.c src/decoders/modern/sauti_decoder_mp3.c src/decoders/modern/sauti_decoder_vorbis.c src/decoders/modern/sauti_decoder_midi.c src/decoders/modern/sauti_decoder_opus.c src/decoders/modern/sauti_decoder_flac.c src/sauti_pcm_output.c $(AVR_SRC) $(DVSM_SRC) $(DTM_SRC) $(VOC_SRC)
 AVR_ASM := $(OBJDIR)/sauti_decoder_avr.o
 DVSM_ASM := $(OBJDIR)/sauti_decoder_dvsm.o
 YM_SRC := src/decoders/retro/atari/sauti_decoder_ym.c
@@ -61,7 +62,7 @@ YM_ASM := $(OBJDIR)/sauti_decoder_ym.o
 ASMOBJ := $(OBJDIR)/sauti_core.o $(OBJDIR)/sauti_fft.o $(OBJDIR)/sauti_spectrum.o $(OBJDIR)/sauti_frame.o $(OBJDIR)/sauti_db_log.o $(OBJDIR)/sauti_audio_ring.o $(OBJDIR)/sauti_stereo_ring.o $(OBJDIR)/sauti_stereo_analysis.o $(OBJDIR)/sauti_stereo_bars.o $(OBJDIR)/sauti_peak_hold.o $(OBJDIR)/sauti_levels.o
 
 .PHONY: all test demo window window-pipewire run-wayland run-pipewire-mic run-pipewire-monitor smoke-headless smoke-headless-pipewire clean
-all: $(OBJDIR)/test_core $(OBJDIR)/test_fft $(OBJDIR)/test_frame $(OBJDIR)/test_db_log $(OBJDIR)/test_audio_ring $(OBJDIR)/test_stereo_ring $(OBJDIR)/test_stereo_analysis $(OBJDIR)/test_stereo_bars $(OBJDIR)/test_peak_hold $(OBJDIR)/test_auto_gain $(OBJDIR)/test_playlist $(OBJDIR)/test_transport $(OBJDIR)/test_app_state $(OBJDIR)/test_library $(OBJDIR)/test_wav $(OBJDIR)/test_record_ring $(OBJDIR)/test_audio_backend $(OBJDIR)/test_playback_time $(OBJDIR)/test_playback_backend $(OBJDIR)/test_decoder $(OBJDIR)/test_decoder_wav $(OBJDIR)/test_decoder_avr $(OBJDIR)/test_decoder_dvsm $(OBJDIR)/test_decoder_ym $(OBJDIR)/test_ym_archive $(OBJDIR)/test_decoder_mp3 $(OBJDIR)/test_pcm_output $(OBJDIR)/test_decoder_vorbis $(OBJDIR)/test_decoder_midi $(OBJDIR)/test_decoder_opus $(OBJDIR)/sauti_demo
+all: $(OBJDIR)/test_core $(OBJDIR)/test_fft $(OBJDIR)/test_frame $(OBJDIR)/test_db_log $(OBJDIR)/test_audio_ring $(OBJDIR)/test_stereo_ring $(OBJDIR)/test_stereo_analysis $(OBJDIR)/test_stereo_bars $(OBJDIR)/test_peak_hold $(OBJDIR)/test_auto_gain $(OBJDIR)/test_playlist $(OBJDIR)/test_transport $(OBJDIR)/test_app_state $(OBJDIR)/test_library $(OBJDIR)/test_wav $(OBJDIR)/test_record_ring $(OBJDIR)/test_audio_backend $(OBJDIR)/test_playback_time $(OBJDIR)/test_playback_backend $(OBJDIR)/test_decoder $(OBJDIR)/test_decoder_wav $(OBJDIR)/test_decoder_avr $(OBJDIR)/test_decoder_dvsm $(OBJDIR)/test_decoder_ym $(OBJDIR)/test_ym_archive $(OBJDIR)/test_decoder_mp3 $(OBJDIR)/test_decoder_voc $(OBJDIR)/test_pcm_output $(OBJDIR)/test_decoder_vorbis $(OBJDIR)/test_decoder_midi $(OBJDIR)/test_decoder_opus $(OBJDIR)/sauti_demo
 
 $(OBJDIR):
 	mkdir -p $@
@@ -328,6 +329,13 @@ $(OBJDIR)/test_decoder_vorbis: tests/test_decoder_vorbis.c include/sauti_decoder
 $(OBJDIR)/test_decoder_mp3: tests/test_decoder_mp3.c include/sauti_decoder.h include/sauti_decoder_mp3.h src/sauti_decoder.c src/decoders/modern/sauti_decoder_mp3.c third_party/minimp3/minimp3.h third_party/minimp3/minimp3_ex.h | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_mp3.c src/sauti_decoder.c src/decoders/modern/sauti_decoder_mp3.c
 
+$(OBJDIR)/test_decoder_voc: tests/test_decoder_voc.c include/sauti_decoder_voc.h include/sauti_decoder.h src/sauti_decoder.c $(VOC_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_voc.c src/sauti_decoder.c $(VOC_SRC)
+
+.PHONY: test-voc
+test-voc: $(OBJDIR)/test_decoder_voc
+	./$(OBJDIR)/test_decoder_voc
+
 $(OBJDIR)/test_decoder_wav: tests/test_decoder_wav.c include/sauti_decoder.h include/sauti_decoder_wav.h src/sauti_decoder.c src/decoders/modern/sauti_decoder_wav.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_wav.c src/sauti_decoder.c src/decoders/modern/sauti_decoder_wav.c
 
@@ -457,9 +465,10 @@ smoke-headless: window
 smoke-headless-pipewire: window-pipewire
 	SDL_VIDEODRIVER=dummy ./$(OBJDIR)/sauti_window_pw --source generator --frames 6
 
-test: $(OBJDIR)/test_decoder $(OBJDIR)/test_decoder_wav $(OBJDIR)/test_decoder_mp3 $(OBJDIR)/test_pcm_output $(OBJDIR)/test_decoder_vorbis $(OBJDIR)/test_playback_backend $(OBJDIR)/test_playback_time $(OBJDIR)/test_audio_backend $(OBJDIR)/test_record_ring $(OBJDIR)/test_wav $(OBJDIR)/test_library $(OBJDIR)/test_app_state $(OBJDIR)/test_transport $(OBJDIR)/test_playlist $(OBJDIR)/test_core $(OBJDIR)/test_fft $(OBJDIR)/test_frame $(OBJDIR)/test_db_log $(OBJDIR)/test_audio_ring $(OBJDIR)/test_stereo_ring $(OBJDIR)/test_stereo_analysis $(OBJDIR)/test_stereo_bars $(OBJDIR)/test_peak_hold $(OBJDIR)/test_auto_gain $(OBJDIR)/test_decoder_midi $(OBJDIR)/test_decoder_opus $(OBJDIR)/test_decoder_flac $(OBJDIR)/test_decoder_avr $(OBJDIR)/test_decoder_dvsm $(OBJDIR)/test_decoder_ym $(OBJDIR)/test_ym_archive
+test: $(OBJDIR)/test_decoder $(OBJDIR)/test_decoder_wav $(OBJDIR)/test_decoder_voc $(OBJDIR)/test_decoder_mp3 $(OBJDIR)/test_pcm_output $(OBJDIR)/test_decoder_vorbis $(OBJDIR)/test_playback_backend $(OBJDIR)/test_playback_time $(OBJDIR)/test_audio_backend $(OBJDIR)/test_record_ring $(OBJDIR)/test_wav $(OBJDIR)/test_library $(OBJDIR)/test_app_state $(OBJDIR)/test_transport $(OBJDIR)/test_playlist $(OBJDIR)/test_core $(OBJDIR)/test_fft $(OBJDIR)/test_frame $(OBJDIR)/test_db_log $(OBJDIR)/test_audio_ring $(OBJDIR)/test_stereo_ring $(OBJDIR)/test_stereo_analysis $(OBJDIR)/test_stereo_bars $(OBJDIR)/test_peak_hold $(OBJDIR)/test_auto_gain $(OBJDIR)/test_decoder_midi $(OBJDIR)/test_decoder_opus $(OBJDIR)/test_decoder_flac $(OBJDIR)/test_decoder_avr $(OBJDIR)/test_decoder_dvsm $(OBJDIR)/test_decoder_ym $(OBJDIR)/test_ym_archive
 	./$(OBJDIR)/test_decoder
 	./$(OBJDIR)/test_decoder_wav
+	./$(OBJDIR)/test_decoder_voc
 	./$(OBJDIR)/test_decoder_avr
 	./$(OBJDIR)/test_decoder_dvsm
 	./$(OBJDIR)/test_decoder_ym
