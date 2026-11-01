@@ -371,7 +371,7 @@ double sauti_mp3_sdl_position(const SautiMp3SdlPlayer *p){
          * the worker reconstructs history. Lock also synchronizes the
          * worker's update of submitted and SDL queue handoff. */
         SDL_LockMutex(p->seek_mutex);
-        if(SDL_AtomicGet(&p->seek_busy)){
+        if(SDL_AtomicGet((SDL_atomic_t *)&p->seek_busy)){
             const uint64_t requested=p->seek_request;
             SDL_UnlockMutex(p->seek_mutex);
             return (double)requested/p->decoder.info.sample_rate;
