@@ -1,4 +1,5 @@
 #include "sauti_aac_cpe.h"
+#include "sauti_aac_tables.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -11,6 +12,11 @@ static void put(Bits *b,unsigned width,unsigned value){
         b->b[b->bits/8]|=(uint8_t)(((value>>width)&1u)<<(7-b->bits%8));
         b->bits++;
     }
+}
+static void symbol(Bits *b,unsigned book,unsigned index){
+    uint32_t value=0;uint8_t width=0;
+    assert(sauti_aac_standard_codeword(book,index,&value,&width));
+    put(b,width,value);
 }
 static void ics(Bits *b,unsigned max_sfb){
     put(b,1,0);put(b,2,0);put(b,1,0); /* reserved, long, sin */
@@ -74,20 +80,56 @@ static void run(unsigned common,unsigned mask){
     for(unsigned i=0;i<2048;i++)assert(pcm[i]==42);
 }
 static void unsupported(void){
-    Bits b;sample(&b,1,2); /* MS all */
+    Bits b;sample(&b,1,3); /* reserved mask */
     size_t pos=0;
     SautiAacCpeData out={0},old=out;
     SautiAacReason reason=SAUTI_AAC_REASON_OK;
-    assert(sauti_aac_lc_cpe_parse(b.b,b.bits/8,&pos,4,&out,&reason)==-1);
-    assert(reason==SAUTI_AAC_REASON_MID_SIDE);
-    assert(pos==0 && memcmp(&out,&old,sizeof(out))==0);
-    sample(&b,1,3); /* reserved mask */
-    reason=SAUTI_AAC_REASON_OK;pos=0;
     assert(sauti_aac_lc_cpe_parse(b.b,b.bits/8,&pos,4,&out,&reason)==0);
     assert(pos==0 && memcmp(&out,&old,sizeof(out))==0);
 }
+static void nonzero_ms(unsigned mask){
+    Bits raw={0};
+    put(&raw,3,1);put(&raw,4,0);put(&raw,1,1); /* CPE common */
+    ics(&raw,1); /* SFB0 has four spectral coefficients */
+    put(&raw,2,mask);
+    if(mask==1u)put(&raw,1,1); /* MS only in SFB0 */
+    for(unsigned ch=0;ch<2;ch++){
+        put(&raw,8,100); /* global gain */
+        put(&raw,4,1);put(&raw,5,1); /* section: codebook 1 */
+        symbol(&raw,0,60); /* scalefactor delta=0 */
+        put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);
+        symbol(&raw,1,ch==0?80u:40u); /* M=+1 quad, S=zero */
+    }
+    put(&raw,3,7);
+    while(raw.bits%8u)put(&raw,1,0);
+    uint8_t frame[128];unsigned length=7u+(unsigned)(raw.bits/8u);
+    header(frame,length);memcpy(frame+7,raw.b,raw.bits/8u);
+    SautiAacLcSynthesis state[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    float pcm[2048];SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                              state,pcm,&reason)==1);
+    assert(reason==SAUTI_AAC_REASON_OK);
+    double energy=0.0;
+    for(unsigned i=0;i<1024;i++){
+        float l=pcm[2*i],r=pcm[2*i+1];
+        assert(isfinite(l)&&isfinite(r));
+        if(mask!=0)assert(fabsf(l-r)<1e-6f);
+        else assert(r==0.0f);
+        energy+=(double)l*l;
+    }
+    assert(energy>0.0);
+    size_t pos=0;
+    SautiAacCpeData parsed={0};
+    assert(sauti_aac_lc_cpe_parse(raw.b,raw.bits/8,&pos,4,
+                                  &parsed,&reason)==1);
+    assert(parsed.ms_mask_present==mask);
+    assert(parsed.ms_used[0][0]==(mask!=0));
+}
 int main(void){
-    run(0,0);run(1,0);run(1,1);unsupported();
-    puts("PASS AAC-26 CPE stereo: independent/common windows, mask gate, atomic channels");
+    run(0,0);run(1,0);run(1,1);run(1,2);
+    nonzero_ms(0);nonzero_ms(1);nonzero_ms(2);unsupported();
+    puts("PASS AAC-26/27 CPE: independent/common, MS spectral recovery, atomic channels");
     return 0;
 }
