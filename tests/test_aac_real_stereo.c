@@ -72,7 +72,7 @@ int main(int argc,char **argv){
             SautiAacCpeData cpe;
             SautiAacReason diagnostic_reason=SAUTI_AAC_REASON_OK;
             unsigned tns_count[2]={0,0},pns_count[2]={0,0};
-            unsigned intensity_count=0,ms_count=0;
+            unsigned intensity_count=0,ms_count=0,dual_pns_ms=0;
             int prefix_status=sauti_aac_raw_prefix_parse(raw,raw_length,
                                                           &bitpos,&prefix);
             if(prefix_status==2 &&
@@ -87,6 +87,10 @@ int main(int argc,char **argv){
                             if(cb==13u)pns_count[ch]++;
                             if(ch==1u && cb>=14u)intensity_count++;
                             if(ch==0u && cpe.ms_used[g][b])ms_count++;
+                            if(ch==0u && cpe.ms_used[g][b] &&
+                               cb==13u &&
+                               cpe.channel[1].factors.codebook[g][b]==13u)
+                                dual_pns_ms++;
                         }
                 }
                 /* Independent accounting of the PNS LCG steps:
@@ -117,6 +121,7 @@ int main(int argc,char **argv){
                        cpe.channel[0].ics.max_sfb,
                        tns_count[0],tns_count[1],pns_count[0],pns_count[1],
                        ms_count,intensity_count);
+                printf("    pns_stereo: dual_noise_ms_bands=%u\n",dual_pns_ms);
             }
             printf("    windows L=sequence:%u shape:%u R=sequence:%u shape:%u\n",
                    state[0].previous_sequence,state[0].previous_shape,
