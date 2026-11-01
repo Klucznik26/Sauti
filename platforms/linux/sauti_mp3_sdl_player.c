@@ -3,6 +3,7 @@
 #include "sauti_decoder_mp3.h"
 #include "sauti_decoder_vorbis.h"
 #include "sauti_decoder_wav.h"
+#include "sauti_decoder_voc.h"
 #include "sauti_decoder_midi.h"
 #include "sauti_decoder_opus.h"
 #include "sauti_decoder_flac.h"
@@ -101,7 +102,7 @@ SautiMp3SdlPlayer *sauti_mp3_sdl_open(const char *path){
 #ifdef SAUTI_HAVE_ATARIAUDIO
         &sauti_decoder_sndh_ops,
 #endif
-        &sauti_decoder_wav_ops,&sauti_decoder_opus_ops,&sauti_decoder_vorbis_ops,&sauti_decoder_midi_ops,&sauti_decoder_flac_ops,&sauti_decoder_wavpack_ops,&sauti_decoder_avr_ops,&sauti_decoder_dvsm_ops,&sauti_decoder_dtm_ops,&sauti_decoder_ym_ops,&sauti_decoder_mp3_ops};
+        &sauti_decoder_wav_ops,&sauti_decoder_voc_ops,&sauti_decoder_opus_ops,&sauti_decoder_vorbis_ops,&sauti_decoder_midi_ops,&sauti_decoder_flac_ops,&sauti_decoder_wavpack_ops,&sauti_decoder_avr_ops,&sauti_decoder_dvsm_ops,&sauti_decoder_dtm_ops,&sauti_decoder_ym_ops,&sauti_decoder_mp3_ops};
     if(!sauti_decoder_open(&p->decoder,decoders,sizeof(decoders)/sizeof(decoders[0]),p->bytes,len)){
         sauti_mp3_sdl_destroy(p);return NULL;
     }
