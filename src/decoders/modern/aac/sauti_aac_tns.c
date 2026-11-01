@@ -88,22 +88,20 @@ int sauti_aac_tns_apply(const SautiAacTnsData *tns,
         if(tns->filter_count[w]>(shortwin?1u:3u))return 0;
         for(unsigned j=0;j<tns->filter_count[w];j++){
             const SautiAacTnsFilter *f=&tns->filter[w][j];
-            if(f->length>bottom || f->order>(shortwin?7u:20u) ||
+            if(f->order>(shortwin?7u:20u) ||
                (f->resolution!=3u && f->resolution!=4u) ||
                f->compress>1u || f->direction>1u)return 0;
             const unsigned top=bottom;
-            bottom=top-f->length;
+            bottom=(f->length>top)?0u:top-f->length;
             if(!f->order)continue;
             const unsigned width=f->resolution-f->compress;
             const int half=1<<(width-1u);
-            const double pos_scale=(double)(half*2-1);
             /* Quantization normalization uses uncompressed resolution.
              * Signed coefficients are bounded by compressed bit width. */
             const double iqpos=((1<<(f->resolution-1))-0.5)/(pi/2.0);
             const double iqneg=((1<<(f->resolution-1))+0.5)/(pi/2.0);
             double lpc[SAUTI_AAC_TNS_MAX_ORDER]={0};
             double temp[SAUTI_AAC_TNS_MAX_ORDER]={0};
-            (void)pos_scale;
             for(unsigned k=0;k<f->order;k++){
                 const int q=f->coefficients[k];
                 if(q< -half || q>=half)return 0;
