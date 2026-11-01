@@ -963,10 +963,13 @@ Wymaga strumienia ADTS z jednym blokiem raw AAC
 na ramkę, AAC-LC, 2 kanały, bez CRC. Nie dekoduje
 kontenera MP4/M4A ani profili SBR/PS.
 
-- `probe/open`: waliduje nagłówki i wszystkie ramki,
-  **odrzuca** cały strumień, jeśli choć jedna ramka
-  jest uszkodzona albo wymaga nieobsługiwanego
-  narzędzia. Brak cichego pomijania uszkodzeń.
+- `probe/open`: waliduje nagłówki ADTS wszystkich ramek i
+  dekoduje **tylko pierwszą ramkę PCM**. Odrzuca strumień
+  z błędnym nagłówkiem lub pierwszą nieobsługiwaną ramką.
+  Pozostałe ładunki AAC dekoduje dopiero podczas odczytu.
+  Jeśli natrafi na nieobsługiwaną lub uszkodzoną późniejszą
+  ramkę, zatrzymuje odczyt (aktualne API nie rozróżnia
+  takiego błędu od EOF — ograniczenie do rozwiązania).
 - `read`: generuje PCM 32-bit float LRLR po 1024
   próbki na kanał, buforując tylko jedną ramkę;
   nie trzyma w pamięci całego PCM.
@@ -1019,3 +1022,26 @@ Po wygenerowaniu dotychczasowej matrycy:
 Podana ścieżka zależy od układu plików fixture
 w danej wersji skryptu; test nie tworzy własnego
 pliku audio i nie uruchamia FFmpeg.
+
+
+### AAC-LC — usunięcie blokującego predekodowania (długie pliki)
+
+Przy testowaniu nagrania 90,87 s wyszło na jaw, że
+poprzednia implementacja `open` synchronicznie
+dekodowała cały strumień AAC-LC przed pierwszym
+odtworzeniem dźwięku, a potem ponownie podczas
+`read`. Dla tysięcy ramek blokowało to obsługę UI.
+
+Teraz `open` buduje szybki indeks nagłówków ADTS,
+dekoduje tylko pierwszą ramkę i pozostawia ją
+w cache. Kolejne ramki dekodowane są na żądanie.
+`seek` nadal odtwarza historię od początku i może
+być powolny przy dużym przesunięciu; dla długich
+nagrań potrzebne będą checkpointy stanu i
+odseparowanie dekodowania od głównej pętli UI.
+
+```sh
+make test-aac-native-adapter PKG_CONFIG=/bin/false
+make window-pipewire
+./build/sauti_window_pw --source monitor
+```
