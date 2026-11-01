@@ -61,7 +61,7 @@ int sauti_aac_pns_apply(const SautiAacIcsInfo *ics,
                 double energy=0.0;
                 for(unsigned i=from;i<to;i++){
                     /* Convert deterministic 32-bit noise to [-1,1). */
-                    int32_t v=(int32_t)(advance(&rng)^0x80000000u);
+                    int32_t v=(int32_t)advance(&rng);
                     double sample=(double)v/2147483648.0;
                     next[base+i]=(float)sample;
                     energy+=sample*sample;
