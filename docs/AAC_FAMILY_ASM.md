@@ -707,3 +707,34 @@ przy `EIGHT_SHORT_SEQUENCE` i przejściach
 `LONG_START/LONG_STOP`, czy pojawiają się przy długich
 oknach. Dopiero potem lokalizować zmianę w syntezie
 okien/TNS; te dane nie dowodzą jeszcze źródła błędu.
+
+
+### AAC-29 — zawężenie na realnym `transient_44100_128k`
+
+Na 24/24 zdekodowanych ramkach największa rozbieżność PCM
+występuje dla krótkich okien `EIGHT_SHORT_SEQUENCE`
+w ramkach 1 i 22 (LEFT nRMSE odpowiednio 8,97% i 13,01%).
+W obu ramkach TNS=0/0, natomiast obecny jest PNS,
+Mid/Side i Intensity Stereo. Ramka 11 ma również krótkie
+okna, lecz TNS=1/1, a nie jest jednym z największych
+błędów. Zatem samo TNS nie może wyjaśnić obu głównych
+odchyleń.
+
+Dodano eksperyment 2x2 na **tym samym wejściowym WAV**
+oraz bitrate i częstotliwości: przełączniki kodera FFmpeg
+`-aac_pns 0/1` i `-aac_tns 0/1`. Każdy wariant tworzy
+oddzielny AAC, dekoduje natywnie i w FFmpeg oraz
+porównuje oba kanały według niezmienionych progów:
+
+```sh
+make inspect-aac-29-tools PKG_CONFIG=/bin/false
+```
+
+Wyniki: `build/audio-fixtures/aac-29/ablation/transient_44100_128k/`.
+Warianty służą **identyfikacji źródła odchyleń**;
+wyniki `-aac_pns 0` nie zastępują pełnej
+matrycy z domyślnym koderem i nie stanowią
+dowodu pełnej poprawności PNS. Ponieważ PNS generuje
+szum pseudolosowy, różne ziarna generatora w dwóch
+dekoderach mogą dać różnice próbka-po-próbce mimo
+prawidłowej energii pasma.
