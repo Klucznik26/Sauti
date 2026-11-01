@@ -99,7 +99,7 @@ static void failure(void){
     size=7u+raw.bits/8u;
     init_header(frame,(unsigned)size,4);
     memcpy(frame+7,raw.bytes,raw.bits/8u);
-    frame[3]|=0x40u; /* channel_config from 1 to 2 */
+    frame[3]=(uint8_t)((frame[3]&0x3fu)|0x80u); /* mono -> stereo */
     assert(sauti_aac_lc_adts_mono_decode(frame,size,&state,pcm)==-1);
     assert(memcmp(&old,&state,sizeof(old))==0);
     for(unsigned j=0;j<1024;j++)assert(pcm[j]==18);
