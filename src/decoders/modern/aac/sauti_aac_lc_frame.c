@@ -66,7 +66,13 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
     if(!read(raw,length,&pos,1,&flag))return 0;
     if(flag){*reason=SAUTI_AAC_REASON_PULSE;return -1;} /* pulse_data_present */
     if(!read(raw,length,&pos,1,&flag))return 0;
-    if(flag){*reason=SAUTI_AAC_REASON_TNS;return -1;} /* tns_data_present */
+    if(flag){
+        next.tns_present=1u;
+        if(!sauti_aac_tns_parse(raw,length,&pos,&next.ics,&next.tns)){
+            *reason=SAUTI_AAC_REASON_INVALID_SCE;
+            return 0;
+        }
+    } /* tns_data_present */
     if(!read(raw,length,&pos,1,&flag))return 0;
     if(flag){*reason=SAUTI_AAC_REASON_GAIN_CONTROL;return -1;} /* gain_control_data_present */
     for(unsigned i=0;i<next.sections.section_count;i++)
@@ -129,8 +135,9 @@ int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
     }
     SautiAacLcSynthesis next=*state;
     float result[1024];
-    if(!sauti_aac_lc_synthesis_frame_pns(&next,rate,&parsed.ics,
-          &parsed.sections,&parsed.factors,parsed.quant,result)){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;}
+    if(!sauti_aac_lc_synthesis_frame_tns(&next,rate,&parsed.ics,
+          &parsed.sections,&parsed.factors,parsed.quant,
+          parsed.tns_present?&parsed.tns:NULL,result)){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;}
     /* AAC-22: the internal synthesis uses an unscaled spectral
      * amplitude convention. Real 440 Hz ADTS comparison established
      * native/reference RMS = 65536.4 (2^16), with correlation 1.0.
