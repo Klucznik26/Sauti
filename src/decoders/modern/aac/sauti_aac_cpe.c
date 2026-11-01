@@ -72,18 +72,13 @@ int sauti_aac_lc_cpe_parse(const uint8_t *raw,size_t length,
         uint32_t mask=0;
         if(!get(raw,length,&pos,2,&mask)||mask==3u)return 0;
         parsed.ms_mask_present=mask;
-        if(mask==2u){
-            /* MS applies to all bands; do not interpret without stereo DSP. */
-            *reason=SAUTI_AAC_REASON_MID_SIDE;return -1;
-        }
-        if(mask==1u){
+        if(mask==1u || mask==2u){
             for(unsigned g=0;g<shared.group_count;g++)
                 for(unsigned sfb=0;sfb<shared.max_sfb;sfb++){
-                    uint32_t used=0;
-                    if(!get(raw,length,&pos,1,&used))return 0;
-                    if(used){
-                        *reason=SAUTI_AAC_REASON_MID_SIDE;return -1;
-                    }
+                    uint32_t used=mask==2u?1u:0u;
+                    if(mask==1u && !get(raw,length,&pos,1,&used))
+                        return 0;
+                    parsed.ms_used[g][sfb]=(uint8_t)used;
                 }
         }
     }
