@@ -137,3 +137,22 @@ z `PKG_CONFIG=/bin/false`, co wyłącza wykrywanie zewnętrznych bibliotek
 i wymusza osobną rekompilację z `-B`. Testy nie wymagają zainstalowania
 bibliotek FFmpeg. **To nie oznacza jeszcze, że program odtwarza AAC
 samodzielnie**: do tego potrzebne są normatywne tablice i dalsze etapy DSP.
+
+
+## AAC-6 — normatywne tablice Huffmana (2026-11-01)
+
+- `sauti_aac_tables.c`: 11 kompletnych standardowych codebooków widmowych
+  i codebook scalefactor (121 symboli), bez wywołań FFmpeg.
+- Wartości kodów/długości sprawdzone na podstawie tabel z FFmpeg
+  `libavcodec/aactab.c` (Oded Shimon / Maxim Gavrilov; źródło LGPL-2.1+).
+  Przed wydaniem dystrybucyjnym ustalić zasady redystrybucji tych danych,
+  obowiązki licencyjne i przypisanie autorstwa.
+- Drzewa budowane są własną funkcją `sauti_aac_huffman_tree_build`, a
+  odczyt symboli pozostaje własnym kodem NASM. Największe drzewo ma 577
+  węzłów, przy limicie 4096; bez alokacji na stercie.
+- `make test-aac-tables` bada wszystkie 1362 kodów we wszystkich 12 tablicach, indeksy scalefactor -60..60, ścieżkę spectral 11 z ESC
+  i brak zatwierdzenia wyniku dla uciętych danych. Ten test dołączono do
+  `make test-aac-native`.
+- To na razie warstwa kodowa Huffmana. Jeszcze nie ma kompletnej ścieżki
+  scale_factor_data/spectral_data w ICS, odwrotnej kwantyzacji i IMDCT,
+  więc Sauti NIE dekoduje samodzielnie AAC do PCM.
