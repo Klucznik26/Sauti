@@ -104,6 +104,30 @@ int main(int argc,char **argv){
     assert(!sauti_decoder_seek(&decoder,2049));
     sauti_decoder_close(&decoder);
 
+    /* Exercise the 64-frame state checkpoint boundary, both directions,
+     * with a 130-frame ADTS stream. Seeking must reconstruct bit-identical
+     * PCM after history has been populated through sequential playback. */
+    {
+        enum { COUNT = 130 };
+        uint8_t *long_adts=malloc(COUNT*n);
+        assert(long_adts);
+        for(unsigned i=0;i<COUNT;i++)memcpy(long_adts+i*n,bytes,n);
+        assert(sauti_decoder_open(&decoder,registry,1,long_adts,COUNT*n));
+        float chunk[4096];
+        for(unsigned i=0;i<COUNT;i++)
+            assert(sauti_decoder_read(&decoder,chunk,1024)==1024);
+        assert(sauti_decoder_seek(&decoder,64u*1024u+511u));
+        assert(sauti_decoder_read(&decoder,chunk,2048)==2048);
+        for(unsigned i=0;i<4096;i++)assert(chunk[i]==0);
+        assert(sauti_decoder_seek(&decoder,129u*1024u+100u));
+        assert(sauti_decoder_read(&decoder,chunk,924)==924);
+        for(unsigned i=0;i<1848;i++)assert(chunk[i]==0);
+        assert(sauti_decoder_seek(&decoder,0));
+        assert(sauti_decoder_read(&decoder,chunk,1024)==1024);
+        sauti_decoder_close(&decoder);
+        free(long_adts);
+    }
+
     /* Strict fail closed: truncated second ADTS or invalid tool must
      * not produce a partially playable decoder. */
     assert(!sauti_decoder_open(&decoder,registry,1,bytes,2*n-1));
