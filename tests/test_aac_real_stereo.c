@@ -48,7 +48,7 @@ int main(int argc,char **argv){
         total++;
         SautiAacReason reason=SAUTI_AAC_REASON_OK;
         int result=sauti_aac_lc_adts_stereo_decode_ex(bytes+offset,
-                                      adts.frame_bytes,&state,samples,&reason);
+                                      adts.frame_bytes,state,samples,&reason);
         printf("  frame %zu: %s (%s)\n",total-1,
                result==1?"decoded":result==-1?"unsupported":"invalid",
                sauti_aac_reason_name(reason));
