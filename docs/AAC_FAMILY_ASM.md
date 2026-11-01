@@ -312,3 +312,37 @@ samodzielnie**: do tego potrzebne są normatywne tablice i dalsze etapy DSP.
   Brakuje wielu legalnych narzędzi AAC, wsparcia stereo, porównania
   numerycznego PCM z referencją na muzyce i optymalizacji IMDCT.
   Nie należy traktować testu ciszy jako dowodu jakości dźwięku.
+
+
+## AAC-15–18 — rzeczywiste audio, powody odrzuceń, pomiar DSP (2026-11-01)
+
+- **AAC-15:** `make test-aac-tone` tworzy za pomocą `ffmpeg` prawdziwe
+  440 Hz AAC-LC mono w ADTS oraz odpowiedź referencyjną jako float32 PCM.
+  `test_aac_real_mono` zapisuje własne 1024-próbkowe bloki do pliku
+  `aac_native_tone.f32`, a osobno maskę `aac_native_tone.mask`.
+  Niewspierane ramki mają w eksporcie dokładnie zerowy placeholder; nie
+  są uznawane za udane dekodowanie i wyklucza się je z porównań.
+- **AAC-16:** wariant `sauti_aac_lc_adts_mono_decode_ex` zwraca kod statusu
+  oraz `SautiAacReason`. W logach widać konkretne powody odmowy,
+  np. `tns`, `pulse`, `gain_control`, `pns`, `intensity`,
+  `unsupported_fil`, `unsupported_adts`, `invalid_spectral`.
+  Pomaga to ustalić, co blokuje rzeczywistą muzykę.
+- **AAC-17:** `tools/compare_aac_pcm.py` analizuje zgodność z FFmpeg:
+  przeszukuje względne przesunięcia o krok 16 próbek w zakresie ±2048,
+  wyznacza korelację i stosunek RMS w natywnych ramkach zaakceptowanych
+  przez dekoder. To analiza diagnostyczna, nie dowód zgodności ze
+  specyfikacją; raport `NOT VERIFIED` oznacza wykrytą niezgodność.
+  Dodatkowe testy sprawdzają szczegółowe powody odmowy i atomowość stanu.
+- **AAC-18:** `make bench-aac-imdct` mierzy czas obecnej referencyjnej
+  transformacji 128/1024 z `clock_gettime(CLOCK_MONOTONIC)`, podaje czas
+  bloku i relację względem nominalnego budżetu przy 44,1 kHz.
+  To oddzielny pomiar, nie automatyczny PASS real-time.
+- `make inspect-aac-15-18` uruchamia test tonu oraz benchmark; pierwszy
+  wymaga programu `ffmpeg` i `python3`. Do standardowego
+  `make test-aac-native` wchodzą tylko deterministyczne testy regresji,
+  aby brak programu ffmpeg nie podszywał się pod błąd naszego kodu.
+- **Ograniczenia:** porównanie korelacyjne bazuje na ramkach bez
+  niewspieranych narzędzi; nie wykonuje pełnego rozwiązania opóźnienia
+  kodera, nie kompensuje poprawnie wszystkich przypadków utraty stanu
+  historycznego, nie bada SBR/PS. Obecna skala IMDCT i zgodność PCM
+  wymagają jeszcze weryfikacji w nagraniach niezerowych.
