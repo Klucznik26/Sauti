@@ -16,7 +16,8 @@ static int get(const uint8_t *data,size_t length,size_t *pos,
 }
 static int channel_parse(const uint8_t *data,size_t length,size_t *pos,
                          unsigned rate,const SautiAacIcsInfo *common,
-                         SautiAacLcMonoData *ch,SautiAacReason *reason){
+                         SautiAacLcMonoData *ch,SautiAacReason *reason,
+                         unsigned allow_intensity){
     uint32_t v=0;
     if(!get(data,length,pos,8,&ch->global_gain))return 0;
     if(common)ch->ics=*common;
@@ -44,7 +45,7 @@ static int channel_parse(const uint8_t *data,size_t length,size_t *pos,
     if(!get(data,length,pos,1,&v))return 0;
     if(v){*reason=SAUTI_AAC_REASON_GAIN_CONTROL;return -1;}
     for(unsigned i=0;i<ch->sections.section_count;i++)
-        if(ch->sections.sections[i].codebook>=14u){
+        if(ch->sections.sections[i].codebook>=14u && !allow_intensity){
             *reason=SAUTI_AAC_REASON_INTENSITY;return -1;
         }
     if(!sauti_aac_lc_spectral_data_parse(data,length,pos,rate,&ch->ics,
@@ -86,9 +87,11 @@ int sauti_aac_lc_cpe_parse(const uint8_t *raw,size_t length,
     for(unsigned ch=0;ch<2;ch++){
         int status=channel_parse(raw,length,&pos,rate,
                                 common?&shared:NULL,&parsed.channel[ch],
-                                reason);
+                                reason,common && ch==1u);
         if(status!=1)return status;
     }
+    /* Intensity is permitted only in the right channel of a CPE
+     * with common_window. For independent ICS, channel_parse fails. */
     *out=parsed;
     *bit_offset=pos;
     *reason=SAUTI_AAC_REASON_OK;
@@ -112,6 +115,7 @@ static int apply_ms(const SautiAacCpeData *cpe,unsigned rate,
             if(!cpe->ms_used[g][band])continue;
             const unsigned a=cpe->channel[0].factors.codebook[g][band];
             const unsigned b=cpe->channel[1].factors.codebook[g][band];
+            if(b==14u || b==15u)continue; /* intensity handles MS sign */
             if(a>11u || b>11u){
                 *reason=SAUTI_AAC_REASON_MID_SIDE;return -1;
             }
@@ -131,6 +135,52 @@ static int apply_ms(const SautiAacCpeData *cpe,unsigned rate,
         first_window+=ics->group_length[g];
     }
     return first_window==ics->window_count;
+}
+/* Intensity Stereo (AAC-LC): only right-channel pseudo-codebooks
+ * 14 (out-of-phase) and 15 (in-phase), with common_window.
+ * Right spectrum = left spectrum * sign * 2^(-is_pos/4).
+ * For MS-marked intensity bands the sign is inverted, but MS itself
+ * must not be applied to these bands. Apply after MS, before TNS.
+ */
+static int apply_intensity(const SautiAacCpeData *cpe,unsigned rate,
+                           const float left[1024],float right[1024]){
+    const SautiAacIcsInfo *ics=&cpe->channel[1].ics;
+    const unsigned shortwin=ics->window_sequence==2u;
+    const uint16_t *offsets=NULL;unsigned count=0;
+    if(!sauti_aac_band_offsets(rate,shortwin,&offsets,&count) ||
+       ics->max_sfb>count)return 0;
+    unsigned group_start=0;
+    for(unsigned g=0;g<ics->group_count;g++){
+        if(ics->group_length[g]==0 ||
+           group_start+ics->group_length[g]>ics->window_count)return 0;
+        for(unsigned band=0;band<ics->max_sfb;band++){
+            unsigned cb=cpe->channel[1].factors.codebook[g][band];
+            if(cb!=14u && cb!=15u)continue;
+            if(!cpe->common_window)return 0;
+            unsigned left_cb=cpe->channel[0].factors.codebook[g][band];
+            if(left_cb>=13u)return 0; /* PNS stereo correlation deferred */
+            const int32_t position=cpe->channel[1].factors.value[g][band];
+            if(position < -512 || position > 512)return 0;
+            double sign=cb==15u?1.0:-1.0;
+            if(cpe->ms_used[g][band])sign=-sign;
+            double scale=sign*exp2(-(double)position/4.0);
+            if(!isfinite(scale))return 0;
+            const unsigned first=offsets[band],last=offsets[band+1u];
+            if(first>=last || last>(shortwin?128u:1024u))return 0;
+            for(unsigned w=group_start;
+                 w<group_start+ics->group_length[g];w++){
+                unsigned base=w*(shortwin?128u:1024u);
+                for(unsigned k=first;k<last;k++){
+                    double value=(double)left[base+k]*scale;
+                    if(!isfinite(value) || fabs(value)>3.402823466e38)
+                        return 0;
+                    right[base+k]=(float)value;
+                }
+            }
+        }
+        group_start+=ics->group_length[g];
+    }
+    return group_start==ics->window_count;
 }
 int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
                                       SautiAacLcSynthesis state[2],
@@ -205,6 +255,9 @@ int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
     if(ms_status!=1){
         if(ms_status==0)*reason=SAUTI_AAC_REASON_INVALID_SYNTH;
         return ms_status;
+    }
+    if(!apply_intensity(&parsed,rate,spectral[0],spectral[1])){
+        *reason=SAUTI_AAC_REASON_INTENSITY;return 0;
     }
     for(unsigned ch=0;ch<2;ch++){
         const SautiAacLcMonoData *data=&parsed.channel[ch];
