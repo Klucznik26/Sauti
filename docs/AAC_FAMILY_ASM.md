@@ -838,3 +838,41 @@ odrzuca ten przypadek; nie należy deklarować pełnej
 obsługi wszystkich kombinacji AAC-LC.
 Powtórzenie 36/36 PASS przy kodowaniu bez PNS jest
 punktem kontrolnym niepodlegającym zmianie.
+
+
+## AAC-29C — skorelowany PNS stereo
+
+Po 36/36 PASS w matrycy AAC bez PNS oraz poprawnym
+zestawie AAC-29B dodano obsługę wspólnego szumu PNS
+sygnalizowanego flagą `ms_used` w CPE.
+
+- Jeśli pasmo obu kanałów ma codebook `13` i `ms_used=1`,
+  oznacza to korelację szumu, a **nie** klasyczną operację
+  widmową `Mid/Side`. Widmo prawego kanału otrzymuje
+  tę samą realizację szumu co kanał lewy, przeskalowaną
+  proporcją zakodowanych energii
+  `2^((noise_sf_right-noise_sf_left)/4)`.
+- Dwa pasma kodowane PNS bez flagi `ms_used` pozostają
+  niezależnymi realizacjami szumu.
+- Mieszane PNS/spectral przy `ms_used=1` pozostają
+  wyraźnie odrzucane jako nieobsługiwane; nie
+  wykonywać na nich zwykłej rekonstrukcji M/S.
+- Zmiany stanu dekodera i PCM nadal są atomowe; na
+  błędzie nie wolno ich zatwierdzać.
+
+Test `test-aac-cpe` zawiera syntetyczne rzeczywiste
+ramki ADTS z maską `ms_mask_present=1` i `2`,
+z różnicą skalefaktorów `0` i `4` oraz kontrolą
+stosunku energii na dwóch kolejnych ramkach.
+
+```sh
+make -B test-aac-cpe test-aac-pns PKG_CONFIG=/bin/false
+make inspect-aac-29-no-pns PKG_CONFIG=/bin/false
+make inspect-aac-29-full PKG_CONFIG=/bin/false
+```
+
+**Uwaga:** testy nowych ramek są regresją funkcjonalną,
+nie są jeszcze kompletną certyfikacją zgodności wszystkich
+wariantów PNS stereo. Porównanie próbka-po-próbce z FFmpeg
+przy włączonym PNS może różnić się z powodu generatora
+pseudolosowego.
