@@ -235,3 +235,26 @@ samodzielnie**: do tego potrzebne są normatywne tablice i dalsze etapy DSP.
 - Sama IMDCT nie obsługuje przejść między długimi/krótkimi oknami,
   okna SIN/KBD, TNS ani PNS. Istniejący `window_overlap_asm` pozostaje
   osobną procedurą; pełnego dekodowania AAC do PCM nadal NIE ma.
+
+
+## AAC-11 — okna SIN/KBD i synteza sekwencji (2026-11-01)
+
+- `sauti_aac_window.c` generuje okna SIN i KBD (alpha 4 long,
+  alpha 6 short), z poprawną normalizacją KBD względem N+1
+  próbek Kaisera, zapewniającą komplementarność połówek.
+- Obsługuje ONLY_LONG, LONG_START, EIGHT_SHORT i LONG_STOP.
+  Osiem krótkich transformacji po 256 próbek jest składanych do
+  jednego bloku 2048, zaczynając od offsetu 448 i kroku 128.
+  Pierwsze lewe półokno wykorzystuje poprzedni kształt; kolejne
+  oraz prawe półokna bieżący kształt.
+- Końcowe 1024 próbek i stan overlap tworzy istniejąca procedura
+  `sauti_aac_window_overlap_asm` w NASM, wywołana na wcześniej
+  złożonym i okienkowanym buforze z jednostkowym oknem.
+- Zmiany są atomowe na błędnych argumentach i niepoprawnych wartościach
+  NaN/Inf. Nie ma alokacji ani zależności od FFmpeg.
+- `make test-aac-window` sprawdza Princen-Bradley dla 128/1024,
+  wszystkie cztery sekwencje z niezależnym wzorcem układu, powiązanie
+  lewego/prawego kształtu oraz rollback po błędach.
+- Kod pozostaje niezintegrowanym modułem syntezy. Do pełnego AAC-LC
+  brakuje m.in. TNS/PNS, kontrolowanej kolejności przejść okien,
+  obsługi ramek i testów PCM względem prawdziwych plików.
