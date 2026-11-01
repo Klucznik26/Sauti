@@ -16,8 +16,17 @@ int sauti_aac_imdct(const float *spectral,size_t n,float *time_samples){
     for(size_t t=0;t<2u*n;t++){
         const double phase=(pi/(double)n) *
                            ((double)t+0.5+(double)n/2.0);
+        /* Cosine recurrence: two libm calls per row, instead of n.
+         * Keep double phase accumulation; the NASM SSE2 dot product and
+         * explicit 2/n scaling remain unchanged. This is still O(n^2). */
+        const double twice_cos=2.0*cos(phase);
+        double previous=cos(0.5*phase);
+        double current=previous;
         for(size_t k=0;k<n;k++){
-            basis[k]=(float)cos(phase*((double)k+0.5));
+            basis[k]=(float)current;
+            double following=twice_cos*current-previous;
+            previous=current;
+            current=following;
         }
         const double sum=sauti_aac_imdct_dot_asm(spectral,basis,n);
         const double value=normalized*sum;
