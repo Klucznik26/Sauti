@@ -23,7 +23,7 @@ int main(int argc,char **argv){
     size_t read_count=fread(bytes,1,(size_t)end,f);
     fclose(f);
     if(read_count!=(size_t)end){free(bytes);return 2;}
-    SautiAacLcSynthesis state[2]={{0},{0}};
+    SautiAacLcSynthesis state[2]={0};
     if(!sauti_aac_lc_synthesis_init(&state[0],0) ||
        !sauti_aac_lc_synthesis_init(&state[1],0)){
         free(bytes);return 2;
