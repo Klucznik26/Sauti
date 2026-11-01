@@ -633,3 +633,53 @@ AAC-28:
    make inspect-aac-stereo PKG_CONFIG=/bin/false`.
   Dopiero porównanie PCM kanału LEFT i RIGHT z referencją
   pozwala nazwać obsługę rzeczywistego stereo potwierdzoną.
+
+
+## AAC-29 — reprodukowalna matryca stereo / rygorystyczna walidacja
+
+Cel: odróżnić poprawne dekodowanie pełnego strumienia od
+częściowej zgodności PCM. W AAC-28 pojedynczy strumień
+440 Hz / 880 Hz osiągnął 21/21 ramek, korelacje
+LEFT=0.999999967 i RIGHT=0.999999945, ale to
+**nie jest jeszcze pełna zgodność AAC-LC**.
+
+Nowe narzędzia:
+- `tools/generate_aac_stereo_fixtures.py` generuje trzy
+  **autorskie, syntetyczne** sygnały stereo: `tonal`,
+  `transient`, `dense` (instrumenty, bas, impulsy, szum),
+  zapisane jako stereo 16-bit WAV. Nie wymagają pobierania
+  ani wykorzystywania chronionych nagrań.
+- `scripts/inspect_aac_stereo_matrix.py` koduje z FFmpeg CLI
+  3 rodzaje materiału x 3 częstotliwości (32000/44100/48000)
+  x 4 bitrate (64/128/192/256 kb/s): **36 wariantów**.
+  Nie korzysta z bibliotek FFmpeg podczas dekodowania Sauti.
+- `tools/verify_aac_stereo_strict.py` **zwraca kod błędu**,
+  jeśli pominięto choć jedną ramkę lub jeśli którykolwiek
+  kanał nie spełnia metryk: korelacja >= 0.999,
+  native/ref RMS w [0.99,1.01],
+  normalized RMSE <= 0.03, minimum 1024 porównanych próbek.
+  Test wymaga ciągłości dekodowania wszystkich ramek i
+  zgodnych długości danych. Test nie dopasowuje wzmocnienia
+  ani przesunięcia czasowego (`lag=0`). Pomija tylko
+  pierwszą ramkę jako rozgrzewkę overlap.
+- `tests/test_aac_stereo_strict.py` sprawdza, że brak
+  ramki, błąd fazy prawego kanału, niewłaściwy poziom
+  lewego, NaN lub niewłaściwa długość prowadzą do porażki.
+
+Polecenia:
+
+```sh
+make -B test-aac-native PKG_CONFIG=/bin/false
+make inspect-aac-29-smoke PKG_CONFIG=/bin/false
+make inspect-aac-29-full PKG_CONFIG=/bin/false
+```
+
+`smoke` obejmuje trzy reprezentatywne przypadki,
+`full` wszystkie 36. W obu trybach tworzony jest
+`build/audio-fixtures/aac-29/summary_<mode>.json`
+oraz log i maska dla każdego wariantu.
+Każdy nieudany wariant jest raportowany, a całe polecenie
+kończy się błędem. Oczekiwany sukces **nie jest
+deklarowany przed wykonaniem rzeczywistej matrycy**.
+Nadal wymagane testy uszkodzonych strumieni i
+nieobsługiwanych kombinacji stereo PNS/MS.
