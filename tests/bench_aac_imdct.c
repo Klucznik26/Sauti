@@ -1,6 +1,6 @@
 /* AAC-18: intentionally separate performance check (not PASS/FAIL).
- * Reference IMDCT has O(n^2) complexity and runs expensive cos().
- * This measures wall clock on the host without changing production DSP. */
+ * Benchmarks the optimized native FFT IMDCT against a real-time
+ * frame budget. It is a diagnostic, not a machine-independent gate. */
 #define _POSIX_C_SOURCE 200809L
 #include "sauti_aac_imdct.h"
 #include <math.h>
