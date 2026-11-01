@@ -1208,3 +1208,37 @@ Stan RNG jest lokalnie deterministyczny; docelowo
 trzeba go porównać z niezależną implementacją
 lub śladem FFmpeg, zanim zmienimy kolejność
 pasm, współdzielenie szumu czy resztę syntezy.
+
+
+### AAC-29 — izolacja stereo MS/PNS bez zmiany produkcyjnego dekodera
+
+Z diagnostyki `transient_44100_128k` wynika, że stan LCG
+jest ciągły, a liczba wywołań generatora odpowiada
+faktycznym szerokościom pasm PNS w obu kanałach:
+ramka 0: 892, ramki 1 i 22: po 136, ramka 23: 0.
+Nie potwierdza to jeszcze kolejności wartości
+ani poprawności wynikowego PCM.
+
+Porównanie z referencyjną ścieżką float FFmpeg
+(`aacdec_dsp_template.c`) pokazało, że jej
+mid/side butterfly pomija pasma NOISE_BT,
+podczas gdy Sauti dodatkowo koreluje prawe
+pasmo PNS z lewym. To różnica do zbadania,
+nie wystarczający dowód błędu Sauti.
+
+Dla rozstrzygnięcia dodano **wyłącznie
+diagnostyczną** kompilację
+`build/test_aac_real_stereo_pns_independent`
+z makrem `SAUTI_AAC_DIAG_INDEPENDENT_PNS`.
+Porównuje ona wynik bez korelacji PNS z
+produkcyjnym algorytmem Sauti, używając
+niezmienionego walidatora i FFmpeg PCM:
+```sh
+python3 scripts/compare_aac_pns_stereo_modes.py --case transient_44100_128k
+```
+Drugi wariant nie jest używany przez odtwarzacz,
+nie zmienia domyślnego testu AAC-29 i nie stanowi
+obejścia testów zgodności. Jeśli korelacja w Sauti
+jest przyczyną, wariant powinien zmniejszyć
+nRMSE; jeśli nie, należy zbadać próbki PNS i
+ścieżkę syntezy niezależnie.
