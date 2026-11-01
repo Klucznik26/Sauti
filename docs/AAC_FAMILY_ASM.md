@@ -346,3 +346,21 @@ samodzielnie**: do tego potrzebne są normatywne tablice i dalsze etapy DSP.
   kodera, nie kompensuje poprawnie wszystkich przypadków utraty stanu
   historycznego, nie bada SBR/PS. Obecna skala IMDCT i zgodność PCM
   wymagają jeszcze weryfikacji w nagraniach niezerowych.
+
+
+## Obserwacja testu 440 Hz: 2026-11-01
+
+Na Fedorze, dla `aac_native_tone.aac`: 21 ramek, w tym
+1× `unsupported_fil`, 19× `pns` i końcowe
+`invalid_synthesis`. Żadna ramka nie dostarczyła PCM — porównanie
+jakości z FFmpeg jest w tym przebiegu **niewykonalne**.
+Oznaczenie ostatniej ramki jako błędnej było niejednoznaczne, ponieważ
+skrypt po każdym odrzuceniu inicjalizował od zera overlap, udając
+ciągłą historię. Poprawka oznacza historię jako nieznaną
+(`state.initialized=0`); późniejsza syntaktycznie poprawna ramka
+bez PNS i innych blokad raportuje `unsupported_history` (-1), a
+nie `invalid_synthesis` (0). Po odrzuceniu dowolnej ramki PCM
+z tego fragmentu nie może służyć do porównania z referencją.
+Dopiero wsparcie PNS i świadome zarządzanie ciągłością pozwolą
+zweryfikować pełny przebieg. Następny krok: normatywna synteza PNS
+oraz kontrola FIL/SBR bez przyjmowania nieznanych rozszerzeń.
