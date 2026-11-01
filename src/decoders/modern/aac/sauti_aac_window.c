@@ -27,18 +27,19 @@ int sauti_aac_window_generate(unsigned n,unsigned shape,float *window){
             window[2u*n-1u-i]=value;
         }
     }else{
-        /* AAC KBD alpha = 4 for long, 6 for short windows.
-         * Cumulative Kaiser weights normalized over N samples. */
-        double sum=0.0,acc=0.0;
+        /* KBD uses N+1 Kaiser samples; the extra endpoint sample
+         * ensures Princen-Bradley complementarity of opposing halves. */
         const double alpha=n==1024u?4.0:6.0;
-        for(unsigned i=0;i<n;i++){
-            double x=(2.0*(double)i/(double)(n-1u))-1.0;
-            sum+=bessel_i0(pi*alpha*sqrt(fmax(0.0,1.0-x*x)));
+        const double factor=2.0*pi*alpha/(double)n;
+        double denominator=0.0,acc=0.0;
+        for(unsigned i=0;i<=n;i++){
+            double z=factor*sqrt((double)i*((double)n-(double)i));
+            denominator+=bessel_i0(z);
         }
         for(unsigned i=0;i<n;i++){
-            double x=(2.0*(double)i/(double)(n-1u))-1.0;
-            acc+=bessel_i0(pi*alpha*sqrt(fmax(0.0,1.0-x*x)));
-            float value=(float)sqrt(acc/sum);
+            double z=factor*sqrt((double)i*((double)n-(double)i));
+            acc+=bessel_i0(z);
+            float value=(float)sqrt(acc/denominator);
             window[i]=value;
             window[2u*n-1u-i]=value;
         }
@@ -51,8 +52,7 @@ int sauti_aac_window_synth(unsigned sequence,unsigned previous_shape,
                            float pcm[1024],float next_overlap[1024]){
     if(sequence>3u || previous_shape>1u || current_shape>1u ||
        !imdct || !previous_overlap || !pcm || !next_overlap)return 0;
-    const unsigned len=sequence==2u?2048u:2048u;
-    for(unsigned i=0;i<len;i++)
+    for(unsigned i=0;i<2048u;i++)
         if(!isfinite(imdct[i]))return 0;
     for(unsigned i=0;i<1024;i++)
         if(!isfinite(previous_overlap[i]))return 0;
