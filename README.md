@@ -14,6 +14,25 @@ incompatible sample rates, or invalid/truncated headers are rejected
 instead of guessed. The Linux audio browser accepts .voc files.
 Run `make test-voc` for the bounded parser/PCM regression.
 
+## AAC, Ogg, WebM, ALAC and AIFF
+
+- Ogg Vorbis and Ogg Opus were already supported (Opus requires opusfile).
+- Native AIFF / AIFF-C uncompressed signed PCM 8/16/24/32-bit decoder:
+  AIFF big-endian and AIFC `sowt` little-endian. Unknown compression
+  is rejected.
+- Optional *in-process* FFmpeg adapter: ADTS AAC (`.aac`), AAC or ALAC
+  in MP4/M4A (`.m4a`, including MP4 renamed to `.alac`), and WebM with
+  Opus/Vorbis (`.webm`). Content and codec are checked, not just the suffix.
+- Fedora packages: `sudo dnf install ffmpeg-free-devel`, then rebuild
+  with `make clean && make test && make window-pipewire`.
+- Test via `make test-aiff`, `make test-ffmpeg`, `make test-container-formats`.
+  The FFmpeg command-line utility is only used to *generate tests*, not
+  to play music.
+- The initial FFmpeg decoder buffers PCM at open, up to 512 MiB of float
+  samples. Long recordings may not load until streaming support is added.
+- Without FFmpeg development files Sauti still compiles; AAC/ALAC/WebM
+  adapters remain disabled.
+
 ## Features available
 
 - NASM auto-gain (1..64x, visual only), on-screen Peak/RMS dBFS bars.
