@@ -683,3 +683,27 @@ kończy się błędem. Oczekiwany sukces **nie jest
 deklarowany przed wykonaniem rzeczywistej matrycy**.
 Nadal wymagane testy uszkodzonych strumieni i
 nieobsługiwanych kombinacji stereo PNS/MS.
+
+
+### AAC-29 — analiza niezgodności transjentów
+
+Pełna matryca z Fedory: **26/36 PASS**. Wszystkie 36
+strumieni mają pełne dekodowanie ramek, ale 10 z 12
+`transient` przekracza próg PCM (normalized RMSE 3%,
+czasem także korelację 0.999). Wszystkie `tonal` i
+`dense` mają 12/12 PASS. To **błąd jakości**, nie błąd
+składni ani ucięta historia dekodowania. Nie luzować progu.
+
+Do ustalenia przyczyny, bez zmian w torze PCM, dodano:
+- `tools/diagnose_aac_stereo_frames.py native.f32 reference.f32 mask`
+  — identyfikuje ramki, kanały i numery próbek
+  odpowiadające największemu błędowi;
+- opcjonalny `SAUTI_AAC_TRACE_WINDOWS=1` w
+  `build/test_aac_real_stereo`, pokazujący ICS window_sequence
+  i window_shape obu kanałów po każdej poprawnej ramce.
+
+Do sprawdzenia po diagnostyce: czy błędy skupiają się
+przy `EIGHT_SHORT_SEQUENCE` i przejściach
+`LONG_START/LONG_STOP`, czy pojawiają się przy długich
+oknach. Dopiero potem lokalizować zmianę w syntezie
+okien/TNS; te dane nie dowodzą jeszcze źródła błędu.
