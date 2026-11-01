@@ -1104,3 +1104,30 @@ make bench-aac-imdct PKG_CONFIG=/bin/false
 make window-pipewire
 ./build/sauti_window_pw --source monitor
 ```
+
+
+### AAC-LC — ciągłość dźwięku podczas przewijania
+
+Po teście na 90,91-sekundowym `1.aac` na Fedorze
+potwierdzono brak zrzutu pamięci i możliwość
+przewijania, ale użytkownik zgłosił około 0,5–1 s
+ciszy po przesunięciu paska.
+
+Poprawiono logikę kolejki SDL: przy żądaniu
+asynchronicznego seek **nie usuwa się od razu**
+już zakolejkowanych próbek. Wątek rekonstrukcji
+historii AAC pracuje, gdy SDL nadal odtwarza
+wcześniejsze PCM. Dopiero gdy ostatnia żądana
+pozycja zostanie przygotowana, wątek usuwa
+starą kolejkę SDL i ustawia nową pozycję odczytu;
+`pump` następnie uzupełnia PCM. Dla natywnego
+AAC kolejka ma bufor docelowo ok. 2 s zamiast
+0,5 s, co zwiększa margines przy długich seek.
+
+To kompromis: podczas przygotowania nowej
+pozycji słychać przez krótki czas **stary fragment**
+utworu; przełączenie nie musi być natychmiastowe.
+Dla odległych seek dłuższych niż czas bufora
+wciąż może wystąpić przerwa; mechanizm nie
+gwarantuje bezprzerwowości przy każdej pozycji.
+Inne kodeki zachowują dotychczasową kolejkę.
