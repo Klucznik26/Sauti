@@ -106,6 +106,55 @@ static void prefixed_fil(void){
         }
     }
 }
+static void tns_frame(void){
+    /* Spectral data uses zero-valued Huffman quad. A present TNS
+     * filter with order=0 must be accepted without changing PCM. */
+    Bits raw={0};
+    sce_prefix(&raw,1u);
+    put(&raw,4,1);put(&raw,5,1); /* codebook 1, one SFB */
+    codeword(&raw,0,60);
+    put(&raw,1,0); /* pulse absent */
+    put(&raw,1,1); /* TNS present */
+    put(&raw,2,1); /* n_filt=1 for long window */
+    put(&raw,1,1); /* coef_res=4 */
+    put(&raw,6,1); /* filter length=1 SFB */
+    put(&raw,5,0); /* filter order zero */
+    put(&raw,1,0); /* gain control absent */
+    codeword(&raw,1,40); /* zero spectral quad */
+    put(&raw,3,7); /* END */
+    while(raw.bits%8u)put(&raw,1,0);
+    uint8_t frame[128];
+    size_t length=7u+raw.bits/8u;
+    init_header(frame,(unsigned)length,4);
+    memcpy(frame+7,raw.bytes,raw.bits/8u);
+    SautiAacLcMonoData parsed={0};
+    size_t pos=0;
+    assert(sauti_aac_lc_mono_parse(raw.bytes,raw.bits/8u,
+                                   &pos,4,&parsed)==1);
+    assert(parsed.tns_present==1);
+    assert(parsed.tns.filter_count[0]==1);
+    assert(parsed.tns.filter[0][0].order==0);
+    SautiAacLcSynthesis state={0};
+    assert(sauti_aac_lc_synthesis_init(&state,0));
+    float pcm[1024];
+    SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    assert(sauti_aac_lc_adts_mono_decode_ex(frame,length,
+                                            &state,pcm,&reason)==1);
+    assert(reason==SAUTI_AAC_REASON_OK);
+    for(unsigned i=0;i<1024;i++)assert(pcm[i]==0);
+
+    /* Truncated TNS payload must not mutate output or history. */
+    Bits broken={0};
+    sce_prefix(&broken,0);
+    put(&broken,1,0); /* pulse */
+    put(&broken,1,1); /* TNS */
+    put(&broken,2,1); /* n_filt, but no valid remaining payload */
+    SautiAacLcMonoData saved=parsed;
+    pos=0;
+    assert(!sauti_aac_lc_mono_parse(broken.bytes,
+                                    (broken.bits+7u)/8u,&pos,4,&parsed));
+    assert(pos==0 && memcmp(&saved,&parsed,sizeof(parsed))==0);
+}
 static void failure(void){
     Bits raw;prepare(&raw,1,0);
     size_t size=7u+raw.bits/8u;
@@ -119,6 +168,7 @@ static void failure(void){
     assert(memcmp(&old,&state,sizeof(old))==0);
     for(unsigned j=0;j<1024;j++)assert(pcm[j]==18);
     for(unsigned tool=1;tool<=3;tool++){
+        if(tool==2)continue; /* AAC-25: valid TNS is supported */
         prepare(&raw,1,(int)tool);
         size=7u+(raw.bits+7u)/8u;
         init_header(frame,(unsigned)size,4);
@@ -127,7 +177,6 @@ static void failure(void){
         assert(sauti_aac_lc_adts_mono_decode_ex(frame,size,&state,pcm,
                                                 &reason)==-1);
         assert(reason==(tool==1?SAUTI_AAC_REASON_PULSE:
-                        tool==2?SAUTI_AAC_REASON_TNS:
                                 SAUTI_AAC_REASON_GAIN_CONTROL));
         assert(memcmp(&old,&state,sizeof(old))==0);
     }
@@ -159,7 +208,7 @@ static void failure(void){
     for(unsigned j=0;j<1024;j++)assert(pcm[j]==18);
 }
 int main(void){
-    simple();prefixed_fil();failure();
+    simple();prefixed_fil();tns_frame();failure();
     puts("PASS AAC-13/17: SCE -> PCM, explicit tool rejection reasons, rollback");
     return 0;
 }
