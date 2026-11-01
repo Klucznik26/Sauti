@@ -198,7 +198,10 @@ static void *open_codec(const uint8_t *p,size_t n,SautiPcmInfo *info,int mode){
 cleanup:
     av_packet_free(&packet);av_frame_free(&frame);
     swr_free(&swr);avcodec_free_context(&codec);
-    avformat_close_input(&fmt);avio_context_free(&io);
+    avformat_close_input(&fmt);
+    /* avio_context_free releases the context, not its (possibly resized) buffer. */
+    if (io) av_freep(&io->buffer);
+    avio_context_free(&io);
     if(!ok){if(s){free(s->pcm);free(s);}return NULL;}
     return s;
 }
