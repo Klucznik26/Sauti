@@ -738,3 +738,31 @@ dowodu pełnej poprawności PNS. Ponieważ PNS generuje
 szum pseudolosowy, różne ziarna generatora w dwóch
 dekoderach mogą dać różnice próbka-po-próbce mimo
 prawidłowej energii pasma.
+
+
+### AAC-29 — korekta deterministycznej sekwencji PNS
+
+Kontrolowany eksperyment `transient_44100_128k` z Fedory
+pokazał: wszystkie 24/24 ramki dekodowane poprawnie;
+oba warianty z włączonym PNS FAIL, oba z wyłączonym
+PNS PASS, niezależnie od TNS. Zgodność dla `-aac_pns 0`
+potwierdza, że różnica PCM dotyczy generacji szumu.
+
+Po porównaniu z referencyjnym FFmpeg AAC (bez kopiowania
+kodu źródłowego) wdrożono trzy małe zmiany:
+- inicjalizacja ziarna generatora stanem `0x1f2e3d4c`,
+  zamiast lokalnego `0x12345678`;
+- szum pochodzi bezpośrednio z **signed 32-bit** wyniku
+  LCG, bez wcześniejszego odwracania bitu znaku;
+- stereo CPE konsumuje jeden ciąg RNG — najpierw pasma
+  lewego, potem prawego kanału. Stan obu kanałów jest
+  zatwierdzany atomowo po udanym dekodowaniu ramki.
+
+Test syntetyczny sprawdza, czy ziarno rozwija się o
+liczbę próbek PNS w **obu** kanałach i pozostaje ciągłe
+między dwiema ramkami. Kod źródłowy samego DSP/SFB
+pozostaje bez zmian. Wciąż wymagana weryfikacja
+36 przypadków na Fedorze; nie deklarować poprawy
+wyniku przed pomiarem. Szczegółowa zgodność PCM PNS
+z referencją zależy też od normalizacji i narzędzi
+stereo, więc ewentualny FAIL wymaga kolejnej analizy.
