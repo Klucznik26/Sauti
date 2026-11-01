@@ -766,3 +766,40 @@ pozostaje bez zmian. Wciąż wymagana weryfikacja
 wyniku przed pomiarem. Szczegółowa zgodność PCM PNS
 z referencją zależy też od normalizacji i narzędzi
 stereo, więc ewentualny FAIL wymaga kolejnej analizy.
+
+
+### AAC-29 — ponowna matryca po zmianach RNG (wynik rzeczywisty)
+
+Ponowny przebieg `make inspect-aac-29-full` na Fedorze
+dał ponownie **26/36 PASS**. Wszystkie moduły natywne
+przeszły; nadal odpada 10 wariantów `transient`.
+Zmiana ziarna generatora, reprezentacji znaku i
+wspólnego RNG stereo **nie poprawiła korelacji** w tych
+strumieniach. Nie należy twierdzić, że udało się
+osiągnąć zgodność z FFmpeg tylko dzięki RNG.
+
+Dodano osobną pełną matrycę kontrolną:
+
+```sh
+make inspect-aac-29-no-pns PKG_CONFIG=/bin/false
+```
+
+Korzysta ona z `-aac_pns 0` **wyłącznie podczas kodowania
+próbek kontrolnych**, i zapisuje wyniki osobno w
+`build/audio-fixtures/aac-29/encoder-pns-off/`.
+Nie zastępuje domyślnej matrycy z włączonym PNS i nie
+zmienia progów jakości ani sposobu oceniania PCM.
+Jej cel: sprawdzić we wszystkich 36 konfiguracjach,
+czy bez aktywnego narzędzia PNS natywne AAC-LC
+stereo pozostaje zgodne z referencją.
+
+Dla PNS standardowe normowanie energii i niezależna
+realizacja widma losowego mogą powodować różnice
+próbek PCM między poprawnymi dekoderami. Zgodność
+próbek z jednym dekoderem nie jest wymogiem
+normatywnym dla pseudolosowego szumu. Rygorystyczny
+test PCM pozostaje przydatny diagnostycznie, ale
+należy uzupełnić go niezależnymi testami energii PNS
+i stereofonii — nie oznaczać automatycznie
+rozbieżności losowego PCM jako niezgodności ze
+standardem AAC.
