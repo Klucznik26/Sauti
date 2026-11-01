@@ -535,3 +535,34 @@ porównanie PCM; brak filtru nie może być maskowany jako sukces.
 - Nadal brak natywnego dekodera AAC-LC stereo, SBR, PS i
   pełnej obsługi opcjonalnych narzędzi. Nie aktywować
   bezwarunkowego zastępowania FFmpeg w odtwarzaczu.
+
+
+## AAC-26 — start natywnego CPE/stereo (2026-11-01)
+
+- Dodano `sauti_aac_cpe.c`, `include/sauti_aac_cpe.h`,
+  `sauti_aac_lc_cpe_parse` i
+  `sauti_aac_lc_adts_stereo_decode_ex`.
+- Obsługiwane podstawowe `ID_CPE` z indywidualnymi ICS oraz
+  `common_window` bez aktywnych bitów Mid/Side; oba kanały
+  mają osobne stany syntezy (IMDCT, overlap-add, PNS seed).
+- Odczyt: global_gain, sections, scalefactors, PNS, TNS,
+  spectral_data każdego kanału. Wyjście jest float32
+  interleaved LRLR (2048 próbek na klatkę ADTS).
+  Zarówno stan kanałów, jak i PCM, są zatwierdzane atomowo.
+- `ms_mask_present=2` lub ustawione bity MS przy
+  `ms_mask_present=1` są **jawnie odrzucane**, podobnie jak
+  intensity stereo; nie wolno maskować braku rekonstrukcji
+  stereo jako poprawnego dekodowania.
+- `make test-aac-cpe PKG_CONFIG=/bin/false` bada CPE
+  z niezależnymi oknami, wspólnym oknem i zerową maską MS,
+  a także odmowę MS i cofnięcie po błędzie.
+- `make inspect-aac-stereo PKG_CONFIG=/bin/false` tworzy
+  zewnętrznie próbkowany strumień dwóch sinusoid 440/880 Hz
+  przez FFmpeg CLI i analizuje, jakie narzędzia użył koder.
+  **Nie oczekujemy jeszcze pełnego 23/23**: typowe stereo
+  używa MS, które trzeba dodać osobno.
+
+AAC-26 jest etapem przyrostowym, NIE ukończeniem AAC-LC stereo.
+Dalsze zadania: dekodowanie i zastosowanie per-band maski MS
+na wspólnych widmach, Intensity Stereo, stereo-PNS, transjenty,
+pełne porównanie PCM lewego/prawego kanału z FFmpeg.
