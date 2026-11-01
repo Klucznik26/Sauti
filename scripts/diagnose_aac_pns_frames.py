@@ -23,6 +23,7 @@ TOOLS_LINE = re.compile(
 )
 RNG_LINE = re.compile(r"^    pns_rng: before=([0-9a-f]{8}) after=([0-9a-f]{8})")
 DRAWS_LINE = re.compile(r"^    pns_draws: expected=(\d+) rng_match=([01])")
+DUAL_PNS_LINE = re.compile(r"^    pns_stereo: dual_noise_ms_bands=(\d+)")
 WINDOW_LINE = re.compile(
     r"^    windows L=sequence:(\d+) shape:(\d+) R=sequence:(\d+) shape:(\d+)"
 )
@@ -55,6 +56,10 @@ def trace_tools(aac, decoder):
         if match and current is not None:
             records[current]["rng_before"] = match.group(1)
             records[current]["rng_after"] = match.group(2)
+            continue
+        match = DUAL_PNS_LINE.match(line)
+        if match and current is not None:
+            records[current]["dual_pns_ms_bands"] = int(match.group(1))
             continue
         match = DRAWS_LINE.match(line)
         if match and current is not None:
@@ -147,6 +152,8 @@ def main():
     ordered=sorted(rows,key=lambda x:x["worst_nrmse"],reverse=True)
     print("AAC PNS frame diagnostics: %s; %d frames"%(args.case,len(rows)))
     print("PNS frames=%d non-PNS frames=%d"%(counts["PNS"],counts["no-PNS"]))
+    print("Joint PNS+MS bands across frames: %d"%sum(
+        row.get("dual_pns_ms_bands",0) for row in rows))
     for category in ("PNS","no-PNS"):
         group=[r for r in rows if (("PNS" if (r.get("pns_left",0)+r.get("pns_right",0)) else "no-PNS")==category)]
         if group:
@@ -156,11 +163,12 @@ def main():
     print("Worst frames (diagnostic only; NOT a frame-level pass/fail gate):")
     for row in ordered[:max(1,args.top)]:
         print("frame=%d t=%.3fs nRMSE L=%.6f R=%.6f PNS=%d/%d "
-              "TNS=%d MS=%d intensity=%d window=%s/%s RNG=%s->%s draws=%d"%
+              "TNS=%d MS=%d intensity=%d dual_PNS_MS=%d window=%s/%s RNG=%s->%s draws=%d"%
               (row["frame"],row["time_s"],row["left"]["nrmse"],
                row["right"]["nrmse"],row.get("pns_left",0),
                row.get("pns_right",0),row.get("tns",0),row.get("ms",0),
-               row.get("intensity",0),row.get("window_left","?"),
+               row.get("intensity",0),row.get("dual_pns_ms_bands",0),
+               row.get("window_left","?"),
                row.get("window_right","?"),row.get("rng_before","?"),
                row.get("rng_after","?"),row.get("rng_draws",0)))
     output=base.with_suffix(".pns-diagnostic.json")
