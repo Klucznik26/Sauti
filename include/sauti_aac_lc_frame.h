@@ -27,4 +27,28 @@ typedef struct {
 int sauti_aac_lc_mono_parse(const uint8_t *raw,size_t length,
                            size_t *bit_offset,unsigned sample_rate_index,
                            SautiAacLcMonoData *out);
+/* AAC-16: explicit failure diagnostics. Reasons describe the first
+ * rejected feature or the stage where parsing/synthesis failed. */
+typedef enum {
+    SAUTI_AAC_REASON_OK=0,
+    SAUTI_AAC_REASON_INVALID_ADTS,
+    SAUTI_AAC_REASON_UNSUPPORTED_ADTS,
+    SAUTI_AAC_REASON_UNSUPPORTED_PREFIX,
+    SAUTI_AAC_REASON_UNSUPPORTED_FIL,
+    SAUTI_AAC_REASON_INVALID_SCE,
+    SAUTI_AAC_REASON_INVALID_SCALEFACTORS,
+    SAUTI_AAC_REASON_PULSE,
+    SAUTI_AAC_REASON_TNS,
+    SAUTI_AAC_REASON_GAIN_CONTROL,
+    SAUTI_AAC_REASON_PNS,
+    SAUTI_AAC_REASON_INTENSITY,
+    SAUTI_AAC_REASON_INVALID_SPECTRAL,
+    SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT,
+    SAUTI_AAC_REASON_INVALID_TRAILING,
+    SAUTI_AAC_REASON_INVALID_SYNTH
+} SautiAacReason;
+const char *sauti_aac_reason_name(SautiAacReason reason);
+int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
+                                     SautiAacLcSynthesis *state,
+                                     float pcm[1024],SautiAacReason *reason);
 #endif
