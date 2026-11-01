@@ -1066,3 +1066,41 @@ pamięci — wymagany jest backtrace z coredumpctl/GDB.
 Checkpointy są optymalizacją, nie potwierdzoną naprawą
 crasha. W przyszłości niezbędne będą asynchroniczne
 seek i propagacja błędów czytania PCM.
+
+
+### AAC-LC — poprawa IMDCT i asynchroniczne przewijanie
+
+Przeanalizowany coredump z Fedora 44 (2026-11-02,
+SIGABRT) wskazał stos `sauti_mp3_sdl_seek → seek_native →
+decode_next → sauti_aac_lc_synthesis_spectral → sauti_aac_imdct`.
+Nie przesądza to jeszcze, dlaczego proces wykonał `abort`,
+ale wyraźnie lokalizuje kosztowną ścieżkę przewijania.
+
+- Stara referencyjna IMDCT wykonywała O(N²) obliczeń.
+  Nowy kod używa natywnego radix-2 FFT długości 8N
+  i wyznacza składowe IMDCT bez zmiany skalowania 2/N:
+  `Re(FFT[2*t+N+1])` dla wejścia w indeksach
+  nieparzystych `2*k+1`. Złożoność O(N log N).
+  Dotychczasowe testy kosinusowej referencji weryfikują
+  N=128 i N=1024, także gęste widma.
+- Przewijanie natywnego AAC zostało przeniesione do
+  osobnego wątku SDL. Pętla interfejsu nie wykonuje
+  już synchronicznego `sauti_decoder_seek` dla tego kodeka.
+  Kolejne przesunięcia suwaka są kolejkowane do ostatniej
+  żądanej pozycji. Podczas działania wątku `pump`
+  nie czyta równocześnie stanu dekodera.
+  `destroy` oraz `stop` dołączają wątek, zanim
+  zwolnią stan lub bufor wejściowy.
+- Nadal wymagamy praktycznego potwierdzenia szybkiego
+  przewijania i braku SIGABRT na długim nagraniu.
+  Odczyt PCM po przewinięciu odbywa się wciąż
+  w pętli UI; na przyszłość potrzebny może być
+  oddzielny worker odtwarzania.
+
+Test:
+```sh
+make test-aac-imdct test-aac-native-adapter PKG_CONFIG=/bin/false
+make bench-aac-imdct PKG_CONFIG=/bin/false
+make window-pipewire
+./build/sauti_window_pw --source monitor
+```
