@@ -24,6 +24,16 @@ int sauti_aac_lc_synthesis_init(SautiAacLcSynthesis *state,
  * A frame with unsupported PNS / intensity codebooks is rejected instead
  * of producing deceptively silent output. No heap / FFmpeg dependency.
  * Caller must ensure TNS and other unsupported tools are absent. */
+/* Synthesize already dequantized spectra (after stereo MS and PNS).
+ * Applies inverse TNS, IMDCT and window overlap, atomically.
+ * Used by the CPE path: stereo processing MUST precede inverse TNS. */
+int sauti_aac_lc_synthesis_spectral(SautiAacLcSynthesis *state,
+                                    const SautiAacIcsInfo *ics,
+                                    const SautiAacTnsData *tns,
+                                    unsigned sample_rate_index,
+                                    const float spectral[1024],
+                                    float pcm[1024]);
+
 /* Native AAC-LC mono synthesis with both PNS and decoded TNS. */
 int sauti_aac_lc_synthesis_frame_tns(SautiAacLcSynthesis *state,
                                 unsigned sample_rate_index,
