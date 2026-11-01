@@ -283,3 +283,32 @@ samodzielnie**: do tego potrzebne są normatywne tablice i dalsze etapy DSP.
   porównawczych na realnych ramkach. Wywołujący musi odrzucić TNS
   i inne nieobsługiwane narzędzia przed syntezą. IMDCT nadal O(N²)
   i wymaga optymalizacji/porównania poziomów PCM przed odsłuchem.
+
+
+## AAC-13 i AAC-14 — strumień bitowy → PCM mono (2026-11-01)
+
+- Nowy `sauti_aac_lc_frame.c` wiąże dekoder ograniczonej ramki AAC-LC:
+  `ID_SCE` → `global_gain/ics_info/section_data` →
+  `scale_factor_data` → flagi obecności pulse/TNS/gain-control →
+  `spectral_data` → `ID_END` → dequant → IMDCT → okna → overlap-add.
+  Przyjmuje jedną niechronioną CRC ramkę ADTS AAC-LC mono z jednym
+  `raw_data_block`; wynikiem jest 1024 próbek float.
+- Celowo odrzuca CPE/stereo, CRC, pulse_data, TNS, gain_control, PNS,
+  intensity, FIL (potencjalnie zawiera implicit SBR/PS) i nieznane
+  elementy syntaktyczne. Kod nie skanuje Huffmana dla pozornych znaczników.
+  Kod wynikowy: `1` sukces, `0` błąd, `-1` niespierane narzędzie.
+- Waliduje indeks częstotliwości, długość ramki, kolejność flag i
+  zakończenie ID_END / byte alignment. Na niepowodzeniu ani PCM,
+  ani historia syntezy nie zmieniają się.
+- `make test-aac-lc-frame` testuje syntetyczne pełne ADTS od składni SCE
+  do PCM, realne kody Huffmana, wycofanie stanu i odrzucenie flag narzędzi.
+  Ten test wchodzi do `test-aac-native`.
+- `make test-aac-real-mono` (wymaga programu `ffmpeg`, ale nie bibliotek
+  FFmpeg) koduje prawdziwy krótki plik ciszy mono AAC-LC ADTS i przepuszcza
+  wszystkie ramki przez nasz dekoder. Test raportuje *oddzielnie*
+  liczbę ramek odkodowanych, niewspieranych i błędnych. Gdy żaden blok
+  nie jest obsługiwany, wypisuje SKIP zamiast fałszywego PASS.
+- Natywny tor nie zastępuje jeszcze działającego dekodera FFmpeg.
+  Brakuje wielu legalnych narzędzi AAC, wsparcia stereo, porównania
+  numerycznego PCM z referencją na muzyce i optymalizacji IMDCT.
+  Nie należy traktować testu ciszy jako dowodu jakości dźwięku.
