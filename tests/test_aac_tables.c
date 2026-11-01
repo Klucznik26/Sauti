@@ -67,6 +67,6 @@ int main(void){
     assert(!sauti_aac_standard_codeword(0,121,&code,&bits));
     assert(!sauti_aac_standard_tree_build(12,nodes,SAUTI_AAC_HUFF_MAX_NODES));
     puts("PASS AAC standard Huffman: all codewords, scalefactors, spectral ESC");
-    printf("Verified %u normative codewords over 12 tables\\n",verified);
+    printf("Verified %u normative codewords over 12 tables\n",verified);
     return 0;
 }
