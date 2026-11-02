@@ -77,6 +77,41 @@ def scan_frame_lags(native,reference,frames=(0,1,12,21,22),radius=16):
             print("frame %d channel %s lag_scan: best=%+d nRMSE=%.6f "
                   "zero_lag=%.6f"%(frame,label,best[0],best[1],zero))
 
+def residual_contributions(native,reference,ignore_initial=1):
+    """Rank whole-frame squared-error contributions to the *strict* PCM metric.
+
+    Frame zero is excluded, matching the strict comparator's overlap
+    warmup. These diagnostics never omit frames from the actual gate.
+    """
+    nframes=min(len(native),len(reference))//2048
+    for channel,label in ((0,"L"),(1,"R")):
+        data=[]
+        total_error=total_ref=0.0
+        for frame in range(ignore_initial,nframes):
+            start=frame*2048+channel
+            finish=(frame+1)*2048
+            sqerror=sqref=0.0
+            for k in range(start,finish,2):
+                a=float(native[k]);b=float(reference[k])
+                sqerror+=(a-b)**2
+                sqref+=b*b
+            data.append((frame,sqerror,sqref))
+            total_error+=sqerror
+            total_ref+=sqref
+        data.sort(key=lambda row:row[1],reverse=True)
+        print("channel %s post-warmup: total_nRMSE=%.6f"%(label,
+              (total_error/max(total_ref,1e-22))**0.5))
+        for frame,err,ref in data[:8]:
+            print("  error_contrib frame=%d share=%.2f%% "
+                  "frame_nRMSE=%.5f"%(frame,100*err/max(total_error,1e-22),
+                                    (err/max(ref,1e-22))**0.5))
+        for dropped in (1,2,3):
+            removed=data[:dropped]
+            remaining_err=total_error-sum(v[1] for v in removed)
+            remaining_ref=total_ref-sum(v[2] for v in removed)
+            print("  diagnostic_only omit_top_%d_frames nRMSE=%.6f"%(
+                dropped,(remaining_err/max(remaining_ref,1e-22))**0.5))
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--case",default="transient_44100_128k")
@@ -127,6 +162,7 @@ def main():
     reference_pcm=read_pcm(reference)
     inspect_transient_blocks(current_pcm,reference_pcm)
     scan_frame_lags(current_pcm,reference_pcm)
+    residual_contributions(current_pcm,reference_pcm)
     print("Strict gate (unchanged): "+", ".join(
         "%s=%s"%(key,value.get("ok")) for key,value in scores.items()))
     (out/(args.case+".json")).write_text(json.dumps(scores,indent=2))
