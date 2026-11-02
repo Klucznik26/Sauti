@@ -53,6 +53,30 @@ def inspect_transient_blocks(native,reference,frame_numbers=(0,1,12,21,22)):
                   "peak_err=%.7f ref_energy=%.8g"%
                   (frame,label,worst[0],worst[1],worst[3],worst[4]))
 
+def scan_frame_lags(native,reference,frames=(0,1,12,21,22),radius=16):
+    """Diagnostic-only lag probe; strict comparison remains lag=0."""
+    nframes=min(len(native),len(reference))//2048
+    for frame in frames:
+        if frame>=nframes:
+            continue
+        for channel,label in ((0,"L"),(1,"R")):
+            anchor=frame*1024
+            values=[]
+            for lag in range(-radius,radius+1):
+                lo=max(0,-lag)
+                hi=min(1024,1024-lag)
+                sqerr=sqref=0.0
+                for t in range(lo,hi):
+                    x=float(native[2*(anchor+t)+channel])
+                    y=float(reference[2*(anchor+t+lag)+channel])
+                    sqerr+=(x-y)**2
+                    sqref+=y*y
+                values.append((lag,(sqerr/max(sqref,1e-22))**0.5))
+            best=min(values,key=lambda pair:pair[1])
+            zero=values[radius][1]
+            print("frame %d channel %s lag_scan: best=%+d nRMSE=%.6f "
+                  "zero_lag=%.6f"%(frame,label,best[0],best[1],zero))
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--case",default="transient_44100_128k")
@@ -99,8 +123,10 @@ def main():
     for variant in ("independent","positive","zero","sine_windows"):
         other=(out/(args.case+"."+variant+".f32")).read_bytes()
         print("PCM bit-identical current vs %s: %s"%(variant,baseline==other))
-    inspect_transient_blocks(
-        read_pcm(out/(args.case+".current.f32")),read_pcm(reference))
+    current_pcm=read_pcm(out/(args.case+".current.f32"))
+    reference_pcm=read_pcm(reference)
+    inspect_transient_blocks(current_pcm,reference_pcm)
+    scan_frame_lags(current_pcm,reference_pcm)
     print("Strict gate (unchanged): "+", ".join(
         "%s=%s"%(key,value.get("ok")) for key,value in scores.items()))
     (out/(args.case+".json")).write_text(json.dumps(scores,indent=2))
