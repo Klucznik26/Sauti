@@ -91,10 +91,10 @@ static void energy_matrix(unsigned shortwin){
     assert(memcmp(a,b,sizeof(a))==0);
     /* PNS normalization is 2^(sfo/4), NOT 2^((sfo-100)/4).
      * Check both a negative and a positive signaled offset. */
-    /* FFmpeg float NOISE_BT applies a negative spectral gain.
-     * First LCG sample from 0x1f2e3d4c is positive: output must
-     * therefore be negative, regardless of long/short window mode. */
-    assert(a[0]<0.0f);
+    /* The first LCG sample is positive; strict FFmpeg PCM
+     * comparison confirms the synthesized sign must stay positive.
+     * Magnitude-only tests would not detect a whole-band inversion. */
+    assert(a[0]>0.0f);
     unsigned start_window=0;
     uint32_t expected=0x1f2e3d4cu;
     for(unsigned g=0;g<ics.group_count;g++){
