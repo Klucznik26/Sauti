@@ -57,7 +57,15 @@ def main(argv=None):
                     default=Path("build/audio-fixtures/aac-29"))
     ap.add_argument("--disable-pns", action="store_true",
                     help="control experiment: use FFmpeg encoder with -aac_pns 0")
+    ap.add_argument("--duration", type=float, default=0.52,
+                    help="source duration in seconds (default: 0.52)")
+    ap.add_argument("--min-frames", type=int, default=0,
+                    help="require at least this many decoded frames per case")
     opts = ap.parse_args(argv)
+    if not 0.1 <= opts.duration <= 30.0 or opts.duration != opts.duration:
+        ap.error("--duration must be finite and between 0.1 and 30 seconds")
+    if opts.min_frames < 0:
+        ap.error("--min-frames must be nonnegative")
     if shutil.which("ffmpeg") is None:
         print("FAIL AAC-29: ffmpeg CLI is required", file=sys.stderr)
         return 2
@@ -77,7 +85,8 @@ def main(argv=None):
     required_rates = {rate for _, rate, _ in cases}
     for rate in sorted(required_rates):
         gen = invoke([sys.executable, HERE / "tools/generate_aac_stereo_fixtures.py",
-                      fixtures / str(rate), rate])
+                      fixtures / str(rate), rate,
+                      "--duration", opts.duration])
         if gen.returncode:
             print(gen.stdout, file=sys.stderr)
             return 2
@@ -115,6 +124,10 @@ def main(argv=None):
                 try:
                     entry["metrics"] = json.loads(proc.stdout)
                     entry["ok"] = bool(entry["metrics"].get("ok")) and not proc.returncode
+                    if opts.min_frames and entry["metrics"].get("decoded", 0) < opts.min_frames:
+                        entry["ok"] = False
+                        entry["error"] = ("insufficient duration coverage: decoded %d < %d frames" %
+                                          (entry["metrics"].get("decoded", 0), opts.min_frames))
                 except json.JSONDecodeError:
                     entry["error"] = "verifier did not return valid JSON"
             if proc.returncode:
@@ -127,7 +140,9 @@ def main(argv=None):
         detail = failure_detail(entry) if not entry["ok"] else ""
         print("[%02d/%02d] %-26s %s %s" %
               (number, len(cases), label, verdict, detail), flush=True)
-    report = {"mode": opts.mode, "pns_enabled_in_encoder": not opts.disable_pns,
+    report = {"mode": opts.mode, "duration_seconds": opts.duration,
+              "minimum_decoded_frames": opts.min_frames,
+              "pns_enabled_in_encoder": not opts.disable_pns,
               "count": len(summary),
               "passed": sum(x["ok"] for x in summary),
               "failed": sum(not x["ok"] for x in summary),
