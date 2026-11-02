@@ -24,6 +24,10 @@ TOOLS_LINE = re.compile(
 RNG_LINE = re.compile(r"^    pns_rng: before=([0-9a-f]{8}) after=([0-9a-f]{8})")
 DRAWS_LINE = re.compile(r"^    pns_draws: expected=(\d+) rng_match=([01])")
 DUAL_PNS_LINE = re.compile(r"^    pns_stereo: dual_noise_ms_bands=(\d+)")
+SPECTRAL_LINE = re.compile(
+    r"^    spectral_([LR]): gain=(\d+) groups=(\d+) lengths=([\d,]+)"
+    r" nonzero=(\d+) absq=(\d+) cb0=(\d+) cb13=(\d+) cb14=(\d+) cb15=(\d+)"
+)
 WINDOW_LINE = re.compile(
     r"^    windows L=sequence:(\d+) shape:(\d+) R=sequence:(\d+) shape:(\d+)"
 )
@@ -72,6 +76,20 @@ def trace_tools(aac, decoder):
             records[current].update(dict(groups=values[0], max_sfb=values[1],
                 tns=values[2]+values[3], pns_left=values[4],
                 pns_right=values[5], ms=values[6], intensity=values[7]))
+            continue
+        match = SPECTRAL_LINE.match(line)
+        if match and current is not None:
+            ch=match.group(1).lower()
+            records[current]["spectral_"+ch] = {
+                "gain":int(match.group(2)),
+                "groups":int(match.group(3)),
+                "lengths":[int(x) for x in match.group(4).split(",")],
+                "nonzero":int(match.group(5)),
+                "absq":int(match.group(6)),
+                "cb0":int(match.group(7)),
+                "cb13":int(match.group(8)),
+                "cb14":int(match.group(9)),
+                "cb15":int(match.group(10))}
             continue
         match = WINDOW_LINE.match(line)
         if match and current is not None:
@@ -171,6 +189,20 @@ def main():
                row.get("window_left","?"),
                row.get("window_right","?"),row.get("rng_before","?"),
                row.get("rng_after","?"),row.get("rng_draws",0)))
+    print("Spectral summaries for transition frames:")
+    for frame in (0,1,2,12,13,21,22,23):
+        if frame>=len(rows):
+            continue
+        row=rows[frame]
+        for ch in ("l","r"):
+            info=row.get("spectral_"+ch)
+            if info:
+                print("  frame=%d ch=%s gain=%d groups=%d lengths=%s "
+                      "nonzero=%d absq=%d cb0=%d cb13=%d cb14=%d cb15=%d"%
+                      (frame,ch.upper(),info["gain"],info["groups"],
+                       ",".join(str(x) for x in info["lengths"]),
+                       info["nonzero"],info["absq"],info["cb0"],
+                       info["cb13"],info["cb14"],info["cb15"]))
     output=base.with_suffix(".pns-diagnostic.json")
     output.write_text(json.dumps({"case":args.case,"frames":rows},indent=2))
     print("Detailed frame data: %s"%output)
