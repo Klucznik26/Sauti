@@ -54,7 +54,12 @@ int sauti_aac_pns_apply(const SautiAacIcsInfo *ics,
             if(to<=from || to>(short_win?128u:1024u))return 0;
             const int32_t scale=sf->value[s->group][band];
             if(scale< -512 || scale>512)return 0;
-            const double gain=exp2(((double)scale-100.0)/4.0);
+            /* NOISE_BT scalefactor is already an exponent offset from
+             * global_gain-90. Unlike spectral codebooks, PNS does NOT
+             * subtract the spectral reference offset 100.
+             * FFmpeg float: sf = -pow2sf_tab[sfo + POW_SF2_ZERO]
+             *             = -2^(sfo/4). */
+            const double gain=exp2((double)scale/4.0);
             for(unsigned w=starts[s->group];
                 w<starts[s->group]+ics->group_length[s->group];w++){
                 unsigned base=w*(short_win?128u:1024u);
