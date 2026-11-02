@@ -141,6 +141,38 @@ def stereo_residual_components(native,reference,frames=(1,2,12,13,21,22)):
                   100*sum_mid/max(total,1e-25),
                   100*sum_side/max(total,1e-25),corr))
 
+def overlap_region_residuals(native,reference,frames=(1,22)):
+    """Diagnostic-only EIGHT_SHORT overlap attribution.
+
+    Samples [0,448) are inherited exclusively from preceding overlap.
+    Samples [448,1024) also contain current short IMDCT contributions.
+    Strict verifier remains unchanged.
+    """
+    count=min(len(native),len(reference))//2048
+    print("EIGHT_SHORT inherited-overlap vs current-window residuals:")
+    for frame in frames:
+        if frame>=count:
+            continue
+        for ch,label in ((0,"L"),(1,"R")):
+            parts=[]
+            for a,b,name in ((0,448,"inherited_only"),
+                             (448,576,"first_short"),
+                             (576,1024,"short_overlap")):
+                error=energy=0.0
+                for k in range(a,b):
+                    i=frame*2048+2*k+ch
+                    x=float(native[i]);y=float(reference[i])
+                    error+=(x-y)**2
+                    energy+=y*y
+                parts.append((name,error,energy))
+            total=sum(p[1] for p in parts)
+            print("  frame=%d ch=%s"%(frame,label))
+            for name,err,ref in parts:
+                print("    region=%s error_share=%.3f%% "
+                      "region_nRMSE=%.6f ref_energy=%.8g"%(
+                      name,100*err/max(total,1e-22),
+                      (err/max(ref,1e-22))**0.5,ref))
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--case",default="transient_44100_128k")
@@ -197,6 +229,7 @@ def main():
     scan_frame_lags(current_pcm,reference_pcm)
     residual_contributions(current_pcm,reference_pcm)
     stereo_residual_components(current_pcm,reference_pcm)
+    overlap_region_residuals(current_pcm,reference_pcm)
     print("Strict gate (unchanged): "+", ".join(
         "%s=%s"%(key,value.get("ok")) for key,value in scores.items()))
     (out/(args.case+".json")).write_text(json.dumps(scores,indent=2))
