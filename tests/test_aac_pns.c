@@ -21,7 +21,7 @@ static void run(unsigned shortwin){
         a->group=(uint8_t)g;a->codebook=13;a->first_sfb=0;a->end_sfb=1;
         SautiAacSection *b=&sec.sections[sec.section_count++];
         b->group=(uint8_t)g;b->codebook=0;b->first_sfb=1;b->end_sfb=2;
-        sf.codebook[g][0]=13;sf.value[g][0]=100;
+        sf.codebook[g][0]=13;sf.value[g][0]=0;
     }
     float x[1024]={0},y[1024]={0};
     uint32_t seed=0x12345678u,second=seed;
@@ -74,8 +74,8 @@ static void energy_matrix(unsigned shortwin){
         part=&sec.sections[sec.section_count++];
         part->group=(uint8_t)g;
         part->first_sfb=2;part->end_sfb=3;part->codebook=0;
-        sf.codebook[g][0]=13;sf.value[g][0]=96+(int32_t)(g*4u);
-        sf.codebook[g][1]=13;sf.value[g][1]=104+(int32_t)(g*4u);
+        sf.codebook[g][0]=13;sf.value[g][0]=-4+(int32_t)(g*4u);
+        sf.codebook[g][1]=13;sf.value[g][1]=4+(int32_t)(g*4u);
         sf.codebook[g][2]=0;
     }
     const uint16_t *offsets=NULL;
@@ -89,6 +89,8 @@ static void energy_matrix(unsigned shortwin){
     assert(sauti_aac_pns_apply(&ics,4,&sec,&sf,&second,b));
     assert(first==second);
     assert(memcmp(a,b,sizeof(a))==0);
+    /* PNS normalization is 2^(sfo/4), NOT 2^((sfo-100)/4).
+     * Check both a negative and a positive signaled offset. */
     /* FFmpeg float NOISE_BT applies a negative spectral gain.
      * First LCG sample from 0x1f2e3d4c is positive: output must
      * therefore be negative, regardless of long/short window mode. */
@@ -98,7 +100,7 @@ static void energy_matrix(unsigned shortwin){
     for(unsigned g=0;g<ics.group_count;g++){
         for(unsigned band=0;band<2;band++){
             const unsigned from=offsets[band],to=offsets[band+1u];
-            const double amplitude=exp2(((double)sf.value[g][band]-100.0)/4.0);
+            const double amplitude=exp2((double)sf.value[g][band]/4.0);
             for(unsigned w=start_window;w<start_window+ics.group_length[g];w++){
                 const unsigned base=w*(shortwin?128u:1024u);
                 double energy=0;
@@ -140,7 +142,7 @@ static void continuous_stereo_stream(void){
     sec.sections[0].codebook=13;
     sec.sections[0].end_sfb=1;
     SautiAacScaleFactors sf={0};
-    sf.codebook[0][0]=13;sf.value[0][0]=100;
+    sf.codebook[0][0]=13;sf.value[0][0]=0;
     float left[1024]={0},right[1024]={0};
     uint32_t seed=0x1f2e3d4cu;
     assert(sauti_aac_pns_apply(&ics,4,&sec,&sf,&seed,left));
