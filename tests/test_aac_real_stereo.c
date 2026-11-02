@@ -140,7 +140,7 @@ int main(int argc,char **argv){
                            ch?'R':'L',d->global_gain,ics->group_count);
                     for(unsigned g=0;g<ics->group_count;g++)
                         printf("%s%u",g?",":"",ics->group_length[g]);
-                    printf(" nonzero=%llu absq=%lld cb0=%u cb13=%u cb14=%u cb15=%u\\n",
+                    printf(" nonzero=%llu absq=%lld cb0=%u cb13=%u cb14=%u cb15=%u\n",
                            (unsigned long long)nonzero,(long long)qabs,
                            type_counts[0],type_counts[13],
                            type_counts[14],type_counts[15]);
