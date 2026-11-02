@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare AAC native independent/correlated PNS modes against saved FFmpeg PCM.
+"""Compare diagnostic PNS modes against the same FFmpeg PCM fixture.
 
 Non-destructive experiment: production decoder stays unchanged; outputs written
 to build/audio-fixtures/aac-29/diagnostic-stereo. Never modifies strict gate.
@@ -26,7 +26,9 @@ def main():
     if not audio.is_file() or not reference.is_file():
         ap.error("missing fixture: run make inspect-aac-29-full first")
     build=run(["make","build/test_aac_real_stereo",
-               "build/test_aac_real_stereo_pns_independent"])
+               "build/test_aac_real_stereo_pns_independent",
+               "build/test_aac_real_stereo_pns_positive",
+               "build/test_aac_real_stereo_pns_zero"])
     if build.returncode:
         print(build.stdout[-4000:],file=sys.stderr)
         return 2
@@ -34,7 +36,9 @@ def main():
     out.mkdir(parents=True,exist_ok=True)
     scores={}
     for name,exe in (("current","build/test_aac_real_stereo"),
-                     ("independent","build/test_aac_real_stereo_pns_independent")):
+                     ("independent","build/test_aac_real_stereo_pns_independent"),
+                     ("positive","build/test_aac_real_stereo_pns_positive"),
+                     ("zero","build/test_aac_real_stereo_pns_zero")):
         pcm=out/(args.case+"."+name+".f32")
         mask=out/(args.case+"."+name+".mask")
         decode=run([ROOT/exe,audio,pcm,mask])
@@ -54,8 +58,8 @@ def main():
                channels.get("RIGHT",{}).get("nrmse")))
     same=(out/(args.case+".current.f32")).read_bytes()==(out/(args.case+".independent.f32")).read_bytes()
     print("PCM bit-identical between modes: %s"%same)
-    print("Strict gate (unchanged): current=%s independent=%s"%
-          (scores["current"].get("ok"),scores["independent"].get("ok")))
+    print("Strict gate (unchanged): "+", ".join(
+        "%s=%s"%(key,value.get("ok")) for key,value in scores.items()))
     (out/(args.case+".json")).write_text(json.dumps(scores,indent=2))
     print("Diagnostic report: %s"%(out/(args.case+".json")))
     return 0
