@@ -19,6 +19,11 @@ static double bessel_i0(double x){
 }
 int sauti_aac_window_generate(unsigned n,unsigned shape,float *window){
     if(!window || (n!=128u && n!=1024u) || shape>1u)return 0;
+#ifdef SAUTI_AAC_DIAG_FORCE_SINE_WINDOWS
+    /* Diagnostic experiment only. Do not enable in production: an AAC
+     * KBD window must ordinarily retain the shape signalled by ICS. */
+    shape=0u;
+#endif
     const double pi=3.14159265358979323846264338327950288;
     if(shape==0u){
         for(unsigned i=0;i<n;i++){
