@@ -46,6 +46,27 @@ static void fft_forward(AacComplex *a,size_t length){
 int sauti_aac_imdct(const float *spectral,size_t n,float *time_samples){
     if(!spectral || !time_samples || (n!=128u && n!=1024u))return 0;
     for(size_t k=0;k<n;k++)if(!isfinite(spectral[k]))return 0;
+#ifdef SAUTI_AAC_DIAG_SHORT_DIRECT_IMDCT
+    /* Diagnostic only: direct textbook IMDCT for the 128-bin short
+     * windows. This bypasses the FFT but not dequant, stereo, overlap
+     * or the production decoder. Cost O(N^2), never use in player. */
+    if(n==128u){
+        const double pi=3.14159265358979323846264338327950288;
+        float direct[256];
+        for(size_t t=0;t<256;t++){
+            double acc=0.0;
+            for(size_t k=0;k<128;k++)
+                acc+=(double)spectral[k]*cos((pi/128.0)*
+                            ((double)t+0.5+64.0)*((double)k+0.5));
+            const double value=acc*(2.0/128.0);
+            if(!isfinite(value)||fabs(value)>3.402823466e38)
+                return 0;
+            direct[t]=(float)value;
+        }
+        memcpy(time_samples,direct,sizeof(direct));
+        return 1;
+    }
+#endif
     const size_t length=8u*n;
     AacComplex *fft=calloc(length,sizeof(*fft));
     if(!fft)return 0;
