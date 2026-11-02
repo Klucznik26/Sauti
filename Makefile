@@ -861,3 +861,13 @@ demo: $(OBJDIR)/sauti_demo
 
 clean:
 	rm -rf $(OBJDIR)
+
+# AAC-29: strict FFmpeg/native regression.  The extended 6s smoke
+# checks uninterrupted frame coverage in addition to the same PCM gate.
+# Separate output directories prevent stale 0.52s fixtures from passing.
+.PHONY: test-aac-29-ci test-aac-29-long
+test-aac-29-ci: $(OBJDIR)/test_aac_real_stereo test-aac-stereo-strict
+	python3 scripts/inspect_aac_stereo_matrix.py --mode full
+
+test-aac-29-long: $(OBJDIR)/test_aac_real_stereo test-aac-stereo-strict
+	python3 scripts/inspect_aac_stereo_matrix.py --mode smoke --duration 6 --min-frames 200 --output build/audio-fixtures/aac-29-long
