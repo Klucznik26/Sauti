@@ -122,6 +122,30 @@ int main(int argc,char **argv){
                        tns_count[0],tns_count[1],pns_count[0],pns_count[1],
                        ms_count,intensity_count);
                 printf("    pns_stereo: dual_noise_ms_bands=%u\n",dual_pns_ms);
+                for(unsigned ch=0;ch<2;ch++){
+                    const SautiAacLcMonoData *d=&cpe.channel[ch];
+                    const SautiAacIcsInfo *ics=&d->ics;
+                    uint64_t nonzero=0;
+                    int64_t qabs=0;
+                    unsigned type_counts[16]={0};
+                    for(unsigned g=0;g<ics->group_count;g++){
+                        for(unsigned band=0;band<ics->max_sfb;band++)
+                            type_counts[d->factors.codebook[g][band]]++;
+                    }
+                    for(unsigned k=0;k<1024;k++){
+                        int64_t q=d->quant[k];
+                        if(q){nonzero++;qabs+=q<0?-q:q;}
+                    }
+                    printf("    spectral_%c: gain=%u groups=%u lengths=",
+                           ch?'R':'L',d->global_gain,ics->group_count);
+                    for(unsigned g=0;g<ics->group_count;g++)
+                        printf("%s%u",g?",":"",ics->group_length[g]);
+                    printf(" nonzero=%llu absq=%lld cb0=%u cb13=%u cb14=%u cb15=%u\\n",
+                           (unsigned long long)nonzero,(long long)qabs,
+                           type_counts[0],type_counts[13],
+                           type_counts[14],type_counts[15]);
+                }
+
             }
             printf("    windows L=sequence:%u shape:%u R=sequence:%u shape:%u\n",
                    state[0].previous_sequence,state[0].previous_shape,
