@@ -112,6 +112,35 @@ def residual_contributions(native,reference,ignore_initial=1):
             print("  diagnostic_only omit_top_%d_frames nRMSE=%.6f"%(
                 dropped,(remaining_err/max(remaining_ref,1e-22))**0.5))
 
+def stereo_residual_components(native,reference,frames=(1,2,12,13,21,22)):
+    """Compare squared PCM residual energy in mid/side coordinates.
+
+    This is a lossless change of coordinates for diagnostic residuals,
+    NOT a modification of the AAC MS decoder or the strict PCM gate.
+    """
+    count=min(len(native),len(reference))//2048
+    print("Stereo residual analysis (post-decode, not a conformance gate):")
+    for frame in frames:
+        if frame>=count:
+            continue
+        sum_mid=sum_side=cross=sum_l=sum_r=0.0
+        for k in range(frame*2048,(frame+1)*2048,2):
+            dl=float(native[k])-float(reference[k])
+            dr=float(native[k+1])-float(reference[k+1])
+            mid=(dl+dr)*0.5
+            side=(dl-dr)*0.5
+            sum_mid+=mid*mid
+            sum_side+=side*side
+            sum_l+=dl*dl
+            sum_r+=dr*dr
+            cross+=dl*dr
+        total=sum_mid+sum_side
+        corr=cross/(sum_l*sum_r)**0.5 if sum_l*sum_r>1e-25 else 0.0
+        print("  frame=%d mid_error=%.2f%% side_error=%.2f%% "
+              "LR_residual_corr=%+.5f"%(frame,
+                  100*sum_mid/max(total,1e-25),
+                  100*sum_side/max(total,1e-25),corr))
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--case",default="transient_44100_128k")
@@ -167,6 +196,7 @@ def main():
     inspect_transient_blocks(current_pcm,reference_pcm)
     scan_frame_lags(current_pcm,reference_pcm)
     residual_contributions(current_pcm,reference_pcm)
+    stereo_residual_components(current_pcm,reference_pcm)
     print("Strict gate (unchanged): "+", ".join(
         "%s=%s"%(key,value.get("ok")) for key,value in scores.items()))
     (out/(args.case+".json")).write_text(json.dumps(scores,indent=2))
