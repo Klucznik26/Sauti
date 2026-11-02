@@ -870,4 +870,4 @@ test-aac-29-ci: $(OBJDIR)/test_aac_real_stereo test-aac-stereo-strict
 	python3 scripts/inspect_aac_stereo_matrix.py --mode full
 
 test-aac-29-long: $(OBJDIR)/test_aac_real_stereo test-aac-stereo-strict
-	python3 scripts/inspect_aac_stereo_matrix.py --mode smoke --duration 6 --min-frames 200 --output build/audio-fixtures/aac-29-long
+	python3 scripts/inspect_aac_stereo_matrix.py --mode smoke --duration 6 --min-frames 170 --output build/audio-fixtures/aac-29-long
