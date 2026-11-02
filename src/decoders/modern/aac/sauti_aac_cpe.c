@@ -309,7 +309,12 @@ int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
     }
     next[0].pns_seed=pns_stream;
     next[1].pns_seed=pns_stream;
+#ifndef SAUTI_AAC_DIAG_SHORT_NO_MS
     int ms_status=apply_ms(&parsed,rate,spectral[0],spectral[1],reason);
+#else
+    int ms_status=parsed.channel[0].ics.window_sequence==2u ? 1 :
+                  apply_ms(&parsed,rate,spectral[0],spectral[1],reason);
+#endif
     if(ms_status!=1){
         if(ms_status==0)*reason=SAUTI_AAC_REASON_INVALID_SYNTH;
         return ms_status;
@@ -325,7 +330,13 @@ int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
         return pns_status;
     }
 #endif
-    if(!apply_intensity(&parsed,rate,spectral[0],spectral[1])){
+#ifndef SAUTI_AAC_DIAG_SHORT_NO_INTENSITY
+    const int intensity_ok=apply_intensity(&parsed,rate,spectral[0],spectral[1]);
+#else
+    const int intensity_ok=parsed.channel[0].ics.window_sequence==2u ? 1 :
+                  apply_intensity(&parsed,rate,spectral[0],spectral[1]);
+#endif
+    if(!intensity_ok){
         *reason=SAUTI_AAC_REASON_INTENSITY;return 0;
     }
     for(unsigned ch=0;ch<2;ch++){
