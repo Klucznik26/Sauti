@@ -90,7 +90,11 @@ int sauti_aac_window_synth(unsigned sequence,unsigned previous_shape,
             unsigned base=448u+128u*block;
             for(unsigned i=0;i<256;i++){
                 float w=i<128u ?
+#ifdef SAUTI_AAC_DIAG_SHORT_FIRST_CURRENT
+                    short_curr[i] :
+#else
                     (block==0u?short_prev[i]:short_curr[i]) :
+#endif
                     short_curr[i];
                 frame[base+i]+=imdct[block*256u+i]*w;
             }
