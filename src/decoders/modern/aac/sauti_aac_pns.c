@@ -72,17 +72,11 @@ int sauti_aac_pns_apply(const SautiAacIcsInfo *ics,
                     energy+=sample*sample;
                 }
                 if(!(energy>0.0))return 0;
-                /* FFmpeg's floating-point AAC PNS uses a negative
-                 * scalefactor for NOISE_BT. The sign is observable in
-                 * decoded PCM even though it cancels in band energy.
-                 * Preserve magnitude/normalization and RNG progression. */
-                /* Diagnostic-only modes retain RNG consumption and
-                 * band selection; production uses negative NOISE_BT gain. */
-#ifdef SAUTI_AAC_DIAG_PNS_POSITIVE
+                /* Normalized noise has the signed sample direction
+                 * of our LCG conversion. Compare against FFmpeg PCM,
+                 * not just band energies: negating the band doubles
+                 * the reconstruction residual on PNS-heavy frames. */
                 const double factor=gain/sqrt(energy);
-#else
-                const double factor=-gain/sqrt(energy);
-#endif
                 for(unsigned i=from;i<to;i++){
                     double scaled=(double)next[base+i]*factor;
                     if(!isfinite(scaled) || fabs(scaled)>3.402823466e38)
