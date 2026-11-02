@@ -15,9 +15,9 @@ DURATION = 0.52
 TAU = 2.0 * math.pi
 
 
-def synth(kind, rate):
+def synth(kind, rate, duration=DURATION):
     rng = random.Random(0xAAC29 + rate)
-    n = round(rate * DURATION)
+    n = round(rate * duration)
     output = bytearray()
     for i in range(n):
         t = i / rate
@@ -57,7 +57,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("directory", type=Path)
     ap.add_argument("rate", type=int, choices=(32000, 44100, 48000))
+    ap.add_argument("--duration", type=float, default=DURATION,
+                    help="fixture length in seconds (default: 0.52)")
     args = ap.parse_args()
+    if not math.isfinite(args.duration) or not 0.1 <= args.duration <= 30.0:
+        ap.error("--duration must be finite and between 0.1 and 30 seconds")
     args.directory.mkdir(parents=True, exist_ok=True)
     for kind in ("tonal", "transient", "dense"):
         path = args.directory / (kind + ".wav")
@@ -65,7 +69,7 @@ def main():
             dst.setnchannels(2)
             dst.setsampwidth(2)
             dst.setframerate(args.rate)
-            dst.writeframes(synth(kind, args.rate))
+            dst.writeframes(synth(kind, args.rate, args.duration))
         print("AAC-29 fixture:", path, args.rate, "Hz")
 
 
