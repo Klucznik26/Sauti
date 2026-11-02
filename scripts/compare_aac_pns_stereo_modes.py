@@ -56,8 +56,10 @@ def main():
         print("%s %s: LEFT nRMSE=%s RIGHT nRMSE=%s"%
               (args.case,name,channels.get("LEFT",{}).get("nrmse"),
                channels.get("RIGHT",{}).get("nrmse")))
-    same=(out/(args.case+".current.f32")).read_bytes()==(out/(args.case+".independent.f32")).read_bytes()
-    print("PCM bit-identical between modes: %s"%same)
+    baseline=(out/(args.case+".current.f32")).read_bytes()
+    for variant in ("independent","positive","zero"):
+        other=(out/(args.case+"."+variant+".f32")).read_bytes()
+        print("PCM bit-identical current vs %s: %s"%(variant,baseline==other))
     print("Strict gate (unchanged): "+", ".join(
         "%s=%s"%(key,value.get("ok")) for key,value in scores.items()))
     (out/(args.case+".json")).write_text(json.dumps(scores,indent=2))
