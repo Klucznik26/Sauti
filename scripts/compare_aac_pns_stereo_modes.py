@@ -65,7 +65,8 @@ def main():
     build=run(["make","build/test_aac_real_stereo",
                "build/test_aac_real_stereo_pns_independent",
                "build/test_aac_real_stereo_pns_positive",
-               "build/test_aac_real_stereo_pns_zero"])
+               "build/test_aac_real_stereo_pns_zero",
+               "build/test_aac_real_stereo_windows_sine"])
     if build.returncode:
         print(build.stdout[-4000:],file=sys.stderr)
         return 2
@@ -75,7 +76,8 @@ def main():
     for name,exe in (("current","build/test_aac_real_stereo"),
                      ("independent","build/test_aac_real_stereo_pns_independent"),
                      ("positive","build/test_aac_real_stereo_pns_positive"),
-                     ("zero","build/test_aac_real_stereo_pns_zero")):
+                     ("zero","build/test_aac_real_stereo_pns_zero"),
+                     ("sine_windows","build/test_aac_real_stereo_windows_sine")):
         pcm=out/(args.case+"."+name+".f32")
         mask=out/(args.case+"."+name+".mask")
         decode=run([ROOT/exe,audio,pcm,mask])
@@ -94,7 +96,7 @@ def main():
               (args.case,name,channels.get("LEFT",{}).get("nrmse"),
                channels.get("RIGHT",{}).get("nrmse")))
     baseline=(out/(args.case+".current.f32")).read_bytes()
-    for variant in ("independent","positive","zero"):
+    for variant in ("independent","positive","zero","sine_windows"):
         other=(out/(args.case+"."+variant+".f32")).read_bytes()
         print("PCM bit-identical current vs %s: %s"%(variant,baseline==other))
     inspect_transient_blocks(
