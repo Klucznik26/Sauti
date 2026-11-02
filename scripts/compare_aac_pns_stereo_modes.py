@@ -188,7 +188,9 @@ def main():
                "build/test_aac_real_stereo_pns_zero",
                "build/test_aac_real_stereo_windows_sine",
                "build/test_aac_real_stereo_short_first_current",
-               "build/test_aac_real_stereo_short_direct_imdct"])
+               "build/test_aac_real_stereo_short_direct_imdct",
+               "build/test_aac_real_stereo_short_no_ms",
+               "build/test_aac_real_stereo_short_no_intensity"])
     if build.returncode:
         print(build.stdout[-4000:],file=sys.stderr)
         return 2
@@ -201,7 +203,9 @@ def main():
                      ("zero","build/test_aac_real_stereo_pns_zero"),
                      ("sine_windows","build/test_aac_real_stereo_windows_sine"),
                      ("short_first_current","build/test_aac_real_stereo_short_first_current"),
-                     ("short_direct_imdct","build/test_aac_real_stereo_short_direct_imdct")):
+                     ("short_direct_imdct","build/test_aac_real_stereo_short_direct_imdct"),
+                     ("short_no_ms","build/test_aac_real_stereo_short_no_ms"),
+                     ("short_no_intensity","build/test_aac_real_stereo_short_no_intensity")):
         pcm=out/(args.case+"."+name+".f32")
         mask=out/(args.case+"."+name+".mask")
         decode=run([ROOT/exe,audio,pcm,mask])
@@ -220,7 +224,7 @@ def main():
               (args.case,name,channels.get("LEFT",{}).get("nrmse"),
                channels.get("RIGHT",{}).get("nrmse")))
     baseline=(out/(args.case+".current.f32")).read_bytes()
-    for variant in ("independent","positive","zero","sine_windows","short_first_current","short_direct_imdct"):
+    for variant in ("independent","positive","zero","sine_windows","short_first_current","short_direct_imdct","short_no_ms","short_no_intensity"):
         other=(out/(args.case+"."+variant+".f32")).read_bytes()
         print("PCM bit-identical current vs %s: %s"%(variant,baseline==other))
     current_pcm=read_pcm(out/(args.case+".current.f32"))
