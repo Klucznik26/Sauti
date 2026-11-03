@@ -15,7 +15,6 @@ static void put(Bits *b,unsigned n,unsigned v) {
         b->bit++;
     }
 }
-static size_t size_bits(const Bits *b){return b->bit;}
 static void align_byte(Bits *b){
     while(b->bit&7u)put(b,1,0u);
 }
