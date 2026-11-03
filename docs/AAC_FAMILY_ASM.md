@@ -2131,3 +2131,47 @@ ramce zawiera składniki mieszane; podział E oznacza
 udział składowych, a nie gwarancję dokładnej mocy
 każdej ramki. Testy syntetyczne nie zastępują
 weryfikacji rzeczywistymi strumieniami.
+
+
+## HE-AAC v1 / SBR-21 — wygładzanie wzmocnienia i amplitudy szumu
+
+Dodano własny moduł `sauti_aac_sbr_smooth_coefficients` dla
+**rzeczywistych współczynników wzmocnienia i amplitudy szumu QMF**.
+Wygładzane są parametry *przed* składaniem sygnału zespolonego,
+a nie gotowe próbki dźwięku.
+
+W trybie `bs_smoothing_mode=0` używany jest pięciopunktowy
+filtr MPEG-4 SBR o współczynnikach (od najnowszej próbki):
+`0.33333333333333, 0.30150283239582, 0.21816949906249,`
+`0.11516383427084, 0.03183050093751`.
+
+W trybie `bs_smoothing_mode=1` filtr jest wyłączony. Obwiednie
+oznaczone jako atak (*transient*) również pomijają filtr,
+ale zawsze zapisują bieżące wartości w historii na kolejne
+sloty. Przy pierwszym uruchomieniu cztery wcześniejsze sloty
+są inicjalizowane pierwszym poziomem obwiedni.
+
+`SautiAacSbrSmoothState` zapamiętuje cztery sloty dla każdego
+subpasma oraz geometrię `[kx,k2]`. Rozbieżność geometrii wymaga
+jawnego resetu stanu (wyzerowania obiektu). Obsługiwanych jest
+1–40 slotów, 1–5 obwiedni, 64 subpasma w układzie czasowym.
+Dane ujemne, NaN/Inf, błędne granice i stan oznaczają
+**pełne wycofanie wyniku i historii**.
+
+Test `test_aac_sbr_smooth.c` weryfikuje:
+- analityczny wynik pięciu wag i stopniowej zmiany obwiedni;
+- identyczność pojedynczej ramki i dwóch kolejnych wywołań;
+- ominięcie wygładzania podczas ataku oraz przełączanie trybów;
+- 40 slotów, 5 obwiedni, błędne dane i atomowość stanu.
+
+```sh
+make test-aac-sbr-smooth PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Zakres:** SBR-21 generuje na razie szereg wygładzonych
+współczynników, ale nie jest jeszcze podłączony do SBR-20.
+Włączenie ich do wspólnej regulacji HF będzie kolejnym
+etapem, po sprawdzeniu numeryki. Normatywna tablica
+512 wektorów szumu, synteza i analiza QMF oraz łączenie
+ramek HE-AAC do PCM również pozostają do wykonania.
