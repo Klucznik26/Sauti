@@ -1791,3 +1791,51 @@ zespolonych subpasmach. Do PCM potrzebne będą
 jeszcze analiza i synteza QMF, regulacja obwiedni
 i szumu oraz integracja dekodera ramki.
 Walidację CI i Fedory trzeba potwierdzić osobno.
+
+
+## HE-AAC v1 / SBR-15 — dopasowanie energii obwiedni (podzbiór)
+
+Dodano `sauti_aac_sbr_hf_adjust`: natywny, bezalokacyjny
+etap dopasowania amplitudy zespolonych próbek QMF do
+docelowych **liniowych energii obwiedni** z SBR-09/10.
+Interfejs przyjmuje granice obwiedni przeliczone przez
+wywołującego na sloty QMF, dane `low/high` z SBR-05
+oraz `energy->freq_res`.
+
+Dla każdego przedziału czasowego i częstotliwościowego
+liczy uśrednioną moc `mean(re*re+im*im)`, a następnie
+mnoży obie składowe zespolone przez
+`sqrt(E_target/E_measured)`. Dwie opcje:
+- `interpolation=0`: średnia moc całego pasma low/high;
+- `interpolation=1`: osobna moc i wzmocnienie subpasma QMF.
+
+Obsługa 1..40 slotów i 1..5 obwiedni. Wyniki poza
+wysokoczęstotliwościowym zakresem SBR są kopiowane
+bez zmian. Ujemne, niefinitywne energie, wadliwe
+granice czy NaN/Inf w używanych próbkach powodują
+odrzucenie całego wyniku bez częściowego zapisu.
+Nie da się samym wzmocnieniem odtworzyć dodatniej
+energii z zerowego sygnału, dlatego takie wejście
+jest bezpiecznie odrzucane. Bufory mogą się nakładać.
+
+Testy obejmują:
+- dwa typy rozdzielczości częstotliwości,
+- rozróżnienie interpolacji pasmowej i subpasmowej,
+- 40 slotów, 5 obwiedni i zachowanie granic,
+- zerowy sygnał, NaN/Inf, błędne rozmiary i rollback,
+- kompletne przemiatanie geometrii `limits → master →
+  tables → energy → adjust` dla wielu parametrów SBR.
+
+```sh
+make test-aac-sbr-hf-adjust PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Ważna granica:** SBR-15 nie jest jeszcze pełnym
+normatywnym `envelope adjustment`. Pozostają limiter
+wzmocnienia/boost, wprowadzanie szumu i harmonicznych,
+wygładzanie granic oraz dopasowanie skali energii do
+przyszłego banku analizy QMF. Potrzebne są również
+synteza QMF i pełne połączenie z dekoderem ramek.
+Obecne wzory są sprawdzane w ramach testów syntetycznych,
+nie należy ogłaszać ukończenia HE-AAC.
