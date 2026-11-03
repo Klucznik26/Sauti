@@ -70,6 +70,7 @@ AAC_HEADERS_ASM := $(OBJDIR)/sauti_aac_headers.o
 AAC_CONFIG_SRC := src/decoders/modern/aac/sauti_aac_config.c
 AAC_SYNTAX_SRC := src/decoders/modern/aac/sauti_aac_syntax.c
 AAC_SBR_GRID_SRC := src/decoders/modern/aac/sauti_aac_sbr_grid.c
+AAC_SBR_MASTER_SRC := src/decoders/modern/aac/sauti_aac_sbr_master.c
 AAC_LC_SECTIONS_SRC := src/decoders/modern/aac/sauti_aac_lc_sections.c
 AAC_HUFFMAN_SRC := src/decoders/modern/aac/sauti_aac_huffman.c
 AAC_HUFFMAN_ASM := $(OBJDIR)/sauti_aac_huffman.o
@@ -388,6 +389,13 @@ $(OBJDIR)/test_aac_sbr_grid: tests/test_aac_sbr_grid.c include/sauti_aac_sbr_gri
 test-aac-sbr-grid: $(OBJDIR)/test_aac_sbr_grid
 	./$(OBJDIR)/test_aac_sbr_grid
 
+$(OBJDIR)/test_aac_sbr_master: tests/test_aac_sbr_master.c include/sauti_aac_sbr_master.h $(AAC_SBR_MASTER_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_master.c $(AAC_SBR_MASTER_SRC)
+
+.PHONY: test-aac-sbr-master
+test-aac-sbr-master: $(OBJDIR)/test_aac_sbr_master
+	./$(OBJDIR)/test_aac_sbr_master
+
 $(OBJDIR)/test_aac_lc_sections: tests/test_aac_lc_sections.c include/sauti_aac_lc_sections.h include/sauti_aac_syntax.h $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_lc_sections.c $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) -no-pie
 
@@ -671,7 +679,7 @@ test-aac-native-adapter: $(OBJDIR)/test_decoder_aac_native
 
 # Runs all native AAC modules without requiring libav*/FFmpeg.
 .PHONY: test-aac-native
-test-aac-native: test-aac-headers test-aac-syntax test-aac-sbr-grid test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
+test-aac-native: test-aac-headers test-aac-syntax test-aac-sbr-grid test-aac-sbr-master test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
 
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm
