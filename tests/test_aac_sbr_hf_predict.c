@@ -50,11 +50,11 @@ static void test_chirp_transitions(void) {
     const float prior=state.bw[0];
     const uint8_t modes1[2]={0,2};
     assert(sauti_aac_sbr_chirp_update(modes1,2,&state));
-    approx(state.bw[0],0.75*0.6+0.25*prior); /* LOW -> OFF */
-    approx(state.bw[1],0.75*0.9+0.25*(0.90625*0.98));
+    approx(state.bw[0],0.90625*0.6+0.09375*prior); /* LOW -> OFF, target exceeds previous smoothed value */
+    approx(state.bw[1],0.90625*0.9+0.09375*(0.90625*0.98));
     const uint8_t off[2]={0,0};
     assert(sauti_aac_sbr_chirp_update(off,2,&state));
-    approx(state.bw[0],0.25*(0.75*0.6+0.25*prior));
+    approx(state.bw[0],0.25*(0.90625*0.6+0.09375*prior));
     /* Continued zero/zero smoothing eventually kills residual. */
     for(unsigned i=0;i<12;i++)assert(sauti_aac_sbr_chirp_update(off,2,&state));
     assert(state.bw[0]==0.0f && state.bw[1]==0.0f);
