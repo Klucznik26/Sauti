@@ -2013,3 +2013,54 @@ syntezy/analizy QMF ani pełnego dekodowania ramek
 HE-AAC do PCM. Poziomy szumu zakładają wejście
 wcześniej dopasowane do energii obwiedni; ogranicznik
 może celowo obniżyć jego końcową moc.
+
+
+## HE-AAC v1 / SBR-19 — harmoniczne zespolone w pasmach QMF
+
+Dodano `sauti_aac_sbr_hf_sine_mix`, samodzielny, bezalokacyjny
+moduł generowania dodatkowych harmonicznych w domenie QMF.
+Każda flaga `bs_add_harmonic[i]` (0/1) dotyczy pasma
+wysokiej rozdzielczości `tables->high[i..i+1]`; składnik
+sinusoidalny trafia do jego środkowego subpasma
+`(high[i]+high[i+1])/2`.
+
+Stan kanału `SautiAacSbrSineState` zapamiętuje fazę
+`indexsine` w cyklu 0..3 i mapę aktywnych harmonicznych
+poprzedniej ramki. Nowe harmoniczne wchodzą dopiero od
+wskazanej obwiedni `transient_env`, podczas gdy
+harmoniczne kontynuowane z wcześniejszej ramki mogą
+być obecne już w pierwszej obwiedni. Faza przesuwa się
+o jeden na każdy slot QMF, również gdy flaga harmonicznej
+nie jest aktywna. Dla 4 faz obowiązuje naprzemiennie
+real + / imaginacyjna ze znakiem wynikającym z parzystości
+subpasma / real − / imaginacyjna z odwróconym znakiem.
+
+Amplituda pojedynczej sinusoidy jest liczona z
+docelowych energii `E` (SBR-09/10) i noise factor `Q`:
+`sqrt(E/(1+Q))`. Tablice czasowe obwiedni i szumu
+wskazują obowiązującą wartość E/Q; zawartość QMF
+poza odpowiednimi harmonicznymi pozostaje niezmieniona.
+
+Testy `test_aac_sbr_hf_sine.c` pokrywają:
+- dokładną kolejność czterech faz dla dwóch harmonicznych;
+- nowy transient, kontynuację i wygaszenie między ramkami;
+- idealną zgodność całości z dwiema kolejnymi ramkami;
+- działanie przy aliasingu wejścia i wyjścia;
+- integrację z liniowymi energiami z SBR-09;
+- zakresy, brakujące wejścia, NaN/Inf, uszkodzone flagi,
+  wycofanie całego wyniku i stanu w przypadku błędu;
+- szeroki sweep konfiguracji tablic pasm SBR.
+
+```sh
+make test-aac-sbr-hf-sine PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Granica funkcjonalna:** to osobny, testowalny moduł
+sinusoid. Pełna, normatywna mieszanka harmonicznych,
+szumu i regulacji obwiedni wymaga wspólnej obsługi
+limiter boost, tłumienia szumu w tonalnych pasmach,
+wygładzania i transientów oraz ostatecznie banków
+QMF analizy/syntezy i integracji z dekoderem AAC.
+Generator SBR-18 ma nadal niezgodną z normatywną
+tablicą 512-wektorową autorską sekwencję szumu.
