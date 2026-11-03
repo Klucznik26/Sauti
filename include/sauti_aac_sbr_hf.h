@@ -18,6 +18,12 @@ typedef struct {
     float im;
 } SautiAacSbrComplex;
 
+/* Validate the SBR-11 patch map against the full SBR-05 high/low/noise
+ * geometry. This is shared by both the direct-transpose baseline and
+ * the LPC/chirp generator. Returns 0 without modifying any inputs. */
+int sauti_aac_sbr_hf_map_valid(const SautiAacSbrPatches *patches,
+                               const SautiAacSbrTables *tables);
+
 /* Input:  time-major low[slots][32], already ANALYZED complex QMF.
  * Output: time-major high[slots][64] containing the directly
  * transposed baseline from patches (no LPC/chirp/gain).
