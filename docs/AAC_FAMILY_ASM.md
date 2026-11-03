@@ -2472,3 +2472,77 @@ wspólnej regulacji energii oraz weryfikacja numeryczna
 z niezależnym dekoderem i rzeczywistymi bitstreamami.
 Przed optymalizacją ASM trzeba także uzgodnić skalowanie
 i kolejność próbek z referencyjnym torem całej ramki.
+
+
+## HE-AAC v1 / SBR-27 — 32-pasmowy zespolony bank analizy QMF
+
+Dodano własny moduł `sauti_aac_sbr_qmf_analyze_32`.
+Przetwarza `32` kolejne próbki rzeczywiste sygnału
+AAC-LC (jeden slot) na `32` zespolone podpasma QMF
+w formacie używanym przez SBR-12/13. Nie korzysta
+z zewnętrznych bibliotek kodeków, nie alokuje pamięci
+i przechowuje osobną historię dla każdego kanału.
+
+Moduł korzysta z **tej samej 640-elementowej tablicy
+prototypu co SBR-25**, lecz pobiera współczynniki
+o **parzystych indeksach** — łącznie 320.
+Historia `x[320]` jest ułożona od najnowszych próbek:
+nowy blok PCM zapisuje `x[31-n] = pcm[n]`,
+a wcześniejsze 288 wartości przesuwane są o 32.
+
+Okno i polifazowa suma (`n=0..63`):
+
+`u[n] = sum(j=0..4, x[n+64*j] * C[2*(n+64*j)])`.
+
+Bezpośrednia (nieoptymalizowana) modulacja zespolona
+na każde `k=0..31`:
+
+`X[k] = 2*sum(n=0..63, u[n] *
+exp(i*pi/64*(k+0.5)*(2*n-0.5)))`.
+
+Wzór i numeracja odpowiadają bankowi analizy SBR
+MPEG-4, Figure 4.42. Obliczenia pośrednie korzystają
+z `double`, a wynik ma postać `{float re, float im}`.
+Opcjonalny parametr `active_bands` (1..32) pozwala
+wyzerować pasma poza aktualnym progiem `kx`,
+przy zachowaniu pełnego 32-próbkowego postępu historii.
+
+Obsługiwane jest 1–40 slotów na wywołanie, również
+po podziale jednej ramki na wiele wywołań.
+Bufory wejścia i wyjścia mogą na siebie nachodzić
+(przy wystarczającej pojemności). W razie
+błędu danych lub stanu wyjście i historia pozostają
+**bitowo niezmienione**. Po każdej udanej ramce
+aktualizowana jest liczba skonsumowanych próbek PCM.
+
+Test `test_aac_sbr_qmf_analysis.c` weryfikuje:
+- wzorcowe próbki zespolone z impulsu `x[1]`
+  w podpasmach 0, 1, 7 i 31 (faza, znak, skala);
+- rozchodzenie się impulsu przez 10 slotów
+  i wygaśnięcie po opuszczeniu 320-próbkowej historii;
+- pełne 40 slotów względem niezależnego obliczenia
+  `long double`, z funkcjami `cosl` i `sinl`;
+- identyczny wynik po podziale na 17+23 sloty
+  i identyczny końcowy stan kanału;
+- maskowanie wyższych pasm `kx`, ciszę,
+  niezależność kanałów, nakładanie buforów;
+- fail-closed przy NaN/Inf, złej pojemności,
+  uszkodzonej historii i liczniku próbek.
+
+```sh
+make test-aac-sbr-qmf-analysis PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Stan toru:** mamy teraz oddzielnie bank analizy
+`32 PCM -> 32 zespolone QMF` (SBR-27), rekonstrukcję
+HF (SBR-12–24) i bank syntezy `64 zespolone QMF ->
+64 próbek` (SBR-25/26). Następnym etapem będzie
+zsynchronizowanie `XLow`/`XHigh`, opóźnień
+i pełnej ramki, następnie weryfikacja realnego
+HE-AAC względem niezależnej implementacji.
+
+**Zastrzeżenie:** powodzenie testów syntetycznych
+nie oznacza jeszcze zgodności całego dekodera.
+Połączenie z AAC-LC i testy faktycznych strumieni
+HE-AAC oraz poprawności wyjściowego PCM są nieukończone.
