@@ -2349,3 +2349,62 @@ ale nie oznacza gotowego, zgodnego HE-AAC.
 Wciąż wymagane są banki analizy/syntezy QMF,
 normatywny wspólny rachunek energii limiter/noise/sine
 oraz integracja strumieni AAC i wyjścia PCM.
+
+
+## HE-AAC v1 / SBR-25 — 640-tap polifazowe okno syntezy QMF
+
+Zaimplementowano samodzielny moduł
+`sauti_aac_sbr_qmf_synth_window_64`, pierwszy
+etap **banku syntezy QMF**. Przetwarza każdy
+blok **128 już zmodulowanych wartości rzeczywistych V**
+na 64 wynikowe próbki za pomocą 640-współczynnikowego
+okna prototypowego MPEG-4 SBR.
+
+Filtr dla wyjścia `n=0..63` sumuje 10 wkładów:
+
+`out[n] = sum(j=0..9, C[64*j+n] * V[128*j + 64*(j&1) + n])`.
+
+`V` to bieżący blok 128 wartości i dziewięć
+poprzednich bloków. Historię przechowujemy w
+10-elementowym pierścieniu (`head`, `ready`,
+`history[10][128]`) między kolejnymi ramkami.
+Bez kosztownego przesuwania 1280 próbek przy
+każdym slocie. Nowy kanał wymaga stanu wyzerowanego.
+
+640 współczynników prototypu zweryfikowano względem
+publicznej tablicy FFmpeg n6.1
+`libavcodec/aacsbrdata.h` (LGPL-2.1-or-later).
+Nie występuje zależność od FFmpeg ani jakiegokolwiek
+innego kodeka w czasie wykonania. Tak jak przy
+SBR-23, przed dystrybucją należy rozstrzygnąć
+obowiązki licencyjne dotyczące użytej tablicy.
+
+Moduł wspiera 1–40 slotów na wywołanie i
+sprawdza wszystkie wejściowe wartości, pamięć
+historii, granice, NaN/Inf, przepełnienia i
+nakładanie się buforów. W razie błędu **cały
+wynik i historia pozostają niezmienione**.
+
+Test `test_aac_sbr_qmf_synth_window.c`:
+- normatywne wartości wybranych współczynników
+  i symetrię całej 640-elementowej tablicy;
+- odpowiedź na impuls przechodzący przez
+  dziesięć bloków polifazowego nakładania;
+- niezależnie policzone sumy filtra dla 40 slotów;
+- zgodność ramki pełnej i podzielonej na 17+23 sloty;
+- cztery kolejne 40-slotowe ramki i ciągłość historii;
+- sprawdzanie granic, NaN/Inf, nakładania buforów
+  oraz rollback przy błędach późnego slotu.
+
+```sh
+make test-aac-sbr-qmf-synth-window PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Ważne ograniczenie:** SBR-25 nie przyjmuje
+bezpośrednio zespolonych podpasem QMF z SBR-24.
+Brakuje transformacji/modulacji QMF z 64
+zespolonych pasm do 128 wartości rzeczywistych V.
+Dopiero po jej implementacji i integracji można
+przeprowadzić syntetyczne testy toru QMF → próbki
+i następnie zbudować pełny HE-AAC → PCM.
