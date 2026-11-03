@@ -1745,3 +1745,49 @@ regulacji obwiedni/szumu i nie zawiera polifazowych
 banków filtrów QMF ani końcowego PCM. Parametry
 poprzedniego stanu `chirp` wymagają inicjalizacji zerami.
 Sprawdzenie CI i Fedory jest odrębnym warunkiem zakończenia.
+
+
+## HE-AAC v1 / SBR-14 — natywna autokorelacja i współczynniki LPC
+
+Nowy moduł `sauti_aac_sbr_lpc_estimate` oblicza zespolone
+współczynniki `alpha0/alpha1` **z samych próbek QMF**.
+Wejście obejmuje **40 kolejnych slotów** po 32 pasma QMF
+(dwa sloty historii i 38 pozostałych), uporządkowane
+`low[time][32]`. Liczba rzeczywiście używanych pasm
+1..32 przekazywana jest jawnie.
+
+Algorytm wykorzystuje wielkości autokorelacji zespolonej
+z opóźnieniami 0, 1 i 2: energię, iloczyny
+`conj(x[t]) * x[t+1]` i `conj(x[t]) * x[t+2]`,
+z właściwymi oknami klasycznego HE-AAC. Z tych wielkości
+wyznaczany jest wyznacznik z regularyzacją `1.000001`,
+następnie dwa współczynniki zespolone z układu
+predykcji drugiego rzędu.
+
+Obliczenia pośrednie w `double` oraz normalizacja
+każdego pasma względem szczytowego modułu składowej
+zabezpieczają przed przepełnieniem/szkodliwym
+skalowaniem amplitudy. Cisza, układ niemal osobliwy
+i współczynniki o normie >=4 powodują zerowanie
+predykcji w danym paśmie. Niepoprawne dane lub
+za małe bufory pozostawiają **cały wynik bez zmian**.
+Brak alokacji i FFmpeg/FDK podczas dekodowania.
+
+Test `test_aac_sbr_lpc.c` obejmuje analityczne
+wzorce dla dwóch impulsów 1/1 i 1/i, skalowanie
+amplitudy, ciszę, przypadki szumowe, NaN/Inf i
+fail-closed. Test integracyjny wykorzystuje
+rzeczywisty łańcuch `LPC → SBR-13 chirp/HF predict`
+i porównuje wyjście z ręcznie wyliczonym wzorem.
+
+```sh
+make test-aac-sbr-lpc PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Nie jest to jeszcze gotowy HE-AAC:** LPC i
+transpozycja pracują na wcześniej obliczonych
+zespolonych subpasmach. Do PCM potrzebne będą
+jeszcze analiza i synteza QMF, regulacja obwiedni
+i szumu oraz integracja dekodera ramki.
+Walidację CI i Fedory trzeba potwierdzić osobno.
