@@ -1296,3 +1296,33 @@ po stronie przyszłego etapu. Brak logarytmicznych trybów
 `bs_freq_scale=1..3` i wyznaczania tabel high/low/noise.
 Nie podłączać jeszcze HE-AAC do odtwarzacza ani nie ogłaszać
 dekodowania SBR. CI i test na Fedorze wymagają potwierdzenia.
+
+
+## HE-AAC v1 / SBR-03 — logarytmiczna tabela pasm master
+
+Nowy, własny generator `sauti_aac_sbr_master_log` implementuje
+logarytmiczne tryby `bs_freq_scale=1,2,3` i `bs_alter_scale=0,1`.
+Buduje jedną lub dwie sekcje częstotliwości, zgodnie z progiem
+podziału zakresu, i wyznacza rosnące granice pasm master
+z wyrównaniem szerokości i opcjonalnym warping.
+Nie korzysta z FFmpeg ani innych dekoderów; wymaga `libm`
+wyłącznie do operacji matematycznych (`powf`, `log2f`, `lrintf`).
+
+Testy obejmują wektory o ustalonych granicach, oba warianty
+liczby sekcji, wszystkie skale, obie wartości warping, crossover
+i przegląd 72 960 kombinacji k0=1..32, k2=k0+1..64, xover=0..7.
+Odrzucone dane nie modyfikują wyjścia (fail-closed).
+Testy przeszły lokalnie z `-O2 -Wall -Wextra -Werror` oraz
+`-fsanitize=address,undefined` w środowisku roboczym.
+Wyniki Fedory i CI należy potwierdzić osobno.
+
+```sh
+make test-aac-sbr-master-log PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Zakres:** moduł nie oblicza jeszcze `k0`/`k2` z nagłówków
+`bs_start_freq`/`bs_stop_freq` i częstotliwości próbkowania
+ani nie tworzy tabel high/low/noise. HE-AAC nadal nie produkuje
+własnego PCM SBR; filtr QMF, odwzorowanie pasm i obwiednie
+pozostają kolejnymi etapami. Nie zmieniać progów AAC-LC.
