@@ -2229,3 +2229,66 @@ szumu ośmiu faz; obsługa transjentów, kalkulacja
 końcowego ogranicznika uwzględniającego jednocześnie
 harmoniczne i szum, analiza/synteza QMF oraz połączenie
 z dekoderem AAC do PCM są nieukończone.
+
+
+## HE-AAC v1 / SBR-23 — normatywna 512-wektorowa tablica szumu
+
+Dodano osobny moduł `sauti_aac_sbr_noise_rom` z kompletem
+**512 zespolonych wektorów szumu SBR**. Są to numeryczne
+wartości referencyjne MPEG-4 AAC SBR; zgodność pozycji
+zweryfikowano z publiczną tablicą FFmpeg n6.1
+`libavcodec/sbrdsp_template.c` (LGPL-2.1-or-later).
+Dane te są statyczne i nie wymagają zewnętrznego dekodera
+ani żadnych bibliotek kodeka w czasie wykonania.
+Przed publiczną redystrybucją projektu należy potwierdzić
+obowiązki licencyjne związane z wykorzystaniem wartości
+tablicy referencyjnej.
+
+Wartości szumu nie są znormalizowane do modułu 1.
+Różni to je zasadniczo od wcześniejszego, autorskiego
+generatora ośmiu faz z SBR-18. Poprzedni generator
+pozostaje nienaruszony i nadal obsługuje SBR-20/SBR-22.
+
+Indeks w MPEG-4 SBR **rośnie przed odczytem**:
+z początkowego `index=0` odczytywane są kolejno
+`ROM[1]`, `ROM[2]`, ..., `ROM[511]`, `ROM[0]`.
+Indeks wraca na początek przez maskę `& 511`.
+`SautiAacSbrNoiseRomState` przechowuje ostatni indeks
+i liczbę wyemitowanych próbek. Stan jest niezależny
+na każdy kanał i zachowywany między ramkami.
+
+Interfejsy:
+- `sauti_aac_sbr_noise_rom_lookup`: odczyt dowolnego
+  wektora bez przesuwania stanu;
+- `sauti_aac_sbr_noise_rom_next` i `_sequence`:
+  atomowe pobieranie kolejnych wektorów;
+- `sauti_aac_sbr_noise_rom_apply_levels`: natywne
+  `Y=X*gain + ROM[index]*noise_amplitude` na zespolonych
+  subpasmach QMF (1–40 slotów). Amplitudy są przekazywane
+  bezpośrednio z poziomu współczynników, dzięki czemu
+  można później wykorzystać je po SBR-21.
+
+Moduł przetwarza pasma poza `[kx,k2]` bez zmian.
+Indeks przesuwa się po każdym paśmie HF nawet dla
+zerowego współczynnika szumu. Wejście/wyjście mogą
+wskazywać ten sam bufor. Błędne parametry, geometria,
+NaN/Inf, overflow czy skrócone bufory nie zmieniają
+wyjścia **ani stanu**.
+
+Test `test_aac_sbr_noise_rom.c`: dokładne wartości
+wybranych pozycji referencyjnych (0, 1, 2, 7, 31,
+127, 255, 256, 511), niejednostkowe moduły, pełne
+512-próbkowe zawinięcie, 2560 wektorów w jednym i
+wielu wywołaniach, 40-slotowe QMF, pracę in-place,
+maskowanie szumu i testy fail-closed.
+
+```sh
+make test-aac-sbr-noise-rom PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Granica:** sam moduł SBR-23 jest osobną ścieżką.
+Włączenie normatywnej ROM w SBR-22, zastąpienie
+przestarzałego generatora faz i testy rzeczywistych
+strumieni będą osobnymi etapami. Nadal brakuje
+banków analizy/syntezy QMF oraz kompletnego toru PCM.
