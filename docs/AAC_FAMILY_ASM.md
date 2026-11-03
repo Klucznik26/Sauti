@@ -1568,3 +1568,53 @@ make test-aac-native PKG_CONFIG=/bin/false
 Potwierdzenie ostatecznych testów CI i Fedory nastąpi
 po wykonaniu powyższych poleceń. Moduł nie jest jeszcze
 syntezą QMF i nie uruchamia odtwarzania HE-AAC.
+
+## HE-AAC v1 / SBR-10 — wspólne energie sprzężonego stereo
+
+Dodano `sauti_aac_sbr_coupled_dequant` do modułu
+`sauti_aac_sbr_energy.c`. Przyjmuje **dwie** poprawnie zdekodowane
+ramki kwantowane SBR-08: poziom (`balanced=0`) i proporcję
+kanałów (`balanced=1`) w standardowym CPE z `bs_coupling=1`.
+Wspólnie wyznacza `left` i `right`; nie wolno zamienić kanałów
+ani traktować prawego strumienia balance jako niezależnego PCM.
+
+Dla obwiedni:
+- `E_sum = 128 * 2^(alpha * q_level)`,
+- `ratio = 2^(alpha * (pan_offset - q_balance))`,
+- `E_left = E_sum / (1 + ratio)`,
+- `E_right = E_sum * ratio / (1 + ratio)`.
+
+`alpha=0.5` i `pan_offset=24` w rozdzielczości 1.5 dB;
+`alpha=1` i `pan_offset=12` w rozdzielczości 3.0 dB.
+FIXFIX z jedną obwiednią wymusza rozdzielczość 1.5 dB.
+Dla szumu: `Q_sum=2^(7-q_noise_level)` oraz
+`ratio_noise=2^(12-q_noise_balance)` i analogiczny podział.
+
+Wzory sprawdzono na podstawie niezależnych implementacji
+FFmpeg n6.1 (`aacsbr.c`, `sbr_dequant`) i FDK-AAC
+(`env_dec.cpp`, `sbr_envelope_unmapping`). Wynik używa `double`,
+`ldexp` i `exp2`, bez FFmpeg i bez alokacji w czasie działania.
+
+Spójność pary sprawdzana jest przez identyczne liczniki
+obwiedni, rozdzielczości, tablice pasm i dozwolone zakresy
+kwantowania. W razie jakiegokolwiek błędu **oba** bufory wyjściowe
+pozostają niezmienione; przekazanie tego samego bufora dla
+lewego i prawego kanału jest zabronione.
+
+Test `test_aac_sbr_coupled.c` weryfikuje wartości golden
+(pan center/lewo/prawo, energia i szum), wymuszony FIXFIX,
+33 729 kombinacji energii i szumu z kontrolą zachowania sumy
+oraz proporcji kanałów, błędy i atomowość obu wyjść.
+Dodatkowo sprawdza autentyczny łańcuch:
+`SBR-08 Huffman -> quant level/balance -> SBR-10 unmapping`.
+
+```sh
+make test-aac-sbr-coupled PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Ograniczenie:** moduł wytwarza liniowe energie i poziomy
+szumu, nie sygnał PCM. Nie jest jeszcze podłączony do
+bitstreamowego parsera CPE i syntezy QMF. Brak pełnego
+odtwarzania HE-AAC bez etapów HF/QMF i integracji.
+Przed zamknięciem etapu wymagane są testy Fedory i CI.
