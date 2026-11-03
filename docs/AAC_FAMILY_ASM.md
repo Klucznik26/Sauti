@@ -1396,3 +1396,38 @@ make test-aac-native PKG_CONFIG=/bin/false
 do parsowania ramki SBR ani do obsługi envelope Huffman/QMF/PCM.
 Po zmianach wymagane są pomyślne testy na Fedorze i CI;
 nie zastępują one testów jakości dźwięku AAC-LC/PNS.
+
+
+## HE-AAC v1 / SBR-06 — sterowanie obwiedniami dtdf i inverse filtering
+
+Dodano `sauti_aac_sbr_control_parse` wykorzystujący natywny
+czytnik bitów NASM, bez zewnętrznych dekoderów.
+Parser konsumuje **dwie kolejne** klasyczne składnie SBR:
+`sbr_dtdf()` (po jednym bicie `bs_df_env` na obwiednię i
+`bs_df_noise` na obwiednię szumu) oraz `sbr_invf()`
+(po dwa bity `bs_invf_mode` na **pasmo częstotliwościowe noise**).
+Liczby elementów pochodzą z już zweryfikowanej siatki czasowej
+`SautiAacSbrGrid` i tabeli częstotliwości `SautiAacSbrTables`.
+
+Wspierane są 1–5 obwiedni, 1–2 obwiednie szumu, 1–5 pasm
+noise i dowolny początkowy offset bitowy. Walidowane są
+liczniki, rozdzielczość częstotliwości `freq_res`, podstawowa
+spójność tabel oraz dostępność bitów. Po błędzie `*out` i
+`*bit_offset` pozostają bez zmian (fail-closed).
+
+Test `test_aac_sbr_control.c` sprawdza ręcznie zdefiniowane
+wartości bitów, przesunięcia niebajtowe, przerwania wejścia
+na wszystkich granicach bajtowych, błędne liczniki, oraz
+integrację z rzeczywistymi funkcjami parsowania siatki SBR
+i wyznaczania tablic high/low/noise.
+
+```sh
+make test-aac-sbr-control PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Zakres etapu:** wynik zawiera wyłącznie flagi przełączające
+sposób kodowania obwiedni i tryby inverse filtering.
+Nie dekoduje Huffmana, nie odtwarza skalefaktorów, nie generuje
+filtrów QMF ani PCM, nie zmienia implementacji AAC-LC.
+Do potwierdzenia: testy CI i test na Fedorze.
