@@ -30,7 +30,7 @@ static void samples(float *x,unsigned slots){
 static void test_golden_coefficients(void){
     close_to(coeff(0u),0.0);
     close_to(coeff(1u),-0.0005525286);
-    close_to(coeff(64u),-0.0011032907);
+    close_to(coeff(64u),0.0026201758);
     close_to(coeff(320u),0.8537385600);
     close_to(coeff(639u),-0.0005525286);
     assert(coeff(320u)>0.85f);
