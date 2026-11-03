@@ -452,6 +452,13 @@ $(OBJDIR)/test_aac_sbr_energy: tests/test_aac_sbr_energy.c include/sauti_aac_sbr
 test-aac-sbr-energy: $(OBJDIR)/test_aac_sbr_energy
 	./$(OBJDIR)/test_aac_sbr_energy
 
+$(OBJDIR)/test_aac_sbr_coupled: tests/test_aac_sbr_coupled.c include/sauti_aac_sbr_energy.h include/sauti_aac_sbr_quant.h $(AAC_SBR_ENERGY_SRC) $(AAC_SBR_QUANT_SRC) $(AAC_SBR_HUFFMAN_SRC) $(AAC_SBR_MASTER_SRC) $(AAC_SBR_FREQ_TABLES_SRC) $(AAC_HEADERS_ASM) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_coupled.c $(AAC_SBR_ENERGY_SRC) $(AAC_SBR_QUANT_SRC) $(AAC_SBR_HUFFMAN_SRC) $(AAC_SBR_MASTER_SRC) $(AAC_SBR_FREQ_TABLES_SRC) $(AAC_HEADERS_ASM) -lm -no-pie
+
+.PHONY: test-aac-sbr-coupled
+test-aac-sbr-coupled: $(OBJDIR)/test_aac_sbr_coupled
+	./$(OBJDIR)/test_aac_sbr_coupled
+
 $(OBJDIR)/test_aac_lc_sections: tests/test_aac_lc_sections.c include/sauti_aac_lc_sections.h include/sauti_aac_syntax.h $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_lc_sections.c $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) -no-pie
 
@@ -735,7 +742,7 @@ test-aac-native-adapter: $(OBJDIR)/test_decoder_aac_native
 
 # Runs all native AAC modules without requiring libav*/FFmpeg.
 .PHONY: test-aac-native
-test-aac-native: test-aac-headers test-aac-syntax test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
+test-aac-native: test-aac-headers test-aac-syntax test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
 
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm
