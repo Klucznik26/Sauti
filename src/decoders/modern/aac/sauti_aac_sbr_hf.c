@@ -6,7 +6,7 @@
 #include <math.h>
 #include <string.h>
 
-static int valid_map(const SautiAacSbrPatches *p,
+int sauti_aac_sbr_hf_map_valid(const SautiAacSbrPatches *p,
                      const SautiAacSbrTables *t) {
     if(!p || !t || p->count<1u ||
        p->count>SAUTI_AAC_SBR_MAX_PATCHES ||
@@ -73,7 +73,7 @@ int sauti_aac_sbr_hf_transpose(const SautiAacSbrPatches *patches,
        slots>SAUTI_AAC_SBR_HF_MAX_SLOTS ||
        low_count<(size_t)slots*SAUTI_AAC_SBR_HF_LOW_BANDS ||
        high_count<(size_t)slots*SAUTI_AAC_SBR_HF_HIGH_BANDS ||
-       !valid_map(patches,tables))return 0;
+       !sauti_aac_sbr_hf_map_valid(patches,tables))return 0;
 
     /* A bounded local staging buffer means that malformed input can
      * never partially corrupt the output, and aliasing is safe. */
