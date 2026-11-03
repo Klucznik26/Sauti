@@ -2546,3 +2546,68 @@ HE-AAC względem niezależnej implementacji.
 nie oznacza jeszcze zgodności całego dekodera.
 Połączenie z AAC-LC i testy faktycznych strumieni
 HE-AAC oraz poprawności wyjściowego PCM są nieukończone.
+
+
+## HE-AAC v1 / SBR-28 — pierwsza integracja całej ścieżki QMF jednego kanału
+
+Dodano `sauti_aac_sbr_qmf_frame_process` i stan
+`SautiAacSbrQmfFrameState`, który przechowuje
+historię analizy QMF, dwa poprzednie sloty zespolone
+dla predykcji HF, stan regulacji ROM i bank syntezy.
+
+Wspólne wywołanie przetwarza na każdy slot:
+
+1. 32 próbki PCM AAC-LC → 32 zespolone pasma (SBR-27);
+2. generowanie pasm HF z łatki SBR-12 **lub** predyktor
+   SBR-13 z dostarczonymi przez wywołującego
+   współczynnikami LPC/chirpem;
+3. limiter, wygładzanie, szum z normatywnej ROM i
+   harmoniczne (SBR-24);
+4. połączenie dolnych pasm `[0,kx)` z odtworzonymi
+   górnymi `[kx,k2)`, wyzerowanie pasm `[k2,64)`;
+5. modulacja i synteza QMF 64-pasmowa (SBR-26/25),
+   64 próbki wynikowe na slot.
+
+Konfiguracja zawiera wcześniej zdekodowane dane
+sterujące i energetyczne SBR; `slots=1..40`.
+Predykcja LPC nie jest tu szacowana automatycznie.
+Jeśli obie opcjonalne struktury LPC i chirp są
+nieobecne, włączana jest prosta transpozycja.
+
+Stan kanału jest niezależny dla stereo. Wyjście
+może nakładać się na wejście PCM, lecz nie na
+stan czy diagnostykę. Wszystkie etapy korzystają
+z tymczasowych buforów; **nawet błąd ostatniego
+etapu pozostawia PCM, raport i wszystkie historie
+bitowo niezmienione**.
+
+Test `test_aac_sbr_qmf_frame.c` pokrywa:
+- zgodność próbki po próbce z ręcznie połączonym
+  łańcuchem SBR-27 → 12/13 → 24 → 26/25;
+- zgodność ramki 8-slotowej i dwóch połówek 4+4
+  (wynik, ROM, faza sinusoidy, analiza i synteza);
+- nakładanie buforów, ciągłość historii dwóch
+  slotów dla predyktora;
+- osobne wyniki podstawowej transpozycji i LPC;
+- pełną ciszę oraz ściśle atomowe błędy w późnym
+  etapie banku syntezy QMF;
+- odrzucenie dodatniej energii przypisanej do
+  niezałatanych najwyższych podpasm HF.
+
+```sh
+make test-aac-sbr-qmf-frame PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Zastrzeżenia:** SBR-28 jest testowalnym mostem QMF,
+**nie** gotowym, normatywnie zgodnym dekoderem HE-AAC.
+Na wejściu wymaga już zdekodowanego PCM AAC-LC,
+siatki SBR, energii i flag. Czasowe przesunięcia
+analizy/syntezy i pełnej ramki SBR nie zostały
+jeszcze zweryfikowane na strumieniach zgodności.
+Moduł SBR-16 odmawia odtworzenia dodatniej energii
+z pustego pasma źródłowego; dotyczy to m.in.
+ostatnich 1–2 pasm pominiętych przez mapę łatek.
+Kolejne etapy muszą dopracować obsługę takich
+konfiguracji, automatyczną estymację LPC i
+integrację realnego bitstreamu HE-AAC do PCM.
