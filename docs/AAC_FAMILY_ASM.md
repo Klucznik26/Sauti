@@ -2677,3 +2677,58 @@ prawdziwy payload do SBR-29 i PCM AAC-LC do SBR-28.
 To otworzy drogę do porównania pierwszych plików
 HE-AAC v1 z niezależnym dekoderem. Sam SBR-29
 nie oznacza jeszcze pełnego dekodowania muzyki.
+
+
+## HE-AAC v1 / SBR-30 — rzeczywista ramka ADTS, rdzeń PCM i SBR z ID_FIL
+
+Nowy `sauti_aac_he_adts_mono_decode_ex` przyjmuje
+**całą ramkę ADTS**: pojedynczy AAC-LC mono `ID_SCE`,
+jego zakodowane widmo, `ID_FIL/EXT_SBR_DATA` typu 13,
+`ID_END` i wyrównanie do bajtu. Pozycja rozszerzenia
+SBR wynika z faktycznego parsowania SCE, a nie
+z wyszukiwania wzorca bajtów lub heurystyki.
+
+Pierwsze wyniki:
+- 1024 próbek PCM rdzenia AAC-LC przy core_sample_rate,
+  z IMDCT, oknami, overlap, PNS i TNS;
+- `SautiAacSbrPayloadFrame` z faktycznie zdekodowanymi
+  parametrami SBR: nagłówkiem, energią, siatką,
+  częstotliwościami, flagami harmonicznych i łatkami;
+- trwały `SautiAacHeAdtsMonoState`, przechowujący
+  osobno historię AAC-LC i stan nagłówków/Huffmana SBR.
+
+Stan kanału inicjuje się jednorazowo przez
+`sauti_aac_he_adts_mono_init`, ponownie po seeku
+lub przerwaniu ciągłości strumienia.
+
+Obsługiwany pierwszy wariant: ADTS mono, AAC-LC 1024,
+jedno raw_data_block, brak CRC, jeden element SBR
+typu 13 i ewentualnie nieszkodliwy EXT_FILL.
+Odrzucamy CPE, inne rozszerzenia, podwójne SBR,
+brak SBR, błędny padding i składnię wykraczającą
+poza zakres SBR-29. Dotychczasowy dekoder AAC-LC
+nadal konserwatywnie odrzuca HE-AAC zamiast
+ignorować rozszerzenie.
+
+Cały proces jest transakcyjny: niepoprawny FIL,
+ucinanie danych czy awaria syntezy nie zmienia
+PCM, nagłówków, historii IMDCT ani Huffmana.
+
+Test `test_aac_sbr_adts_mono.c` buduje kompletną
+ramkę ADTS bit po bicie: 24 kHz rdzeń AAC-LC,
+48 kHz SBR, niebajtowy FIL, realne kody Huffmana.
+Sprawdza dwa kolejne ADTS z powtórnym użyciem
+nagłówka SBR, historię entropijną, próbki PCM
+i rollback po błędach CRC, ucięciu, braku lub
+nieprawidłowym typie rozszerzenia.
+
+```sh
+make test-aac-sbr-adts-mono PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Granica:** SBR-30 zwraca 1024 próbki rdzenia,
+nie 2048 próbek końcowego HE-AAC. Integracja
+z pełnym torrem SBR-28, opóźnienia analizy/syntezy
+oraz porównanie faktycznych nagrań z dekoderem
+referencyjnym pozostają do wykonania.
