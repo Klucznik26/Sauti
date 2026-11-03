@@ -1897,3 +1897,47 @@ i nie wyznacza limiter bands z flag SBR. Parametry
 noise/harmonics i filtry QMF analizy/syntezy nadal
 wymagają implementacji. Nie oznacza pełnej zgodności
 odtwarzania HE-AAC.
+
+
+## HE-AAC v1 / SBR-17 — automatyczna tablica limiter frequency bands
+
+Nowy moduł `sauti_aac_sbr_limiter_bands_build` oblicza
+`f_tablelim` na podstawie `bs_limiter_bands` (0..3),
+tablicy niskiej rozdzielczości SBR-05 oraz styku łatek
+z SBR-11. To brakujące wejście pasmowe dla SBR-16.
+
+- Tryb 0: jedno pasmo ogranicznika `[kx,k2]`.
+- Tryb 1: próg bliskości `2^(0.49/1.2)`.
+- Tryb 2: próg `2^(0.49/2)`.
+- Tryb 3: próg `2^(0.49/3)`.
+
+Kandydaci są sortowani i przerzedzani według stosunku
+częstotliwości. Granice łatek oraz oba końce `[kx,k2]`
+pozostają chronione przed usunięciem, nawet jeśli
+ostatnia łatka została skrócona o 1–2 pasma.
+Nie są generowane zduplikowane ani zerowej długości
+przedziały. Geometria przechodzi również niezależną
+walidację mapy SBR-11/12. Wszelkie błędy pozostawiają
+całą tablicę wyjściową bez zmian (fail-closed).
+
+Funkcja `sauti_aac_sbr_hf_limit_auto` łączy nową tablicę
+z istniejącym SBR-16 w jednym wywołaniu, bez ręcznie
+dostarczonych granic. Nie modyfikuje wejścia; na błędzie
+nie zapisuje też próbek ani statystyk ogranicznika.
+
+Testy obejmują dokładne zestawy granic dla 48 i 96 kHz,
+przypadki 1/2/3 łatek, zachowanie wewnętrznych styków,
+porównanie wszystkich 16 kombinacji automatycznego
+i ręcznego ogranicznika, błędy argumentów i geometrii,
+oraz szeroki sweep od `limits/master/tables/patch`.
+
+```sh
+make test-aac-sbr-limiter-bands PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Granice:** SBR-17 nadal nie generuje szumu,
+sinusoid ani nie wygładza obwiedni. Nie implementuje
+banków polifazowych QMF ani wyjścia PCM. Zgodność
+z realnymi strumieniami wymaga integracji końcowej
+i osobnych testów międzyimplementacyjnych.
