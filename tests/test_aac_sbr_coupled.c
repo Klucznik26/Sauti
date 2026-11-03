@@ -29,8 +29,12 @@ static void fixture(SautiAacSbrGrid *grid, SautiAacSbrTables *tables,
     level->freq_res[1]=balance->freq_res[1]=1;
 }
 static void close_to(double got, double want) {
-    assert(isfinite(got) && isfinite(want));
-    assert(fabs(got - want) <= 4e-13 * fmax(fabs(want),1e-10));
+    if (!isfinite(got) || !isfinite(want) ||
+        fabs(got - want) > 4e-13 * fmax(fabs(want),1e-10)) {
+        fprintf(stderr, "SBR-10 mismatch: got=%.17g expected=%.17g diff=%.17g\\n",
+                got, want, got - want);
+        assert(0 && "SBR-10 relative tolerance exceeded");
+    }
 }
 
 static void test_coarse_stereo_and_noise(void) {
