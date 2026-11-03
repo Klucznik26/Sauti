@@ -1702,3 +1702,46 @@ energii i szumu oraz polifazowe filtry QMF analizy
 i syntezy. Ten moduł nie wyznacza próbek PCM i nie
 jest jeszcze podłączony do odtwarzacza.
 PASS na Fedorze i w CI musi być potwierdzony osobno.
+
+
+## HE-AAC v1 / SBR-13 — chirp oraz zespolona predykcja drugiego rzędu
+
+Dodano `sauti_aac_sbr_chirp_update` i
+`sauti_aac_sbr_hf_predict`. To własny moduł Sauti,
+bez kodeków zewnętrznych i alokacji.
+
+Pierwsza funkcja utrzymuje poprzednie tryby `bs_invf_mode`
+z SBR-06 oraz współczynniki wygładzania pasm:
+- podstawowe poziomy: `0, 0.75, 0.9, 0.98`,
+- przy przejściu OFF↔LOW: `0.6`,
+- przy zmniejszeniu celu: `0.75*cel + 0.25*poprzedni`,
+- przy wzroście: `0.90625*cel + 0.09375*poprzedni`,
+- wartości poniżej `1/64` są zerowane.
+
+Druga funkcja implementuje *zastosowanie* zespolonej
+predykcji liniowej rzędu drugiego do częstotliwości
+zmapowanych przez SBR-11:
+`Xhi[t,k] = Xlo[t,p] + bw[g]*alpha0[p]*Xlo[t-1,p]`
+` + bw[g]^2*alpha1[p]*Xlo[t-2,p]`.
+Mnożenia to pełne działania na liczbach zespolonych,
+a wejściowy bufor zawiera dwa wcześniejsze sloty QMF.
+Każde pasmo HF dostaje `bw[g]` ze swojej tablicy noise.
+
+Testy obejmują sekwencje zmian trybów invf, wygaszanie
+współczynnika, pełne mnożenie zespolone, 40 slotów,
+przenikanie buforów, wadliwe mapy, NaN/Inf, wycofanie
+całego wyniku po błędzie oraz łańcuch wielu konfiguracji
+`limits → master → tables → patches → chirp/prediction`.
+
+```sh
+make test-aac-sbr-hf-predict PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Granica funkcjonalna:** SBR-13 przyjmuje od wywołującego
+gotowe `alpha0/alpha1`. Nie oblicza ich jeszcze
+z autokorelacji próbek QMF (etap LPC), nie dokonuje
+regulacji obwiedni/szumu i nie zawiera polifazowych
+banków filtrów QMF ani końcowego PCM. Parametry
+poprzedniego stanu `chirp` wymagają inicjalizacji zerami.
+Sprawdzenie CI i Fedory jest odrębnym warunkiem zakończenia.
