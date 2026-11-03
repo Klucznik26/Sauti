@@ -16,14 +16,17 @@ static void setup(unsigned k0,unsigned k2,unsigned rate,
 }
 static void check(const SautiAacSbrTables *t,
                   const SautiAacSbrPatches *patch,
-                  const SautiAacSbrLimiterBands *bands) {
+                  const SautiAacSbrLimiterBands *bands,
+                  unsigned mode) {
     assert(bands->count>=1u &&
            bands->count<=SAUTI_AAC_SBR_MAX_LIMITER_BANDS);
     assert(bands->edges[0]==t->kx);
     assert(bands->edges[bands->count]==t->kx+t->m);
     for(unsigned b=1u;b<=bands->count;b++)
         assert(bands->edges[b]>bands->edges[b-1u]);
-    for(unsigned p=1u;p<patch->count;p++){
+    /* OFF (mode=0) deliberately uses ONE band, even across patches.
+     * Only modes 1..3 preserve internal patch junctions. */
+    if(mode>0u)for(unsigned p=1u;p<patch->count;p++){
         int found=0;
         for(unsigned b=1u;b<bands->count;b++)
             if(bands->edges[b]==patch->target[p])found=1;
@@ -58,7 +61,7 @@ static void test_golden_modes_and_patch_junctions(void) {
     const uint8_t mode3[]={16,20,24,28,32};
     for(unsigned mode=0;mode<4;mode++){
         assert(sauti_aac_sbr_limiter_bands_build(&t,&p,mode,&freq));
-        check(&t,&p,&freq);
+        check(&t,&p,&freq,mode);
         switch(mode) {
         case 0:assert_edges(&freq,mode0,sizeof(mode0));break;
         case 1:assert_edges(&freq,mode1,sizeof(mode1));break;
@@ -76,7 +79,7 @@ static void test_golden_modes_and_patch_junctions(void) {
     const uint8_t patch3[]={16,22,28,32};
     for(unsigned mode=1u;mode<=3u;mode++){
         assert(sauti_aac_sbr_limiter_bands_build(&t,&p,mode,&freq));
-        check(&t,&p,&freq);
+        check(&t,&p,&freq,mode);
         if(mode==1u)assert_edges(&freq,patch1,sizeof(patch1));
         if(mode==2u)assert_edges(&freq,patch2,sizeof(patch2));
         if(mode==3u)assert_edges(&freq,patch3,sizeof(patch3));
@@ -219,7 +222,7 @@ static void test_sweep(void) {
                         SautiAacSbrLimiterBands bands;
                         assert(sauti_aac_sbr_limiter_bands_build(
                             &tables,&patches,mode,&bands));
-                        check(&tables,&patches,&bands);
+                        check(&tables,&patches,&bands,mode);
                         if(mode==0u)assert(bands.count==1u);
                         accepted++;
                     }
