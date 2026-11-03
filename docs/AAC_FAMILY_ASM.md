@@ -1618,3 +1618,41 @@ szumu, nie sygnał PCM. Nie jest jeszcze podłączony do
 bitstreamowego parsera CPE i syntezy QMF. Brak pełnego
 odtwarzania HE-AAC bez etapów HF/QMF i integracji.
 Przed zamknięciem etapu wymagane są testy Fedory i CI.
+
+
+## HE-AAC v1 / SBR-11 — konstrukcja łatek HF (indeksy QMF)
+
+Pierwszy etap generatora wysokich częstotliwości: samodzielny
+`sauti_aac_sbr_patch_build` tworzy **mapę indeksów pasm**
+z istniejących `k0`, `kx`, `k2`, tabel `master` i `high/low/noise`.
+Na podstawie wyjściowej częstotliwości próbkowania SBR
+wyznacza częstotliwość docelową algorytmu (`goalSb`),
+ustala kolejne zakresy źródłowe/wyjściowe QMF oraz zapisuje
+tablicę `source_for_target[64]` (`-1` dla pasm niemapowanych).
+
+Pozostawiono dokładny warunek parzystości i końcowego
+odrzucenia ostatniej łatki, gdy ma mniej niż trzy pasma.
+Przewidziano do 6 łatek (klasyczne wymagania przewidują
+maksimum pięć, lecz znane strumienie testowe zawierają sześć).
+Weryfikowana jest cała geometria, brak nakładania zakresów,
+źródła poniżej `k0`, zgodność pasm oraz postęp algorytmu.
+Wynik jest zatwierdzany wyłącznie po sukcesie (fail-closed).
+
+Testy zawierają wzorce przy 48 i 96 kHz dla pasm 16..32
+oraz 16..48, w tym łączone łatki, pomijany końcowy
+ogon dwóch pasm, błędne częstotliwości i zmienione
+granice. Dodatkowo wykonują łańcuch:
+`limits -> master linear/log -> high/low/noise -> patches`.
+
+```sh
+make test-aac-sbr-patch PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Ważne:** SBR-11 jedynie wyznacza skąd pobrać dolne
+pasma QMF dla generatora HF. Nie generuje danych
+zespolonych QMF, nie implementuje predykcji/chirp,
+nie nakłada obwiedni, nie posiada polifazowej
+analizy/syntezy QMF i **nie daje jeszcze PCM HE-AAC**.
+Rzeczywisty tor syntezy pozostaje dalszą pracą.
+PASS dla CI i Fedory należy potwierdzić osobno.
