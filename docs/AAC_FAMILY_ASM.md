@@ -2064,3 +2064,70 @@ wygładzania i transientów oraz ostatecznie banków
 QMF analizy/syntezy i integracji z dekoderem AAC.
 Generator SBR-18 ma nadal niezgodną z normatywną
 tablicą 512-wektorową autorską sekwencję szumu.
+
+
+## HE-AAC v1 / SBR-20 — wspólne dostrajanie HF (limiter + szum + sinusoidy)
+
+Dodano `sauti_aac_sbr_hf_joint_process`: pierwszy
+**wspólny**, bezalokacyjny łańcuch SBR pracujący
+na uprzednio wygenerowanych zespolonych subpasmach QMF.
+Wywołanie łączy automatyczny podział pasm `f_tablelim`
+(SBR-17), ogranicznik i gain boost (SBR-16),
+szum (SBR-18) oraz harmoniczne (SBR-19).
+
+**Ważne:** naiwne dodawanie szumu i sinusoidy
+nadwyższałoby energię tonalnych subpasm. Dlatego
+SBR-18 ma teraz dodatkowy, opcjonalny interfejs
+`sauti_aac_sbr_hf_noise_mix_tonal`, który przyjmuje
+maskę aktywnych harmonicznych `[slot][64]` i:
+
+- nadal przesuwa generator losowy we **wszystkich**
+  pasmach HF (indeksy szumu nie uciekają po zmianie flag);
+- w paśmie z sinusoidą wyłącza dodawanie szumu
+  losowego i skaluje sygnał o `sqrt(Q/(1+Q))`;
+- pozostawia `sqrt(E/(1+Q))` mocy amplitudowej
+  dla czterofazowej harmonicznej SBR-19;
+- poza maską działa jak istniejący interfejs SBR-18:
+  sygnał `sqrt(1/(1+Q))`, szum `sqrt(E*Q/(1+Q))`.
+
+Maska jest budowana z flag `bs_add_harmonic`,
+środkowych pasm wysokiej rozdzielczości, numeru
+obwiedni pojawienia się nowych harmonicznych oraz
+stanu poprzedniej ramki. **Obie historie kanału**
+(`SautiAacSbrNoiseState` i `SautiAacSbrSineState`),
+statystyka ogranicznika i bufor wyjściowy zostają
+zatwierdzone wyłącznie po sukcesie wszystkich
+etapów. W przypadku błędu wszystko pozostaje
+bitowo niezmienione (fail-closed).
+
+Testy `test_aac_sbr_hf_joint.c`:
+- analityczny test podziału energii 3:1 w paśmie
+  harmonicznym oraz braku dodatkowego szumu;
+- nowy transient w środku ramki i kontynuacja fazy;
+- zgodność modułu bez harmonicznych z historycznym
+  sekwencyjnym SBR-16/18/19;
+- porównanie całej i podzielonej ramki z identycznymi
+  stanami końcowymi oraz działanie in-place;
+- Q=0: całkowicie tonalna składowa bez szumu;
+- rollback po błędach każdego etapu, także po
+  udanym ograniczniku, gdy zawiedzie kolejny etap;
+- 40 slotów, 5 obwiedni, 2 przedziały szumu
+  i sweep poprawnych geometrii częstotliwości.
+
+```sh
+make test-aac-sbr-hf-joint PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Stan zgodności:** jest to własny, testowalny model
+wspólnego przetwarzania HF, **nie** pełny normatywny
+algorytm HE-AAC. Ogranicznik nadal liczy boost przed
+ostatecznym uwzględnieniem harmonicznych i szumu;
+brak wygładzania, transient-aware noise gating,
+normatywnej tablicy 512 wektorów, polifazowych
+banków QMF i połączenia z wyjściem PCM AAC.
+Ponadto moc sumy zespolonych sygnałów w krótkiej
+ramce zawiera składniki mieszane; podział E oznacza
+udział składowych, a nie gwarancję dokładnej mocy
+każdej ramki. Testy syntetyczne nie zastępują
+weryfikacji rzeczywistymi strumieniami.
