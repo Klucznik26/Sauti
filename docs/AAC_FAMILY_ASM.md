@@ -1839,3 +1839,61 @@ przyszłego banku analizy QMF. Potrzebne są również
 synteza QMF i pełne połączenie z dekoderem ramek.
 Obecne wzory są sprawdzane w ramach testów syntetycznych,
 nie należy ogłaszać ukończenia HE-AAC.
+
+
+## HE-AAC v1 / SBR-16 — ograniczniki wzmocnienia i gain boost
+
+Nowy, bezalokacyjny moduł `sauti_aac_sbr_hf_limit`
+oblicza **wzmocnienia pasm QMF przed dopasowaniem amplitudy**.
+Nie jest nakładką na gotowe wyjście SBR-15: dostaje
+pierwotne zespolone QMF, więc nie dopuszcza do
+podwójnego wzmocnienia sygnału.
+
+Interfejs otrzymuje docelowe energie SBR-09/10,
+granicę czasową każdej obwiedni i jawne granice
+*limiter bands* tworzące partycję `[kx, k2]`.
+Wyznaczanie normatywnej tablicy `f_tablelim` z
+`bs_limiter_bands`, granic łatek i tabel częstotliwości
+jest jeszcze **niezaimplementowane**; testy używają
+poprawnych granic low-resolution z SBR-05.
+
+Dla każdego pasma QMF i obwiedni liczona jest średnia
+moc `|Re+jIm|²`, następnie limit na grupę:
+
+- `Gmax = min(100000, limGain * sqrt(sum(Eorig)/sum(Ecurr)))`.
+- `limGain`: `0.70795`, `1`, `1.41254`, `1e10` dla
+  trybów `-3 dB / 0 dB / +3 dB / unlimited`.
+- `G[k] = min(sqrt(Eorig[k]/Ecurr[k]), Gmax)`.
+- `Gboost = min(1.584893192, sqrt(sum(Eorig)/sum(EafterCap)))`.
+- Końcowe `G[k] = Gboost * G[k]`, wspólne dla
+  rzeczywistej i urojonej składowej QMF.
+
+Zwracany jest także `SautiAacSbrLimiterReport`:
+limit wzmocnienia i boost każdej grupy oraz
+końcowe wzmocnienia każdego QMF. Pozwala to sprawdzić
+algorytm niezależnie od wyjściowych próbek audio.
+
+Moduł obsługuje 1–40 slotów i 1–5 obwiedni,
+pasywne pasma spoza `[kx,k2]` zachowuje bez zmian.
+Wyjście może współdzielić pamięć z wejściem.
+Na uszkodzone dane, puste dodatnio docelowe pasmo,
+overflow, NaN/Inf i złe granice obydwa wyniki
+pozostają bez zmian (pełna atomowość).
+
+Test `test_aac_sbr_hf_limiter.c` sprawdza cztery
+tryby ogranicznika, niezależnie policzone wartości
+`Gmax/Gboost`, 40 slotów i pięć obwiedni,
+aliasowanie, zero target, bardzo duże docelowe
+energie, rollbacks oraz sweep łańcucha tabel SBR.
+
+```sh
+make test-aac-sbr-hf-limiter PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Granice SBR-16:** ten etap nie wstrzykuje szumu
+ani składowych sinusoidalnych, nie wygładza obwiedni
+i nie wyznacza limiter bands z flag SBR. Parametry
+noise/harmonics i filtry QMF analizy/syntezy nadal
+wymagają implementacji. Nie oznacza pełnej zgodności
+odtwarzania HE-AAC.
