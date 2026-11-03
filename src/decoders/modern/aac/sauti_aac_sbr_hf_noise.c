@@ -61,12 +61,14 @@ static void unit_phase(unsigned phase,double *re,double *im) {
     *re=real[phase&7u];*im=imag[phase&7u];
 }
 
-int sauti_aac_sbr_hf_noise_mix(
+static int mix_internal(
     const SautiAacSbrTables *tables,
     const SautiAacSbrEnergyFrame *energy,
     const uint8_t *env_edges,
     const uint8_t *noise_edges,
     unsigned slots,
+    const uint8_t *tone_mask,
+    size_t tone_count,
     const SautiAacSbrComplex *input,
     size_t input_count,
     SautiAacSbrComplex *output,
@@ -84,8 +86,14 @@ int sauti_aac_sbr_hf_noise_mix(
        noise_edges[energy->noise_count]!=slots ||
        state->ready>1u || (state->ready && !state->seed) ||
        (!state->ready && (state->seed || state->emitted)) ||
-       state->emitted>UINT64_MAX-(uint64_t)slots*tables->m)
+       state->emitted>UINT64_MAX-(uint64_t)slots*tables->m ||
+       (tone_mask &&
+        tone_count<(size_t)slots*SAUTI_AAC_SBR_HF_HIGH_BANDS))
         return 0;
+
+    if(tone_mask)
+        for(size_t i=0;i<(size_t)slots*SAUTI_AAC_SBR_HF_HIGH_BANDS;i++)
+            if(tone_mask[i]>1u)return 0;
 
     for(unsigned e=0u;e<energy->env_count;e++){
         if(env_edges[e]>=env_edges[e+1u] ||
@@ -163,10 +171,12 @@ int sauti_aac_sbr_hf_noise_mix(
                   k>=tables->noise[noise_band+1u])noise_band++;
             const double target=targets[env][k];
             const double q=energy->noise_factor[noise_env][noise_band];
-            const double signal_gain=target==0.0?0.0:
-                                      1.0/sqrt(1.0+q);
-            const double noise_amp=sqrt(target*(q/(1.0+q)));
             const size_t ix=(size_t)t*SAUTI_AAC_SBR_HF_HIGH_BANDS+k;
+            const int tonal=tone_mask && tone_mask[ix];
+            const double signal_gain=target==0.0?0.0:
+                  (tonal?sqrt(q/(1.0+q)):1.0/sqrt(1.0+q));
+            const double noise_amp=tonal?0.0:
+                                    sqrt(target*(q/(1.0+q)));
             const uint32_t r=next_random(&updated.seed);
             double nre=0.0,nim=0.0;
             unit_phase(r&7u,&nre,&nim);
@@ -184,4 +194,39 @@ int sauti_aac_sbr_hf_noise_mix(
     memcpy(output,next,count*sizeof(next[0]));
     *state=updated;
     return 1;
+}
+
+
+int sauti_aac_sbr_hf_noise_mix(
+    const SautiAacSbrTables *tables,
+    const SautiAacSbrEnergyFrame *energy,
+    const uint8_t *env_edges,
+    const uint8_t *noise_edges,
+    unsigned slots,
+    const SautiAacSbrComplex *input,
+    size_t input_count,
+    SautiAacSbrComplex *output,
+    size_t output_count,
+    SautiAacSbrNoiseState *state) {
+    return mix_internal(tables,energy,env_edges,noise_edges,slots,
+                        NULL,0u,input,input_count,output,output_count,state);
+}
+
+int sauti_aac_sbr_hf_noise_mix_tonal(
+    const SautiAacSbrTables *tables,
+    const SautiAacSbrEnergyFrame *energy,
+    const uint8_t *env_edges,
+    const uint8_t *noise_edges,
+    unsigned slots,
+    const uint8_t *tone_mask,
+    size_t tone_count,
+    const SautiAacSbrComplex *input,
+    size_t input_count,
+    SautiAacSbrComplex *output,
+    size_t output_count,
+    SautiAacSbrNoiseState *state) {
+    if(!tone_mask)return 0;
+    return mix_internal(tables,energy,env_edges,noise_edges,slots,
+                        tone_mask,tone_count,input,input_count,
+                        output,output_count,state);
 }
