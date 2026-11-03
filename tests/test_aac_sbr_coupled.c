@@ -75,7 +75,8 @@ static void test_fine_and_forced_resolution(void) {
                                           &tables,0,&l,&r));
     close_to(l.env_energy[0][0],128.0);
     close_to(r.env_energy[0][0],128.0);
-    const double total=256.0*sqrt(2.0),ratio=sqrt(2.0);
+    /* Difference of 2 quantized balance steps at 1.5 dB is one octave. */
+    const double total=256.0*sqrt(2.0),ratio=2.0;
     close_to(l.env_energy[1][0],total/(1.0+ratio));
     close_to(r.env_energy[1][0],total*ratio/(1.0+ratio));
     /* FIXFIX with only one envelope MUST force fine amp resolution. */
