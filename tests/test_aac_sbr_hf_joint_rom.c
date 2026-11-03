@@ -104,7 +104,7 @@ static void test_golden_noise_indices_and_tonal_gate(void) {
     SautiAacSbrComplex rom_at_next;
     assert(sauti_aac_sbr_noise_rom_lookup(4u*t.m+3u,&rom_at_next));
     close_to(out[4u*W+harmonic+1u].re,
-             sqrt(3.0)+(double)rom_at_next.re*sqrt(3.0));
+             1.0+(double)rom_at_next.re*sqrt(3.0));
     close_to(out[4u*W+harmonic+1u].im,
              (double)rom_at_next.im*sqrt(3.0));
 
@@ -187,7 +187,7 @@ static void test_phase_and_rom_wrap(void) {
     SautiAacSbrLimiterReport stats;
     assert(sauti_aac_sbr_hf_joint_process_rom(
         &cfg,attack,1u,input,MAXS*W,out,MAXS*W,&state,&stats));
-    assert(state.noise_rom.index==(40u*t.m)&511u);
+    assert(state.noise_rom.index==((40u*t.m)&511u));
     assert(state.noise_rom.emitted==40u*t.m);
     assert(state.sine.phase==0u && state.sine.previous[17u]==1u);
     /* Four full 40-slot frames cross multiple 512-sample wraps
