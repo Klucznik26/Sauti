@@ -116,6 +116,35 @@ static void test_mixed_resolution_and_history(void) {
     assert(frame.noise[1][0]==6u && frame.noise[1][1]==7u);
 }
 
+
+static void test_odd_band_cross_resolution(void) {
+    /* Odd N_high mapping: high j uses low[(j+1)/2], not low[j/2]. */
+    SautiAacSbrGrid g;
+    SautiAacSbrTables t;
+    SautiAacSbrControl c;
+    setup(&g,&t,&c);
+    SautiAacSbrMaster m;
+    assert(sauti_aac_sbr_master_linear(16,32,1,1,&m));
+    assert(sauti_aac_sbr_tables_build(&m,1,&t));
+    assert(t.n_high==7 && t.n_low==4 && t.n_noise==1);
+    g.freq_res[0]=0;g.freq_res[1]=1;
+    c.noise_band_count=1;
+    c.df_env[0]=0;c.df_env[1]=1;
+    Bits b={0};
+    freq_env(&b,1,0,4,8,1);
+    time_env(&b,1,0,7,0);
+    freq_noise(&b,0,1,4,0);
+    freq_noise(&b,0,1,5,0);
+    SautiAacSbrQuantState state={0};
+    SautiAacSbrQuantFrame frame;
+    size_t pos=0;
+    assert(sauti_aac_sbr_quant_decode(b.bytes,bytes_used(&b),&pos,
+                                      &g,&t,&c,1,0,&state,&frame));
+    static const uint8_t expected[]={8,9,9,10,10,11,11};
+    assert(memcmp(frame.env[1],expected,sizeof(expected))==0);
+    assert(pos==b.bit);
+}
+
 static void test_balanced(void) {
     SautiAacSbrGrid g;
     SautiAacSbrTables t;
@@ -251,6 +280,18 @@ static void test_value_limits(void) {
                                        &g,&t,&c,1,0,&state,&frame));
     assert(frame.env[0][7]==70u);
     state=old;frame=prior;
+    /* 1.5dB 7-bit start=127 followed by positive frequency delta
+     * must reject before committing a partially built envelope. */
+    b=(Bits){0};
+    freq_env(&b,0,0,8,127,1);
+    freq_env(&b,0,0,8,3,0);
+    freq_noise(&b,0,2,0,0);
+    freq_noise(&b,0,2,0,0);
+    pos=0;
+    assert(!sauti_aac_sbr_quant_decode(b.bytes,bytes_used(&b),&pos,
+                                        &g,&t,&c,0,0,&state,&frame));
+    assert(pos==0 && memcmp(&state,&old,sizeof(state))==0 &&
+           memcmp(&frame,&prior,sizeof(frame))==0);
     /* 5-bit noise start=31 exceeds the permitted range 0..30. */
     b=(Bits){0};
     freq_env(&b,1,0,8,3,0);
@@ -265,6 +306,7 @@ static void test_value_limits(void) {
 }
 int main(void) {
     test_mixed_resolution_and_history();
+    test_odd_band_cross_resolution();
     test_balanced();
     test_forced_amp_resolution();
     test_atomic_rollback();
