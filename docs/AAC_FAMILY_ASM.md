@@ -1475,3 +1475,53 @@ Osobnym etapem będzie `sbr_envelope()` / `sbr_noise()`
 z obsługą wartości początkowych, czasowych różnic,
 kwantyzacji i zachowania stanu między ramkami.
 Weryfikację `PASS` na Fedorze i w CI potwierdzać osobno.
+
+
+## HE-AAC v1 / SBR-08 — kwantowane obwiednie i poziomy szumu
+
+Zaimplementowano `sauti_aac_sbr_quant_decode` — natywny etap
+rekonstrukcji **całkowitoliczbowych poziomów** obwiedni i szumu
+z bitstreamu przy użyciu sprawdzonych 10 tablic Huffmana SBR-07
+i czytnika bitów NASM. Nie ma zależności od FFmpeg ani alokacji.
+
+Rozpoznaje kierunek różnicowania `bs_df_env`/`bs_df_noise`:
+- kierunek częstotliwości: zakodowana wartość początkowa
+  i kolejne podpisane delty z właściwych tablic F;
+- kierunek czasu: delty T dodawane do poprzedniej obwiedni
+  lub zachowanego stanu poprzedniej ramki;
+- poprawną zmianę rozdzielczości między high i low,
+  także dla nieparzystego `N_high`;
+- wymuszenie 1,5 dB dla FIXFIX z jedną obwiednią (classic SBR);
+- zwykłe poziomy oraz podwojone delty i wartości początkowe
+  prawego kanału w trybie sprzężonego stereo (balance);
+- osobne tablice czasu i częstotliwości dla szumu.
+
+Zakres liczb: 0..127 dla obwiedni i 0..30 dla szumu.
+Stan kanału zapamiętuje ostatnią obwiednię i szum wraz
+z geometrią pasm. Dla pierwszej obwiedni w trybie czasu
+wymaga poprzedniej poprawnej ramki oraz identycznych
+tabel pasm i trybu. Nieudana ramka nigdy nie zmienia
+bufora wyjściowego, kursora ani historii (atomic fail-closed).
+
+Testy syntetyczne obejmują: dwa kolejne bloki AAC,
+zależności między obwiedniami, high/low (parzyste
+i nieparzyste), balanced stereo, wymuszoną rozdzielczość,
+obcięte strumienie, niezgodne tabele, przepełnienie
+i brak historii.
+
+```sh
+make test-aac-sbr-quant PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Ograniczenia:** to nadal kwantowane wartości sterujące
+bez konwersji do liniowych energii SBR, unmapping sprzężonego
+stereo i filtrów QMF. Nowy moduł nie jest jeszcze podłączony
+do odtwarzacza HE-AAC. Ścieżka pełnych ramek CPE wymaga
+osobnego spięcia składni envelope/noise obu kanałów.
+Przy zmianie geometrii częstotliwości między ramkami
+moduł świadomie odrzuca time-delta zamiast próbować
+niezweryfikowanego mapowania. Na tę chwilę nie deklarować
+pełnego odtwarzania HE-AAC bez FFmpeg.
+
+Testy CI i testy na Fedorze wymagają osobnego potwierdzenia.
