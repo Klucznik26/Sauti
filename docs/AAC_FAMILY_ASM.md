@@ -2408,3 +2408,67 @@ zespolonych pasm do 128 wartości rzeczywistych V.
 Dopiero po jej implementacji i integracji można
 przeprowadzić syntetyczne testy toru QMF → próbki
 i następnie zbudować pełny HE-AAC → PCM.
+
+
+## HE-AAC v1 / SBR-26 — zespolona modulacja syntezy QMF i pierwszy pełny tor filtracyjny
+
+Zaimplementowano `sauti_aac_sbr_qmf_synth_modulate_64`
+(wersja referencyjna O(64 × 128) na slot, bez FFT/DCT/ASM).
+Przetwarza 64 zespolone pasma SBR w danym slocie QMF
+na **128 rzeczywistych wartości modulacji V**.
+
+Dla numeru pasma `k=0..63` i próbki modulacji `n=0..127`:
+
+`phase = π*(k+0.5)*(2*n-63)/128`
+
+`V[n] = (1/64) * sum_k (Re(X[k])*cos(phase) - Im(X[k])*sin(phase))`.
+
+To bezpośrednia postać zespolonego 64-pasmowego
+modulatora syntezy SBR, bez optymalizacji szybką
+transformacją DCT-IV/MDCT. Zastosowany współczynnik
+`1/64` odpowiada skali syntezy 64-pasmowej.
+Moduł używa obliczeń pośrednich double, kontroluje
+wszystkie zespolone wejścia, NaN/Inf, przepełnienia
+i granice buforów. Wynik jest zapisywany atomowo.
+Ponieważ cała ramka powstaje w buforze lokalnym,
+dopuszcza także nakładanie pamięci wejścia i wyjścia.
+
+**Połączenie z SBR-25:**
+`sauti_aac_sbr_qmf_synth_64` realizuje łącznie:
+
+`64 zespolone pasma QMF → 128 V na slot →
+640-współczynnikowe okno polifazowe → 64 próbki / slot`.
+
+Zachowuje stan dziesięciu bloków SBR-25 między
+kolejnymi wywołaniami. Dwie części muszą zakończyć
+się powodzeniem, zanim zostaną zapisane próbki
+oraz aktualizacja stanu okna (*fail-closed*).
+Nie są wymagane zewnętrzne biblioteki kodeków.
+
+Test `test_aac_sbr_qmf_synth_mod.c` pokrywa:
+- dokładne wzorcowe wartości dla czysto rzeczywistych
+  i urojonych zespolonych podpasm 0, 17 i 63;
+- symetrię faz, liniowość i niezależną referencję
+  obliczoną z wysoką precyzją long double;
+- 40 slotów, zgodność pojedynczego i podzielonego
+  wywołania oraz przetwarzanie in-place;
+- porównanie pełnego toru z osobno uruchomionymi
+  modułami SBR-26 i SBR-25;
+- pierwszy slot liczony z jedynego niezerowego
+  bloku historii i znanego współczynnika filtra;
+- błędy późnych próbek, NaN/Inf i atomowość stanu.
+
+```sh
+make test-aac-sbr-qmf-synth-mod PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Zastrzeżenie:** jest to pierwsza pełna matematyczna
+ścieżka *syntezy QMF* zespolone pasma → próbki rzeczywiste,
+ale jeszcze nie gotowy dekoder HE-AAC. Nadal potrzebne są
+bank analizy QMF dla sygnału AAC-LC, zsynchronizowanie
+opóźnień i łączenie całych ramek, dopracowanie algorytmu
+wspólnej regulacji energii oraz weryfikacja numeryczna
+z niezależnym dekoderem i rzeczywistymi bitstreamami.
+Przed optymalizacją ASM trzeba także uzgodnić skalowanie
+i kolejność próbek z referencyjnym torem całej ramki.
