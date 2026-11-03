@@ -1326,3 +1326,40 @@ make test-aac-native PKG_CONFIG=/bin/false
 ani nie tworzy tabel high/low/noise. HE-AAC nadal nie produkuje
 własnego PCM SBR; filtr QMF, odwzorowanie pasm i obwiednie
 pozostają kolejnymi etapami. Nie zmieniać progów AAC-LC.
+
+## HE-AAC v1 / SBR-04 — parametry start/stop QMF (k0/k2)
+
+Zaimplementowano `sauti_aac_sbr_limits_compute` z niezależnymi tablicami
+przesunięć `bs_start_freq` i obliczaniem `bs_stop_freq` z 13
+posortowanych przyrostów geometrycznych; wartości 14/15 oznaczają
+odpowiednio 2*k0 / 3*k0 z ograniczeniem do 64 pasm QMF.
+Parametrem jest **wyjściowa** częstotliwość próbkowania SBR,
+nie częstotliwość rdzenia AAC-LC. Dopuszczalne częstości:
+16000, 22050, 24000, 32000, 44100, 48000, 64000,
+88200, 96000, 128000, 176400 i 192000 Hz.
+Ograniczenia szerokości SBR: maks. 48/35/32 pasm QMF w
+zależności od częstotliwości. Błędne argumenty i nieobsługiwane
+częstotliwości nie modyfikują struktury wyniku (fail-closed).
+
+Testy porównują wybrane punkty z niezależnymi tablicami
+częstotliwości i ich posortowanymi przyrostami oraz wykonują
+3468 konfiguracji (w tym niepoprawne 4-bitowe parametry).
+Wynik lokalny w środowisku roboczym GCC i ASan/UBSan:
+2376 zaakceptowanych, 1092 poprawnie odrzuconych. Osobnego
+potwierdzenia wymaga Fedora oraz test CI.
+
+```sh
+make test-aac-sbr-limits PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+Wzorce standardowych wartości parametrów sprawdzono z implementacjami
+referencyjnymi FFmpeg (`aacsbr_template.c`, `aacsbrdata.h`) i FDK-AAC
+(`sbrenc_freq_sca.cpp`), bez wykorzystania żadnej biblioteki
+dekodującej w Sauti. Surowa tablica stop-frequency FDK nie jest
+ostateczną tabelą `k2`: przed sumowaniem jej różnice są sortowane.
+
+**Zakres:** nadal bez QMF i PCM, bez wyznaczania high/low/noise
+z tabel master; parametry k0/k2 nie są jeszcze podłączone
+do pełnego parsera/odtwarzacza HE-AAC. Nie deklarować pełnego
+dekodowania SBR ani niezależności wszystkich profili AAC od FFmpeg.
