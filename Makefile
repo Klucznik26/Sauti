@@ -114,6 +114,7 @@ AAC_WINDOW_SRC := src/decoders/modern/aac/sauti_aac_window.c
 AAC_LC_SYNTH_SRC := src/decoders/modern/aac/sauti_aac_lc_synth.c
 AAC_LC_FRAME_SRC := src/decoders/modern/aac/sauti_aac_lc_frame.c
 AAC_PNS_SRC := src/decoders/modern/aac/sauti_aac_pns.c
+AAC_TNS_SRC := src/decoders/modern/aac/sauti_aac_tns.c
 AAC_SPECTRAL_ASM := $(OBJDIR)/sauti_aac_spectral.o
 AAC_DSP_ASM := $(OBJDIR)/sauti_aac_dsp.o
 
@@ -779,7 +780,6 @@ test-aac-pcm-compare:
 inspect-aac-lc-matrix: $(OBJDIR)/test_aac_real_mono test-aac-pcm-compare
 	sh scripts/inspect_aac_lc_matrix.sh
 
-AAC_TNS_SRC := src/decoders/modern/aac/sauti_aac_tns.c
 
 $(OBJDIR)/test_aac_tns: tests/test_aac_tns.c include/sauti_aac_tns.h $(AAC_TNS_SRC) $(AAC_BANDS_SRC) $(AAC_HEADERS_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_tns.c $(AAC_TNS_SRC) $(AAC_BANDS_SRC) $(AAC_HEADERS_ASM) -lm -no-pie
