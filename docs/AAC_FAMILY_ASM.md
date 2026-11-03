@@ -2782,3 +2782,76 @@ przechodzących przez granice ramek oraz próby
 z **niezależnie zakodowanym nagraniem**. Testy
 konstruowanych ADTS są konieczne, ale niewystarczające
 do stwierdzenia zgodności bitowej czy brzmieniowej.
+
+
+## HE-AAC v1 / SBR-32 — diagnostyka niezależnie zakodowanych plików ADTS
+
+Powstało narzędzie `tools/sauti_he_aac_probe.c`
+(kompilowane jako `build/sauti_he_aac_probe`).
+To **pierwszy test rzeczywistych plików wejściowych**
+bez konstruowania zawartości ADTS w testach Sauti.
+
+Pierwszy przebieg skanuje wszystkie nagłówki ADTS:
+liczbę ramek, rozmiary, CRC, kanały i częstotliwość rdzenia.
+Drugi przebieg wywołuje SBR-31 na kolejnych ramkach
+z **jednym, nieprzerwanym stanem**. Przy pierwszym
+niepowodzeniu przeprowadza osobne, niezatwierdzane
+parsowanie SBR-30 na kopii stanu i pokazuje,
+czy przyczyna dotyczy AAC-LC / ID_FIL / Huffmana
+czy późniejszej syntezy HF/QMF.
+
+**Ważna gwarancja:** po błędzie nie wstawiamy ciszy,
+nie resetujemy automatycznie historii i nie zgłaszamy
+późniejszych ramek jako poprawnie zdekodowanych.
+Każde powodzenie oznacza tylko uzyskanie 2048
+skończonych próbek z eksperymentalnego toru,
+**nie normatywną zgodność HE-AAC**.
+
+```sh
+make probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe /sciezka/do/nagrania.aac 12
+```
+
+### Przygotowanie niezależnej próbki HE-AAC v1 mono
+
+Można użyć aktualnego programu **FAAC** z obsługą
+`--object-type he-aac-v1` i `-a` (ADTS).
+Starsze systemowe wydania FAAC mogą jeszcze nie
+obsługiwać tego trybu. Weryfikacja:
+
+```sh
+faac --help-qual
+```
+
+Przykład z FFmpeg wyłącznie jako generatorem
+**wejściowego WAV**, nigdy jako biblioteką dekodera Sauti:
+
+```sh
+ffmpeg -hide_banner -loglevel error -y -f lavfi \
+  -i 'sine=frequency=1000:sample_rate=48000:duration=2' \
+  -ac 1 -c:a pcm_s16le /tmp/sauti_he_mono.wav
+faac --object-type he-aac-v1 -b 32 -a \
+  -o /tmp/sauti_he_mono.aac /tmp/sauti_he_mono.wav
+./build/sauti_he_aac_probe /tmp/sauti_he_mono.aac 12
+ffprobe -v error -show_entries stream=profile,sample_rate,channels \
+  -of default=nw=1 /tmp/sauti_he_mono.aac
+```
+
+FAAC jest **tylko niezależnym enkoderem testowym**.
+FFprobe pełni jedynie funkcję referencyjnego
+rozpoznania profilu. Kompilacja i przetwarzanie
+Sauti nie wymagają FAAC ani FFmpeg.
+
+Publiczne oficjalne testy porównawcze FFmpeg FATE
+można znaleźć pod
+`https://fate-suite.ffmpeg.org/aac/`;
+wiele ma jednak kanał **stereo** lub format MP4,
+więc aktualny parser mono ADTS prawidłowo je
+odrzuci. Nie traktujemy takiej odmowy jako błędu
+poprawności algorytmu QMF.
+
+**Kolejny etap:** zebrać dokładny raport
+z prawdziwego pliku mono, poprawić pierwszą
+rzeczywistą niezgodność parsera lub HF/QMF,
+a następnie skonfrontować amplitudę, opóźnienie
+i widmo PCM z niezależnym dekoderem.
