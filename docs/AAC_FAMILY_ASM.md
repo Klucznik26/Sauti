@@ -2292,3 +2292,60 @@ Włączenie normatywnej ROM w SBR-22, zastąpienie
 przestarzałego generatora faz i testy rzeczywistych
 strumieni będą osobnymi etapami. Nadal brakuje
 banków analizy/syntezy QMF oraz kompletnego toru PCM.
+
+
+## HE-AAC v1 / SBR-24 — 512-wektorowa ROM we wspólnym torze HF
+
+Nowa ścieżka `sauti_aac_sbr_hf_joint_process_rom` łączy:
+
+- automatyczne granice limitera SBR-17 i ograniczanie/boost SBR-16;
+- pięciopunktowe wygładzanie współczynników SBR-21;
+- **normatywną 512-wektorową tablicę szumu SBR-23**;
+- czterofazowe dodatkowe harmoniczne SBR-19.
+
+Przetwarzanie QMF następuje w kolejności:
+`limiter → wyznaczenie gain/noise dla każdej obwiedni
+→ smoothing QMF slotów → ROM szumu → sine → atomowy commit`.
+
+`SautiAacSbrHfRomState` przechowuje niezależnie:
+index/emitted ROM (modulo 512), stan czterofazowy
+harmonicznych, a także historię czterech slotów
+wygładzanych współczynników. Pierwsza próbka
+szumu po starcie z `index=0` to `ROM[1]`;
+kolejne rosną po każdym subpaśmie HF, również
+gdy harmoniczna blokuje dodawanie szumu.
+Indeks i pozostałe stany pozostają zachowane
+między ramkami i w pełni odtwarzają się po
+podziale jednej operacji na kolejne wywołania.
+
+Poprzedni SBR-20/22 z autorską ośmiofazową
+sekwencją pozostaje bez zmian i stanowi
+punkt odniesienia do testów. SBR-24 ma oddzielny
+interfejs i stan kanału, bez współdzielenia
+generatora z tymczasową implementacją.
+
+Test `test_aac_sbr_hf_joint_rom.c`:
+- porównanie pierwszych wyników QMF z
+  konkretnymi wektorami ROM[1] i ROM[2];
+- harmoniczna uruchamiana od drugiej obwiedni;
+  szum jest wtedy wyłączony, ale indeks rośnie;
+- analityczna rampa pięciopunktowego wygładzania;
+- identyczność pełnej i podzielonej ramki,
+  aliasowanie wejścia i wyjścia;
+- cztery 40-slotowe ramki z wielokrotnym
+  zawijaniem ROM modulo 512;
+- brak szumu — bitowa zgodność z SBR-22;
+- pełny rollback przy błędach geometrii,
+  współczynników, ROM, sine i smoothing.
+
+```sh
+make test-aac-sbr-hf-joint-rom PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Granica:** włączenie normatywnej tablicy usuwa
+dotychczasową niezgodność generatora szumu,
+ale nie oznacza gotowego, zgodnego HE-AAC.
+Wciąż wymagane są banki analizy/syntezy QMF,
+normatywny wspólny rachunek energii limiter/noise/sine
+oraz integracja strumieni AAC i wyjścia PCM.
