@@ -181,7 +181,38 @@ static void test_late_failure_rolls_back_every_state(void){
     puts("SBR-31: unpatched/no-source HF, malformed ADTS and late QMF failure rollback all AAC/SBR/QMF histories");
 }
 
-int main(void){
+/* Create an ADTS file for SBR-32 CLI I/O smoke testing. This
+ * generated file is NOT a third-party HE-AAC conformance fixture:
+ * it is the same independently serialized SBR-31 unit-test syntax. */
+static int emit_smoke_adts(const char *path){
+    SautiAacSbrHeader header;
+    SautiAacSbrTables tab;
+    pick_complete_header(&header,&tab);
+    FILE *f=fopen(path,"wb");
+    if(!f){perror(path);return 2;}
+    for(unsigned frame_no=0;frame_no<2u;frame_no++){
+        Bits payload,raw;
+        uint8_t bytes[1024];
+        sbr_bits(&payload,&header,&tab,
+                 frame_no==0u?1u:0u,
+                 frame_no==0u?0u:1u);
+        const size_t length=frame_tone(&raw,bytes,&payload);
+        if(fwrite(bytes,1u,length,f)!=length){
+            perror(path);
+            fclose(f);
+            return 2;
+        }
+    }
+    if(fclose(f)!=0){perror(path);return 2;}
+    return 0;
+}
+int main(int argc,char **argv){
+    if(argc==3 && strcmp(argv[1],"--emit")==0)
+        return emit_smoke_adts(argv[2]);
+    if(argc!=1){
+        fprintf(stderr,"Usage: %s [--emit test_fixture.aac]\n",argv[0]);
+        return 2;
+    }
     test_two_real_adts_frames_vs_independent_chain();
     test_late_failure_rolls_back_every_state();
     puts("PASS HE-AAC SBR-31 actual ADTS SCE+SBR to 2048 f32 QMF samples (experimental full chain)");
