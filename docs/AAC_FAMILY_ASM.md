@@ -1363,3 +1363,36 @@ ostateczną tabelą `k2`: przed sumowaniem jej różnice są sortowane.
 z tabel master; parametry k0/k2 nie są jeszcze podłączone
 do pełnego parsera/odtwarzacza HE-AAC. Nie deklarować pełnego
 dekodowania SBR ani niezależności wszystkich profili AAC od FFmpeg.
+
+
+## HE-AAC v1 / SBR-05 — tabele high/low/noise
+
+Nowy moduł `sauti_aac_sbr_tables_build` wykorzystuje zatwierdzoną
+tablicę `SautiAacSbrMaster` do utworzenia trzech tabel granicznych:
+- `high` (N_High pasm po `bs_xover_band`, do 48 pasm),
+- `low` (N_Low = ceil(N_High/2), do 24 pasm) z oddzielnym
+  odwzorowaniem indeksów dla parzystej i nieparzystej liczby pasm,
+- `noise` (1..5 pasm) z `bs_noise_bands * log2(k2/kx)`
+  i kolejno rozdzielanymi pasmami low.
+
+Parser kontroluje spójność wejściowej tabeli `master`, dodatnie
+szerokości, `kx <= 32`, zakres QMF `1..64`, liczbę pasm i brak
+kolizji granic. Zbyt wiele pasm noise **odrzuca** zamiast je
+niejawnie obcinać. W żadnym przypadku błędu nie zmienia wyjścia
+(fail-closed); alokacje nie są wykonywane. Jedyne dodatkowe
+wywołania matematyczne to `log2f` / `lrintf` z `libm`.
+
+Testy obejmują rozdzielne złote wektory even/odd, pojedynczą
+obwiednię noise, błędne i ucięte zakresy, a także pełny łańcuch
+limits -> master (liniowy/logarytmiczny) -> high/low/noise
+na wielu kombinacjach częstotliwości, crossover i noise.
+
+```sh
+make test-aac-sbr-tables PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Nie jest to dekoder HE-AAC.** Tablice nie są jeszcze podłączone
+do parsowania ramki SBR ani do obsługi envelope Huffman/QMF/PCM.
+Po zmianach wymagane są pomyślne testy na Fedorze i CI;
+nie zastępują one testów jakości dźwięku AAC-LC/PNS.
