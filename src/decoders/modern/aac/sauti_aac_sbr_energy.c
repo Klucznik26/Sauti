@@ -102,3 +102,100 @@ int sauti_aac_sbr_energy_dequant(const SautiAacSbrQuantFrame *quant,
     *out = next;
     return 1;
 }
+
+
+/* Validate a quant frame before any coupled-channel output is touched.
+ * Geometry and the time grid are shared in coupled SBR CPE streams. */
+static int coupled_frame_valid(const SautiAacSbrQuantFrame *q,
+                               const SautiAacSbrGrid *g,
+                               const SautiAacSbrTables *t) {
+    if (!q || q->env_count != g->env_count ||
+        q->noise_count != g->noise_count) return 0;
+    for (unsigned e = 0; e < g->env_count; ++e) {
+        const unsigned res = g->freq_res[e];
+        if (res > 1u || q->freq_res[e] != res) return 0;
+        const unsigned n = res ? t->n_high : t->n_low;
+        for (unsigned b = 0; b < n; ++b)
+            if (q->env[e][b] > 127u) return 0;
+    }
+    for (unsigned e = 0; e < g->noise_count; ++e)
+        for (unsigned b = 0; b < t->n_noise; ++b)
+            if (q->noise[e][b] > 30u) return 0;
+    return 1;
+}
+
+int sauti_aac_sbr_coupled_dequant(
+    const SautiAacSbrQuantFrame *level,
+    const SautiAacSbrQuantFrame *balance,
+    const SautiAacSbrGrid *grid,
+    const SautiAacSbrTables *tables,
+    unsigned amp_res,
+    SautiAacSbrEnergyFrame *left_out,
+    SautiAacSbrEnergyFrame *right_out) {
+    if (!level || !balance || !grid || !left_out || !right_out ||
+        left_out == right_out || level == balance || amp_res > 1u ||
+        !valid_tables(tables) || grid->frame_class > 3u ||
+        grid->env_count < 1u ||
+        grid->env_count > SAUTI_AAC_SBR_MAX_ENV ||
+        grid->noise_count != (grid->env_count == 1u ? 1u : 2u) ||
+        !coupled_frame_valid(level, grid, tables) ||
+        !coupled_frame_valid(balance, grid, tables))
+        return 0;
+
+    const int fine = (grid->frame_class == 0u &&
+                      grid->env_count == 1u) || amp_res == 0u;
+    const double alpha = fine ? 0.5 : 1.0;
+    const int pan_offset = fine ? 24 : 12;
+    const double sqrt_two = 1.41421356237309504880168872420969808;
+
+    SautiAacSbrEnergyFrame left, right;
+    memset(&left, 0, sizeof(left));
+    memset(&right, 0, sizeof(right));
+    left.env_count = right.env_count = grid->env_count;
+    left.noise_count = right.noise_count = grid->noise_count;
+
+    for (unsigned e = 0; e < grid->env_count; ++e) {
+        const unsigned res = grid->freq_res[e];
+        const unsigned n = res ? tables->n_high : tables->n_low;
+        left.freq_res[e] = right.freq_res[e] = (uint8_t)res;
+        for (unsigned b = 0; b < n; ++b) {
+            const unsigned ql = level->env[e][b];
+            const unsigned qb = balance->env[e][b];
+            /* Combined level is +1 octave over an independent channel.
+             * Keep the full quantized range representable in double. */
+            const double total = fine
+                ? ldexp(1.0, 7 + (int)(ql / 2u)) *
+                  ((ql & 1u) ? sqrt_two : 1.0)
+                : ldexp(1.0, 7 + (int)ql);
+            const double ratio = exp2(alpha * (double)(pan_offset - (int)qb));
+            const double denominator = 1.0 + ratio;
+            const double l = total / denominator;
+            const double r = total * ratio / denominator;
+            if (!isfinite(l) || !isfinite(r) || l <= 0.0 || r <= 0.0)
+                return 0;
+            left.env_energy[e][b] = l;
+            right.env_energy[e][b] = r;
+        }
+    }
+
+    for (unsigned e = 0; e < grid->noise_count; ++e) {
+        for (unsigned b = 0; b < tables->n_noise; ++b) {
+            const unsigned ql = level->noise[e][b];
+            const unsigned qb = balance->noise[e][b];
+            const double total = ldexp(1.0, 7 - (int)ql);
+            const double ratio = exp2(12.0 - (double)qb);
+            const double denom = 1.0 + ratio;
+            const double l = total / denom;
+            const double r = total * ratio / denom;
+            if (!isfinite(l) || !isfinite(r) || l <= 0.0 || r <= 0.0)
+                return 0;
+            left.noise_factor[e][b] = l;
+            right.noise_factor[e][b] = r;
+        }
+    }
+
+    /* Both outputs are updated only after EVERY input and value passed. */
+    *left_out = left;
+    *right_out = right;
+    return 1;
+}
