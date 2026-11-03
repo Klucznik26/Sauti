@@ -1656,3 +1656,49 @@ nie nakłada obwiedni, nie posiada polifazowej
 analizy/syntezy QMF i **nie daje jeszcze PCM HE-AAC**.
 Rzeczywisty tor syntezy pozostaje dalszą pracą.
 PASS dla CI i Fedory należy potwierdzić osobno.
+
+
+## HE-AAC v1 / SBR-12 — operacje na zespolonych próbkach QMF (baza HF)
+
+Dodano niezależny moduł `sauti_aac_sbr_hf_transpose`,
+który przyjmuje gotowe **zespolone** próbki subpasm QMF
+`{re, im}` i mapę transpozycji z SBR-11.
+
+Układ wejścia: `low[time][32]`, a wyjścia:
+`high[time][64]`. Używa `source_for_target[k]` i przenosi
+dokładne wartości obu składowych zespolonych do
+pasm wysokich. Wszystkie pozostałe częstotliwości
+otrzymują zero, w tym dopuszczony, pominięty
+ogon ostatniej łatki. Obsługuje 1..40 przedziałów QMF.
+
+Wyjście jest zatwierdzane **dopiero po walidacji wszystkich
+pasm i próbek**: kontroluje liczby elementów buforów,
+przedziały źródłowe i docelowe, brak nakładania łatek,
+związek mapy z tabelami `high/low/noise`,
+NaN i Inf w rzeczywiście wykorzystywanych danych.
+Na błędzie wyjście pozostaje niezmienione; dzięki
+lokalnemu stagingowi nawet nakładanie wejścia i wyjścia
+jest bezpieczne. Brak alokacji i zewnętrznych kodeków.
+
+Testy `test_aac_sbr_hf.c` obejmują:
+- 40 przedziałów z mapą przy 48 kHz i krótkim ogonem,
+- 32 przedziały i wielokrotne łatki przy 96 kHz,
+- aliasowanie wejścia i wyjścia, a także 1 przedział,
+- ucięte bufory, błędną geometrię, NaN/Inf w końcowym
+  przedziale i brak częściowego zapisu,
+- rzeczywisty łańcuch `limits -> master -> tables -> patches
+  -> zespolone QMF` dla różnych częstotliwości i ustawień.
+
+```sh
+make test-aac-sbr-hf PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Granica SBR-12:** to tylko **składnik bezpośredniego
+przeniesienia** z generatora HF. W standardowym HE-AAC
+generacja wysokich pasm obejmuje również zespoloną
+predykcję liniową, chirp/inverse filtering, dostrajanie
+energii i szumu oraz polifazowe filtry QMF analizy
+i syntezy. Ten moduł nie wyznacza próbek PCM i nie
+jest jeszcze podłączony do odtwarzacza.
+PASS na Fedorze i w CI musi być potwierdzony osobno.
