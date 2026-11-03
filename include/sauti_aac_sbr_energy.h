@@ -33,4 +33,34 @@ int sauti_aac_sbr_energy_dequant(const SautiAacSbrQuantFrame *quant,
                                   unsigned balanced,
                                   SautiAacSbrEnergyFrame *out);
 
+
+/* SBR-10: joint dequantization of a *coupled* CPE pair.
+ * The first quant frame is the level/combined-energy channel decoded
+ * with balanced=0 by SBR-08; the second is the balance channel decoded
+ * with balanced=1. They share exactly the same classic SBR time/frequency
+ * grids and amp resolution. This API performs the pan/noise unmapping.
+ * The calling parser MUST preserve the channel roles; quant frames
+ * themselves don't embed a coupling flag.
+ *
+ * Combined envelope E = 128 * 2^(alpha * q_level)
+ * Pan ratio R = 2^(alpha * (pan_offset - q_balance)),
+ * alpha=0.5, pan_offset=24 in 1.5dB mode;
+ * alpha=1, pan_offset=12 in 3dB mode.
+ * E_left = E/(1+R); E_right = E*R/(1+R).
+ *
+ * Combined noise Q = 2^(7 - q_noise_level)
+ * Noise ratio Rn = 2^(12 - q_noise_balance);
+ * Q_left = Q/(1+Rn); Q_right = Q*Rn/(1+Rn).
+ *
+ * If invalid, neither output changes. left_out and right_out MUST
+ * be distinct. No external codec, allocation, or QMF synthesis. */
+int sauti_aac_sbr_coupled_dequant(
+    const SautiAacSbrQuantFrame *level,
+    const SautiAacSbrQuantFrame *balance,
+    const SautiAacSbrGrid *grid,
+    const SautiAacSbrTables *tables,
+    unsigned amp_res,
+    SautiAacSbrEnergyFrame *left_out,
+    SautiAacSbrEnergyFrame *right_out);
+
 #endif
