@@ -1242,3 +1242,33 @@ obejścia testów zgodności. Jeśli korelacja w Sauti
 jest przyczyną, wariant powinien zmniejszyć
 nRMSE; jeśli nie, należy zbadać próbki PNS i
 ścieżkę syntezy niezależnie.
+
+## HE-AAC v1 / SBR-01 — natywna siatka czasowa obwiedni
+
+Pierwszy samodzielny etap HE-AAC v1 w gałęzi `feature/aac-family-asm`.
+Dodano `sauti_aac_sbr_grid_parse` bez FFmpeg i bez alokacji.
+Parser korzysta z istniejącego czytnika bitów NASM i obsługuje
+klasy `FIXFIX`, `FIXVAR`, `VARFIX`, `VARVAR` klasycznego SBR:
+- 1–5 obwiedni oraz granice czasowe dla 15/16 szczelin,
+- flagi rozdzielczości częstotliwości, `bs_pointer`,
+- granice 1 lub 2 obwiedni szumowych,
+- odrzucenie niepoprawnych, niemonotonicznych granic,
+  niedozwolonej liczby obwiedni i uciętych danych,
+- brak zmiany kursora lub wyniku po błędzie (fail-closed).
+
+Testy syntetyczne obejmują wszystkie cztery klasy,
+niebajtowe pozycje startowe, niepoprawny wskaźnik,
+kolizję granic i ucięcie bitstreamu.
+
+```sh
+make test-aac-sbr-grid PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Zakres:** rozpoznawanie siatki SBR to dopiero etap składniowy.
+Nie implementuje jeszcze dekodowania obwiedni Huffmana,
+częstotliwościowej tabeli pasm, filtrów QMF ani syntezy
+wysokich częstotliwości. Nie uruchamia HE-AAC w odtwarzaczu;
+nie zmienia wyboru dekodera AAC-LC ani jego progów testów.
+Wyniki powyższych testów na Fedorze wymagają potwierdzenia;
+nie deklarować PASS przed rzeczywistym uruchomieniem.
