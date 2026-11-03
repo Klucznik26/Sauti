@@ -230,3 +230,58 @@ int sauti_aac_sbr_hf_noise_mix_tonal(
                         tone_mask,tone_count,input,input_count,
                         output,output_count,state);
 }
+
+
+int sauti_aac_sbr_hf_noise_mix_levels(
+    const SautiAacSbrTables *tables,
+    unsigned slots,
+    const double (*gain)[SAUTI_AAC_SBR_HF_HIGH_BANDS],
+    const double (*noise)[SAUTI_AAC_SBR_HF_HIGH_BANDS],
+    const SautiAacSbrComplex *input,
+    size_t input_count,
+    SautiAacSbrComplex *output,
+    size_t output_count,
+    SautiAacSbrNoiseState *state) {
+    if(!valid_tables(tables) || !gain || !noise || !input ||
+       !output || !state || slots<1u ||
+       slots>SAUTI_AAC_SBR_HF_MAX_SLOTS ||
+       input_count<(size_t)slots*SAUTI_AAC_SBR_HF_HIGH_BANDS ||
+       output_count<(size_t)slots*SAUTI_AAC_SBR_HF_HIGH_BANDS ||
+       state->ready>1u || (state->ready && !state->seed) ||
+       (!state->ready && (state->seed || state->emitted)) ||
+       state->emitted>UINT64_MAX-(uint64_t)slots*tables->m)
+        return 0;
+
+    const size_t count=(size_t)slots*SAUTI_AAC_SBR_HF_HIGH_BANDS;
+    SautiAacSbrComplex staged[
+        SAUTI_AAC_SBR_HF_MAX_SLOTS*SAUTI_AAC_SBR_HF_HIGH_BANDS];
+    memcpy(staged,input,count*sizeof(staged[0]));
+    SautiAacSbrNoiseState next=*state;
+    if(!next.ready){
+        next.ready=1u;
+        next.seed=0x6a09e667u;
+    }
+    for(unsigned t=0u;t<slots;t++)
+        for(unsigned k=tables->kx;k<tables->kx+tables->m;k++){
+            const size_t ix=(size_t)t*
+                SAUTI_AAC_SBR_HF_HIGH_BANDS+k;
+            const double g=gain[t][k],n=noise[t][k];
+            const SautiAacSbrComplex x=input[ix];
+            if(!isfinite(g)||!isfinite(n)||g<0.0||n<0.0 ||
+               !isfinite(x.re)||!isfinite(x.im))
+                return 0;
+            double nr=0.0,ni=0.0;
+            unit_phase(next_random(&next.seed)&7u,&nr,&ni);
+            const double re=(double)x.re*g+n*nr;
+            const double im=(double)x.im*g+n*ni;
+            if(!isfinite(re)||!isfinite(im)||
+               fabs(re)>FLT_MAX||fabs(im)>FLT_MAX)
+                return 0;
+            staged[ix].re=(float)re;
+            staged[ix].im=(float)im;
+        }
+    next.emitted+=(uint64_t)slots*tables->m;
+    memcpy(output,staged,count*sizeof(staged[0]));
+    *state=next;
+    return 1;
+}
