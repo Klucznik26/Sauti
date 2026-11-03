@@ -2732,3 +2732,53 @@ nie 2048 próbek końcowego HE-AAC. Integracja
 z pełnym torrem SBR-28, opóźnienia analizy/syntezy
 oraz porównanie faktycznych nagrań z dekoderem
 referencyjnym pozostają do wykonania.
+
+
+## HE-AAC v1 / SBR-31 — pełna ścieżka ADTS do 2048 próbek QMF
+
+Nowa, **eksperymentalna** funkcja
+`sauti_aac_he_adts_qmf_decode_ex` integruje:
+
+- SBR-30: prawdziwą ramkę ADTS AAC-LC SCE + FIL
+  i 1024 próbek rdzenia PCM;
+- SBR-29: rzeczywiste dane entropijne rozszerzenia SBR,
+  siatkę, energie, szum, flagi harmonicznych i tabelę łatek;
+- SBR-28: 32-pasmową analizę QMF, rekonstrukcję HF
+  (w tej wersji bazowa transpozycja), limitery, ROM szumu
+  i harmoniczne, a następnie syntezę 64-pasmową;
+- wynik: **2048 float** na jedną 1024-próbkową
+  ramkę AAC-LC, o podwojonej częstotliwości próbkowania.
+
+Stany AAC-LC (IMDCT/overlap), parsowania SBR
+(nagłówek i entropia), analizy QMF, fazy ROM,
+harmonicznych i syntezy QMF są aktualizowane
+**jedną transakcją**. W każdej ścieżce błędu wynik
+i cały stan kanału pozostają bitowo niezmienione.
+
+Test `test_aac_sbr_adts_qmf.c` nie podmienia
+rdzenia sztucznym buforem PCM: konstruuje kompletną
+ramkę AAC-LC z **niezerowym zakodowanym widmem**
+i prawdziwym payloadem SBR w ID_FIL. Odtwarza
+dwie kolejne ramki (header reuse i time Huffman),
+a wynik porównuje próbka po próbce z osobnym
+wywołaniem SBR-30 + SBR-28. Sprawdza także
+zgodność stanów i liczników oraz wycofywanie
+przy obciętym ADTS, błędnym CRC, uszkodzonym QMF
+i braku źródła HF dla dodatniej energii SBR.
+
+```sh
+make test-aac-sbr-adts-qmf PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Bardzo ważne:** to nadal eksperymentalna ścieżka QMF,
+nie deklaracja poprawności dekodowania HE-AAC.
+Nie znamy jeszcze zgodności czasowej analizy
+i syntezy z referencyjnym dekoderem, a zerowe
+źródła dla dodatnich obwiedni SBR są odrzucane
+(nie generujemy sztucznego HF). Brakuje estymacji
+LPC na żywo, obsługi PS/CRC/CPE, elastycznych siatek
+przechodzących przez granice ramek oraz próby
+z **niezależnie zakodowanym nagraniem**. Testy
+konstruowanych ADTS są konieczne, ale niewystarczające
+do stwierdzenia zgodności bitowej czy brzmieniowej.
