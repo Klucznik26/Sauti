@@ -379,14 +379,14 @@ $(OBJDIR)/test_aac_syntax: tests/test_aac_syntax.c include/sauti_aac_syntax.h $(
 
 .PHONY: test-aac-syntax
 test-aac-syntax: $(OBJDIR)/test_aac_syntax
+	./$(OBJDIR)/test_aac_syntax
 
 $(OBJDIR)/test_aac_sbr_grid: tests/test_aac_sbr_grid.c include/sauti_aac_sbr_grid.h $(AAC_SBR_GRID_SRC) $(AAC_HEADERS_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_grid.c $(AAC_SBR_GRID_SRC) $(AAC_HEADERS_ASM) -no-pie
 
 .PHONY: test-aac-sbr-grid
 test-aac-sbr-grid: $(OBJDIR)/test_aac_sbr_grid
-	$(OBJDIR)/test_aac_sbr_grid
-	./$(OBJDIR)/test_aac_syntax
+	./$(OBJDIR)/test_aac_sbr_grid
 
 $(OBJDIR)/test_aac_lc_sections: tests/test_aac_lc_sections.c include/sauti_aac_lc_sections.h include/sauti_aac_syntax.h $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_lc_sections.c $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) -no-pie
