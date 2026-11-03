@@ -48,7 +48,7 @@ int sauti_aac_sbr_smooth_coefficients(
     SautiAacSbrSmoothFrame *out) {
     if(!valid_tables(tables) || !env_edges || !target_gain ||
        !target_noise || !attack || !state || !out ||
-       env_count<1u || env_count>SAUTI_AAC_SBR_MAX_ENV ||
+       env_count<1u || env_count>SAUTI_AAC_SBR_SMOOTH_MAX_ENV ||
        slots<1u || slots>SAUTI_AAC_SBR_SMOOTH_SLOTS ||
        bs_smoothing_mode>1u ||
        env_edges[0]!=0u || env_edges[env_count]!=slots ||
