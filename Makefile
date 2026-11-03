@@ -89,6 +89,7 @@ AAC_SBR_HF_NOISE_SRC := src/decoders/modern/aac/sauti_aac_sbr_hf_noise.c
 AAC_SBR_HF_SINE_SRC := src/decoders/modern/aac/sauti_aac_sbr_hf_sine.c
 AAC_SBR_HF_JOINT_SRC := src/decoders/modern/aac/sauti_aac_sbr_hf_joint.c
 AAC_SBR_SMOOTH_SRC := src/decoders/modern/aac/sauti_aac_sbr_smooth.c
+AAC_SBR_HF_JOINT_SMOOTH_SRC := src/decoders/modern/aac/sauti_aac_sbr_hf_joint_smooth.c
 AAC_LC_SECTIONS_SRC := src/decoders/modern/aac/sauti_aac_lc_sections.c
 AAC_HUFFMAN_SRC := src/decoders/modern/aac/sauti_aac_huffman.c
 AAC_HUFFMAN_ASM := $(OBJDIR)/sauti_aac_huffman.o
@@ -547,6 +548,13 @@ $(OBJDIR)/test_aac_sbr_smooth: tests/test_aac_sbr_smooth.c include/sauti_aac_sbr
 test-aac-sbr-smooth: $(OBJDIR)/test_aac_sbr_smooth
 	./$(OBJDIR)/test_aac_sbr_smooth
 
+$(OBJDIR)/test_aac_sbr_hf_joint_smooth: tests/test_aac_sbr_hf_joint_smooth.c include/sauti_aac_sbr_hf_joint_smooth.h $(AAC_SBR_HF_JOINT_SMOOTH_SRC) $(AAC_SBR_HF_JOINT_SRC) $(AAC_SBR_SMOOTH_SRC) $(AAC_SBR_LIMITER_BANDS_SRC) $(AAC_SBR_HF_LIMITER_SRC) $(AAC_SBR_HF_NOISE_SRC) $(AAC_SBR_HF_SINE_SRC) $(AAC_SBR_HF_SRC) $(AAC_SBR_PATCH_SRC) $(AAC_SBR_MASTER_SRC) $(AAC_SBR_FREQ_TABLES_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_hf_joint_smooth.c $(AAC_SBR_HF_JOINT_SMOOTH_SRC) $(AAC_SBR_HF_JOINT_SRC) $(AAC_SBR_SMOOTH_SRC) $(AAC_SBR_LIMITER_BANDS_SRC) $(AAC_SBR_HF_LIMITER_SRC) $(AAC_SBR_HF_NOISE_SRC) $(AAC_SBR_HF_SINE_SRC) $(AAC_SBR_HF_SRC) $(AAC_SBR_PATCH_SRC) $(AAC_SBR_MASTER_SRC) $(AAC_SBR_FREQ_TABLES_SRC) -lm
+
+.PHONY: test-aac-sbr-hf-joint-smooth
+test-aac-sbr-hf-joint-smooth: $(OBJDIR)/test_aac_sbr_hf_joint_smooth
+	./$(OBJDIR)/test_aac_sbr_hf_joint_smooth
+
 $(OBJDIR)/test_aac_lc_sections: tests/test_aac_lc_sections.c include/sauti_aac_lc_sections.h include/sauti_aac_syntax.h $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_lc_sections.c $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) -no-pie
 
@@ -830,7 +838,7 @@ test-aac-native-adapter: $(OBJDIR)/test_decoder_aac_native
 
 # Runs all native AAC modules without requiring libav*/FFmpeg.
 .PHONY: test-aac-native
-test-aac-native: test-aac-headers test-aac-syntax test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
+test-aac-native: test-aac-headers test-aac-syntax test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
 
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm
