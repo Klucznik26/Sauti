@@ -73,6 +73,11 @@ static void test_fail_closed(void) {
     assert(!sauti_aac_sbr_tables_build(&m,0,&t));
     m.count=2; m.kx=33;
     assert(!sauti_aac_sbr_tables_build(&m,0,&t));
+
+    /* More than five noise floors is invalid even with enough low bands. */
+    const uint8_t broad[]={8,9,10,11,12,13,14,15,16,17,20,40,64};
+    m=make_master(broad,12,0);
+    assert(!sauti_aac_sbr_tables_build(&m,3,&t));
     assert(memcmp(&t,&previous,sizeof(t))==0);
 }
 
