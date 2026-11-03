@@ -1272,3 +1272,27 @@ wysokich częstotliwości. Nie uruchamia HE-AAC w odtwarzaczu;
 nie zmienia wyboru dekodera AAC-LC ani jego progów testów.
 Wyniki powyższych testów na Fedorze wymagają potwierdzenia;
 nie deklarować PASS przed rzeczywistym uruchomieniem.
+
+## HE-AAC v1 / SBR-02 — liniowa tabela pasm master
+
+Zaimplementowano niezależny generator `sauti_aac_sbr_master_linear`
+dla przypadku `bs_freq_scale=0` i `bs_alter_scale=0/1`.
+Generator przyjmuje wcześniej obliczone poprawne `k0` i `k2`,
+buduje rosnące granice pasm QMF, oblicza `kx` z `bs_xover_band`
+i gwarantuje brak modyfikacji wyniku po niepowodzeniu.
+Arytmetyka jest całkowitoliczbowa; nie wymaga FFmpeg, QMF ani
+zewnętrznych bibliotek. Testy weryfikują parzyste/nieparzyste
+szerokości, korekty -2/-1/+1, granice, crossover i fail-closed.
+
+```sh
+make test-aac-sbr-master PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Ograniczenia:** to nie jest pełna tabela częstotliwości SBR.
+Jeszcze nie obliczamy `k0` i `k2` z częstotliwości próbkowania
+oraz `bs_start_freq`/`bs_stop_freq`; ten obowiązek pozostaje
+po stronie przyszłego etapu. Brak logarytmicznych trybów
+`bs_freq_scale=1..3` i wyznaczania tabel high/low/noise.
+Nie podłączać jeszcze HE-AAC do odtwarzacza ani nie ogłaszać
+dekodowania SBR. CI i test na Fedorze wymagają potwierdzenia.
