@@ -2175,3 +2175,57 @@ Włączenie ich do wspólnej regulacji HF będzie kolejnym
 etapem, po sprawdzeniu numeryki. Normatywna tablica
 512 wektorów szumu, synteza i analiza QMF oraz łączenie
 ramek HE-AAC do PCM również pozostają do wykonania.
+
+
+## HE-AAC v1 / SBR-22 — integracja wygładzania w torze HF
+
+Dodano `sauti_aac_sbr_hf_joint_process_smoothed` — nowy
+punkt wejścia, który łączy SBR-16/17 (limiter/gain),
+SBR-21 (pięciopunktowe wygładzanie współczynników),
+SBR-18 (renderowanie szumu) i SBR-19 (harmoniczne).
+Dotychczasowy SBR-20 pozostaje **niezmieniony** jako
+punkt odniesienia oraz ścieżka bez wygładzania.
+
+Po ustaleniu docelowych wzmocnień limiterem obliczana
+jest pełna amplituda sygnału na podpasmo:
+`G_total = G_limiter * sqrt(signal_share)`, oraz
+amplituda szumu `A_noise = sqrt(E*noise_share)`.
+W subpasmach harmonicznych (od transient albo z
+poprzedniej ramki) szum losowy jest zerowany,
+a jego udział rezerwowany dla sinusoidy. SBR-21
+wygładza **te współczynniki** w czasie QMF, a nie
+gotowe próbki zespolone. Dopiero po tym SBR-18
+wykonuje `X*G_smooth + N*A_smooth` z identycznym
+generatorem faz co wcześniej, zaś SBR-19 dokłada
+czterofazowe harmoniczne.
+
+Zastosowano nowy interfejs
+`sauti_aac_sbr_hf_noise_mix_levels`, który przyjmuje
+wprost `[slots][64]` wartości G i A szumu i utrzymuje
+nieprzerwaną sekwencję generatora nawet przy A=0.
+
+Stan `SautiAacSbrHfSmoothState` zawiera obie historie
+generatorów oraz cztery ostatnie sloty współczynników.
+Wyjście, statystyki ogranicznika oraz cały stan są
+zatwierdzane **łącznie** wyłącznie po sukcesie.
+
+Test `test_aac_sbr_hf_joint_smooth.c` sprawdza:
+- zgodność wyniku bez wygładzania z SBR-20 oraz
+  identyczność stanów noise/sine;
+- analityczną rampę wzmocnienia, amplitudy szumu,
+  pomijanie filtra na ataku i historię między ramkami;
+- wywołanie na 40 slotach, 5 obwiedniach i 2 przedziałach
+  szumu oraz aliasowanie wejścia i wyjścia;
+- pełny rollback po błędzie także w końcowym etapie.
+
+```sh
+make test-aac-sbr-hf-joint-smooth PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Granice:** to nadal nie jest pełna zgodność HE-AAC.
+W torze pozostaje własna, nienormatywna sekwencja
+szumu ośmiu faz; obsługa transjentów, kalkulacja
+końcowego ogranicznika uwzględniającego jednocześnie
+harmoniczne i szum, analiza/synteza QMF oraz połączenie
+z dekoderem AAC do PCM są nieukończone.
