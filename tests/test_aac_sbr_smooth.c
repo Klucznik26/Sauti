@@ -173,7 +173,6 @@ static void test_atomicity_and_bad_geometry(void){
     tables.low[1]=tables.low[0];
     REJECT(&tables,2,edges,8,g,n,attack,0);
     setup(&tables);
-#undef REJECT
     assert(!sauti_aac_sbr_smooth_coefficients(
         &tables,2,edges,8,g,n,attack,0,&state,NULL));
     assert(!sauti_aac_sbr_smooth_coefficients(
@@ -190,6 +189,7 @@ static void test_atomicity_and_bad_geometry(void){
     REJECT(&changed,2,edges,8,g,n,attack,0);
     state.gain[3][16]=NAN;old_state=state;
     REJECT(&tables,2,edges,8,g,n,attack,0);
+#undef REJECT
 }
 static void test_40_slots_5_envelopes(void) {
     SautiAacSbrTables tables;setup(&tables);
