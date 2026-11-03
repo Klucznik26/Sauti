@@ -80,4 +80,26 @@ int sauti_aac_sbr_hf_noise_mix_tonal(
     size_t output_count,
     SautiAacSbrNoiseState *state);
 
+
+/* SBR-22: render per-slot smoothing coefficients produced by SBR-21.
+ * Each complex high-bin sample becomes input*gain + unit_noise*noise,
+ * using exactly the same deterministic 8-phase sequence as SBR-18.
+ * Random state advances for EVERY high QMF bin including noise=0.
+ * gain/noise must each point to [40][64] arrays; only first 'slots'
+ * rows and [kx,k2) columns are consulted. Levels must be finite >=0.
+ *
+ * Input/output may alias. Output and state are bitwise unchanged on
+ * any failure. This API bypasses the SBR-18 E/Q conversion because the
+ * coefficients already contain the intended power allocation. */
+int sauti_aac_sbr_hf_noise_mix_levels(
+    const SautiAacSbrTables *tables,
+    unsigned slots,
+    const double (*gain)[SAUTI_AAC_SBR_HF_HIGH_BANDS],
+    const double (*noise)[SAUTI_AAC_SBR_HF_HIGH_BANDS],
+    const SautiAacSbrComplex *input,
+    size_t input_count,
+    SautiAacSbrComplex *output,
+    size_t output_count,
+    SautiAacSbrNoiseState *state);
+
 #endif
