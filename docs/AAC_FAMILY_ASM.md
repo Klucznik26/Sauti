@@ -1941,3 +1941,75 @@ sinusoid ani nie wygładza obwiedni. Nie implementuje
 banków polifazowych QMF ani wyjścia PCM. Zgodność
 z realnymi strumieniami wymaga integracji końcowej
 i osobnych testów międzyimplementacyjnych.
+
+
+## HE-AAC v1 / SBR-18 — natywny szum zespolony HF i udział energii
+
+Dodano `sauti_aac_sbr_hf_noise_mix` — etap wprowadzający
+deterministyczny szum do wysokich subpasm zespolonych QMF,
+po wcześniejszym wygenerowaniu i dostrojeniu sygnału
+przez SBR-13–17. Otrzymuje energie obwiedni i
+współczynniki Q z SBR-09/10, osobne granice slotów
+obwiedni i szumu oraz stan kanału `SautiAacSbrNoiseState`.
+
+Podstawowy podział oczekiwanej energii w każdym paśmie:
+
+- `E_signal = E_target / (1+Q)`;
+- `E_noise = E_target * Q / (1+Q)`;
+- próbka zespolona sygnału jest mnożona przez
+  `1/sqrt(1+Q)`, a wektor szumu jednostkowego przez
+  `sqrt(E_noise)`.
+
+Dla wejścia o mocy zgodnej z `E_target` oczekiwana
+moc wyniku wynosi `E_target`, ponieważ szum ma
+zerową średnią i jednostkową moc. Nie oznacza to
+**dokładnej sumy energii** dla każdej skończonej ramki:
+występują rzeczywiste losowe składniki mieszane.
+
+Generator szumu jest autorski: `xorshift32` i osiem
+zespolonych faz o jednostkowym module. Zachowuje
+stan między wywołaniami i pozwala rozdzielić
+ziarna dla różnych kanałów. To obecnie **celowo
+nie jest normatywna tablica 512 wektorów MPEG-4 SBR**;
+do uzyskania bitowo zgodnego HE-AAC trzeba ją dodać
+i sprawdzić zgodność sekwencji faz oraz indeksów.
+
+Przedziały szumu mogą być szersze od obwiedni, ale
+każda wewnętrzna granica czasowa szumu musi być
+również granicą obwiedni. Poziomy Q dobierane są
+oddzielnie w każdej grupie częstotliwości z
+`tables->noise[]` i dla aktualnego przedziału czasu.
+
+Moduł obsługuje 1–40 slotów, 1–5 obwiedni, 1–2
+okresy szumu i prawidłowe 1–5 pasm noise.
+Zachowuje pasma spoza zakresu HF. Gdy docelowa
+energia wynosi zero, zwraca zero dla danego
+pasma; dla dodatniej energii i całkowicie pustego
+sygnału źródłowego zgłasza błąd, zamiast
+udawać zgodność proporcji sygnał/szum.
+Weryfikuje NaN/Inf, zakresy, geometrię, stan i
+pojemność buforów. **Wyjście i stan są atomowe**;
+bufory wejściowe i wyjściowe mogą się pokrywać.
+
+Testy:
+- niezależny pomiar obu udziałów energii,
+- identyczny przebieg dla tych samych ziaren;
+- dokładna ciągłość po podziale jednej ramki na dwie;
+- rozdzielone ziarna dla stereo i aliasing pamięci;
+- rzeczywisty łańcuch kwantyzacji SBR-09 do szumu QMF;
+- cisza docelowa, Q=0, błędne pasma, brak danych,
+  niefinitywne liczby, overflow, rollback oraz sweep
+  poprawnych konfiguracji SBR-05.
+
+```sh
+make test-aac-sbr-hf-noise PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Granice:** SBR-18 nie zawiera jeszcze normatywnej
+tablicy pseudo-szumu, wygładzania gain/noise,
+sinusoidalnych harmonicznych, obsługi transientów,
+syntezy/analizy QMF ani pełnego dekodowania ramek
+HE-AAC do PCM. Poziomy szumu zakładają wejście
+wcześniej dopasowane do energii obwiedni; ogranicznik
+może celowo obniżyć jego końcową moc.
