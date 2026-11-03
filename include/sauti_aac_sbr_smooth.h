@@ -14,6 +14,7 @@
  * the still-unintegrated normative 512-entry noise sequence.
  * It is deliberately independent of the SBR-20 joint assembler.
  */
+#define SAUTI_AAC_SBR_SMOOTH_MAX_ENV 5u
 #define SAUTI_AAC_SBR_SMOOTH_SLOTS 40u
 #define SAUTI_AAC_SBR_SMOOTH_BANDS 64u
 #define SAUTI_AAC_SBR_SMOOTH_HISTORY 4u
