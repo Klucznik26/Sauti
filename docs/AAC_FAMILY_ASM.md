@@ -1525,3 +1525,46 @@ niezweryfikowanego mapowania. Na tę chwilę nie deklarować
 pełnego odtwarzania HE-AAC bez FFmpeg.
 
 Testy CI i testy na Fedorze wymagają osobnego potwierdzenia.
+
+
+## HE-AAC v1 / SBR-09 — liniowe energie obwiedni i współczynniki szumu
+
+Dodano `sauti_aac_sbr_energy_dequant` — własny, bezalokacyjny
+przelicznik wyjścia SBR-08 na **liniowe** wartości sterujące
+wysokoczęstotliwościową syntezą. Zgodnie z MPEG-4 SBR:
+
+- Energia niezależnego kanału: `E = 64 * 2^(alpha * q_env)`,
+  gdzie `alpha = 0.5` dla `bs_amp_res=0` oraz `1.0` dla
+  `bs_amp_res=1`.
+- Poziom szumu: `Q = 2^(6 - q_noise)`.
+- Dla `FIXFIX` z jedną obwiednią wymuszane jest 1,5 dB
+  niezależnie od flagi nagłówka.
+
+Arytmetyka `double` i `ldexp` zachowuje pełny przedział
+kwantowanych wartości `q_env=0..127`, `q_noise=0..30`
+bez niejawnego przepełnienia typów float. Wartości dla
+nieużywanych pasm i obwiedni są zerowane. Wynik jest
+zapisywany dopiero po pełnej walidacji tablic `high/low/noise`,
+rozdzielczości, liczby obwiedni i wszystkich poziomów;
+po błędzie pozostaje bez zmian (fail-closed).
+
+**Ważne ograniczenie stereo:** `balanced=1` oznacza prawy
+kanał sprzężonego CPE. Musi być przeliczany wspólnie
+z lewym kanałem (pan/unmapping); SBR-09 jawnie go
+odrzuca, zamiast niepoprawnie udawać niezależny kanał.
+Mono i kanały stereo niesprzężonego są obsługiwane.
+
+Testy: wartości charakterystyczne (w tym współczynnik 64),
+287 wyczerpujących sprawdzeń kwantyzacji (2x128 + 31),
+odrzucanie nieprawidłowych danych bez mutacji wyjścia,
+nieparzyste pasma high/low, tryb FIXFIX oraz prawdziwy
+łańcuch `quant_decode -> energy_dequant` z kodami NASM/Huffman.
+
+```sh
+make test-aac-sbr-energy PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+Potwierdzenie ostatecznych testów CI i Fedory nastąpi
+po wykonaniu powyższych poleceń. Moduł nie jest jeszcze
+syntezą QMF i nie uruchamia odtwarzania HE-AAC.
