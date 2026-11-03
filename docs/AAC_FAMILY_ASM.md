@@ -2611,3 +2611,69 @@ ostatnich 1–2 pasm pominiętych przez mapę łatek.
 Kolejne etapy muszą dopracować obsługę takich
 konfiguracji, automatyczną estymację LPC i
 integrację realnego bitstreamu HE-AAC do PCM.
+
+
+## HE-AAC v1 / SBR-29 — parsowanie rzeczywistego ładunku SBR z FIL
+
+Po połączeniu syntezy QMF (SBR-28) praca przeniosła się z
+syntetycznych parametrów DSP na **rzeczywistą składnię bitową**.
+Nowy `sauti_aac_sbr_payload_sce_parse` przyjmuje cały
+element `EXT_SBR_DATA` (`extension_type=13`) wraz z jego
+długością i pozycją bitową pochodzącą z `ID_FIL`.
+Może startować na **niebajtowej** pozycji w buforze
+i ogranicza wszystkie odczyty do długości elementu FIL.
+
+Parser wywołuje w kolejności wcześniejsze moduły:
+- opcjonalny nagłówek SBR lub nagłówek zapamiętany
+  z poprzedniej ramki (`bs_header_flag`);
+- obliczanie `k0/k2`, master, high/low/noise i patch;
+- `bs_data_extra`, siatkę czasu SBR-01, dtdf/invf SBR-06;
+- kodowane Huffmanem obwiednie i poziomy szumu SBR-08;
+- dekwantyzację energii/noise SBR-09;
+- `bs_add_harmonic_flag` i wektor flag wysokich pasm;
+- flagę `bs_extended_data` oraz wyrównanie FIL.
+
+Wyjściowa struktura `SautiAacSbrPayloadFrame` zawiera
+tabele, energie, siatki czasowe przeliczone z 16
+jednostek SBR na **32 sloty QMF**, harmoniczne,
+parametry limitera i wygładzania. Pomocnicze API
+`sauti_aac_sbr_payload_make_hf` tworzy widok
+`SautiAacSbrHfJointConfig`, który może być przekazany
+bezpośrednio do toru SBR-28.
+
+Stan `SautiAacSbrPayloadState` zapamiętuje nagłówek
+i historię entropijną Huffmana między ramkami.
+Na błędzie, w tym ucięciu FIL, niezmienione pozostają
+historia, wyjście i parametry; nie ma odczytów poza
+deklarowaną granicą ładunku. Nie jest potrzebna
+żadna zewnętrzna biblioteka kodeków.
+
+**Świadomie ograniczony zakres pierwszej wersji:**
+pojedynczy kanał SCE, AAC-LC core 1024/32 QMF,
+typ 13 bez CRC, bez rozszerzeń PS oraz tylko
+granice obwiedni w przedziale 0..16. Typ 14
+(SBR CRC), CPE, PS i dodatkowe payloady nie są
+jeszcze obsługiwane — parser je odrzuca.
+Przesunięcia czasowe wymagające danych z sąsiednich
+ramek również czekają na buforowanie/rozszerzenie DSP.
+
+Test `test_aac_sbr_payload.c` buduje pełne skompresowane
+ładunki zgodne ze składnią SBR, w tym niezależne
+kodowanie Huffmana, nagłówek, siatkę, poziomy noise
+i harmoniczne. Sprawdza rozpakowanie payloadu
+od pozycji niebajtowej, powtórne użycie nagłówka
+oraz kodowanie różnicowe względem poprzedniej ramki.
+Osobno weryfikuje obsługę błędnego typu rozszerzenia,
+CRC/PS, obcięcia, przepełnień i niezmienność historii.
+
+```sh
+make test-aac-sbr-payload PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Następny obowiązkowy krok:** pełny demultiplekser
+ADTS raw_data_block (SCE/CPE + ID_FIL), który dostarczy
+prawdziwy payload do SBR-29 i PCM AAC-LC do SBR-28.
+To otworzy drogę do porównania pierwszych plików
+HE-AAC v1 z niezależnym dekoderem. Sam SBR-29
+nie oznacza jeszcze pełnego dekodowania muzyki.
