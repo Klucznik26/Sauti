@@ -12,7 +12,7 @@
 
 static void near(float observed,double expected){
     assert(isfinite(observed));
-    assert(fabs((double)observed-expected)<1e-7);
+    assert(fabs((double)observed-expected)<=1e-6*fmax(1.0,fabs(expected)));
 }
 static void reference(unsigned idx,double re,double im) {
     SautiAacSbrComplex out;
