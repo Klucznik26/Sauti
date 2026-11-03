@@ -54,4 +54,30 @@ int sauti_aac_sbr_hf_noise_mix(
     size_t output_count,
     SautiAacSbrNoiseState *state);
 
+
+/* Optional SBR-20 tonal occupancy map [slots][64], each byte 0 or 1.
+ * If marked, a bin receives NO random noise; instead its existing HF
+ * signal is scaled by sqrt(Q/(1+Q)), reserving E/(1+Q) for the
+ * separately injected sinusoid of SBR-19. This avoids energy double
+ * counting and advances the random generator in EVERY HF subband,
+ * including bins where the random sample is suppressed.
+ *
+ * The original SBR-18 entry point is unchanged. The masked variant
+ * requires tone_count >= slots*64 and validates that the occupancy
+ * map contains only 0/1 values in its used prefix.
+ * Both output and state remain untouched on failure. */
+int sauti_aac_sbr_hf_noise_mix_tonal(
+    const SautiAacSbrTables *tables,
+    const SautiAacSbrEnergyFrame *energy,
+    const uint8_t *env_edges,
+    const uint8_t *noise_edges,
+    unsigned slots,
+    const uint8_t *tone_mask,
+    size_t tone_count,
+    const SautiAacSbrComplex *input,
+    size_t input_count,
+    SautiAacSbrComplex *output,
+    size_t output_count,
+    SautiAacSbrNoiseState *state);
+
 #endif
