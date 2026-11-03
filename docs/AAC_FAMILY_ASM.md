@@ -1431,3 +1431,47 @@ sposób kodowania obwiedni i tryby inverse filtering.
 Nie dekoduje Huffmana, nie odtwarza skalefaktorów, nie generuje
 filtrów QMF ani PCM, nie zmienia implementacji AAC-LC.
 Do potwierdzenia: testy CI i test na Fedorze.
+
+
+## HE-AAC v1 / SBR-07 — komplet 10 natywnych tablic Huffmana
+
+Dodano `sauti_aac_sbr_huffman_decode` z własną implementacją
+przechodzenia po kompaktowych drzewach kodowych.
+Przy każdym bicie korzysta wyłącznie z czytnika NASM Sauti.
+Nie wykorzystuje FFmpeg, FDK-AAC ani zewnętrznego kodeka
+w czasie odtwarzania. Kod jest bez alokacji i fail-closed:
+na błędzie ani `*bit_offset`, ani `*out_delta` nie zmieniają się.
+
+Zaimplementowano wszystkie **10** klasycznych tablic SBR:
+- envelope 1.5 dB: time/freq, level/balance (4),
+- envelope 3.0 dB: time/freq, level/balance (4),
+- noise 3.0 dB: time, level/balance (2).
+Przy szumie kodowanym w kierunku częstotliwości używa się
+odpowiedniej tablicy `env_3.0dB_F` (level/balance), zamiast
+osobnej jedenastej tablicy noise.
+
+Najpierw porównano **604/604** pełne słowa kodowe (wartości,
+długości, bity) między dwoma niezależnymi źródłami:
+- FFmpeg n6.1 `libavcodec/aacsbrdata.h` (długości i kody),
+- FDK-AAC `libSBRdec/src/sbr_rom.cpp` (drzewa).
+Nie stwierdzono rozbieżności. W Sauti na podstawie sprawdzonych
+wartości zbudowano nowy, własny układ drzew indeksowanych
+wskaźnikami `int8_t`, zamiast przenosić kod dekodera.
+
+Test syntetyczny dekoduje każdy z 604 kodów na niebajtowych
+pozycjach, sprawdza prawidłowe wartości i zużycie bitów,
+następnie ponawia każdy kod przy braku ostatniego bajtu,
+kontrolując brak zmian stanu. Jest też test mieszanego
+strumienia 30 słów kodowych i błędnych argumentów.
+
+```sh
+make test-aac-sbr-huffman PKG_CONFIG=/bin/false
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+**Granica SBR-07:** wynik to podpisane delty Huffmana, nie
+zrekonstruowane poziomy obwiedni i nie dźwięk PCM.
+Osobnym etapem będzie `sbr_envelope()` / `sbr_noise()`
+z obsługą wartości początkowych, czasowych różnic,
+kwantyzacji i zachowania stanu między ramkami.
+Weryfikację `PASS` na Fedorze i w CI potwierdzać osobno.
