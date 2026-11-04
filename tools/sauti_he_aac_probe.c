@@ -266,6 +266,10 @@ static void diagnose_core_sequence(const char *path,size_t limit){
         if(result!=1){
             printf("  ramka %zu: odrzucona przez rdzen %s (%d)\n",
                    i,sauti_aac_reason_name(reason),result);
+            /* Inspect the actual failing ADTS frame, not just frame 0.
+             * A FIL type mismatch and an SBR payload grammar rejection
+             * currently share unsupported_fil in the native decoder. */
+            inspect_fil(frame,len);
             break;
         }
         double sum=0.0,max_value=0.0;
