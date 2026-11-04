@@ -366,7 +366,7 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     if(!sauti_aac_he_adts_mono_init(&core_state)){
         fclose(f);return;
     }
-    printf("Diagnostyka ciaglosci rdzenia AAC-LC+SBR (%zu ramek):\n",limit);
+    printf("Diagnostyka ciaglosci rdzenia AAC-LC + temporal SBR (%zu ramek, bez HE-AAC PCM):\n",limit);
     size_t decoded=0,first_nonzero=SIZE_MAX;
     for(size_t i=0;i<limit;i++){
         uint8_t frame[MAX_ADTS_FRAME];
@@ -379,7 +379,7 @@ static void diagnose_core_sequence(const char *path,size_t limit){
         float core[1024];
         SautiAacSbrPayloadFrame payload;
         SautiAacReason reason=SAUTI_AAC_REASON_OK;
-        const int result=sauti_aac_he_adts_mono_decode_ex(
+        const int result=sauti_aac_he_adts_mono_temporal_decode_ex(
             frame,len,&core_state,core,&payload,&reason);
         if(result!=1){
             printf("  ramka %zu: odrzucona przez rdzen %s (%d)\n",
@@ -400,8 +400,9 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             if(v!=0.0)nonzero++;
         }
         if(nonzero && first_nonzero==SIZE_MAX)first_nonzero=i;
-        printf("  ramka %zu: rdzen RMS=%.9g, max=%.9g, niezerowe=%u/1024\n",
-               i,sqrt(sum/1024.0),max_value,nonzero);
+        printf("  ramka %zu: rdzen RMS=%.9g, max=%.9g, niezerowe=%u/1024, SBR env_end=%u\n",
+               i,sqrt(sum/1024.0),max_value,nonzero,
+               payload.grid.env_border[payload.grid.env_count]);
         decoded++;
     }
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
