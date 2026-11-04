@@ -189,6 +189,21 @@ static void diagnose_zero_hf(const float core[1024],
     }
     printf("AAC-LC rdzen: RMS=%.9g, max=%.9g, niezerowe=%u/1024\n",
            sqrt(core_sum/1024.0),core_max,core_nonzero);
+    /* The SBR noise floor and add_harmonic flags can carry legitimate
+     * HF energy even when the AAC-LC startup frame is all zero.
+     * Report the signaling before changing the limiter contract. */
+    unsigned harmonic_enabled=0u;
+    for(unsigned b=0u;b<payload->tables.n_high;b++)
+        if(payload->harmonic[b])harmonic_enabled++;
+    double noise_min=INFINITY,noise_max=0.0;
+    for(unsigned e=0u;e<payload->energy.noise_count;e++)
+        for(unsigned b=0u;b<payload->tables.n_noise;b++){
+            const double q=payload->energy.noise_factor[e][b];
+            if(q<noise_min)noise_min=q;
+            if(q>noise_max)noise_max=q;
+        }
+    printf("SBR zrodla dodatkowe: harmoniczne=%u/%u, noise Q min=%.9g max=%.9g\n",
+           harmonic_enabled,payload->tables.n_high,noise_min,noise_max);
     SautiAacSbrQmfAnalysisState analysis=current->analysis;
     SautiAacSbrComplex low[32u*32u],high[32u*64u];
     const unsigned slots=32u;
