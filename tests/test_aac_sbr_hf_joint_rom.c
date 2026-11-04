@@ -271,12 +271,51 @@ static void test_fail_closed_at_all_stages(void) {
     in[7u*W+31u].re=NAN;FAIL();
 #undef FAIL
 }
+static void test_noise_only_startup_and_strict_limiter(void) {
+    SautiAacSbrMaster m;SautiAacSbrTables t;SautiAacSbrPatches p;
+    geometry(&m,&t,&p);
+    SautiAacSbrEnergyFrame e;
+    energy(&t,&e,1u,64.0,64.0,1.0/256.0,1.0/256.0);
+    uint8_t flags[SAUTI_AAC_SBR_MAX_MASTER_BANDS]={0};
+    const uint8_t bounds[2]={0,8},attack[1]={0};
+    SautiAacSbrHfJointConfig cfg=config(
+        &t,&p,&e,flags,bounds,bounds,8u,0u);
+    SautiAacSbrComplex src[8u*W]={0},out[8u*W];
+    SautiAacSbrHfRomState state={0};
+    SautiAacSbrLimiterReport report;
+    /* Legacy gain-only limiter never invents source HF. */
+    SautiAacSbrLimiterBands bands;
+    assert(sauti_aac_sbr_limiter_bands_build(
+        &t,&p,cfg.limiter_mode,&bands));
+    assert(!sauti_aac_sbr_hf_limit(
+        &t,&e,bounds,8u,bands.edges,bands.count,cfg.gain_mode,
+        src,8u*W,out,8u*W,&report));
+    assert(sauti_aac_sbr_hf_joint_process_rom(
+        &cfg,attack,1u,src,8u*W,out,8u*W,&state,&report));
+    double power=0.0;
+    for(unsigned time=0;time<8u;time++)
+        for(unsigned k=t.kx;k<t.kx+t.m;k++){
+            const size_t ix=(size_t)time*W+k;
+            power+=(double)out[ix].re*out[ix].re+
+                   (double)out[ix].im*out[ix].im;
+            assert(report.applied_gain[0][k]==0.0);
+        }
+    assert(power>0.0 && state.noise_rom.emitted==8u*t.m);
+    /* If noise is absent, zero source still fails and rolls back. */
+    const SautiAacSbrHfRomState previous=state;
+    e.noise_factor[0][0]=0.0;
+    assert(!sauti_aac_sbr_hf_joint_process_rom(
+        &cfg,attack,1u,src,8u*W,out,8u*W,&state,&report));
+    assert(memcmp(&state,&previous,sizeof(state))==0);
+    puts("SBR-46: silent core + signaled ROM noise produces HF; no-noise strict rollback PASS");
+}
 int main(void) {
     test_golden_noise_indices_and_tonal_gate();
     test_five_tap_and_frame_continuity();
     test_phase_and_rom_wrap();
     test_no_noise_is_legacy_equivalent();
     test_fail_closed_at_all_stages();
+    test_noise_only_startup_and_strict_limiter();
     puts("PASS HE-AAC SBR-24 ROM-integrated joint HF: golden, smoothing, wrap, rollback");
     return 0;
 }
