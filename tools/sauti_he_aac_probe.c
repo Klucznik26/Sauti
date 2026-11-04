@@ -421,6 +421,15 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             if(fabs(v)>max_value)max_value=fabs(v);
             if(v!=0.0)nonzero++;
         }
+        SautiAacSbrTemporalPlan plan;
+        if(!sauti_aac_sbr_temporal_plan(&payload,&plan)){
+            printf("  ramka %zu: niepoprawny plan czasowy SBR (bez syntezy QMF)\n",i);
+            break;
+        }
+        if(plan.deferred_slots)
+            printf("  ramka %zu: odroczone QMF=%u slotow, env=%u, noise=%u (bez PCM HE-AAC)\n",
+                   i,plan.deferred_slots,plan.env_deferred_count,
+                   plan.noise_deferred_count);
         if(nonzero && first_nonzero==SIZE_MAX)first_nonzero=i;
         printf("  ramka %zu: rdzen RMS=%.9g, max=%.9g, niezerowe=%u/1024, SBR env_end=%u\n",
                i,sqrt(sum/1024.0),max_value,nonzero,
