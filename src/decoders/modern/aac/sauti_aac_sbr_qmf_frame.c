@@ -7,14 +7,16 @@
 #include <math.h>
 #include <string.h>
 
-int sauti_aac_sbr_qmf_frame_process(
+int sauti_aac_sbr_qmf_frame_process_ex(
     const SautiAacSbrQmfFrameConfig *config,
     const float *core_pcm,
     size_t core_count,
     float *output,
     size_t output_count,
     SautiAacSbrQmfFrameState *state,
-    SautiAacSbrLimiterReport *report) {
+    SautiAacSbrLimiterReport *report,
+    SautiAacSbrQmfStage *stage) {
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_INPUT;
     if(!config || !config->hf || !config->hf->tables ||
        !config->hf->patches || !core_pcm || !output ||
        !state || !report || !config->attack ||
@@ -26,9 +28,11 @@ int sauti_aac_sbr_qmf_frame_process(
        core_count<(size_t)config->hf->slots*32u ||
        output_count<(size_t)config->hf->slots*64u)
         return 0;
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_MAP;
     if(!sauti_aac_sbr_hf_map_valid(
            config->hf->patches,config->hf->tables))
         return 0;
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_HISTORY;
     /* State history is meaningful only after at least one
      * successful frame. Prevent an accidentally initialized 'warm'
      * state from smuggling garbage into the LPC predictor. */
@@ -57,6 +61,7 @@ int sauti_aac_sbr_qmf_frame_process(
     float pcm[SAUTI_AAC_SBR_HF_MAX_SLOTS*64u];
     SautiAacSbrLimiterReport diagnostics;
 
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_ANALYSIS;
     if(!sauti_aac_sbr_qmf_analyze_32(
            core_pcm,core_count,slots,32u,
            low,(size_t)slots*32u,&next.analysis))
@@ -66,6 +71,7 @@ int sauti_aac_sbr_qmf_frame_process(
     memcpy(history+2u*32u,low,(size_t)slots*32u*sizeof(low[0]));
 
     if(config->lpc) {
+        if(stage)*stage=SAUTI_SBR_QMF_STAGE_PREDICT;
         if(!sauti_aac_sbr_hf_predict(
                config->hf->patches,config->hf->tables,
                history,((size_t)slots+2u)*32u,slots,
@@ -73,6 +79,7 @@ int sauti_aac_sbr_qmf_frame_process(
                (size_t)slots*64u))
             return 0;
     }else{
+        if(stage)*stage=SAUTI_SBR_QMF_STAGE_TRANSPOSE;
         if(!sauti_aac_sbr_hf_transpose(
                config->hf->patches,config->hf->tables,
                low,(size_t)slots*32u,slots,
@@ -83,6 +90,7 @@ int sauti_aac_sbr_qmf_frame_process(
     /* For the current SBR-24 interface, high is an HF-only 64-bin
      * buffer. Mix low bins after HF adjustment so limiter energy
      * calculations do NOT accidentally treat old low bins as high. */
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_HF_ADJUST;
     if(!sauti_aac_sbr_hf_joint_process_rom(
            config->hf,config->attack,config->bs_smoothing_mode,
            high,(size_t)slots*64u,
@@ -97,6 +105,7 @@ int sauti_aac_sbr_qmf_frame_process(
             assembled[(size_t)t*64u+k]=adjusted[(size_t)t*64u+k];
     }
 
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_SYNTHESIS;
     if(!sauti_aac_sbr_qmf_synth_64(
            assembled,(size_t)slots*64u,slots,
            pcm,(size_t)slots*64u,&next.synthesis))
@@ -114,5 +123,18 @@ int sauti_aac_sbr_qmf_frame_process(
     memcpy(output,pcm,(size_t)slots*64u*sizeof(pcm[0]));
     *report=diagnostics;
     *state=next;
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_OK;
     return 1;
 }
+
+int sauti_aac_sbr_qmf_frame_process(
+    const SautiAacSbrQmfFrameConfig *config,
+    const float *core_pcm,size_t core_count,
+    float *output,size_t output_count,
+    SautiAacSbrQmfFrameState *state,
+    SautiAacSbrLimiterReport *report) {
+    return sauti_aac_sbr_qmf_frame_process_ex(
+        config,core_pcm,core_count,output,output_count,
+        state,report,NULL);
+}
+
