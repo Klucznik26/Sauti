@@ -18,6 +18,7 @@
  */
 #include "sauti_aac_he_adts_qmf.h"
 #include "sauti_aac_headers.h"
+#include "sauti_aac_syntax.h"
 #include <errno.h>
 #include <math.h>
 #include <stdint.h>
@@ -105,6 +106,55 @@ static int scan(const char *path,AdtsSummary *out){
     *out=next;
     return 1;
 }
+/* Side-effect-free FIL inspection: do not infer HE-AAC/PS from ADTS.
+ * Report the first post-SCE element and FIL extension type so an
+ * unsupported SBR payload cannot be mistaken for an unknown FIL type. */
+static void inspect_fil(const uint8_t *frame,size_t len) {
+    SautiAacAdts adts;
+    if(!sauti_aac_adts_parse_asm(frame,len,&adts) ||
+       adts.header_bytes>adts.frame_bytes ||
+       adts.frame_bytes>len) {
+        puts("FIL diagnostyka: niepoprawny ADTS");
+        return;
+    }
+    const uint8_t *raw=frame+adts.header_bytes;
+    const size_t n=adts.frame_bytes-adts.header_bytes;
+    const unsigned rate=(frame[2]>>2u)&15u;
+    size_t pos=0u;
+    SautiAacLcMonoData sce;
+    const int parsed=sauti_aac_lc_mono_parse(raw,n,&pos,rate,&sce);
+    if(parsed!=1) {
+        printf("FIL diagnostyka: parser SCE zatrzymal sie (%d)\\n",parsed);
+        return;
+    }
+    for(unsigned index=0;index<8u;index++) {
+        uint32_t id=0u;
+        if(!sauti_aac_bits_read_asm(raw,n,&pos,3u,&id)) {
+            puts("FIL diagnostyka: brak identyfikatora elementu");
+            return;
+        }
+        if(id==7u) {
+            puts("FIL diagnostyka: ID_END (brak dalszego SBR)");
+            return;
+        }
+        if(id!=6u) {
+            printf("FIL diagnostyka: element po SCE ID=%u (nie FIL)\\n",id);
+            return;
+        }
+        SautiAacFillInfo fill;
+        if(!sauti_aac_fill_parse(raw,n,&pos,&fill)) {
+            puts("FIL diagnostyka: niepoprawna dlugosc FIL");
+            return;
+        }
+        printf("FIL diagnostyka: element %u, payload=%zu B, extension_type=%u, extension_bits=%zu\\n",
+               index,fill.payload_bytes,fill.extension_type,fill.extension_bits);
+        if(fill.extension_type==13u)
+            puts("FIL diagnostyka: rozpoznano EXT_SBR_DATA (13); odrzucenie dotyczy skladni/ograniczen SBR");
+        else if(fill.extension_type==14u)
+            puts("FIL diagnostyka: EXT_SBR_DATA_CRC (14) nie jest obslugiwane");
+    }
+    puts("FIL diagnostyka: osiagnieto limit 8 elementow");
+}
 static int decode(const char *path,size_t max_decode){
     FILE *f=fopen(path,"rb");
     if(!f){perror(path);return 2;}
@@ -135,6 +185,7 @@ static int decode(const char *path,size_t max_decode){
             const int core_result=sauti_aac_he_adts_mono_decode_ex(
                 frame,len,&trial,core,&payload,&stage_reason);
             printf("Pierwsza odrzucona ramka: %zu\n",frame_index);
+            inspect_fil(frame,len);
             printf("Etap: %s\n",core_result==1?
                 "HF/QMF po poprawnym parsowaniu AAC-LC i SBR":
                 "AAC-LC / FIL / parser SBR");
