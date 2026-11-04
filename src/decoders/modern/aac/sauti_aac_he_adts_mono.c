@@ -43,12 +43,12 @@ int sauti_aac_he_adts_mono_init(SautiAacHeAdtsMonoState *state){
     return 1;
 }
 
-int sauti_aac_he_adts_mono_decode_ex(
+static int mono_decode_impl(
     const uint8_t *frame,size_t frame_size,
     SautiAacHeAdtsMonoState *state,
     float core_pcm[1024],
     SautiAacSbrPayloadFrame *params,
-    SautiAacReason *reason){
+    SautiAacReason *reason,unsigned temporal){
     if(!reason)return 0;
     *reason=SAUTI_AAC_REASON_INVALID_ADTS;
     if(!frame || !state || !core_pcm || !params ||
@@ -116,10 +116,16 @@ int sauti_aac_he_adts_mono_decode_ex(
             *reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;
             return -1;
         }
-        if(!sauti_aac_sbr_payload_sce_parse(
-               raw,raw_length,
-               fill.extension_start_bit,fill.extension_bits,
-               output_rate,&next.sbr,&sbr)){
+        const int parsed=temporal
+            ? sauti_aac_sbr_payload_temporal_parse_ex(
+                  raw,raw_length,
+                  fill.extension_start_bit,fill.extension_bits,
+                  output_rate,&next.sbr,&sbr,NULL)
+            : sauti_aac_sbr_payload_sce_parse(
+                  raw,raw_length,
+                  fill.extension_start_bit,fill.extension_bits,
+                  output_rate,&next.sbr,&sbr);
+        if(!parsed){
             *reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;
             return -1;
         }
@@ -163,4 +169,24 @@ int sauti_aac_he_adts_mono_decode_ex(
     *state=next;
     *reason=SAUTI_AAC_REASON_OK;
     return 1;
+}
+
+/* Public strict entry point remains unchanged for the production
+ * AAC-LC+SBR+QMF decoder. */
+int sauti_aac_he_adts_mono_decode_ex(
+    const uint8_t *frame,size_t frame_size,
+    SautiAacHeAdtsMonoState *state,
+    float core_pcm[1024],SautiAacSbrPayloadFrame *params,
+    SautiAacReason *reason){
+    return mono_decode_impl(frame,frame_size,state,core_pcm,
+                            params,reason,0u);
+}
+
+int sauti_aac_he_adts_mono_temporal_decode_ex(
+    const uint8_t *frame,size_t frame_size,
+    SautiAacHeAdtsMonoState *state,
+    float core_pcm[1024],SautiAacSbrPayloadFrame *params,
+    SautiAacReason *reason){
+    return mono_decode_impl(frame,frame_size,state,core_pcm,
+                            params,reason,1u);
 }
