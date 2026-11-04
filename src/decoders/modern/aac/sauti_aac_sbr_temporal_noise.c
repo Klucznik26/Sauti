@@ -44,6 +44,7 @@ static int produce(const SautiAacSbrTemporalHfTargets *targets,
             const size_t idx=(size_t)t*64u+k;
             staged.vector[idx]=vector;
             staged.raw_amplitude[idx]=amplitude;
+            staged.active[idx]=1u;
             vectors++;
             if(amplitude>0.0)nonzero++;
         }
