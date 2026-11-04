@@ -65,6 +65,30 @@ typedef struct {
  * In case of failure *out and *state remain byte-for-byte unchanged.
  * Returns 1 success, 0 reject/truncated/unsupported.
  */
+/* Diagnostic stage identifies which strict SBR subset check rejected
+ * a real payload. Only the stage output changes on failure. */
+typedef enum {
+    SAUTI_SBR_PAYLOAD_INPUT=0,
+    SAUTI_SBR_PAYLOAD_TYPE,
+    SAUTI_SBR_PAYLOAD_HEADER,
+    SAUTI_SBR_PAYLOAD_TABLES,
+    SAUTI_SBR_PAYLOAD_GRID,
+    SAUTI_SBR_PAYLOAD_BORDERS,
+    SAUTI_SBR_PAYLOAD_CONTROL,
+    SAUTI_SBR_PAYLOAD_QUANT,
+    SAUTI_SBR_PAYLOAD_ENERGY,
+    SAUTI_SBR_PAYLOAD_HARMONICS,
+    SAUTI_SBR_PAYLOAD_EXTENDED,
+    SAUTI_SBR_PAYLOAD_PADDING,
+    SAUTI_SBR_PAYLOAD_OK
+} SautiAacSbrPayloadStage;
+
+int sauti_aac_sbr_payload_sce_parse_ex(
+    const uint8_t *bytes,size_t bytes_count,
+    size_t bit_start,size_t payload_bits,unsigned output_rate,
+    SautiAacSbrPayloadState *state,SautiAacSbrPayloadFrame *out,
+    SautiAacSbrPayloadStage *stage);
+
 int sauti_aac_sbr_payload_sce_parse(
     const uint8_t *bytes,size_t bytes_count,
     size_t bit_start,size_t payload_bits,unsigned output_rate,
