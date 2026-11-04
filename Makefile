@@ -647,6 +647,16 @@ $(OBJDIR)/test_aac_sbr_temporal_power: tests/test_aac_sbr_temporal_power.c inclu
 test-aac-sbr-temporal-power: $(OBJDIR)/test_aac_sbr_temporal_power
 	./$(OBJDIR)/test_aac_sbr_temporal_power
 
+AAC_SBR_TEMPORAL_GAIN_SRC := src/decoders/modern/aac/sauti_aac_sbr_temporal_gain.c
+AAC_SBR_TEMPORAL_GAIN_DEPS := $(sort $(AAC_SBR_TEMPORAL_POWER_DEPS) $(AAC_SBR_LIMITER_BANDS_SRC) $(AAC_SBR_HF_LIMITER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC))
+
+$(OBJDIR)/test_aac_sbr_temporal_gain: tests/test_aac_sbr_temporal_gain.c include/sauti_aac_sbr_temporal_gain.h $(AAC_SBR_TEMPORAL_GAIN_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_temporal_gain.c $(AAC_SBR_TEMPORAL_GAIN_DEPS) -lm -no-pie
+
+.PHONY: test-aac-sbr-temporal-gain
+test-aac-sbr-temporal-gain: $(OBJDIR)/test_aac_sbr_temporal_gain
+	./$(OBJDIR)/test_aac_sbr_temporal_gain
+
 AAC_SBR_ADTS_QMF_DEPS := $(sort $(AAC_HE_ADTS_QMF_SRC) $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS))
 
 $(OBJDIR)/test_aac_sbr_adts_qmf: tests/test_aac_sbr_adts_qmf.c tests/test_aac_sbr_adts_mono.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) | $(OBJDIR)
@@ -656,8 +666,8 @@ $(OBJDIR)/test_aac_sbr_adts_qmf: tests/test_aac_sbr_adts_qmf.c tests/test_aac_sb
 test-aac-sbr-adts-qmf: $(OBJDIR)/test_aac_sbr_adts_qmf
 	./$(OBJDIR)/test_aac_sbr_adts_qmf
 
-$(OBJDIR)/sauti_he_aac_probe: tools/sauti_he_aac_probe.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) | $(OBJDIR)
-	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_aac_probe.c $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) -lm -no-pie
+$(OBJDIR)/sauti_he_aac_probe: tools/sauti_he_aac_probe.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_aac_probe.c $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) -lm -no-pie
 
 .PHONY: probe-he-aac test-aac-he-probe-build
 probe-he-aac test-aac-he-probe-build: $(OBJDIR)/sauti_he_aac_probe
