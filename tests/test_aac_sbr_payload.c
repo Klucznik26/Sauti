@@ -356,6 +356,55 @@ static void test_temporal_fixvar_17_side_data(void){
             assert(resolved.slot[t].noise==(t<16u?0u:1u));
         }
     }
+
+    /* SBR-53a: actual energy/noise and signaled harmonic targets.
+     * Deliberately distinguish the two original frame payloads. */
+    aligned.previous.energy.env_energy[3][0]+=100.0;
+    aligned.previous.energy.noise_factor[1][0]+=0.5;
+    aligned.previous.harmonic[0]=1u;
+    aligned.current.energy.env_energy[0][0]+=5.0;
+    aligned.current.harmonic[0]=0u;
+    SautiAacSbrTemporalHfTargets hf_targets;
+    assert(sauti_aac_sbr_temporal_hf_targets(&aligned,&hf_targets));
+    assert(hf_targets.previous_slots==2u);
+    for(unsigned t=0u;t<32u;t++){
+        const SautiAacSbrTemporalHfSlot *slot=&hf_targets.slot[t];
+        assert(slot->source==(t<2u?0u:1u));
+        assert(slot->envelope==resolved.slot[t].envelope);
+        assert(slot->noise==resolved.slot[t].noise);
+        const SautiAacSbrPayloadFrame *f=t<2u?
+                                    &aligned.previous:&aligned.current;
+        const SautiAacSbrTables *tab=&f->tables;
+        const unsigned fine=f->energy.freq_res[slot->envelope];
+        const uint8_t *edges=fine?tab->high:tab->low;
+        const unsigned bands=fine?tab->n_high:tab->n_low;
+        for(unsigned b=0u;b<bands;b++)
+            for(unsigned k=edges[b];k<edges[b+1u];k++)
+                assert(slot->energy[k]==
+                       f->energy.env_energy[slot->envelope][b]);
+        for(unsigned b=0u;b<tab->n_noise;b++)
+            for(unsigned k=tab->noise[b];k<tab->noise[b+1u];k++)
+                assert(slot->noise_factor[k]==
+                       f->energy.noise_factor[slot->noise][b]);
+        const unsigned harmonic_bin=(tab->high[0]+tab->high[1])/2u;
+        assert(slot->harmonic[harmonic_bin]==(t<2u?1u:0u));
+    }
+    SautiAacSbrTemporalHfTargets hf_saved;
+    memcpy(&hf_saved,&hf_targets,sizeof(hf_targets));
+    SautiAacSbrTemporalHistory hf_bad=aligned;
+    hf_bad.previous.energy.env_energy[3][0]=NAN;
+    assert(!sauti_aac_sbr_temporal_hf_targets(&hf_bad,&hf_targets));
+    assert(memcmp(&hf_targets,&hf_saved,sizeof(hf_targets))==0);
+    hf_bad=aligned;
+    hf_bad.current.energy.noise_factor[0][0]=-1.0;
+    assert(!sauti_aac_sbr_temporal_hf_targets(&hf_bad,&hf_targets));
+    assert(memcmp(&hf_targets,&hf_saved,sizeof(hf_targets))==0);
+    hf_bad=aligned;
+    hf_bad.current.tables.noise[1]=hf_bad.current.tables.noise[0];
+    assert(!sauti_aac_sbr_temporal_hf_targets(&hf_bad,&hf_targets));
+    assert(memcmp(&hf_targets,&hf_saved,sizeof(hf_targets))==0);
+    puts("SBR-53a: per-slot HF energy/noise/harmonic targets and rollback PASS");
+
     SautiAacSbrResolvedFrame prev_resolved=resolved;
     next_aligned.env_edges[0]=0u;
     next_aligned.noise_edges[0]=0u;
