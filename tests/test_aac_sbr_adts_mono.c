@@ -284,10 +284,53 @@ static void test_fill_data_after_sbr(void){
     for(unsigned i=0;i<1024u;i++)assert(rejected[i]==-7.0f);
     puts("SBR-34: EXT_FILL_DATA A5 accepted; corrupted filler rollback PASS");
 }
+static void test_temporal_core_keeps_strict_parity(void){
+    SautiAacSbrHeader h;SautiAacSbrTables tab;
+    find_header(&h,&tab);
+    Bits p,raw;
+    sbr_bits(&p,&h,&tab,1u,0u);
+    uint8_t bytes[1024];
+    size_t len=frame(&raw,bytes,&p,0u,NULL);
+    SautiAacHeAdtsMonoState strict={0},temporal={0};
+    assert(sauti_aac_he_adts_mono_init(&strict));
+    assert(sauti_aac_he_adts_mono_init(&temporal));
+    float a[1024],b[1024];
+    SautiAacSbrPayloadFrame p1,p2;
+    SautiAacReason reason1,reason2;
+    assert(sauti_aac_he_adts_mono_decode_ex(
+        bytes,len,&strict,a,&p1,&reason1)==1);
+    assert(sauti_aac_he_adts_mono_temporal_decode_ex(
+        bytes,len,&temporal,b,&p2,&reason2)==1);
+    assert(reason1==SAUTI_AAC_REASON_OK &&
+           reason2==SAUTI_AAC_REASON_OK);
+    assert(memcmp(a,b,sizeof(a))==0);
+    assert(memcmp(&p1,&p2,sizeof(p1))==0);
+    assert(memcmp(&strict,&temporal,sizeof(strict))==0);
+
+    sbr_bits(&p,&h,&tab,0u,1u);
+    len=frame(&raw,bytes,&p,0u,NULL);
+    assert(sauti_aac_he_adts_mono_decode_ex(
+        bytes,len,&strict,a,&p1,&reason1)==1);
+    assert(sauti_aac_he_adts_mono_temporal_decode_ex(
+        bytes,len,&temporal,b,&p2,&reason2)==1);
+    assert(memcmp(a,b,sizeof(a))==0);
+    assert(memcmp(&strict,&temporal,sizeof(strict))==0);
+
+    /* A corrupt extension on a warmed stream must not advance state. */
+    const SautiAacHeAdtsMonoState prev=temporal;
+    const size_t extension_bit=raw.bit-8u;
+    bytes[7u+extension_bit/8u]^=(uint8_t)(1u<<(7u-extension_bit%8u));
+    const int result=sauti_aac_he_adts_mono_temporal_decode_ex(
+        bytes,len,&temporal,b,&p2,&reason2);
+    assert(result!=1);
+    assert(memcmp(&temporal,&prev,sizeof(prev))==0);
+    puts("SBR-44: temporal and strict core output/history parity, invalid rollback PASS");
+}
 int main(void){
     test_full_adts_and_header_reuse();
     test_rollbacks_and_unsupported();
     test_fill_data_after_sbr();
+    test_temporal_core_keeps_strict_parity();
     puts("PASS HE-AAC SBR-30 genuine ADTS mono SCE+FIL -> native LC PCM and decoded SBR side data");
     return 0;
 }
