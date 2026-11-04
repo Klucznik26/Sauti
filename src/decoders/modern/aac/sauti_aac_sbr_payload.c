@@ -224,3 +224,59 @@ int sauti_aac_sbr_payload_make_hf(
     *out=cfg;
     return 1;
 }
+
+/* SBR-47: split decoded temporal side data without altering its
+ * envelope identity. This makes delayed QMF windows explicit and
+ * keeps the PCM-producing entry point strictly unchanged. */
+static int temporal_split(const uint8_t *edges,unsigned count,
+                          SautiAacSbrTemporalSegment *current,
+                          uint8_t *current_count,
+                          SautiAacSbrTemporalSegment *deferred,
+                          uint8_t *deferred_count) {
+    unsigned nc=0u,nd=0u;
+    if(count<1u || count>SAUTI_AAC_SBR_MAX_ENV)return 0;
+    for(unsigned e=0;e<count;e++){
+        const unsigned a=edges[e],b=edges[e+1u];
+        if(b<=a || b>38u)return 0;
+        if(a<32u) {
+            const unsigned z=b<32u?b:32u;
+            if(a<z)
+                current[nc++]=(SautiAacSbrTemporalSegment){
+                    (uint8_t)a,(uint8_t)z,(uint8_t)e};
+        }
+        if(b>32u){
+            const unsigned x=a>32u?a:32u;
+            if(x<b)
+                deferred[nd++]=(SautiAacSbrTemporalSegment){
+                    (uint8_t)(x-32u),(uint8_t)(b-32u),(uint8_t)e};
+        }
+    }
+    *current_count=(uint8_t)nc;
+    *deferred_count=(uint8_t)nd;
+    return 1;
+}
+
+int sauti_aac_sbr_temporal_plan(
+    const SautiAacSbrPayloadFrame *frame,
+    SautiAacSbrTemporalPlan *out){
+    if(!frame || !out ||
+       frame->grid.env_count<1u ||
+       frame->grid.env_count>SAUTI_AAC_SBR_MAX_ENV ||
+       frame->grid.noise_count!=(frame->grid.env_count==1u?1u:2u))
+        return 0;
+    SautiAacSbrTemporalPlan next={0};
+    if(!temporal_split(frame->env_edges,frame->grid.env_count,
+                       next.env_current,&next.env_current_count,
+                       next.env_deferred,&next.env_deferred_count) ||
+       !temporal_split(frame->noise_edges,frame->grid.noise_count,
+                       next.noise_current,&next.noise_current_count,
+                       next.noise_deferred,&next.noise_deferred_count))
+        return 0;
+    const unsigned end=frame->env_edges[frame->grid.env_count];
+    if(frame->noise_edges[frame->grid.noise_count]!=end)return 0;
+    /* Future SBR QMF history is bounded to at most 3 SBR time slots
+     * (6 QMF slots) by the classic 1024-sample sbr_grid syntax. */
+    next.deferred_slots=(uint8_t)(end>32u?end-32u:0u);
+    *out=next;
+    return 1;
+}
