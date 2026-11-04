@@ -191,4 +191,25 @@ int sauti_aac_sbr_temporal_resolve(
 int sauti_aac_sbr_payload_make_hf(
     const SautiAacSbrPayloadFrame *frame,
     SautiAacSbrHfJointConfig *out);
+
+/* SBR-53a: owned, per-QMF-slot energy/noise targets selected by SBR-52.
+ * The 64 entries are absolute QMF bins; outside [kx,k2) values are zero.
+ * Harmonic marks indicate signaled bands, NOT active sine synthesis.
+ * This is side data only: it does not output PCM or change QMF history.
+ * On any invalid map/target *out remains byte-for-byte unchanged. */
+typedef struct {
+    uint8_t source, envelope, noise, kx, k2;
+    double energy[64];
+    double noise_factor[64];
+    uint8_t harmonic[64];
+} SautiAacSbrTemporalHfSlot;
+typedef struct {
+    uint8_t previous_slots;
+    SautiAacSbrTemporalHfSlot slot[32];
+} SautiAacSbrTemporalHfTargets;
+
+int sauti_aac_sbr_temporal_hf_targets(
+    const SautiAacSbrTemporalHistory *history,
+    SautiAacSbrTemporalHfTargets *out);
+
 #endif
