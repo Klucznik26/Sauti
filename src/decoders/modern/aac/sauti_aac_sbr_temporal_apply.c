@@ -144,11 +144,11 @@ int sauti_aac_sbr_temporal_gain_apply(
             prior->env_edges[prior->grid.env_count-1u]:0u;
         if(!history->has_previous ||
            (next.pending_slots?
-             (owners.previous_slots==old_tail-HF_SLOTS &&
-              old_tail>HF_SLOTS &&
-              old_start<HF_SLOTS &&
-              next.pending_slots==HF_SLOTS-old_start):
-             owners.previous_slots==0u))
+             !(old_tail>HF_SLOTS &&
+               owners.previous_slots==old_tail-HF_SLOTS &&
+               old_start<HF_SLOTS &&
+               next.pending_slots==HF_SLOTS-old_start):
+             owners.previous_slots!=0u))
             return 0;
         if(next.pending_slots){
             const SautiAacSbrTemporalGainEnvelope *old_gain=
