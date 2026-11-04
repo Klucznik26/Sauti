@@ -328,3 +328,73 @@ int sauti_aac_sbr_temporal_history_push(
     *handoff=result;
     return 1;
 }
+
+/* SBR-52: a strict ownership map for each output-frame QMF slot.
+ * This resolves TIME and original side-data ownership only, never
+ * converts the metadata into QMF gains or publishes audio samples. */
+static int assign_temporal_segments(
+    const SautiAacSbrTemporalSegment *segments,unsigned count,
+    unsigned source,uint8_t owner[32],uint8_t index[32]){
+    if(count>SAUTI_AAC_SBR_MAX_ENV)return 0;
+    for(unsigned e=0;e<count;e++){
+        const unsigned a=segments[e].start,b=segments[e].end;
+        if(a>=b || b>32u)return 0;
+        for(unsigned t=a;t<b;t++){
+            if(owner[t]!=255u)return 0; /* overlapping ownership */
+            owner[t]=(uint8_t)source;
+            index[t]=segments[e].envelope;
+        }
+    }
+    return 1;
+}
+
+int sauti_aac_sbr_temporal_resolve(
+    const SautiAacSbrTemporalHistory *history,
+    SautiAacSbrResolvedFrame *out){
+    if(!history || !out || history->ready!=1u ||
+       history->frames==0u || history->has_previous>1u ||
+       (history->has_previous && history->frames<2u))
+        return 0;
+    const SautiAacSbrTemporalPlan *now=&history->current_plan;
+    const unsigned prev=history->has_previous?
+        history->previous_plan.deferred_slots:0u;
+    const unsigned start=history->current.env_edges[0];
+    if(start!=prev || start>6u ||
+       history->current.noise_edges[0]!=start)return 0;
+
+    uint8_t env_src[32],env_idx[32],noise_src[32],noise_idx[32];
+    memset(env_src,255,sizeof(env_src));
+    memset(noise_src,255,sizeof(noise_src));
+    memset(env_idx,0,sizeof(env_idx));
+    memset(noise_idx,0,sizeof(noise_idx));
+    if(prev){
+        const SautiAacSbrTemporalPlan *old=&history->previous_plan;
+        if(!assign_temporal_segments(
+                old->env_deferred,old->env_deferred_count,0u,
+                env_src,env_idx) ||
+           !assign_temporal_segments(
+                old->noise_deferred,old->noise_deferred_count,0u,
+                noise_src,noise_idx))return 0;
+    }
+    if(!assign_temporal_segments(
+            now->env_current,now->env_current_count,1u,
+            env_src,env_idx) ||
+       !assign_temporal_segments(
+            now->noise_current,now->noise_current_count,1u,
+            noise_src,noise_idx))return 0;
+
+    SautiAacSbrResolvedFrame result={0};
+    result.previous_slots=(uint8_t)prev;
+    for(unsigned t=0;t<32u;t++){
+        if(env_src[t]==255u || noise_src[t]==255u ||
+           env_src[t]!=noise_src[t])return 0;
+        const SautiAacSbrPayloadFrame *source=
+            env_src[t]==0u?&history->previous:&history->current;
+        if(env_idx[t]>=source->grid.env_count ||
+           noise_idx[t]>=source->grid.noise_count)return 0;
+        result.slot[t]=(SautiAacSbrSlotOwner){
+            env_src[t],env_idx[t],noise_idx[t]};
+    }
+    *out=result;
+    return 1;
+}
