@@ -2949,3 +2949,41 @@ make probe-he-aac PKG_CONFIG=/bin/false
 
 **Decyzja na dziś:** koniec prac po SBR-52; SBR-53 dopiero w
 następnej sesji. Nie zmieniamy teraz toru dekodera.
+
+
+## SBR-53a/b/c — wznowienie prac 2026-11-05
+
+**SBR-53a i SBR-53b potwierdzone na Fedorze przez użytkownika** na
+`~/Sauti-fixtures/he_test.aac`: poprawny odczyt parametrów HF i ciągła
+analiza QMF/transpozycja HF dla 50/50 ramek, także przekazanie
+FIXVAR 2 slotów 2→3. Syntetyczne regresje rollback PASS. W dalszym
+ciągu tylko ramki 0 i 1 mają eksperymentalne wyjście PCM 2048 próbek;
+obecny produkcyjny tor QMF nadal odrzuca ramkę 2.
+
+**SBR-53c (nowy kod, oczekuje na kompilację i wyniki testów Fedory):**
+`sauti_aac_sbr_temporal_power_measure` gromadzi średnią moc
+nieskorygowanego HF QMF *całej* obwiedni, zamiast uśredniać jedynie
+fragment do granicy AAC. Kiedy FIXVAR wychodzi 2 lub 6 slotów poza
+ramkę, zachowuje sumę energii i liczbę slotów i kończy pomiar dopiero
+po otrzymaniu wymaganych slotów następnej ramki. Raport zwraca wyłącznie
+kompletne obwiednie, bez udawania gotowego PCM. API nie modyfikuje
+istniejącego toru SBR-31. Testy sprawdzają średnią policzoną z obu
+ramek, odrzucenie NaN, rollback oraz zakaz podwójnego przetworzenia
+tej samej ramki. Diagnostyka realnego strumienia liczy ukończone
+obwiednie i przekazania, ale nie porównuje jeszcze PCM z wzorcem.
+
+Weryfikacja:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-power PKG_CONFIG=/bin/false
+make test-aac-sbr-temporal-qmf test-aac-sbr-payload test-aac-sbr-adts-qmf probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 | grep -E 'SBR-53|Rdzen:|odrzucona'
+```
+
+**Kolejny krok po potwierdzeniu SBR-53c:** limiter i współczynniki
+HF obliczane z całej prawidłowej obwiedni (w tym z ogonem poprzedniej
+ramki), zgodna czasowo historia wygładzania/ROM/sinusoid oraz
+transakcyjna synteza 64 QMF. Bez fałszywego sukcesu PCM, bez obcinania
+brzegów i bez podmiany części nieobsługiwanych na ciszę.
