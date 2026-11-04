@@ -453,6 +453,17 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             else
                 puts("    Ciaglosc SBR: obwiednie nakladaja sie; wymagana regulacja w syntezie");
         }
+        SautiAacSbrResolvedFrame owners;
+        if(!sauti_aac_sbr_temporal_resolve(&temporal_history,&owners)){
+            printf("  ramka %zu: niezgodna mapa wlascicieli QMF (bez PCM HE-AAC)\n",i);
+            break;
+        }
+        if(owners.previous_slots){
+            printf("  ramka %zu: SBR QMF 0..%u z poprzedniej ramki (env=%u,noise=%u); %u..31 z biezacej\n",
+                   i,(unsigned)owners.previous_slots-1u,
+                   owners.slot[0].envelope,owners.slot[0].noise,
+                   owners.previous_slots);
+        }
         if(nonzero && first_nonzero==SIZE_MAX)first_nonzero=i;
         printf("  ramka %zu: rdzen RMS=%.9g, max=%.9g, niezerowe=%u/1024, SBR env_end=%u\n",
                i,sqrt(sum/1024.0),max_value,nonzero,
