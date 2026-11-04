@@ -194,6 +194,25 @@ static int decode(const char *path,size_t max_decode){
             if(core_result!=1)
                 printf("Przyczyna parsera: %s (%d)\n",
                        sauti_aac_reason_name(stage_reason),core_result);
+            else {
+                SautiAacSbrHfJointConfig hf;
+                if(!sauti_aac_sbr_payload_make_hf(&payload,&hf)) {
+                    puts("HF diagnostyka: niepoprawna geometria/konfiguracja payloadu");
+                } else {
+                    const unsigned kx=payload.tables.kx;
+                    const unsigned k2=kx+payload.tables.m;
+                    unsigned unmapped=0u;
+                    for(unsigned k=kx;k<k2;k++)
+                        if(payload.patches.source_for_target[k]<0)
+                            unmapped++;
+                    printf("HF diagnostyka: kx=%u, k2=%u, patches=%u, niepokryte pasma=%u\n",
+                           kx,k2,(unsigned)payload.patches.count,unmapped);
+                    if(!sauti_aac_sbr_hf_map_valid(&payload.patches,&payload.tables))
+                        puts("HF diagnostyka: mapa patchy odrzucona przed QMF");
+                    else
+                        puts("HF diagnostyka: mapa patchy poprawna; blad powstaje w przetwarzaniu QMF/HF");
+                }
+            }
             printf("Udane ramki przed bledem: %zu\n",decoded);
             fclose(f);
             return 1; /* anticipated unsupported/invalid file */
