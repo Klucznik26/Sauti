@@ -311,7 +311,7 @@ int sauti_aac_sbr_temporal_history_push(
         result.current_start_slots=(uint8_t)beginning;
         if(pending && beginning>pending)return 0;
         result.overlapping_slots=(uint8_t)(
-            pending<beginning?pending:beginning);
+            pending>beginning?pending-beginning:0u);
     }
 
     SautiAacSbrTemporalHistory next=*history;
