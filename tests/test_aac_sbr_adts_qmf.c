@@ -155,13 +155,26 @@ static void test_late_failure_rolls_back_every_state(void){
     bytes[1]&=(uint8_t)~1u;FAIL();bytes[1]=saved; /* CRC unsupported */
     const uint8_t stereo=bytes[3];
     bytes[3]|=0x80u;FAIL();bytes[3]=stereo;
-    /* Valid AAC-LC silence + SBR with positive target energy cannot
-     * generate a correct HF source with current SBR-16 limiter.
-     * A negative test ensures the ENTIRE state rolls back rather than
-     * publishing the decoded core PCM plus fake high-band output. */
+    /* SBR-46: on a silent AAC-LC core, signaled noise-floor energy
+     * can legitimately provide HF output. This is NOT synthesized
+     * from invented low-frequency samples. Verify on independent
+     * state so the later rollback regression remains unchanged. */
     size_t silent_size=frame(&raw,bytes,&payload,0u,NULL);
-    size=silent_size;
-    FAIL();
+    {
+        SautiAacHeAdtsQmfState noise_only={0};
+        assert(sauti_aac_he_adts_qmf_init(&noise_only));
+        float noise_pcm[2048];
+        SautiAacSbrLimiterReport noise_report;
+        assert(sauti_aac_he_adts_qmf_decode_ex(
+            bytes,silent_size,&noise_only,noise_pcm,
+            &noise_report,&reason)==1);
+        double sum=0.0;
+        for(unsigned i=0;i<2048u;i++){
+            assert(isfinite(noise_pcm[i]));
+            sum+=(double)noise_pcm[i]*noise_pcm[i];
+        }
+        assert(sum>0.0 && noise_only.frames==1u);
+    }
     size=frame_tone(&raw,bytes,&payload);
 
     state.qmf.synthesis.ready=1u;state.qmf.synthesis.head=10u;
@@ -178,7 +191,7 @@ static void test_late_failure_rolls_back_every_state(void){
     assert(memcmp(result,before_pcm,sizeof(result))==0);
     assert(memcmp(&stats,&before_stats,sizeof(stats))==0);
 #undef FAIL
-    puts("SBR-31: unpatched/no-source HF, malformed ADTS and late QMF failure rollback all AAC/SBR/QMF histories");
+    puts("SBR-46: noise-only startup decoded; malformed ADTS and late QMF failure roll back all histories");
 }
 
 /* Create an ADTS file for SBR-32 CLI I/O smoke testing. This
