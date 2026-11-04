@@ -19,6 +19,7 @@
 #include "sauti_aac_he_adts_qmf.h"
 #include "sauti_aac_sbr_temporal_qmf.h"
 #include "sauti_aac_sbr_temporal_power.h"
+#include "sauti_aac_sbr_temporal_gain.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -398,6 +399,7 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     size_t hf_target_frames=0u;
     size_t qmf_prepared_frames=0u;
     size_t power_frames=0u,power_envelopes=0u,power_handoffs=0u;
+    size_t gain_frames=0u,gain_envelopes=0u,gain_noise_only=0u;
     SautiAacSbrQmfAnalysisState temporal_analysis={0};
     SautiAacSbrTemporalPowerState temporal_power={0};
     for(size_t i=0;i<limit;i++){
@@ -493,6 +495,16 @@ static void diagnose_core_sequence(const char *path,size_t limit){
         }
         power_frames++;
         power_envelopes+=power_report.completed_count;
+        SautiAacSbrTemporalGainReport gain_report;
+        if(!sauti_aac_sbr_temporal_gain_calculate(
+               &temporal_history,&power_report,&gain_report)){
+            printf("  ramka %zu: SBR-53d limiter pelnych obwiedni odrzucony (bez PCM HE-AAC)\n",i);
+            break;
+        }
+        gain_frames++;
+        gain_envelopes+=gain_report.completed_count;
+        for(unsigned e=0u;e<gain_report.completed_count;e++)
+            gain_noise_only+=gain_report.completed[e].noise_only_bands;
         if(power_report.completed_count &&
            power_report.completed[0].source==0u){
             power_handoffs++;
@@ -518,6 +530,8 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     printf("  SBR-53c: ciagly pomiar HF=%zu ramek, pelne obwiednie=%zu, dokonczenia=%zu, pozostale sloty=%u (bez finalnego PCM HE-AAC)\n",
            power_frames,power_envelopes,power_handoffs,
            temporal_power.pending?temporal_power.pending_remaining:0u);
+    printf("  SBR-53d: limiter HF=%zu ramek, gotowe obwiednie=%zu, pasma noise-only=%zu (bez finalnego PCM HE-AAC)\n",
+           gain_frames,gain_envelopes,gain_noise_only);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
