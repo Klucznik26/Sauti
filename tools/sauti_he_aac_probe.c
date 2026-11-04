@@ -175,6 +175,20 @@ static const char *qmf_stage_name(SautiAacSbrQmfStage stage){
 static void diagnose_zero_hf(const float core[1024],
                              const SautiAacSbrPayloadFrame *payload,
                              const SautiAacSbrQmfFrameState *current){
+    double core_sum=0.0,core_max=0.0;
+    unsigned core_nonzero=0u;
+    for(unsigned i=0;i<1024u;i++){
+        const double v=core[i];
+        if(!isfinite(v)){
+            puts("AAC-LC rdzen: niepoprawna probka");
+            return;
+        }
+        if(v!=0.0)core_nonzero++;
+        if(fabs(v)>core_max)core_max=fabs(v);
+        core_sum+=v*v;
+    }
+    printf("AAC-LC rdzen: RMS=%.9g, max=%.9g, niezerowe=%u/1024\n",
+           sqrt(core_sum/1024.0),core_max,core_nonzero);
     SautiAacSbrQmfAnalysisState analysis=current->analysis;
     SautiAacSbrComplex low[32u*32u],high[32u*64u];
     const unsigned slots=32u;
@@ -189,6 +203,7 @@ static void diagnose_zero_hf(const float core[1024],
     unsigned zeros=0u,positive=0u;
     double max_target=0.0;
     for(unsigned e=0;e<payload->energy.env_count;e++){
+        unsigned env_zeros=0u,env_positive=0u;
         const unsigned a=payload->env_edges[e],z=payload->env_edges[e+1u];
         const unsigned resolution=payload->energy.freq_res[e];
         const uint8_t *freq=resolution?tab->high:tab->low;
@@ -208,10 +223,13 @@ static void diagnose_zero_hf(const float core[1024],
                 }
                 if(target>0.0){
                     positive++;
-                    if(sum==0.0)zeros++;
+                    env_positive++;
+                    if(sum==0.0){zeros++;env_zeros++;}
                 }
             }
         }
+        printf("HF energia: obwiednia %u, sloty %u..%u, dodatnie=%u, zerowe=%u\n",
+               e,a,z,env_positive,env_zeros);
     }
     printf("HF energia: pasma z dodatnim celem=%u, zerowe zrodla=%u, max cel=%.9g\n",
            positive,zeros,max_target);
