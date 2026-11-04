@@ -31,7 +31,7 @@ static void build(unsigned tail,unsigned frame,
             /* First output is entirely prior; next output inherits
              * exactly tail slots, then switches to current payload. */
             const double amp=(frame==0u || t<tail)?2.0:5.0;
-            if(frame==1u && t==1u && k==kx)
+            if(frame==1u && t==30u && k==kx)
                 noise->raw_amplitude[i]=0.0;
             else{
                 noise->raw_amplitude[i]=amp;
@@ -94,7 +94,7 @@ static void run(unsigned tail){
             assert(noise.raw_amplitude[0u*BANDS+kx]==2.0);
             assert(noise.raw_amplitude[(tail-1u)*BANDS+kx]==2.0);
             assert(noise.raw_amplitude[tail*BANDS+kx]==5.0);
-            assert(noise.raw_amplitude[1u*BANDS+kx]==0.0);
+            assert(noise.raw_amplitude[30u*BANDS+kx]==0.0);
             /* All error cases must preserve caller output and report. */
             SautiAacSbrTemporalApplyReport wrong_apply=apply;
             wrong_apply.frame_index++;
@@ -109,8 +109,7 @@ static void run(unsigned tail){
             assert_atomic_failure(signal,&noise,&apply,
                                   &bad_report,output,&stats);
             SautiAacSbrTemporalNoiseFrame bad_noise=noise;
-            bad_noise.vector[BANDS*31u+kx].re=0.0f;
-            bad_noise.vector[BANDS*31u+kx].im=0.0f;
+            bad_noise.vector[BANDS*31u+kx].re+=1.0f;
             assert_atomic_failure(signal,&bad_noise,&apply,
                                   &n_report,output,&stats);
             bad_noise=noise;
@@ -136,7 +135,7 @@ static void run(unsigned tail){
                                   &n_report,output,&stats);
         }
     }
-    assert(index==(2u*SLOTS*8u)&511u);
+    assert(index==((2u*SLOTS*8u)&511u));
     printf("SBR-53g: %u-slot handoff raw ROM preview, phase and atomic rollback PASS\n",tail);
 }
 static void zero_active(void){
