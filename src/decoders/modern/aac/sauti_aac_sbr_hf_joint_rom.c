@@ -72,10 +72,23 @@ int sauti_aac_sbr_hf_joint_process_rom(
     SautiAacSbrLimiterReport stats;
     SautiAacSbrHfRomState next=*state;
 
-    if(!sauti_aac_sbr_hf_limit(
+    /* A decoded positive SBR noise floor is an independent source
+     * of HF energy on an all-zero startup core. Never manufacture
+     * signal gain (0/0), and never permit noise-only mode unless
+     * every signaled noise band has a finite, positive noise factor.
+     * The existing strict limiter API remains unchanged. */
+    unsigned noise_available=1u;
+    for(unsigned n=0;n<noise_count;n++)
+        for(unsigned b=0;b<tab->n_noise;b++) {
+            const double q=config->energy->noise_factor[n][b];
+            if(!isfinite(q) || q<0.0)return 0;
+            if(q==0.0)noise_available=0u;
+        }
+    if(!sauti_aac_sbr_hf_limit_noise_aware(
         tab,config->energy,config->env_edges,slots,
         limiter_bands.edges,limiter_bands.count,config->gain_mode,
-        input,input_count,limited,count,&stats))return 0;
+        input,input_count,limited,count,&stats,
+        noise_available))return 0;
 
     /* Precompute amplitude targets for EVERY envelope, including tone
      * masks which may switch on at transient_env. The SBR-21 filter
