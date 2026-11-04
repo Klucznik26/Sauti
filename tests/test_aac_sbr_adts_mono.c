@@ -241,9 +241,52 @@ static void test_rollbacks_and_unsupported(void){
     assert(memcmp(&output,&saved,sizeof(output))==0);
     puts("SBR-30: ADTS CRC/stereo/truncation, corrupted FIL and missing SBR roll back both channel states");
 }
+static void test_fill_data_after_sbr(void){
+    SautiAacSbrHeader h;SautiAacSbrTables t;
+    find_header(&h,&t);
+    Bits payload,raw,fill_data={0};
+    sbr_bits(&payload,&h,&t,1u,0u);
+    put(&fill_data,4u,1u); /* EXT_FILL_DATA */
+    put(&fill_data,4u,0u); /* mandatory zero nibble */
+    put(&fill_data,8u,0xa5u);
+    raw=(Bits){0};
+    sce_silence(&raw);
+    fil(&raw,&payload,NULL);
+    const size_t start=raw.bit;
+    fil(&raw,&fill_data,NULL);
+    put(&raw,3u,7u);pad(&raw);
+    uint8_t bytes[1024];
+    const size_t length=adts(bytes,&raw,1u);
+    SautiAacHeAdtsMonoState state={0};
+    assert(sauti_aac_he_adts_mono_init(&state));
+    SautiAacReason reason;
+    float pcm[1024];
+    SautiAacSbrPayloadFrame params;
+    assert(sauti_aac_he_adts_mono_decode_ex(
+        bytes,length,&state,pcm,&params,&reason)==1);
+    assert(reason==SAUTI_AAC_REASON_OK && state.frames==1u);
+
+    /* Corrupt the A5 pattern. Decoder must reject atomically. */
+    bytes[7u+start/8u]^=(uint8_t)(1u<<(7u-(unsigned)(start%8u)));
+    SautiAacHeAdtsMonoState fresh={0};
+    assert(sauti_aac_he_adts_mono_init(&fresh));
+    const SautiAacHeAdtsMonoState before=fresh;
+    float rejected[1024];
+    for(unsigned i=0;i<1024u;i++)rejected[i]=-7.0f;
+    SautiAacSbrPayloadFrame old;
+    memset(&old,0x39,sizeof(old));
+    SautiAacSbrPayloadFrame unchanged=old;
+    assert(sauti_aac_he_adts_mono_decode_ex(
+        bytes,length,&fresh,rejected,&old,&reason)!=1);
+    assert(memcmp(&fresh,&before,sizeof(fresh))==0);
+    assert(memcmp(&old,&unchanged,sizeof(old))==0);
+    for(unsigned i=0;i<1024u;i++)assert(rejected[i]==-7.0f);
+    puts("SBR-34: EXT_FILL_DATA A5 accepted; corrupted filler rollback PASS");
+}
 int main(void){
     test_full_adts_and_header_reuse();
     test_rollbacks_and_unsupported();
+    test_fill_data_after_sbr();
     puts("PASS HE-AAC SBR-30 genuine ADTS mono SCE+FIL -> native LC PCM and decoded SBR side data");
     return 0;
 }
