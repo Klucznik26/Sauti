@@ -390,6 +390,9 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     }
     printf("Diagnostyka ciaglosci rdzenia AAC-LC + temporal SBR (%zu ramek, bez HE-AAC PCM):\n",limit);
     size_t decoded=0,first_nonzero=SIZE_MAX;
+    SautiAacSbrTemporalHistory temporal_history={0};
+    size_t handoff_count=0u;
+    unsigned max_tail=0u;
     for(size_t i=0;i<limit;i++){
         uint8_t frame[MAX_ADTS_FRAME];
         size_t len=0;
@@ -430,12 +433,29 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             printf("  ramka %zu: odroczone QMF=%u slotow, env=%u, noise=%u (bez PCM HE-AAC)\n",
                    i,plan.deferred_slots,plan.env_deferred_count,
                    plan.noise_deferred_count);
+        SautiAacSbrTemporalHandoff handoff;
+        if(!sauti_aac_sbr_temporal_history_push(
+            &payload,&temporal_history,&handoff)){
+            printf("  ramka %zu: blad przekazania historii SBR (bez PCM HE-AAC)\n",i);
+            break;
+        }
+        if(handoff.previous_tail_slots){
+            handoff_count++;
+            if(handoff.previous_tail_slots>max_tail)
+                max_tail=handoff.previous_tail_slots;
+            printf("  ramka %zu: historia SBR, poprzedni ogon=%u slotow, nakladanie=%u; poprzednia env=%u, noise=%u\n",
+                   i,handoff.previous_tail_slots,handoff.overlapping_slots,
+                   temporal_history.previous.grid.env_count,
+                   temporal_history.previous.grid.noise_count);
+        }
         if(nonzero && first_nonzero==SIZE_MAX)first_nonzero=i;
         printf("  ramka %zu: rdzen RMS=%.9g, max=%.9g, niezerowe=%u/1024, SBR env_end=%u\n",
                i,sqrt(sum/1024.0),max_value,nonzero,
                payload.grid.env_border[payload.grid.env_count]);
         decoded++;
     }
+    printf("  Historia SBR: zapisano=%llu, przekazania=%zu, najdluzszy ogon=%u slotow (bez PCM HE-AAC)\n",
+           (unsigned long long)temporal_history.frames,handoff_count,max_tail);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
