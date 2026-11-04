@@ -308,7 +308,8 @@ static void test_temporal_core_keeps_strict_parity(void){
     assert(memcmp(&strict,&temporal,sizeof(strict))==0);
 
     sbr_bits(&p,&h,&tab,0u,1u);
-    len=frame(&raw,bytes,&p,0u,NULL);
+    unsigned ext_start=0u;
+    len=frame(&raw,bytes,&p,0u,&ext_start);
     assert(sauti_aac_he_adts_mono_decode_ex(
         bytes,len,&strict,a,&p1,&reason1)==1);
     assert(sauti_aac_he_adts_mono_temporal_decode_ex(
@@ -318,7 +319,7 @@ static void test_temporal_core_keeps_strict_parity(void){
 
     /* A corrupt extension on a warmed stream must not advance state. */
     const SautiAacHeAdtsMonoState prev=temporal;
-    const size_t extension_bit=raw.bit-8u;
+    const size_t extension_bit=ext_start;
     bytes[7u+extension_bit/8u]^=(uint8_t)(1u<<(7u-extension_bit%8u));
     const int result=sauti_aac_he_adts_mono_temporal_decode_ex(
         bytes,len,&temporal,b,&p2,&reason2);
