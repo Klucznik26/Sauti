@@ -20,6 +20,7 @@
 #include "sauti_aac_sbr_temporal_qmf.h"
 #include "sauti_aac_sbr_temporal_power.h"
 #include "sauti_aac_sbr_temporal_gain.h"
+#include "sauti_aac_sbr_temporal_apply.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -400,6 +401,8 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     size_t qmf_prepared_frames=0u;
     size_t power_frames=0u,power_envelopes=0u,power_handoffs=0u;
     size_t gain_frames=0u,gain_envelopes=0u,gain_noise_only=0u;
+    size_t apply_frames=0u,apply_emitted=0u;
+    SautiAacSbrTemporalApplyState temporal_apply={0};
     SautiAacSbrQmfAnalysisState temporal_analysis={0};
     SautiAacSbrTemporalPowerState temporal_power={0};
     for(size_t i=0;i<limit;i++){
@@ -505,6 +508,18 @@ static void diagnose_core_sequence(const char *path,size_t limit){
         gain_envelopes+=gain_report.completed_count;
         for(unsigned e=0u;e<gain_report.completed_count;e++)
             gain_noise_only+=gain_report.completed[e].noise_only_bands;
+        /* SBR-53e applies SBR-53d gains only after COMPLETE
+         * cross-frame envelope powers are known. QMF-only output. */
+        SautiAacSbrComplex adjusted_hf[32u*64u];
+        SautiAacSbrTemporalApplyReport apply_report;
+        if(!sauti_aac_sbr_temporal_gain_apply(
+               &temporal_history,baseline_hf,32u*64u,&gain_report,
+               &temporal_apply,adjusted_hf,32u*64u,&apply_report)){
+            printf("  ramka %zu: SBR-53e buforowany gain HF odrzucony (bez PCM HE-AAC)\n",i);
+            break;
+        }
+        apply_frames++;
+        if(apply_report.emitted)apply_emitted++;
         if(power_report.completed_count &&
            power_report.completed[0].source==0u){
             power_handoffs++;
@@ -523,6 +538,19 @@ static void diagnose_core_sequence(const char *path,size_t limit){
                payload.grid.env_border[payload.grid.env_count]);
         decoded++;
     }
+    if(decoded==limit && temporal_apply.ready){
+        SautiAacSbrComplex final_hf[32u*64u];
+        SautiAacSbrTemporalApplyReport final_report;
+        if(sauti_aac_sbr_temporal_gain_apply_flush(
+               &temporal_apply,final_hf,32u*64u,&final_report)){
+            apply_emitted++;
+        }else if(temporal_apply.pending_slots){
+            printf("  SBR-53e: koncowa obwiednia oczekuje na nastepna ramke, nierozwiazane sloty=%u (bez PCM)\n",
+                   temporal_apply.pending_slots);
+        }else{
+            puts("  SBR-53e: odrzucono finalizacje HF QMF (bez PCM)");
+        }
+    }
     printf("  Historia SBR: zapisano=%llu, przekazania=%zu, najdluzszy ogon=%u slotow (bez PCM HE-AAC)\n",
            (unsigned long long)temporal_history.frames,handoff_count,max_tail);
     printf("  SBR-53a: cele HF energia/szum/harmoniczne sprawdzone dla %zu ramek (bez syntezy HE-AAC PCM)\n",hf_target_frames);
@@ -532,6 +560,9 @@ static void diagnose_core_sequence(const char *path,size_t limit){
            temporal_power.pending?temporal_power.pending_remaining:0u);
     printf("  SBR-53d: limiter HF=%zu ramek, gotowe obwiednie=%zu, pasma noise-only=%zu (bez finalnego PCM HE-AAC)\n",
            gain_frames,gain_envelopes,gain_noise_only);
+    printf("  SBR-53e: QMF gain zastosowany z opoznieniem: wejscia=%zu, gotowe ramki HF=%zu, oczekujace sloty=%u (bez koncowego PCM HE-AAC)\n",
+           apply_frames,apply_emitted,
+           temporal_apply.pending_slots);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
