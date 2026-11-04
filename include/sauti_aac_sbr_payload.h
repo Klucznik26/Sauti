@@ -164,6 +164,27 @@ int sauti_aac_sbr_temporal_history_push(
     SautiAacSbrTemporalHistory *history,
     SautiAacSbrTemporalHandoff *handoff);
 
+/* SBR-52: for each of 32 current-frame QMF time slots, resolve
+ * the original SBR payload and envelope/noise indices.
+ * source=0 refers to history.previous; source=1 to history.current.
+ * The two source labels are deliberately not combined with DSP:
+ * a future QMF driver must read each original energy/noise table and
+ * process corresponding source geometry without mutating this plan.
+ * Only exact, non-overlapping, gap-free handoffs are supported.
+ * On failure output is byte-for-byte unchanged. */
+typedef struct {
+    uint8_t source;
+    uint8_t envelope;
+    uint8_t noise;
+} SautiAacSbrSlotOwner;
+typedef struct {
+    uint8_t previous_slots;
+    SautiAacSbrSlotOwner slot[32];
+} SautiAacSbrResolvedFrame;
+int sauti_aac_sbr_temporal_resolve(
+    const SautiAacSbrTemporalHistory *history,
+    SautiAacSbrResolvedFrame *out);
+
 /* Populate SBR-28 HF configuration with pointers into a valid frame.
  * Caller must keep the frame alive (no copying after this call).
  * Zero-copy view: no heap allocation. */
