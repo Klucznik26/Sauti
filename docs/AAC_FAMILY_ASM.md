@@ -3066,3 +3066,50 @@ make test-aac-sbr-temporal-gain test-aac-sbr-temporal-power test-aac-sbr-tempora
 Po pomyślnych testach: smoothing oraz zgodny w czasie
 generator ROM noise i sine dla już skorygowanych slotów;
 w żadnym razie nie integrować przedwcześnie z wyjściowym PCM.
+
+
+## SBR-53e potwierdzone na Fedorze; SBR-53f do testów (2026-11-05)
+
+**Wynik lokalny użytkownika** z `~/Sauti-fixtures/he_test.aac`:
+`test-aac-sbr-temporal-apply` PASS (lookahead 2/6 slotów,
+flush, overflow i rollback). Regresje 53a–d, 31, 46 PASS.
+Próba rzeczywista: 50 wejściowych ramek, 50 ukończonych
+buforowanych ramek **HF QMF po gain**, 0 zaległych slotów;
+57 obwiedni i 27 pasm noise-only. **Nadal tylko 2 ramki
+eksperymentalnego HE-AAC PCM**, ramka 2 odrzucona przez
+pierwotny ograniczony dekoder. Nie utożsamiać HF QMF z PCM.
+
+Nowy **SBR-53f** to osobny diagnostyczny moduł synchronizacji
+normatywnej 512-elementowej tablicy zespolonych wektorów
+`sauti_aac_sbr_noise_rom_next` z wydaniem opóźnionej o jedną
+ramkę HF QMF z SBR-53e. Przechowuje pełny `SBR-53a` plan
+źródłowych parametrów na każdy z 32 slotów, aby przy
+wydaniu ramki N–1 używać właśnie jej geometrii,
+energii i czynnika szumu, a nie parametrów ramki N.
+Wynikiem są WEKTORY ROM + **surowa, niewygładzona**
+amplituda `sqrt(E)*sqrt(Q/(1+Q))`. Indeks ROM
+przesuwa się również gdy amplituda jest zerowa.
+Nie uwzględnia jeszcze opóźnionych bramek harmonicznych,
+wygładzania, szumu końcowego, modulacji ani syntezy PCM.
+To nie jest sygnał do bezpośredniego odtworzenia.
+
+Testy 53f dodane, ale **nie były jeszcze uruchomione na Fedorze**:
+ogon 2/6 slotów, poprawne współczynniki z oryginalnych
+ramek, ciągłość indeksu ROM w całym 512-cyklu,
+brak przesuwania indeksu podczas samego buforowania,
+odrzucenie błędnego frame_index i NaN z zachowaniem
+stanu i output, przesuwanie indeksu przy zerowej
+amplitudzie oraz flush bez duplikowania ramki.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-noise PKG_CONFIG=/bin/false
+make test-aac-sbr-temporal-apply test-aac-sbr-temporal-gain test-aac-sbr-temporal-power test-aac-sbr-temporal-qmf test-aac-sbr-payload test-aac-sbr-adts-qmf probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 | grep -E 'SBR-53|Rdzen:|odrzucona'
+```
+
+Po PASS 53f: kontrolowana integracja pełnych poziomów
+szumu z wygładzaniem, tłumieniem w pasmach harmonicznych,
+historią 4-slotowej fazy i normatywną syntezą w testowym
+torze, nie w obecnym produkcyjnym torze PCM.
