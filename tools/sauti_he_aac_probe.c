@@ -169,6 +169,57 @@ static const char *qmf_stage_name(SautiAacSbrQmfStage stage){
         default:return "nieznany";
     }
 }
+/* Recompute only HF source energies on copied QMF history. This
+ * verifies a suspected zero-source limiter rejection without changing
+ * the production decoder's fail-closed behavior. */
+static void diagnose_zero_hf(const float core[1024],
+                             const SautiAacSbrPayloadFrame *payload,
+                             const SautiAacSbrQmfFrameState *current){
+    SautiAacSbrQmfAnalysisState analysis=current->analysis;
+    SautiAacSbrComplex low[32u*32u],high[32u*64u];
+    const unsigned slots=32u;
+    if(!sauti_aac_sbr_qmf_analyze_32(core,1024u,slots,32u,
+                                     low,32u*32u,&analysis) ||
+       !sauti_aac_sbr_hf_transpose(&payload->patches,&payload->tables,
+                                  low,32u*32u,slots,high,32u*64u)){
+        puts("HF energia: nie udalo sie odtworzyc analizy/transpozycji");
+        return;
+    }
+    const SautiAacSbrTables *tab=&payload->tables;
+    unsigned zeros=0u,positive=0u;
+    double max_target=0.0;
+    for(unsigned e=0;e<payload->energy.env_count;e++){
+        const unsigned a=payload->env_edges[e],z=payload->env_edges[e+1u];
+        const unsigned resolution=payload->energy.freq_res[e];
+        const uint8_t *freq=resolution?tab->high:tab->low;
+        const unsigned bands=resolution?tab->n_high:tab->n_low;
+        if(a>=z || z>slots) {
+            puts("HF energia: niepoprawne granice obwiedni");
+            return;
+        }
+        for(unsigned b=0;b<bands;b++) {
+            const double target=payload->energy.env_energy[e][b];
+            if(target>max_target)max_target=target;
+            for(unsigned k=freq[b];k<freq[b+1u];k++){
+                double sum=0.0;
+                for(unsigned t=a;t<z;t++){
+                    const SautiAacSbrComplex c=high[t*64u+k];
+                    sum+=(double)c.re*c.re+(double)c.im*c.im;
+                }
+                if(target>0.0){
+                    positive++;
+                    if(sum==0.0)zeros++;
+                }
+            }
+        }
+    }
+    printf("HF energia: pasma z dodatnim celem=%u, zerowe zrodla=%u, max cel=%.9g\n",
+           positive,zeros,max_target);
+    if(zeros)
+        puts("HF energia: limiter odrzucilby dodatnia energie bez zrodla (możliwy powod)");
+    else
+        puts("HF energia: brak zerowych zrodel; problem moze byc w dalszym etapie regulacji");
+}
 static int decode(const char *path,size_t max_decode){
     FILE *f=fopen(path,"rb");
     if(!f){perror(path);return 2;}
@@ -221,6 +272,7 @@ static int decode(const char *path,size_t max_decode){
                             unmapped++;
                     printf("HF diagnostyka: kx=%u, k2=%u, patches=%u, niepokryte pasma=%u\n",
                            kx,k2,(unsigned)payload.patches.count,unmapped);
+                    diagnose_zero_hf(core,&payload,&state.qmf);
                     if(!sauti_aac_sbr_hf_map_valid(&payload.patches,&payload.tables))
                         puts("HF diagnostyka: mapa patchy odrzucona przed QMF");
                     else
