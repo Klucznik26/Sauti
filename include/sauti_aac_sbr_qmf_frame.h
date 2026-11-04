@@ -56,6 +56,29 @@ typedef struct {
  * may overlap; neither may overlap the state or report objects.
  * On failure output/report/state remain bitwise unchanged.
  * No heap allocation, codec dependencies, or process-global state. */
+/* Diagnostic-only failure stage. The original transactional API remains
+ * unchanged; _ex reports where a rejected frame stopped, not why.
+ * A non-NULL stage pointer is written on all calls. */
+typedef enum {
+    SAUTI_SBR_QMF_STAGE_INPUT = 0,
+    SAUTI_SBR_QMF_STAGE_MAP,
+    SAUTI_SBR_QMF_STAGE_HISTORY,
+    SAUTI_SBR_QMF_STAGE_ANALYSIS,
+    SAUTI_SBR_QMF_STAGE_TRANSPOSE,
+    SAUTI_SBR_QMF_STAGE_PREDICT,
+    SAUTI_SBR_QMF_STAGE_HF_ADJUST,
+    SAUTI_SBR_QMF_STAGE_SYNTHESIS,
+    SAUTI_SBR_QMF_STAGE_OK
+} SautiAacSbrQmfStage;
+
+int sauti_aac_sbr_qmf_frame_process_ex(
+    const SautiAacSbrQmfFrameConfig *config,
+    const float *core_pcm,size_t core_count,
+    float *output,size_t output_count,
+    SautiAacSbrQmfFrameState *state,
+    SautiAacSbrLimiterReport *report,
+    SautiAacSbrQmfStage *stage);
+
 int sauti_aac_sbr_qmf_frame_process(
     const SautiAacSbrQmfFrameConfig *config,
     const float *core_pcm,
