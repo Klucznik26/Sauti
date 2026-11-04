@@ -3024,3 +3024,45 @@ Następny krok po PASS: zaprojektować opóźnione stosowanie współczynników
 gain do właściwych slotów QMF z ciągłą historią smoothing/noise/sine
 i pełnym rollback. Nie dopuszczać niezależnego zysku dla fragmentu
 obwiedni przed otrzymaniem jej końca z kolejnej ramki.
+
+
+## SBR-53d Fedora PASS, SBR-53e buforowany HF do weryfikacji (2026-11-05)
+
+Użytkownik potwierdził kompilację i PASS `test-aac-sbr-temporal-gain`,
+`test-aac-sbr-temporal-power`, `test-aac-sbr-temporal-qmf`,
+`test-aac-sbr-payload`, `test-aac-sbr-adts-qmf`. Na realnym
+`~/Sauti-fixtures/he_test.aac` SBR-53a/b/c/d: 50/50 ramek,
+57/57 ukończonych obwiedni, 27 pasm noise-only, dwa
+przekazania (ramka 3 i 49). **To nie jest 50 ramek PCM!**
+Stary tor HE-AAC wciąż zatrzymuje się na ramce 2.
+
+SBR-53e to izolowana **aplikacja wzmocnień do PRE-adjustment HF QMF**:
+`sauti_aac_sbr_temporal_gain_apply` przechowuje 32 sloty
+nieskorygowanego HF i ich wzmocnienia; jeśli ostatnia obwiednia
+przekracza koniec ramki, czeka z emisją jej fragmentu aż
+`SBR-53c/d` policzą pełne parametry także z następnej ramki.
+Następnie wydaje kompletną *poprzednią* ramkę współczynników HF
+z opóźnieniem jednej ramki. `_flush` wydaje ostatnią ramkę
+wyłącznie gdy nie ma niedokończonej obwiedni; nie obcina
+ogonów ani nie wstawia ciszy. Przed publikacją zapewnia
+finite float i transakcyjny rollback. Nowa diagnostyka
+liczy wejściowe i wydane ramki HF. Dopóki nie ma testów
+z Fedory, nie deklarować SBR-53e PASS.
+
+SBR-53e **nie wykonuje** normatywnego dopasowania szumu,
+sinusoid, smoothing ani końcowej 64-QMF syntezy PCM.
+Regresje: 2 i 6 slotów w odziedziczonej obwiedni,
+odrzucenie NaN, nadmiarowego gain powodującego overflow,
+wielokrotnego flush i flush przy otwartym ogonie.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-apply PKG_CONFIG=/bin/false
+make test-aac-sbr-temporal-gain test-aac-sbr-temporal-power test-aac-sbr-temporal-qmf test-aac-sbr-payload test-aac-sbr-adts-qmf probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 | grep -E 'SBR-53|Rdzen:|odrzucona'
+```
+
+Po pomyślnych testach: smoothing oraz zgodny w czasie
+generator ROM noise i sine dla już skorygowanych slotów;
+w żadnym razie nie integrować przedwcześnie z wyjściowym PCM.
