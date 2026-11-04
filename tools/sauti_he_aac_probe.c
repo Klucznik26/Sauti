@@ -393,6 +393,7 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     SautiAacSbrTemporalHistory temporal_history={0};
     size_t handoff_count=0u;
     unsigned max_tail=0u;
+    size_t hf_target_frames=0u;
     for(size_t i=0;i<limit;i++){
         uint8_t frame[MAX_ADTS_FRAME];
         size_t len=0;
@@ -458,6 +459,14 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             printf("  ramka %zu: niezgodna mapa wlascicieli QMF (bez PCM HE-AAC)\n",i);
             break;
         }
+        /* SBR-53a validates real decoded HF target values on all
+         * slots, preserving prior-frame origin without producing PCM. */
+        SautiAacSbrTemporalHfTargets targets;
+        if(!sauti_aac_sbr_temporal_hf_targets(&temporal_history,&targets)){
+            printf("  ramka %zu: niepoprawne cele energii/szumu HF SBR-53a (bez PCM HE-AAC)\n",i);
+            break;
+        }
+        hf_target_frames++;
         if(owners.previous_slots){
             printf("  ramka %zu: SBR QMF 0..%u z poprzedniej ramki (env=%u,noise=%u); %u..31 z biezacej\n",
                    i,(unsigned)owners.previous_slots-1u,
@@ -472,6 +481,7 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     }
     printf("  Historia SBR: zapisano=%llu, przekazania=%zu, najdluzszy ogon=%u slotow (bez PCM HE-AAC)\n",
            (unsigned long long)temporal_history.frames,handoff_count,max_tail);
+    printf("  SBR-53a: cele HF energia/szum/harmoniczne sprawdzone dla %zu ramek (bez syntezy HE-AAC PCM)\n",hf_target_frames);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
