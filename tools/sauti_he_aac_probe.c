@@ -241,6 +241,59 @@ static void diagnose_zero_hf(const float core[1024],
 /* Independent continuous LC+SBR pass. It never promotes a frame to
  * HE-AAC/QMF success, and never fabricates QMF state after rejection.
  * The accepted core history is advanced exactly as coded in ADTS. */
+static const char *sbr_stage_name(SautiAacSbrPayloadStage stage){
+    switch(stage){
+        case SAUTI_SBR_PAYLOAD_INPUT:return "argumenty/zakres payloadu";
+        case SAUTI_SBR_PAYLOAD_TYPE:return "typ rozszerzenia";
+        case SAUTI_SBR_PAYLOAD_HEADER:return "naglowek SBR";
+        case SAUTI_SBR_PAYLOAD_TABLES:return "tablice czestotliwosci/patchy";
+        case SAUTI_SBR_PAYLOAD_GRID:return "siatka czasowa";
+        case SAUTI_SBR_PAYLOAD_BORDERS:return "granice czasowe obwiedni";
+        case SAUTI_SBR_PAYLOAD_CONTROL:return "sterowanie dtdf/invf";
+        case SAUTI_SBR_PAYLOAD_QUANT:return "entropia obwiedni/szumu";
+        case SAUTI_SBR_PAYLOAD_ENERGY:return "dekantyzacja energii";
+        case SAUTI_SBR_PAYLOAD_HARMONICS:return "flagi harmonicznych";
+        case SAUTI_SBR_PAYLOAD_EXTENDED:return "dane rozszerzone/PS";
+        case SAUTI_SBR_PAYLOAD_PADDING:return "wyrownanie/padding";
+        case SAUTI_SBR_PAYLOAD_OK:return "OK";
+        default:return "nieznany";
+    }
+}
+/* Diagnose SBR on a copy of the PRE-FAILURE continuous history.
+ * Never advance decoder state or classify this as successful PCM. */
+static void diagnose_sbr_rejection(const uint8_t *frame,size_t len,
+                                   const SautiAacHeAdtsMonoState *prior){
+    SautiAacAdts adts;
+    if(!sauti_aac_adts_parse_asm(frame,len,&adts) ||
+       adts.header_bytes>adts.frame_bytes || adts.frame_bytes>len)return;
+    const uint8_t *raw=frame+adts.header_bytes;
+    const size_t n=adts.frame_bytes-adts.header_bytes;
+    const unsigned rate=(frame[2]>>2u)&15u;
+    size_t pos=0u;
+    SautiAacLcMonoData sce;
+    if(sauti_aac_lc_mono_parse(raw,n,&pos,rate,&sce)!=1){
+        puts("SBR etap: nieudany parser rdzenia AAC-LC");
+        return;
+    }
+    for(unsigned index=0u;index<8u;index++){
+        uint32_t id=0u;
+        if(!sauti_aac_bits_read_asm(raw,n,&pos,3u,&id) || id==7u)
+            return;
+        if(id!=6u)return;
+        SautiAacFillInfo fill;
+        if(!sauti_aac_fill_parse(raw,n,&pos,&fill))return;
+        if(fill.extension_type!=13u)continue;
+        SautiAacSbrPayloadState trial=prior->sbr;
+        SautiAacSbrPayloadFrame parsed;
+        SautiAacSbrPayloadStage stage=SAUTI_SBR_PAYLOAD_INPUT;
+        const int ok=sauti_aac_sbr_payload_sce_parse_ex(
+            raw,n,fill.extension_start_bit,fill.extension_bits,
+            adts.core_sample_rate*2u,&trial,&parsed,&stage);
+        printf("SBR diagnostyka: FIL %u, etap=%s, wynik=%d\n",
+               index,sbr_stage_name(stage),ok);
+        return;
+    }
+}
 static void diagnose_core_sequence(const char *path,size_t limit){
     FILE *f=fopen(path,"rb");
     if(!f){perror(path);return;}
@@ -270,6 +323,7 @@ static void diagnose_core_sequence(const char *path,size_t limit){
              * A FIL type mismatch and an SBR payload grammar rejection
              * currently share unsupported_fil in the native decoder. */
             inspect_fil(frame,len);
+            diagnose_sbr_rejection(frame,len,&core_state);
             break;
         }
         double sum=0.0,max_value=0.0;
