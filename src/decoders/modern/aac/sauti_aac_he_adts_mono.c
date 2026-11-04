@@ -17,6 +17,24 @@ static int read(const uint8_t *data,size_t length,size_t *pos,
     return sauti_aac_bits_read_asm(data,length,pos,width,value);
 }
 
+/* EXT_FILL_DATA (type 1): four zero bits followed by 0xA5
+ * bytes. Validate, never silently skip arbitrary opaque fill data.
+ * FIL payload positions may be unaligned to bytes. */
+static int valid_fill_data(const uint8_t *raw,size_t raw_length,
+                           const SautiAacFillInfo *fill){
+    if(!fill || fill->extension_type!=1u ||
+       fill->extension_bits<8u)return 0;
+    size_t pos=fill->extension_start_bit+4u;
+    const size_t end=fill->extension_start_bit+fill->extension_bits;
+    uint32_t value=0u;
+    if(!read(raw,raw_length,&pos,4u,&value) || value!=0u)return 0;
+    while(pos<end){
+        if(end-pos<8u || !read(raw,raw_length,&pos,8u,&value) ||
+           value!=0xa5u)return 0;
+    }
+    return pos==end;
+}
+
 int sauti_aac_he_adts_mono_init(SautiAacHeAdtsMonoState *state){
     if(!state)return 0;
     SautiAacHeAdtsMonoState next={0};
@@ -87,6 +105,13 @@ int sauti_aac_he_adts_mono_decode_ex(
         }
         if(!fill.payload_bytes)continue;
         if(fill.extension_type==0u)continue; /* EXT_FILL */
+        if(fill.extension_type==1u){ /* EXT_FILL_DATA */
+            if(!valid_fill_data(raw,raw_length,&fill)){
+                *reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;
+                return -1;
+            }
+            continue;
+        }
         if(fill.extension_type!=13u || got_sbr){
             *reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;
             return -1;
