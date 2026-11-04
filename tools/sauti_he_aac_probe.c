@@ -238,6 +238,54 @@ static void diagnose_zero_hf(const float core[1024],
     else
         puts("HF energia: brak zerowych zrodel; problem moze byc w dalszym etapie regulacji");
 }
+/* Independent continuous LC+SBR pass. It never promotes a frame to
+ * HE-AAC/QMF success, and never fabricates QMF state after rejection.
+ * The accepted core history is advanced exactly as coded in ADTS. */
+static void diagnose_core_sequence(const char *path,size_t limit){
+    FILE *f=fopen(path,"rb");
+    if(!f){perror(path);return;}
+    SautiAacHeAdtsMonoState core_state={0};
+    if(!sauti_aac_he_adts_mono_init(&core_state)){
+        fclose(f);return;
+    }
+    printf("Diagnostyka ciaglosci rdzenia AAC-LC+SBR (%zu ramek):\n",limit);
+    size_t decoded=0,first_nonzero=SIZE_MAX;
+    for(size_t i=0;i<limit;i++){
+        uint8_t frame[MAX_ADTS_FRAME];
+        size_t len=0;
+        const int read_result=frame_read(f,frame,&len);
+        if(read_result<=0){
+            if(read_result<0)puts("  ADTS: niepoprawny odczyt ramki");
+            break;
+        }
+        float core[1024];
+        SautiAacSbrPayloadFrame payload;
+        SautiAacReason reason=SAUTI_AAC_REASON_OK;
+        const int result=sauti_aac_he_adts_mono_decode_ex(
+            frame,len,&core_state,core,&payload,&reason);
+        if(result!=1){
+            printf("  ramka %zu: odrzucona przez rdzen %s (%d)\n",
+                   i,sauti_aac_reason_name(reason),result);
+            break;
+        }
+        double sum=0.0,max_value=0.0;
+        unsigned nonzero=0u;
+        for(unsigned k=0;k<1024u;k++){
+            const double v=core[k];
+            sum+=v*v;
+            if(fabs(v)>max_value)max_value=fabs(v);
+            if(v!=0.0)nonzero++;
+        }
+        if(nonzero && first_nonzero==SIZE_MAX)first_nonzero=i;
+        printf("  ramka %zu: rdzen RMS=%.9g, max=%.9g, niezerowe=%u/1024\n",
+               i,sqrt(sum/1024.0),max_value,nonzero);
+        decoded++;
+    }
+    printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
+    if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
+    else printf("%zu\n",first_nonzero);
+    fclose(f);
+}
 static int decode(const char *path,size_t max_decode){
     FILE *f=fopen(path,"rb");
     if(!f){perror(path);return 2;}
@@ -313,6 +361,7 @@ static int decode(const char *path,size_t max_decode){
                 }
             }
             printf("Udane ramki przed bledem: %zu\n",decoded);
+            diagnose_core_sequence(path,max_decode);
             fclose(f);
             return 1; /* anticipated unsupported/invalid file */
         }
