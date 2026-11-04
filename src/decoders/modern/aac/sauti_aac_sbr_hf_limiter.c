@@ -35,7 +35,7 @@ static int tables_valid(const SautiAacSbrTables *t) {
     return 1;
 }
 
-int sauti_aac_sbr_hf_limit(const SautiAacSbrTables *tables,
+int sauti_aac_sbr_hf_limit_noise_aware(const SautiAacSbrTables *tables,
                             const SautiAacSbrEnergyFrame *energy,
                             const uint8_t *slot_borders,
                             unsigned slots,
@@ -46,12 +46,14 @@ int sauti_aac_sbr_hf_limit(const SautiAacSbrTables *tables,
                             size_t input_count,
                             SautiAacSbrComplex *output,
                             size_t output_count,
-                            SautiAacSbrLimiterReport *report) {
+                            SautiAacSbrLimiterReport *report,
+                            unsigned allow_noise_source) {
     if(!tables_valid(tables) || !energy || !slot_borders ||
        !limiter_edges || !input || !output || !report ||
        slots<1u || slots>SAUTI_AAC_SBR_HF_MAX_SLOTS ||
        limiter_count<1u || limiter_count>SAUTI_AAC_SBR_MAX_LIMITER_BANDS ||
        limiter_count>tables->m || gain_mode>3u ||
+       allow_noise_source>1u ||
        input_count<(size_t)slots*SAUTI_AAC_SBR_HF_HIGH_BANDS ||
        output_count<(size_t)slots*SAUTI_AAC_SBR_HF_HIGH_BANDS ||
        energy->env_count<1u || energy->env_count>SAUTI_AAC_SBR_MAX_ENV ||
@@ -119,7 +121,8 @@ int sauti_aac_sbr_hf_limit(const SautiAacSbrTables *tables,
                 if(!isfinite(sum))return 0;
             }
             current[k]=sum/(z-a);
-            if(target[k]>0.0 && current[k]==0.0)return 0;
+            if(target[k]>0.0 && current[k]==0.0 &&
+               !allow_noise_source)return 0;
         }
 
         for(unsigned b=0;b<limiter_count;b++){
@@ -142,14 +145,18 @@ int sauti_aac_sbr_hf_limit(const SautiAacSbrTables *tables,
 
             double after=0.0;
             for(unsigned k=left;k<right;k++){
-                const double ideal=target[k]==0.0?
+                /* A zero source cannot be amplified. Leave signal gain
+                 * at zero and let the separately signaled SBR noise ROM
+                 * supply its own, finite noise energy. */
+                const double ideal=(target[k]==0.0 || current[k]==0.0)?
                     0.0:sqrt(target[k]/current[k]);
                 gains[k]=fmin(ideal,max_gain);
                 after+=current[k]*gains[k]*gains[k];
             }
             if(!isfinite(after))return 0;
-            if(sum_target>0.0 && after==0.0)return 0;
-            const double boost=sum_target==0.0?1.0:
+            if(sum_target>0.0 && after==0.0 &&
+               !allow_noise_source)return 0;
+            const double boost=(sum_target==0.0 || after==0.0)?1.0:
                                 fmin(max_boost,sqrt(sum_target/after));
             if(!isfinite(boost))return 0;
             stats.limiter_boost[e][b]=boost;
@@ -177,4 +184,19 @@ int sauti_aac_sbr_hf_limit(const SautiAacSbrTables *tables,
     memcpy(output,next,used*sizeof(next[0]));
     *report=stats;
     return 1;
+}
+
+/* Original strict entry point remains byte-for-byte equivalent on
+ * positive-source frames and rejects zero-source positive target. */
+int sauti_aac_sbr_hf_limit(const SautiAacSbrTables *tables,
+                            const SautiAacSbrEnergyFrame *energy,
+                            const uint8_t *slot_borders,unsigned slots,
+                            const uint8_t *limiter_edges,unsigned limiter_count,
+                            unsigned gain_mode,
+                            const SautiAacSbrComplex *input,size_t input_count,
+                            SautiAacSbrComplex *output,size_t output_count,
+                            SautiAacSbrLimiterReport *report) {
+    return sauti_aac_sbr_hf_limit_noise_aware(
+        tables,energy,slot_borders,slots,limiter_edges,limiter_count,
+        gain_mode,input,input_count,output,output_count,report,0u);
 }
