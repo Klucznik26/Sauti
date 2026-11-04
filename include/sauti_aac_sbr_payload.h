@@ -106,6 +106,33 @@ int sauti_aac_sbr_payload_sce_parse(
     size_t bit_start,size_t payload_bits,unsigned output_rate,
     SautiAacSbrPayloadState *state,SautiAacSbrPayloadFrame *out);
 
+/* SBR-47: validated time partition of decoded SBR envelope/noise edges.
+ * This is a pure planning step, not a PCM decoder. Time indices in QMF
+ * slots (2 per SBR time slot); the current 1024 core samples cover 32.
+ * A FIXVAR edge at 17 => 34 QMF slots => 2 deferred slots.
+ * Cross-frame synthesis MUST NOT publish PCM until its future window
+ * and pending envelope/noise parameters have been consumed correctly.
+ * Every segment carries its original decoded envelope index. */
+typedef struct {
+    uint8_t start, end, envelope;
+} SautiAacSbrTemporalSegment;
+typedef struct {
+    uint8_t env_current_count,env_deferred_count;
+    uint8_t noise_current_count,noise_deferred_count;
+    uint8_t deferred_slots;
+    SautiAacSbrTemporalSegment env_current[SAUTI_AAC_SBR_MAX_ENV];
+    SautiAacSbrTemporalSegment env_deferred[SAUTI_AAC_SBR_MAX_ENV];
+    SautiAacSbrTemporalSegment noise_current[2];
+    SautiAacSbrTemporalSegment noise_deferred[2];
+} SautiAacSbrTemporalPlan;
+
+/* Segment bounds are frame-relative, [start,end) and strictly
+ * increasing within their source grid. Deferred segments use
+ * next-frame-relative 0..6 offsets. On failure *out is unchanged. */
+int sauti_aac_sbr_temporal_plan(
+    const SautiAacSbrPayloadFrame *frame,
+    SautiAacSbrTemporalPlan *out);
+
 /* Populate SBR-28 HF configuration with pointers into a valid frame.
  * Caller must keep the frame alive (no copying after this call).
  * Zero-copy view: no heap allocation. */
