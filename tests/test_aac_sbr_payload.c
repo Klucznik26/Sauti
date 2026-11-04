@@ -312,9 +312,41 @@ static void test_temporal_fixvar_17_side_data(void){
     assert(!sauti_aac_sbr_temporal_plan(&out,&plan));
     assert(memcmp(&snapshot,&plan,sizeof(plan))==0);
     out.env_edges[4]=saved_end;
+
+    /* SBR-49: retain the complete deferred payload across the next
+     * frame, without silently truncating or synthesizing the tail. */
+    SautiAacSbrTemporalHistory history={0};
+    SautiAacSbrTemporalHandoff handoff;
+    assert(sauti_aac_sbr_temporal_history_push(&out,&history,&handoff));
+    assert(history.frames==1u && !history.has_previous &&
+           history.current_plan.deferred_slots==2u);
+    assert(handoff.previous_tail_slots==0u);
+    SautiAacSbrPayloadFrame following=saved;
+    assert(sauti_aac_sbr_temporal_history_push(
+        &following,&history,&handoff));
+    assert(history.frames==2u && history.has_previous);
+    assert(history.previous.grid.env_border[4]==17u);
+    assert(history.previous.energy.env_count==4u);
+    assert(handoff.previous_tail_slots==2u &&
+           handoff.current_start_slots==0u &&
+           handoff.overlapping_slots==2u);
+    SautiAacSbrTemporalHistory snapshot_history=history;
+    SautiAacSbrTemporalHandoff snapshot_handoff=handoff;
+    following.env_edges[0]=4u;
+    following.noise_edges[0]=4u;
+    /* Force a new deferral then test forbidden temporal gap. */
+    SautiAacSbrTemporalHistory pending={0};
+    assert(sauti_aac_sbr_temporal_history_push(&out,&pending,&handoff));
+    snapshot_handoff=handoff;
+    snapshot_history=pending;
+    assert(!sauti_aac_sbr_temporal_history_push(
+        &following,&pending,&handoff));
+    assert(memcmp(&snapshot_history,&pending,sizeof(pending))==0);
+    assert(memcmp(&snapshot_handoff,&handoff,sizeof(handoff))==0);
+
     SautiAacSbrHfJointConfig hf;
     assert(!sauti_aac_sbr_payload_make_hf(&out,&hf));
-    puts("SBR-47: FIXVAR 0,5,7,11,17 -> 32 current + 2 deferred QMF slots, atomic plan PASS");
+    puts("SBR-49: FIXVAR 0,5,7,11,17 -> 2 deferred QMF slots; previous side data retained, rollback PASS");
 }
 int main(void){
     test_header_grid_entropy_and_harmonics();
