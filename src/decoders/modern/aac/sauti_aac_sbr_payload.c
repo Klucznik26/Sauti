@@ -39,11 +39,11 @@ static unsigned attack_env(const SautiAacSbrGrid *g) {
     return 0u; /* no signaled onset: tones may start at first env */
 }
 
-int sauti_aac_sbr_payload_sce_parse_ex(
+static int payload_parse_impl(
     const uint8_t *bytes,size_t bytes_count,
     size_t bit_start,size_t payload_bits,unsigned output_rate,
     SautiAacSbrPayloadState *state,SautiAacSbrPayloadFrame *out,
-    SautiAacSbrPayloadStage *stage) {
+    SautiAacSbrPayloadStage *stage,unsigned allow_temporal) {
     if(stage)*stage=SAUTI_SBR_PAYLOAD_INPUT;
     if(!bytes || !state || !out || state->initialized>1u ||
        (!state->initialized && state->frames!=0u) ||
@@ -99,10 +99,11 @@ int sauti_aac_sbr_payload_sce_parse_ex(
      * within-frame time borders. Time borders that extend outside
      * [0,16] require lookahead across AAC frames and are deferred. */
     if(stage)*stage=SAUTI_SBR_PAYLOAD_BORDERS;
-    if(result.grid.env_border[0]!=0u ||
-       result.grid.env_border[result.grid.env_count]!=16u ||
-       result.grid.noise_border[0]!=0u ||
-       result.grid.noise_border[result.grid.noise_count]!=16u)
+    if(!allow_temporal &&
+       (result.grid.env_border[0]!=0u ||
+        result.grid.env_border[result.grid.env_count]!=16u ||
+        result.grid.noise_border[0]!=0u ||
+        result.grid.noise_border[result.grid.noise_count]!=16u))
         return 0;
 
     if(stage)*stage=SAUTI_SBR_PAYLOAD_CONTROL;
@@ -162,6 +163,24 @@ int sauti_aac_sbr_payload_sce_parse_ex(
     *state=next;
     if(stage)*stage=SAUTI_SBR_PAYLOAD_OK;
     return 1;
+}
+
+int sauti_aac_sbr_payload_sce_parse_ex(
+    const uint8_t *bytes,size_t bytes_count,
+    size_t bit_start,size_t payload_bits,unsigned output_rate,
+    SautiAacSbrPayloadState *state,SautiAacSbrPayloadFrame *out,
+    SautiAacSbrPayloadStage *stage) {
+    return payload_parse_impl(bytes,bytes_count,bit_start,payload_bits,
+                              output_rate,state,out,stage,0u);
+}
+
+int sauti_aac_sbr_payload_temporal_parse_ex(
+    const uint8_t *bytes,size_t bytes_count,
+    size_t bit_start,size_t payload_bits,unsigned output_rate,
+    SautiAacSbrPayloadState *state,SautiAacSbrPayloadFrame *out,
+    SautiAacSbrPayloadStage *stage) {
+    return payload_parse_impl(bytes,bytes_count,bit_start,payload_bits,
+                              output_rate,state,out,stage,1u);
 }
 
 int sauti_aac_sbr_payload_sce_parse(
