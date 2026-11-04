@@ -281,9 +281,40 @@ static void test_temporal_fixvar_17_side_data(void){
     assert(out.env_edges[4]==34u);
     assert(out.noise_edges[2]==34u);
     assert(state.frames==2u);
+    SautiAacSbrTemporalPlan plan;
+    assert(sauti_aac_sbr_temporal_plan(&out,&plan));
+    assert(plan.env_current_count==4u &&
+           plan.env_deferred_count==1u &&
+           plan.noise_current_count==2u &&
+           plan.noise_deferred_count==1u &&
+           plan.deferred_slots==2u);
+    assert(plan.env_current[0].start==0u &&
+           plan.env_current[0].end==10u &&
+           plan.env_current[0].envelope==0u);
+    assert(plan.env_current[1].start==10u &&
+           plan.env_current[1].end==14u &&
+           plan.env_current[1].envelope==1u);
+    assert(plan.env_current[2].start==14u &&
+           plan.env_current[2].end==22u &&
+           plan.env_current[2].envelope==2u);
+    assert(plan.env_current[3].start==22u &&
+           plan.env_current[3].end==32u &&
+           plan.env_current[3].envelope==3u);
+    assert(plan.env_deferred[0].start==0u &&
+           plan.env_deferred[0].end==2u &&
+           plan.env_deferred[0].envelope==3u);
+    assert(plan.noise_deferred[0].start==0u &&
+           plan.noise_deferred[0].end==2u &&
+           plan.noise_deferred[0].envelope==1u);
+    const SautiAacSbrTemporalPlan snapshot=plan;
+    const uint8_t saved_end=out.env_edges[4];
+    out.env_edges[4]=39u; /* > maximum 3 future SBR slots */
+    assert(!sauti_aac_sbr_temporal_plan(&out,&plan));
+    assert(memcmp(&snapshot,&plan,sizeof(plan))==0);
+    out.env_edges[4]=saved_end;
     SautiAacSbrHfJointConfig hf;
     assert(!sauti_aac_sbr_payload_make_hf(&out,&hf));
-    puts("SBR-43: FIXVAR 0,5,7,11,17 parsed as side-data; strict PCM path rejects PASS");
+    puts("SBR-47: FIXVAR 0,5,7,11,17 -> 32 current + 2 deferred QMF slots, atomic plan PASS");
 }
 int main(void){
     test_header_grid_entropy_and_harmonics();
