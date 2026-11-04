@@ -677,6 +677,16 @@ $(OBJDIR)/test_aac_sbr_temporal_noise: tests/test_aac_sbr_temporal_noise.c inclu
 test-aac-sbr-temporal-noise: $(OBJDIR)/test_aac_sbr_temporal_noise
 	./$(OBJDIR)/test_aac_sbr_temporal_noise
 
+AAC_SBR_TEMPORAL_MIX_SRC := src/decoders/modern/aac/sauti_aac_sbr_temporal_mix.c
+AAC_SBR_TEMPORAL_MIX_DEPS := $(sort $(AAC_SBR_TEMPORAL_NOISE_DEPS) $(AAC_SBR_TEMPORAL_MIX_SRC))
+
+$(OBJDIR)/test_aac_sbr_temporal_mix: tests/test_aac_sbr_temporal_mix.c include/sauti_aac_sbr_temporal_mix.h $(AAC_SBR_TEMPORAL_MIX_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_temporal_mix.c $(AAC_SBR_TEMPORAL_MIX_DEPS) -lm -no-pie
+
+.PHONY: test-aac-sbr-temporal-mix
+test-aac-sbr-temporal-mix: $(OBJDIR)/test_aac_sbr_temporal_mix
+	./$(OBJDIR)/test_aac_sbr_temporal_mix
+
 AAC_SBR_ADTS_QMF_DEPS := $(sort $(AAC_HE_ADTS_QMF_SRC) $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS))
 
 $(OBJDIR)/test_aac_sbr_adts_qmf: tests/test_aac_sbr_adts_qmf.c tests/test_aac_sbr_adts_mono.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) | $(OBJDIR)
@@ -686,8 +696,8 @@ $(OBJDIR)/test_aac_sbr_adts_qmf: tests/test_aac_sbr_adts_qmf.c tests/test_aac_sb
 test-aac-sbr-adts-qmf: $(OBJDIR)/test_aac_sbr_adts_qmf
 	./$(OBJDIR)/test_aac_sbr_adts_qmf
 
-$(OBJDIR)/sauti_he_aac_probe: tools/sauti_he_aac_probe.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) | $(OBJDIR)
-	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_aac_probe.c $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) -lm -no-pie
+$(OBJDIR)/sauti_he_aac_probe: tools/sauti_he_aac_probe.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) $(AAC_SBR_TEMPORAL_MIX_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_aac_probe.c $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) $(AAC_SBR_TEMPORAL_MIX_SRC) -lm -no-pie
 
 .PHONY: probe-he-aac test-aac-he-probe-build
 probe-he-aac test-aac-he-probe-build: $(OBJDIR)/sauti_he_aac_probe
