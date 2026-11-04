@@ -168,6 +168,7 @@ static void test_no_tail(void){
     SautiAacSbrTemporalApplyState state={0};
     SautiAacSbrTemporalApplyReport report;
     SautiAacSbrComplex high[32u*64u],out[32u*64u];
+    memset(out,0x55,sizeof(out));
     fill_hf(high,&f,32u,2.0f,2.0f);
     assert(sauti_aac_sbr_temporal_history_push(
         &f,&history,&handoff));
