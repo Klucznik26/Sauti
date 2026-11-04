@@ -443,10 +443,15 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             handoff_count++;
             if(handoff.previous_tail_slots>max_tail)
                 max_tail=handoff.previous_tail_slots;
-            printf("  ramka %zu: historia SBR, poprzedni ogon=%u slotow, nakladanie=%u; poprzednia env=%u, noise=%u\n",
-                   i,handoff.previous_tail_slots,handoff.overlapping_slots,
+            printf("  ramka %zu: historia SBR, poprzedni ogon=%u, poczatek nowej=%u, nakladanie=%u slotow; poprzednia env=%u, noise=%u\n",
+                   i,handoff.previous_tail_slots,handoff.current_start_slots,
+                   handoff.overlapping_slots,
                    temporal_history.previous.grid.env_count,
                    temporal_history.previous.grid.noise_count);
+            if(handoff.current_start_slots==handoff.previous_tail_slots)
+                puts("    Ciaglosc SBR: granice dokladnie sie stykaja; brak luki i nakladania");
+            else
+                puts("    Ciaglosc SBR: obwiednie nakladaja sie; wymagana regulacja w syntezie");
         }
         if(nonzero && first_nonzero==SIZE_MAX)first_nonzero=i;
         printf("  ramka %zu: rdzen RMS=%.9g, max=%.9g, niezerowe=%u/1024, SBR env_end=%u\n",
