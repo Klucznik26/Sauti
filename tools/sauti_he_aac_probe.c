@@ -340,8 +340,22 @@ static void diagnose_sbr_rejection(const uint8_t *frame,size_t len,
             adts.core_sample_rate*2u,&trial,&parsed,&stage);
         printf("SBR diagnostyka: FIL %u, etap=%s, wynik=%d\n",
                index,sbr_stage_name(stage),ok);
-        if(stage==SAUTI_SBR_PAYLOAD_BORDERS)
+        if(stage==SAUTI_SBR_PAYLOAD_BORDERS) {
             diagnose_sbr_grid(raw,n,&fill,&prior->sbr);
+            SautiAacSbrPayloadState temporal_state=prior->sbr;
+            SautiAacSbrPayloadFrame temporal_payload;
+            SautiAacSbrPayloadStage temporal_stage=SAUTI_SBR_PAYLOAD_INPUT;
+            const int temporal=sauti_aac_sbr_payload_temporal_parse_ex(
+                raw,n,fill.extension_start_bit,fill.extension_bits,
+                adts.core_sample_rate*2u,
+                &temporal_state,&temporal_payload,&temporal_stage);
+            printf("SBR temporal side-data: etap=%s, wynik=%d\n",
+                   sbr_stage_name(temporal_stage),temporal);
+            if(temporal)
+                printf("SBR temporal side-data: env_end=%u, QMF_end=%u; BRAK dekodowania PCM\n",
+                       temporal_payload.grid.env_border[temporal_payload.grid.env_count],
+                       temporal_payload.env_edges[temporal_payload.grid.env_count]);
+        }
         return;
     }
 }
