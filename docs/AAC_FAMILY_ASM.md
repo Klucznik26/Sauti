@@ -2855,3 +2855,97 @@ z prawdziwego pliku mono, poprawić pierwszą
 rzeczywistą niezgodność parsera lub HF/QMF,
 a następnie skonfrontować amplitudę, opóźnienie
 i widmo PCM z niezależnym dekoderem.
+
+
+## Punkt kontrolny 2026-11-04 — SBR-52 zakończony, przerwa przed SBR-53
+
+**Status na koniec sesji:** zamknięty etap *dekodowania rdzenia AAC-LC,
+parsowania SBR i przygotowania historii czasowej SBR* dla przebadanego
+strumienia mono HE-AAC v1 ADTS. Kolejny etap — **SBR-53: synteza HF/QMF
+z parametrami międzyramkowymi** — **nie został rozpoczęty**. Nie
+utożsamiać poprawnego parsera lub mapy slotów z gotowym dekoderem PCM.
+
+### Potwierdzone wyniki
+
+- Gałąź: `feature/aac-family-asm`; ostatnia sprawdzona rewizja
+  `754e2de` (SBR-52). Niniejszy wpis jest checkpointem dokumentacyjnym.
+- Rzeczywisty, niezależnie zakodowany plik testowy na komputerze Fedora:
+  `/tmp/sauti_he_v1_64k.aac`, **50 ramek ADTS**, **17066 bajtów**,
+  mono, bez CRC, rdzeń AAC-LC **24 kHz**, wyjściowe HE-AAC **48 kHz**.
+  Plik testowy znajduje się lokalnie u użytkownika, nie w repozytorium.
+- **50/50** ramek przeszło ciągłe dekodowanie 1024 próbek rdzenia
+  AAC-LC oraz **temporalne parsowanie** SBR (bez końcowego PCM HE-AAC).
+  Obsługiwane są powtarzane nagłówki i historia entropijna.
+- Produkcyjna, **eksperymentalna** ścieżka
+  `sauti_aac_he_adts_qmf_decode_ex` wygenerowała **2048 float PCM**
+  dla ramek **0 i 1**. Ramka **2** nadal jest prawidłowo odrzucana:
+  `unsupported_fil` przez restrykcyjny parser (SBR FIXVAR kończy
+  obwiednię po granicy ramki). **Nie ma sukcesu 50/50 dla syntezy.**
+- SBR-46: w pierwszej ramce zerowego rdzenia AAC-LC stwierdzono
+  `harmoniczne=0/14`, dodatni parametr szumu SBR
+  `Q=0.00390625`; jawna, noise-aware ścieżka HF
+  pozwoliła na prawidłowy rozruch bez zgadywania sygnału źródłowego.
+  Pierwotne, restrykcyjne API limitera pozostaje dostępne.
+- SBR-47–52: temporalny parser i plan dzielą obwiednie na sloty
+  bieżące oraz odroczone, historia zachowuje kompletny poprzedni
+  `SautiAacSbrPayloadFrame`, a resolver przypisuje 32 sloty QMF
+  właściwej ramce i indeksom obwiedni energii/szumu.
+  **Weryfikacja na rzeczywistym strumieniu:**
+  - ramka **2 → 3**: 2 odroczone sloty QMF;
+    w ramce 3 sloty **0–1** należą do ramki 2
+    (`env=3, noise=1`), sloty **2–31** do ramki 3;
+  - ramka **48 → 49**: 6 odroczonych slotów;
+    w ramce 49 sloty **0–5** należą do ramki 48
+    (`env=1, noise=1`), sloty **6–31** do ramki 49;
+  - obydwa przejścia mają dokładnie stykające się granice,
+    bez luk i nakładania się. Historia: **50 zapisanych ramek,
+    2 przekazania, najdłuższy ogon 6 slotów**.
+- Ostatnie testy na Fedorze: `test-aac-sbr-payload` PASS,
+  `test-aac-sbr-adts-qmf` PASS i kompilacja `probe-he-aac` PASS;
+  diagnostyka realnego pliku potwierdziła przypisania QMF i 50/50
+  rdzenia. **Nie są to testy zgodności brzmieniowej PCM.**
+- Cała ścieżka natywna w tych testach nie potrzebuje
+  zewnętrznej biblioteki dekodującej AAC.
+
+### Co pozostało — rozpocząć od SBR-53
+
+1. **Przebudować driver HF/QMF do pracy na granicach ramek**:
+   zachować ciągły stan analizy QMF, transpozycji/predykcji,
+   wygładzania współczynników, fazy ROM szumu, harmonicznych
+   i 64-pasmowej syntezy.
+2. **Podłączyć resolver SBR-52 do DSP**, zamiast traktować każdą
+   ramkę jako jeden zestaw obwiedni. Przetwarzać odroczone sloty
+   według oryginalnych parametrów poprzedniej ramki, a pozostałe
+   według bieżącej, bez sztucznego przycinania obwiedni, dopisywania
+   ciszy lub wymyślania energii HF. Dbać o właściwe przesunięcia
+   czasowe i opóźnienia banków filtrów.
+3. **Zachować transakcyjność**: błędna składnia lub nieukończona
+   synteza nie może zmieniać PCM ani stanu AAC-LC, SBR, QMF,
+   ROM i limiterów. Dodać regresje dla granic 2→3 i 48→49,
+   błędnych/uciętych danych, ciągłości i restartu po seeku.
+4. **Pierwszy cel mierzalny:** ramka 2 poprawnie przechodzi
+   pełną ścieżkę i produkuje 2048 próbek PCM; następnie ramka 3,
+   kompletne **50 ramek** i pozostałe przypadki siatek SBR.
+5. **Walidacja zgodności audio**: porównać natywne PCM 48 kHz
+   z niezależnym dekoderem, uwzględnić delay/priming,
+   długość, fazę, poziomy, widmo i odsłuch. Nie ogłaszać
+   zgodności HE-AAC na podstawie samych testów syntetycznych.
+6. Dalsze, poza tym checkpointem: automatyczna estymacja LPC/chirp
+   tam, gdzie wymaga jej standard, pozostałe warianty SBR, CRC,
+   stereo/CPE, HE-AAC v2/Parametric Stereo i integracja
+   natywnego dekodera z odtwarzaczem. Obecny zakres testowany
+   jest mono SCE, ADTS bez CRC i SBR `EXT_SBR_DATA=13`.
+
+### Polecenia do wznowienia prac
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-payload PKG_CONFIG=/bin/false
+make test-aac-sbr-adts-qmf PKG_CONFIG=/bin/false
+make probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe /tmp/sauti_he_v1_64k.aac 50
+```
+
+**Decyzja na dziś:** koniec prac po SBR-52; SBR-53 dopiero w
+następnej sesji. Nie zmieniamy teraz toru dekodera.
