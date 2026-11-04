@@ -267,7 +267,8 @@ static void test_fill_data_after_sbr(void){
     assert(reason==SAUTI_AAC_REASON_OK && state.frames==1u);
 
     /* Corrupt the A5 pattern. Decoder must reject atomically. */
-    bytes[7u+start/8u]^=(uint8_t)(1u<<(7u-(unsigned)(start%8u)));
+    const size_t corrupt_bit=start+15u; /* ID 3 + count 4 + type 4 + zero 4 */
+    bytes[7u+corrupt_bit/8u]^=(uint8_t)(1u<<(7u-(unsigned)(corrupt_bit%8u)));
     SautiAacHeAdtsMonoState fresh={0};
     assert(sauti_aac_he_adts_mono_init(&fresh));
     const SautiAacHeAdtsMonoState before=fresh;
