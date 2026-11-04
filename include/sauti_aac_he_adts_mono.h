@@ -47,4 +47,17 @@ int sauti_aac_he_adts_mono_decode_ex(
     SautiAacSbrPayloadFrame *params,
     SautiAacReason *reason);
 
+
+/* SBR-44: continuous AAC-LC CORE + syntactically complete temporal
+ * SBR side-data, including FIXVAR end borders beyond the frame.
+ * Returns 1024 core-rate PCM only; NEVER outputs 2x HE-AAC PCM.
+ * QMF playback must use the strict API until cross-frame buffering
+ * and synthesis are separately implemented and verified. */
+int sauti_aac_he_adts_mono_temporal_decode_ex(
+    const uint8_t *frame,size_t frame_size,
+    SautiAacHeAdtsMonoState *state,
+    float core_pcm[1024],
+    SautiAacSbrPayloadFrame *params,
+    SautiAacReason *reason);
+
 #endif
