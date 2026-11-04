@@ -10,6 +10,7 @@
 #include "sauti_aac_sbr_payload.h"
 #include "sauti_aac_headers.h"
 #include <string.h>
+#include <math.h>
 
 static int bits(const uint8_t *data,size_t n,size_t *pos,
                 unsigned width,uint32_t *out) {
@@ -396,5 +397,108 @@ int sauti_aac_sbr_temporal_resolve(
             env_src[t],env_idx[t],noise_idx[t]};
     }
     *out=result;
+    return 1;
+}
+
+
+/* SBR-53a: materialize true values from the original SBR owner.
+ * Pure side-data bridge; the existing PCM decoder is unchanged. */
+static int temporal_freq_valid(const uint8_t *edges,unsigned count,
+                               unsigned cap,unsigned kx,unsigned k2){
+    if(!edges || count==0u || count>cap ||
+       edges[0]!=kx || edges[count]!=k2)return 0;
+    for(unsigned b=0u;b<count;b++)
+        if(edges[b]>=edges[b+1u] || edges[b+1u]>k2)return 0;
+    return 1;
+}
+static int temporal_hf_frame_valid(
+    const SautiAacSbrPayloadFrame *frame){
+    const SautiAacSbrTables *tab=&frame->tables;
+    const unsigned kx=tab->kx,k2=kx+tab->m;
+    if(tab->kx>63u || tab->m==0u || k2>64u ||
+       frame->grid.env_count==0u ||
+       frame->grid.env_count>SAUTI_AAC_SBR_MAX_ENV ||
+       frame->grid.noise_count==0u ||
+       frame->grid.noise_count>2u ||
+       frame->energy.env_count!=frame->grid.env_count ||
+       frame->energy.noise_count!=frame->grid.noise_count ||
+       frame->limiter_mode>3u || frame->gain_mode>3u ||
+       frame->bs_smoothing_mode>1u ||
+       frame->transient_env>frame->grid.env_count ||
+       !temporal_freq_valid(tab->high,tab->n_high,
+                            SAUTI_AAC_SBR_MAX_MASTER_BANDS,kx,k2) ||
+       !temporal_freq_valid(tab->low,tab->n_low,
+                            SAUTI_AAC_SBR_MAX_MASTER_BANDS/2u,kx,k2) ||
+       !temporal_freq_valid(tab->noise,tab->n_noise,
+                            SAUTI_AAC_SBR_MAX_NOISE_BANDS,kx,k2))
+        return 0;
+    for(unsigned b=0u;b<tab->n_high;b++)
+        if(frame->harmonic[b]>1u)return 0;
+    for(unsigned e=0u;e<frame->energy.env_count;e++){
+        if(frame->energy.freq_res[e]>1u)return 0;
+        const unsigned n=frame->energy.freq_res[e]?
+                         tab->n_high:tab->n_low;
+        for(unsigned b=0u;b<n;b++){
+            const double v=frame->energy.env_energy[e][b];
+            if(!isfinite(v) || v<0.0)return 0;
+        }
+    }
+    for(unsigned n=0u;n<frame->energy.noise_count;n++)
+        for(unsigned b=0u;b<tab->n_noise;b++){
+            const double v=frame->energy.noise_factor[n][b];
+            if(!isfinite(v) || v<0.0)return 0;
+        }
+    return 1;
+}
+
+int sauti_aac_sbr_temporal_hf_targets(
+    const SautiAacSbrTemporalHistory *history,
+    SautiAacSbrTemporalHfTargets *out){
+    if(!history || !out)return 0;
+    SautiAacSbrResolvedFrame owners;
+    if(!sauti_aac_sbr_temporal_resolve(history,&owners) ||
+       !temporal_hf_frame_valid(&history->current) ||
+       (owners.previous_slots &&
+        (!history->has_previous ||
+         !temporal_hf_frame_valid(&history->previous))))
+        return 0;
+
+    SautiAacSbrTemporalHfTargets next={0};
+    next.previous_slots=owners.previous_slots;
+    for(unsigned t=0u;t<32u;t++){
+        const SautiAacSbrSlotOwner owner=owners.slot[t];
+        const SautiAacSbrPayloadFrame *f=
+            owner.source==0u?&history->previous:&history->current;
+        if(owner.source>1u ||
+           (owner.source==0u && !owners.previous_slots) ||
+           owner.envelope>=f->energy.env_count ||
+           owner.noise>=f->energy.noise_count)return 0;
+        const SautiAacSbrTables *tab=&f->tables;
+        SautiAacSbrTemporalHfSlot *slot=&next.slot[t];
+        slot->source=owner.source;
+        slot->envelope=owner.envelope;
+        slot->noise=owner.noise;
+        slot->kx=(uint8_t)tab->kx;
+        slot->k2=(uint8_t)(tab->kx+tab->m);
+        const unsigned fine=f->energy.freq_res[owner.envelope];
+        const uint8_t *edges=fine?tab->high:tab->low;
+        const unsigned bands=fine?tab->n_high:tab->n_low;
+        for(unsigned b=0u;b<bands;b++){
+            const double v=f->energy.env_energy[owner.envelope][b];
+            for(unsigned k=edges[b];k<edges[b+1u];k++)
+                slot->energy[k]=v;
+        }
+        for(unsigned b=0u;b<tab->n_noise;b++){
+            const double q=f->energy.noise_factor[owner.noise][b];
+            for(unsigned k=tab->noise[b];k<tab->noise[b+1u];k++)
+                slot->noise_factor[k]=q;
+        }
+        for(unsigned b=0u;b<tab->n_high;b++)
+            if(f->harmonic[b]){
+                const unsigned k=(tab->high[b]+tab->high[b+1u])/2u;
+                slot->harmonic[k]=1u;
+            }
+    }
+    *out=next;
     return 1;
 }
