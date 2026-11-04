@@ -83,6 +83,18 @@ typedef enum {
     SAUTI_SBR_PAYLOAD_OK
 } SautiAacSbrPayloadStage;
 
+/* Parse complete SBR syntax with ISO-valid temporal borders extending
+ * beyond the current AAC frame (e.g. FIXVAR 0..17).
+ * This is a SIDE-DATA interface ONLY; it does not authorize QMF/PCM.
+ * The strict original parse_ex still rejects out-of-frame time grids.
+ * Caller must not advance audio playback without temporal buffering.
+ * State and output are committed only when the entire FIL is valid. */
+int sauti_aac_sbr_payload_temporal_parse_ex(
+    const uint8_t *bytes,size_t bytes_count,
+    size_t bit_start,size_t payload_bits,unsigned output_rate,
+    SautiAacSbrPayloadState *state,SautiAacSbrPayloadFrame *out,
+    SautiAacSbrPayloadStage *stage);
+
 int sauti_aac_sbr_payload_sce_parse_ex(
     const uint8_t *bytes,size_t bytes_count,
     size_t bit_start,size_t payload_bits,unsigned output_rate,
