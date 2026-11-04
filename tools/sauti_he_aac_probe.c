@@ -146,7 +146,7 @@ static void inspect_fil(const uint8_t *frame,size_t len) {
             puts("FIL diagnostyka: niepoprawna dlugosc FIL");
             return;
         }
-        printf("FIL diagnostyka: element %u, payload=%zu B, extension_type=%u, extension_bits=%zu\n",
+        printf("FIL diagnostyka: element %u, payload=%u B, extension_type=%u, extension_bits=%zu\n",
                index,fill.payload_bytes,fill.extension_type,fill.extension_bits);
         if(fill.extension_type==13u)
             puts("FIL diagnostyka: rozpoznano EXT_SBR_DATA (13); odrzucenie dotyczy skladni/ograniczen SBR");
