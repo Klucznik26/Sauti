@@ -261,6 +261,55 @@ static const char *sbr_stage_name(SautiAacSbrPayloadStage stage){
 }
 /* Diagnose SBR on a copy of the PRE-FAILURE continuous history.
  * Never advance decoder state or classify this as successful PCM. */
+/* Inspect the real SBR grid without relaxing the strict 0..16
+ * synthesis contract. The SBR header is consumed only on a local
+ * scratch buffer; previous header is taken from pre-failure state. */
+static void diagnose_sbr_grid(const uint8_t *raw,size_t n,
+                              const SautiAacFillInfo *fill,
+                              const SautiAacSbrPayloadState *prior){
+    if(fill->extension_bits<8u ||
+       fill->extension_bits>SAUTI_AAC_SBR_PAYLOAD_MAX_BYTES*8u ||
+       n>SIZE_MAX/8u ||
+       fill->extension_start_bit>n*8u ||
+       fill->extension_bits>n*8u-fill->extension_start_bit)return;
+    uint8_t packed[SAUTI_AAC_SBR_PAYLOAD_MAX_BYTES]={0};
+    for(size_t i=0;i<fill->extension_bits;i++){
+        const size_t src=fill->extension_start_bit+i;
+        packed[i/8u]|=(uint8_t)(((raw[src/8u]>>(7u-(src&7u)))&1u)
+                      <<(7u-(i&7u)));
+    }
+    const size_t bytes=fill->extension_bits/8u;
+    size_t pos=0u;
+    uint32_t kind=0u,has_header=0u,extra=0u;
+    if(!sauti_aac_bits_read_asm(packed,bytes,&pos,4u,&kind) ||
+       kind!=13u ||
+       !sauti_aac_bits_read_asm(packed,bytes,&pos,1u,&has_header))
+        return;
+    SautiAacSbrHeader header=prior->header;
+    if(has_header &&
+       !sauti_aac_sbr_header_parse(packed,bytes,&pos,&header))return;
+    if(!has_header && !prior->initialized)return;
+    if(!sauti_aac_bits_read_asm(packed,bytes,&pos,1u,&extra))return;
+    if(extra){
+        uint32_t reserved=0u;
+        if(!sauti_aac_bits_read_asm(packed,bytes,&pos,4u,&reserved))return;
+    }
+    SautiAacSbrGrid grid;
+    if(!sauti_aac_sbr_grid_parse(packed,bytes,&pos,16u,&grid)){
+        puts("SBR siatka: sam parser sbr_grid odrzucil ramke");
+        return;
+    }
+    printf("SBR siatka: frame_class=%u, env=%u, noise=%u, pointer=%u, header=%u\n",
+           grid.frame_class,grid.env_count,grid.noise_count,
+           grid.pointer,has_header);
+    printf("SBR granice env:");
+    for(unsigned i=0;i<=grid.env_count;i++)
+        printf(" %u",grid.env_border[i]);
+    printf(" (oczekiwane 0..16)\nSBR granice noise:");
+    for(unsigned i=0;i<=grid.noise_count;i++)
+        printf(" %u",grid.noise_border[i]);
+    putchar('\n');
+}
 static void diagnose_sbr_rejection(const uint8_t *frame,size_t len,
                                    const SautiAacHeAdtsMonoState *prior){
     SautiAacAdts adts;
@@ -291,6 +340,8 @@ static void diagnose_sbr_rejection(const uint8_t *frame,size_t len,
             adts.core_sample_rate*2u,&trial,&parsed,&stage);
         printf("SBR diagnostyka: FIL %u, etap=%s, wynik=%d\n",
                index,sbr_stage_name(stage),ok);
+        if(stage==SAUTI_SBR_PAYLOAD_BORDERS)
+            diagnose_sbr_grid(raw,n,&fill,&prior->sbr);
         return;
     }
 }
