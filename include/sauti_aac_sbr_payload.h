@@ -133,6 +133,37 @@ int sauti_aac_sbr_temporal_plan(
     const SautiAacSbrPayloadFrame *frame,
     SautiAacSbrTemporalPlan *out);
 
+/* SBR-49: retained frame-owned side data for a future QMF lookahead
+ * driver. Store the ENTIRE previous payload: deferred segment indices
+ * must resolve to original energy, noise, harmonic, geometry and flags.
+ * This does not run any QMF DSP or publish PCM.
+ *
+ * push(frame): moves the current retained frame into previous, records
+ * the new frame and plan, and reports overlap with the previous tail.
+ * Rejects unconsumed temporal discontinuities (next frame starts after
+ * pending tail, or begins at a negative/invalid boundary).
+ * The overlapping portion is intentionally NOT resolved here: the
+ * future normative QMF mixer must arbitrate its coefficients using
+ * the original two frames and timing, not by blindly clipping them.
+ * All writes atomic on rejection. */
+typedef struct {
+    uint32_t ready, has_previous;
+    uint64_t frames;
+    SautiAacSbrPayloadFrame current;
+    SautiAacSbrTemporalPlan current_plan;
+    SautiAacSbrPayloadFrame previous;
+    SautiAacSbrTemporalPlan previous_plan;
+} SautiAacSbrTemporalHistory;
+typedef struct {
+    uint8_t previous_tail_slots;
+    uint8_t current_start_slots;
+    uint8_t overlapping_slots;
+} SautiAacSbrTemporalHandoff;
+int sauti_aac_sbr_temporal_history_push(
+    const SautiAacSbrPayloadFrame *frame,
+    SautiAacSbrTemporalHistory *history,
+    SautiAacSbrTemporalHandoff *handoff);
+
 /* Populate SBR-28 HF configuration with pointers into a valid frame.
  * Caller must keep the frame alive (no copying after this call).
  * Zero-copy view: no heap allocation. */
