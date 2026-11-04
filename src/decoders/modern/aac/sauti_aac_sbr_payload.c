@@ -39,10 +39,12 @@ static unsigned attack_env(const SautiAacSbrGrid *g) {
     return 0u; /* no signaled onset: tones may start at first env */
 }
 
-int sauti_aac_sbr_payload_sce_parse(
+int sauti_aac_sbr_payload_sce_parse_ex(
     const uint8_t *bytes,size_t bytes_count,
     size_t bit_start,size_t payload_bits,unsigned output_rate,
-    SautiAacSbrPayloadState *state,SautiAacSbrPayloadFrame *out) {
+    SautiAacSbrPayloadState *state,SautiAacSbrPayloadFrame *out,
+    SautiAacSbrPayloadStage *stage) {
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_INPUT;
     if(!bytes || !state || !out || state->initialized>1u ||
        (!state->initialized && state->frames!=0u) ||
        (state->initialized && !state->frames) ||
@@ -66,7 +68,9 @@ int sauti_aac_sbr_payload_sce_parse(
     const size_t len=payload_bits/8u;
     size_t pos=0u;
     uint32_t v=0u;
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_TYPE;
     if(!bits(packed,len,&pos,4u,&v) || v!=13u)return 0;
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_HEADER;
     if(!bits(packed,len,&pos,1u,&v))return 0;
 
     SautiAacSbrPayloadState next=*state;
@@ -78,10 +82,12 @@ int sauti_aac_sbr_payload_sce_parse(
     }else if(!state->initialized)
         return 0;
     result.header=next.header;
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_TABLES;
     if(!build(&result.header,output_rate,&result.master,
               &result.tables,&result.patches))
         return 0;
 
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_GRID;
     /* SCE syntax: bs_data_extra, optionally four reserved bits. */
     if(!bits(packed,len,&pos,1u,&v))return 0;
     if(v && !bits(packed,len,&pos,4u,&v))return 0;
@@ -92,25 +98,30 @@ int sauti_aac_sbr_payload_sce_parse(
     /* For the first 1024-sample/32-slot bridge, require complete
      * within-frame time borders. Time borders that extend outside
      * [0,16] require lookahead across AAC frames and are deferred. */
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_BORDERS;
     if(result.grid.env_border[0]!=0u ||
        result.grid.env_border[result.grid.env_count]!=16u ||
        result.grid.noise_border[0]!=0u ||
        result.grid.noise_border[result.grid.noise_count]!=16u)
         return 0;
 
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_CONTROL;
     if(!sauti_aac_sbr_control_parse(packed,len,&pos,&result.grid,
                                    &result.tables,&result.control))
         return 0;
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_QUANT;
     if(!sauti_aac_sbr_quant_decode(packed,len,&pos,
                                   &result.grid,&result.tables,
                                   &result.control,result.header.amp_res,
                                   0u,&next.quant_state,&result.quant))
         return 0;
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_ENERGY;
     if(!sauti_aac_sbr_energy_dequant(&result.quant,&result.grid,
                                     &result.tables,result.header.amp_res,
                                     0u,&result.energy))
         return 0;
 
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_HARMONICS;
     /* bs_add_harmonic_flag, then n_high independent 1-bit flags. */
     if(!bits(packed,len,&pos,1u,&v))return 0;
     if(v)
@@ -122,8 +133,10 @@ int sauti_aac_sbr_payload_sce_parse(
     /* The first supported subset has NO PS nor other extended data.
      * Reject nonzero bs_extended_data rather than silently dropping
      * stereo or treating its bytes as alignment filler. */
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_EXTENDED;
     if(!bits(packed,len,&pos,1u,&v) || v)return 0;
 
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_PADDING;
     if(pos>payload_bits || payload_bits-pos>7u)return 0;
     result.payload_data_bits=(uint32_t)pos;
     /* bs_fill_bits in this subset are required to be zero. */
@@ -147,7 +160,17 @@ int sauti_aac_sbr_payload_sce_parse(
     next.frames++;
     *out=result;
     *state=next;
+    if(stage)*stage=SAUTI_SBR_PAYLOAD_OK;
     return 1;
+}
+
+int sauti_aac_sbr_payload_sce_parse(
+    const uint8_t *bytes,size_t bytes_count,
+    size_t bit_start,size_t payload_bits,unsigned output_rate,
+    SautiAacSbrPayloadState *state,SautiAacSbrPayloadFrame *out) {
+    return sauti_aac_sbr_payload_sce_parse_ex(
+        bytes,bytes_count,bit_start,payload_bits,output_rate,
+        state,out,NULL);
 }
 
 int sauti_aac_sbr_payload_make_hf(
