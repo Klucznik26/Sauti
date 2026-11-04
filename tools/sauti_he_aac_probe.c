@@ -155,6 +155,20 @@ static void inspect_fil(const uint8_t *frame,size_t len) {
     }
     puts("FIL diagnostyka: osiagnieto limit 8 elementow");
 }
+static const char *qmf_stage_name(SautiAacSbrQmfStage stage){
+    switch(stage){
+        case SAUTI_SBR_QMF_STAGE_INPUT:return "input/argumenty";
+        case SAUTI_SBR_QMF_STAGE_MAP:return "mapa patchy";
+        case SAUTI_SBR_QMF_STAGE_HISTORY:return "historia QMF";
+        case SAUTI_SBR_QMF_STAGE_ANALYSIS:return "analiza QMF 32";
+        case SAUTI_SBR_QMF_STAGE_TRANSPOSE:return "transpozycja HF";
+        case SAUTI_SBR_QMF_STAGE_PREDICT:return "predyktor HF";
+        case SAUTI_SBR_QMF_STAGE_HF_ADJUST:return "regulacja energii HF/limiter";
+        case SAUTI_SBR_QMF_STAGE_SYNTHESIS:return "synteza QMF 64";
+        case SAUTI_SBR_QMF_STAGE_OK:return "OK";
+        default:return "nieznany";
+    }
+}
 static int decode(const char *path,size_t max_decode){
     FILE *f=fopen(path,"rb");
     if(!f){perror(path);return 2;}
@@ -210,7 +224,22 @@ static int decode(const char *path,size_t max_decode){
                     if(!sauti_aac_sbr_hf_map_valid(&payload.patches,&payload.tables))
                         puts("HF diagnostyka: mapa patchy odrzucona przed QMF");
                     else
-                        puts("HF diagnostyka: mapa patchy poprawna; blad powstaje w przetwarzaniu QMF/HF");
+                        {
+                            const SautiAacSbrQmfFrameConfig cfg={
+                                .hf=&hf,.attack=payload.attack,
+                                .bs_smoothing_mode=payload.bs_smoothing_mode,
+                                .lpc=NULL,.chirp=NULL
+                            };
+                            SautiAacSbrQmfFrameState qmf_trial=state.qmf;
+                            SautiAacSbrLimiterReport stats;
+                            float qmf_pcm[2048];
+                            SautiAacSbrQmfStage qstage=SAUTI_SBR_QMF_STAGE_INPUT;
+                            const int ok=sauti_aac_sbr_qmf_frame_process_ex(
+                                &cfg,core,1024u,qmf_pcm,2048u,
+                                &qmf_trial,&stats,&qstage);
+                            printf("QMF diagnostyka: etap=%s, wynik=%d\n",
+                                   qmf_stage_name(qstage),ok);
+                        }
                 }
             }
             printf("Udane ramki przed bledem: %zu\n",decoded);
