@@ -366,10 +366,17 @@ static void diagnose_sbr_rejection(const uint8_t *frame,size_t len,
                 &temporal_state,&temporal_payload,&temporal_stage);
             printf("SBR temporal side-data: etap=%s, wynik=%d\n",
                    sbr_stage_name(temporal_stage),temporal);
-            if(temporal)
+            if(temporal) {
                 printf("SBR temporal side-data: env_end=%u, QMF_end=%u; BRAK dekodowania PCM\n",
                        temporal_payload.grid.env_border[temporal_payload.grid.env_count],
                        temporal_payload.env_edges[temporal_payload.grid.env_count]);
+                SautiAacSbrTemporalPlan plan;
+                if(sauti_aac_sbr_temporal_plan(&temporal_payload,&plan))
+                    printf("SBR temporal plan: teraz env=%u noise=%u; odroczone env=%u noise=%u, sloty=%u\n",
+                           plan.env_current_count,plan.noise_current_count,
+                           plan.env_deferred_count,plan.noise_deferred_count,
+                           plan.deferred_slots);
+            }
         }
         return;
     }
