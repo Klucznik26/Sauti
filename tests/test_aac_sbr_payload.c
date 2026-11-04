@@ -330,6 +330,38 @@ static void test_temporal_fixvar_17_side_data(void){
     assert(handoff.previous_tail_slots==2u &&
            handoff.current_start_slots==0u &&
            handoff.overlapping_slots==2u);
+    /* Exact, non-overlapping handoff: next FIXFIX-like payload starts
+     * at QMF slot 2; first two slots retain the previous FIXVAR
+     * envelope and noise indices. This maps metadata, not PCM. */
+    SautiAacSbrTemporalHistory aligned={0};
+    SautiAacSbrPayloadFrame next_aligned=saved;
+    next_aligned.env_edges[0]=2u;
+    next_aligned.noise_edges[0]=2u;
+    assert(sauti_aac_sbr_temporal_history_push(&out,&aligned,&handoff));
+    assert(sauti_aac_sbr_temporal_history_push(
+        &next_aligned,&aligned,&handoff));
+    assert(handoff.previous_tail_slots==2u &&
+           handoff.current_start_slots==2u &&
+           handoff.overlapping_slots==0u);
+    SautiAacSbrResolvedFrame resolved;
+    assert(sauti_aac_sbr_temporal_resolve(&aligned,&resolved));
+    assert(resolved.previous_slots==2u);
+    for(unsigned t=0;t<32u;t++){
+        assert(resolved.slot[t].source==(t<2u?0u:1u));
+        if(t<2u){
+            assert(resolved.slot[t].envelope==3u);
+            assert(resolved.slot[t].noise==1u);
+        }else{
+            assert(resolved.slot[t].envelope==(t<16u?0u:1u));
+            assert(resolved.slot[t].noise==(t<16u?0u:1u));
+        }
+    }
+    SautiAacSbrResolvedFrame prev_resolved=resolved;
+    next_aligned.env_edges[0]=0u;
+    next_aligned.noise_edges[0]=0u;
+    aligned.current=next_aligned; /* overlap with previously retained tail */
+    assert(!sauti_aac_sbr_temporal_resolve(&aligned,&resolved));
+    assert(memcmp(&prev_resolved,&resolved,sizeof(resolved))==0);
     SautiAacSbrTemporalHistory snapshot_history=history;
     SautiAacSbrTemporalHandoff snapshot_handoff=handoff;
     following.env_edges[0]=4u;
@@ -346,7 +378,7 @@ static void test_temporal_fixvar_17_side_data(void){
 
     SautiAacSbrHfJointConfig hf;
     assert(!sauti_aac_sbr_payload_make_hf(&out,&hf));
-    puts("SBR-49: FIXVAR 0,5,7,11,17 -> 2 deferred QMF slots; previous side data retained, rollback PASS");
+    puts("SBR-52: FIXVAR 2-slot tail + following frame -> exact 32 QMF slot owners, rollback PASS");
 }
 int main(void){
     test_header_grid_entropy_and_harmonics();
