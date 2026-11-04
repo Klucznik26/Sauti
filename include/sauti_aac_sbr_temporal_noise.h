@@ -24,6 +24,8 @@
 typedef struct {
     SautiAacSbrComplex vector[32u*64u];
     double raw_amplitude[32u*64u];
+    uint8_t active[32u*64u]; /* 1 even if amplitude is zero;
+                               * inactive bins have zero vector/amp */
 } SautiAacSbrTemporalNoiseFrame;
 
 typedef struct {
