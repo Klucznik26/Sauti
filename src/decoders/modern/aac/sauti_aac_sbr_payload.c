@@ -280,3 +280,51 @@ int sauti_aac_sbr_temporal_plan(
     *out=next;
     return 1;
 }
+
+/* SBR-49: keep decoded temporal parameters intact until a future
+ * two-frame QMF stage can use them. No synthesis, clipping, or gain
+ * arbitration is performed by this side-data container. */
+int sauti_aac_sbr_temporal_history_push(
+    const SautiAacSbrPayloadFrame *frame,
+    SautiAacSbrTemporalHistory *history,
+    SautiAacSbrTemporalHandoff *handoff){
+    if(!frame || !history || !handoff ||
+       history->ready>1u || history->has_previous>1u ||
+       history->frames==UINT64_MAX ||
+       (!history->ready && (history->frames!=0u ||
+                            history->has_previous)) ||
+       (history->ready && history->frames==0u))
+        return 0;
+
+    SautiAacSbrTemporalPlan plan;
+    if(!sauti_aac_sbr_temporal_plan(frame,&plan))return 0;
+    if(frame->env_edges[0]!=frame->noise_edges[0])return 0;
+    const unsigned beginning=frame->env_edges[0];
+    /* The current SBR grid cannot start beyond the current 32-slot
+     * window; a previous tail cannot be abandoned across a gap. */
+    if(beginning>32u)return 0;
+
+    SautiAacSbrTemporalHandoff result={0};
+    if(history->ready){
+        const unsigned pending=history->current_plan.deferred_slots;
+        result.previous_tail_slots=(uint8_t)pending;
+        result.current_start_slots=(uint8_t)beginning;
+        if(pending && beginning>pending)return 0;
+        result.overlapping_slots=(uint8_t)(
+            pending<beginning?pending:beginning);
+    }
+
+    SautiAacSbrTemporalHistory next=*history;
+    if(next.ready){
+        next.previous=next.current;
+        next.previous_plan=next.current_plan;
+        next.has_previous=1u;
+    }
+    next.current=*frame;
+    next.current_plan=plan;
+    next.ready=1u;
+    next.frames++;
+    *history=next;
+    *handoff=result;
+    return 1;
+}
