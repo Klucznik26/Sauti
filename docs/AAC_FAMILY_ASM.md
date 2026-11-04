@@ -2987,3 +2987,40 @@ HF obliczane z całej prawidłowej obwiedni (w tym z ogonem poprzedniej
 ramki), zgodna czasowo historia wygładzania/ROM/sinusoid oraz
 transakcyjna synteza 64 QMF. Bez fałszywego sukcesu PCM, bez obcinania
 brzegów i bez podmiany części nieobsługiwanych na ciszę.
+
+
+## SBR-53c potwierdzone, SBR-53d do weryfikacji (2026-11-05)
+
+Użytkownik uruchomił Fedora `make test-aac-sbr-temporal-power`
+i regresje SBR-53b/a/31: **PASS**. Realny plik
+`~/Sauti-fixtures/he_test.aac`: 50/50 ramek analizowanych,
+57 pełnych obwiedni HF, dwa poprawne domknięcia odroczonych
+obwiedni (ramka 3: 12 slotów; ramka 49: 16 slotów), brak
+niedokończonego ogona przy końcu. Pełny PCM HE-AAC nadal
+zatrzymuje się na ramce 2: nie zmieniać tego wyniku w raporcie.
+
+Dodano SBR-53d jako **izolowany etap diagnostyczny**:
+`sauti_aac_sbr_temporal_gain_calculate` pobiera kompletne
+średnie moce HF z SBR-53c, sprawdza ich oryginalną tożsamość
+obwiedni/ramki i liczy ograniczenie wzmocnienia z podziałem
+na rzeczywiste pasma limitera SBR-17. Stosuje model cap/boost
+SBR-16 i toleruje pasmo o zerowej energii źródłowej wyłącznie
+przy dodatnim dekodowanym czynniku szumu, nie wymyśla źródła.
+Nie wykonuje jeszcze stosowania gain, smoothing, noise ROM,
+sinusoid ani syntezy 64-QMF; nie publikuje PCM. Oryginalne
+API odtwarzania nie jest zmienione. Testy dla ogonów 2/6,
+odmiennych targetów z obu ramek, noise-only i rollback
+oczekują **pierwszej kompilacji/testu na Fedorze**.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-gain PKG_CONFIG=/bin/false
+make test-aac-sbr-temporal-power test-aac-sbr-temporal-qmf test-aac-sbr-payload test-aac-sbr-adts-qmf probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 | grep -E 'SBR-53|Rdzen:|odrzucona'
+```
+
+Następny krok po PASS: zaprojektować opóźnione stosowanie współczynników
+gain do właściwych slotów QMF z ciągłą historią smoothing/noise/sine
+i pełnym rollback. Nie dopuszczać niezależnego zysku dla fragmentu
+obwiedni przed otrzymaniem jej końca z kolejnej ramki.
