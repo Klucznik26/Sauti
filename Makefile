@@ -637,6 +637,16 @@ $(OBJDIR)/test_aac_sbr_temporal_qmf: tests/test_aac_sbr_temporal_qmf.c include/s
 test-aac-sbr-temporal-qmf: $(OBJDIR)/test_aac_sbr_temporal_qmf
 	./$(OBJDIR)/test_aac_sbr_temporal_qmf
 
+AAC_SBR_TEMPORAL_POWER_SRC := src/decoders/modern/aac/sauti_aac_sbr_temporal_power.c
+AAC_SBR_TEMPORAL_POWER_DEPS := $(sort $(AAC_SBR_TEMPORAL_QMF_DEPS) $(AAC_SBR_TEMPORAL_POWER_SRC))
+
+$(OBJDIR)/test_aac_sbr_temporal_power: tests/test_aac_sbr_temporal_power.c include/sauti_aac_sbr_temporal_power.h $(AAC_SBR_TEMPORAL_POWER_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_temporal_power.c $(AAC_SBR_TEMPORAL_POWER_DEPS) -lm -no-pie
+
+.PHONY: test-aac-sbr-temporal-power
+test-aac-sbr-temporal-power: $(OBJDIR)/test_aac_sbr_temporal_power
+	./$(OBJDIR)/test_aac_sbr_temporal_power
+
 AAC_SBR_ADTS_QMF_DEPS := $(sort $(AAC_HE_ADTS_QMF_SRC) $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS))
 
 $(OBJDIR)/test_aac_sbr_adts_qmf: tests/test_aac_sbr_adts_qmf.c tests/test_aac_sbr_adts_mono.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) | $(OBJDIR)
@@ -646,8 +656,8 @@ $(OBJDIR)/test_aac_sbr_adts_qmf: tests/test_aac_sbr_adts_qmf.c tests/test_aac_sb
 test-aac-sbr-adts-qmf: $(OBJDIR)/test_aac_sbr_adts_qmf
 	./$(OBJDIR)/test_aac_sbr_adts_qmf
 
-$(OBJDIR)/sauti_he_aac_probe: tools/sauti_he_aac_probe.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) | $(OBJDIR)
-	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_aac_probe.c $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) -lm -no-pie
+$(OBJDIR)/sauti_he_aac_probe: tools/sauti_he_aac_probe.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_aac_probe.c $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) -lm -no-pie
 
 .PHONY: probe-he-aac test-aac-he-probe-build
 probe-he-aac test-aac-he-probe-build: $(OBJDIR)/sauti_he_aac_probe
