@@ -18,6 +18,7 @@
  */
 #include "sauti_aac_he_adts_qmf.h"
 #include "sauti_aac_sbr_temporal_qmf.h"
+#include "sauti_aac_sbr_temporal_power.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -396,7 +397,9 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     unsigned max_tail=0u;
     size_t hf_target_frames=0u;
     size_t qmf_prepared_frames=0u;
+    size_t power_frames=0u,power_envelopes=0u,power_handoffs=0u;
     SautiAacSbrQmfAnalysisState temporal_analysis={0};
+    SautiAacSbrTemporalPowerState temporal_power={0};
     for(size_t i=0;i<limit;i++){
         uint8_t frame[MAX_ADTS_FRAME];
         size_t len=0;
@@ -481,6 +484,21 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             break;
         }
         qmf_prepared_frames++;
+        SautiAacSbrTemporalPowerReport power_report;
+        if(!sauti_aac_sbr_temporal_power_measure(
+               &temporal_history,baseline_hf,32u*64u,
+               &temporal_power,&power_report)){
+            printf("  ramka %zu: SBR-53c pomiar energii HF odrzucony (bez PCM HE-AAC)\n",i);
+            break;
+        }
+        power_frames++;
+        power_envelopes+=power_report.completed_count;
+        if(power_report.completed_count &&
+           power_report.completed[0].source==0u){
+            power_handoffs++;
+            printf("  ramka %zu: SBR-53c zakonczono poprzednia obwiednie HF, slotow=%u (bez PCM)\n",
+                   i,power_report.completed[0].slots);
+        }
         if(owners.previous_slots){
             printf("  ramka %zu: SBR QMF 0..%u z poprzedniej ramki (env=%u,noise=%u); %u..31 z biezacej\n",
                    i,(unsigned)owners.previous_slots-1u,
@@ -497,6 +515,9 @@ static void diagnose_core_sequence(const char *path,size_t limit){
            (unsigned long long)temporal_history.frames,handoff_count,max_tail);
     printf("  SBR-53a: cele HF energia/szum/harmoniczne sprawdzone dla %zu ramek (bez syntezy HE-AAC PCM)\n",hf_target_frames);
     printf("  SBR-53b: ciagla analiza QMF 32 + HF transpose dla %zu ramek (bez finalnego PCM HE-AAC)\n",qmf_prepared_frames);
+    printf("  SBR-53c: ciagly pomiar HF=%zu ramek, pelne obwiednie=%zu, dokonczenia=%zu, pozostale sloty=%u (bez finalnego PCM HE-AAC)\n",
+           power_frames,power_envelopes,power_handoffs,
+           temporal_power.pending?temporal_power.pending_remaining:0u);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
