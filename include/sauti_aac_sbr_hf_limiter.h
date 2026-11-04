@@ -58,4 +58,23 @@ int sauti_aac_sbr_hf_limit(const SautiAacSbrTables *tables,
                             size_t output_count,
                             SautiAacSbrLimiterReport *report);
 
+
+/* Optional SBR-noise-aware limiter: when source QMF energy is exactly
+ * zero, a positive decoded noise factor permits zero SIGNAL gain.
+ * Noise is synthesized separately from the decoded envelope and ROM.
+ * Legacy sauti_aac_sbr_hf_limit remains fail-closed for this case.
+ * allow_noise_source must only be enabled after validating that every
+ * applicable zero-source band has a positive finite SBR noise factor.
+ * State/output/report atomicity is identical to the legacy entry. */
+int sauti_aac_sbr_hf_limit_noise_aware(
+    const SautiAacSbrTables *tables,
+    const SautiAacSbrEnergyFrame *energy,
+    const uint8_t *slot_borders,unsigned slots,
+    const uint8_t *limiter_edges,unsigned limiter_count,
+    unsigned gain_mode,
+    const SautiAacSbrComplex *input,size_t input_count,
+    SautiAacSbrComplex *output,size_t output_count,
+    SautiAacSbrLimiterReport *report,
+    unsigned allow_noise_source);
+
 #endif
