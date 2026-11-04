@@ -224,9 +224,71 @@ static void test_atomic_failure_modes(void) {
     assert(state.frames==2u && state.quant_state.has_env);
     puts("SBR-29: CRC/PS/invalid FIL, unsupported rate, truncated payload and warm rollback PASS");
 }
+/* A legitimate FIXVAR frame may end one SBR time slot after the
+ * current AAC frame. Side-data parsing is allowed, but QMF still must
+ * refuse until a temporal lookahead buffer is implemented. */
+static void test_temporal_fixvar_17_side_data(void){
+    SautiAacSbrHeader hdr;SautiAacSbrTables tab;
+    choose(&hdr,&tab);
+    SautiAacSbrPayloadState state={0};
+    SautiAacSbrPayloadFrame out;
+    Bits warm,extended={0};
+    payload(&warm,&hdr,&tab,1u,0u,0u);
+    assert(sauti_aac_sbr_payload_sce_parse(
+        warm.data,sizeof(warm.data),0u,warm.bit,48000u,&state,&out));
+    put(&extended,4u,13u); /* extension_type */
+    put(&extended,1u,0u);  /* reuse SBR header */
+    put(&extended,1u,0u);  /* bs_data_extra */
+    put(&extended,2u,1u);  /* FIXVAR */
+    put(&extended,2u,1u);  /* absolute trailing border 16+1 */
+    put(&extended,2u,3u);  /* 3 trailing relative borders: 4 env */
+    put(&extended,2u,2u);  /* 17-6 = 11 */
+    put(&extended,2u,1u);  /* 11-4 = 7 */
+    put(&extended,2u,0u);  /* 7-2 = 5 */
+    put(&extended,3u,4u);  /* pointer */
+    for(unsigned i=0u;i<4u;i++)put(&extended,1u,1u); /* high resolution */
+    for(unsigned i=0u;i<4u;i++)put(&extended,1u,1u); /* time delta env */
+    for(unsigned i=0u;i<2u;i++)put(&extended,1u,1u); /* time delta noise */
+    for(unsigned i=0u;i<tab.n_noise;i++)put(&extended,2u,0u);
+    for(unsigned e=0u;e<4u;e++)
+        for(unsigned j=0u;j<tab.n_high;j++)put(&extended,1u,0u);
+    for(unsigned e=0u;e<2u;e++)
+        for(unsigned j=0u;j<tab.n_noise;j++)put(&extended,1u,0u);
+    put(&extended,1u,0u); /* no harmonic */
+    put(&extended,1u,0u); /* no extended data */
+    align_byte(&extended);
+
+    SautiAacSbrPayloadState prior=state;
+    SautiAacSbrPayloadFrame saved=out;
+    SautiAacSbrPayloadStage stage=SAUTI_SBR_PAYLOAD_INPUT;
+    assert(!sauti_aac_sbr_payload_sce_parse_ex(
+        extended.data,sizeof(extended.data),0u,extended.bit,48000u,
+        &state,&out,&stage));
+    assert(stage==SAUTI_SBR_PAYLOAD_BORDERS);
+    assert(memcmp(&state,&prior,sizeof(state))==0);
+    assert(memcmp(&out,&saved,sizeof(out))==0);
+
+    assert(sauti_aac_sbr_payload_temporal_parse_ex(
+        extended.data,sizeof(extended.data),0u,extended.bit,48000u,
+        &state,&out,&stage));
+    assert(stage==SAUTI_SBR_PAYLOAD_OK);
+    assert(out.grid.frame_class==1u && out.grid.env_count==4u);
+    assert(out.grid.env_border[0]==0u &&
+           out.grid.env_border[1]==5u &&
+           out.grid.env_border[2]==7u &&
+           out.grid.env_border[3]==11u &&
+           out.grid.env_border[4]==17u);
+    assert(out.env_edges[4]==34u);
+    assert(out.noise_edges[2]==34u);
+    assert(state.frames==2u);
+    SautiAacSbrHfJointConfig hf;
+    assert(!sauti_aac_sbr_payload_make_hf(&out,&hf));
+    puts("SBR-43: FIXVAR 0,5,7,11,17 parsed as side-data; strict PCM path rejects PASS");
+}
 int main(void){
     test_header_grid_entropy_and_harmonics();
     test_atomic_failure_modes();
+    test_temporal_fixvar_17_side_data();
     puts("PASS HE-AAC SBR-29 entropy-coded FIL SCE payload to QMF-frame parameters");
     return 0;
 }
