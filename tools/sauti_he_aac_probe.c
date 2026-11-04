@@ -21,6 +21,7 @@
 #include "sauti_aac_sbr_temporal_power.h"
 #include "sauti_aac_sbr_temporal_gain.h"
 #include "sauti_aac_sbr_temporal_apply.h"
+#include "sauti_aac_sbr_temporal_noise.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -402,7 +403,9 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     size_t power_frames=0u,power_envelopes=0u,power_handoffs=0u;
     size_t gain_frames=0u,gain_envelopes=0u,gain_noise_only=0u;
     size_t apply_frames=0u,apply_emitted=0u;
+    size_t noise_frames=0u,noise_vectors=0u,noise_positive=0u;
     SautiAacSbrTemporalApplyState temporal_apply={0};
+    SautiAacSbrTemporalNoiseState temporal_noise={0};
     SautiAacSbrQmfAnalysisState temporal_analysis={0};
     SautiAacSbrTemporalPowerState temporal_power={0};
     for(size_t i=0;i<limit;i++){
@@ -520,6 +523,22 @@ static void diagnose_core_sequence(const char *path,size_t limit){
         }
         apply_frames++;
         if(apply_report.emitted)apply_emitted++;
+        /* SBR-53f: align the canonical noise sequence with the
+         * frame actually emitted by SBR-53e, never with a future
+         * owner's current SBR side data. Still NO PCM synthesis. */
+        SautiAacSbrTemporalNoiseFrame noise_frame;
+        SautiAacSbrTemporalNoiseReport noise_report;
+        if(!sauti_aac_sbr_temporal_noise_prepare(
+               &temporal_history,&apply_report,&temporal_noise,
+               &noise_frame,&noise_report)){
+            printf("  ramka %zu: SBR-53f kolejnosc ROM noise odrzucona (bez PCM HE-AAC)\n",i);
+            break;
+        }
+        if(noise_report.emitted){
+            noise_frames++;
+            noise_vectors+=noise_report.vectors;
+            noise_positive+=noise_report.nonzero_amplitudes;
+        }
         if(power_report.completed_count &&
            power_report.completed[0].source==0u){
             power_handoffs++;
@@ -544,6 +563,17 @@ static void diagnose_core_sequence(const char *path,size_t limit){
         if(sauti_aac_sbr_temporal_gain_apply_flush(
                &temporal_apply,final_hf,32u*64u,&final_report)){
             apply_emitted++;
+            SautiAacSbrTemporalNoiseFrame last_noise;
+            SautiAacSbrTemporalNoiseReport last_report;
+            if(sauti_aac_sbr_temporal_noise_flush(
+                   &final_report,&temporal_noise,
+                   &last_noise,&last_report)){
+                noise_frames++;
+                noise_vectors+=last_report.vectors;
+                noise_positive+=last_report.nonzero_amplitudes;
+            }else{
+                puts("  SBR-53f: nie udalo sie zakonczyc sekwencji ROM noise (bez PCM)");
+            }
         }else if(temporal_apply.pending_slots){
             printf("  SBR-53e: koncowa obwiednia oczekuje na nastepna ramke, nierozwiazane sloty=%u (bez PCM)\n",
                    temporal_apply.pending_slots);
@@ -563,6 +593,9 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     printf("  SBR-53e: QMF gain zastosowany z opoznieniem: wejscia=%zu, gotowe ramki HF=%zu, oczekujace sloty=%u (bez koncowego PCM HE-AAC)\n",
            apply_frames,apply_emitted,
            temporal_apply.pending_slots);
+    printf("  SBR-53f: ROM noise gotowe ramki=%zu, wektory=%zu, dodatnia amplituda=%zu, index=%u (bez finalnego PCM HE-AAC)\n",
+           noise_frames,noise_vectors,noise_positive,
+           temporal_noise.rom.index);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
