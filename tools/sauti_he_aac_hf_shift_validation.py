@@ -93,6 +93,13 @@ def evaluate(low, candidate, reference, lag=-6, maximum=512,
         fixed_holdout = measure(base, hf, ref, holdout, candidate_shift)
         zero_train = measure(base, hf, ref, train, 0)
         zero_holdout = measure(base, hf, ref, holdout, 0)
+        # Reject contradictions caused by a missing mandatory finalist
+        # or by comparing different training windows. Both candidate
+        # and zero shifts were scored over the same full training half.
+        if (abs(train_corr) + 1e-12 < abs(fixed_train) or
+                abs(train_corr) + 1e-12 < abs(zero_train)):
+            raise ValueError("best HF shift is weaker than preselected "
+                             "or zero shift on the same training window")
         result.append({
             "train": name, "chosen_shift": shift,
             "train_corr": train_corr,
@@ -227,6 +234,9 @@ def main():
               f"heldout_corr={row['fixed_holdout']:+.6f}; "
               f"shift 0 train={row['zero_train']:+.6f}, "
               f"heldout={row['zero_holdout']:+.6f}")
+    print("SBR-54p: SHIFT SEARCH CORRECTED: multi-phase screen, "
+          "full-resolution shortlist; previously measured shift always "
+          "checked on all train samples")
     print("Diagnostic cross-validation only: one good held-out correlation "
           "does NOT prove normative QMF delay; retained signed correlation "
           "is essential. NO PCM or decoder changes.")
