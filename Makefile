@@ -719,6 +719,10 @@ test-aac-sbr-fixed-lag-audit:
 test-aac-sbr-hf-shift-audit:
 	python3 tools/sauti_he_aac_hf_shift_audit.py --self-test
 
+.PHONY: test-aac-sbr-hf-shift-validation
+test-aac-sbr-hf-shift-validation:
+	python3 tools/sauti_he_aac_hf_shift_validation.py --self-test
+
 AAC_SBR_TEMPORAL_GAIN_BRIDGE_SRC := src/decoders/modern/aac/sauti_aac_sbr_temporal_gain_bridge.c
 
 $(OBJDIR)/test_aac_sbr_temporal_gain_bridge: tests/test_aac_sbr_temporal_gain_bridge.c include/sauti_aac_sbr_temporal_gain_bridge.h $(AAC_SBR_TEMPORAL_GAIN_BRIDGE_SRC) | $(OBJDIR)
