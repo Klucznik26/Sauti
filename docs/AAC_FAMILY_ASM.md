@@ -5128,3 +5128,28 @@ python3 tools/sauti_qmf_low_manifest.py --core-rate 24000 \
 ```
 
 **Critical unfinished dependency:** there is still no instrumented FFmpeg analysis-QMF W exporter fed by these identical core PCM frames. The `he_test_ffmpeg_reference.f32le` audio output is *not* complex QMF and is not valid input for the independent comparator. Do not claim numerical reference agreement or change production audio until the independent W tensor is available. The manifest's producer label is a declaration, not cryptographic proof of independent processing.
+
+
+## SBR-54w phase III — FFmpeg float QMF instrumentation, not yet validated (2026-11-05)
+
+Added:
+- `tools/sauti_ffmpeg_qmf_instrument.py`: fail-closed patcher for **disposable FFmpeg checkout** `libavcodec/aacsbr_template.c`. The patch targets the float 32-subband `sbr_qmf_analysis` routine. An opt-in instrumented binary (environment variables `SAUTI_SBR54W_CORE` and `SAUTI_SBR54W_QMF`) overrides only the analysis input with **the byte-identical shared 1024-float core PCM** and captures complex W in FFmpeg's **own** filterbank at the point *before HF generation*. Carries six W slots to match the W[i-6] diagnostic contract. It aborts if wrong slot count, incomplete PCM or failed binary output.
+- `tools/sauti_ffmpeg_qmf_manifest.py`: records exact output size and source core SHA256; marks the output as declared independent. This flag is a declaration, **not** provenance proof.
+- `make test-aac-sbr-ffmpeg-qmf-instrument`: tests injection anchors and repeat-patch rejection on a synthetic function; it does not compile a real FFmpeg checkout.
+
+**Safeguards:** Run only against a disposable copy and a separate local FFmpeg build, never system-installed FFmpeg. Run mono, one thread, fixed 1024-sample frames, float decoder path. The instrumented process is strictly a diagnostic, not for playback. Review generated C diff before building. Reference extraction is **not yet Fedora-validated**. Upstream FFmpeg code layout may differ, and this patch intentionally rejects unsupported layouts instead of guessing. Licensing and copyright of FFmpeg code remain FFmpeg's own; no FFmpeg QMF code has been incorporated into production Sauti.
+
+**Fedora phase III validation (first step):**
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-ffmpeg-qmf-instrument
+```
+
+**Then on a disposable upstream checkout**:
+```sh
+python3 tools/sauti_ffmpeg_qmf_instrument.py --dry-run /path/to/ffmpeg-source
+python3 tools/sauti_ffmpeg_qmf_instrument.py /path/to/ffmpeg-source
+```
+
+No independent QMF values have yet been compared. Next gate: build the modified float FFmpeg binary separately, decode the target mono HE-AAC while setting both environment paths, ensure exact output frame counts, generate the independent JSON manifest, and invoke `tools/sauti_he_aac_qmf_reference_audit.py`. No production decoder changes until numerical comparisons are credible.
