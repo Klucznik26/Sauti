@@ -3113,3 +3113,46 @@ Po PASS 53f: kontrolowana integracja pełnych poziomów
 szumu z wygładzaniem, tłumieniem w pasmach harmonicznych,
 historią 4-slotowej fazy i normatywną syntezą w testowym
 torze, nie w obecnym produkcyjnym torze PCM.
+
+
+## SBR-53f potwierdzone na Fedorze; SBR-53g podgląd do testów (2026-11-05)
+
+**Potwierdzone przez użytkownika:** `test-aac-sbr-temporal-noise`
+PASS (ogon 2/6, indeks ROM, rollback, zerowa amplituda), regresje
+`test-aac-sbr-temporal-apply` i `test-aac-sbr-adts-qmf` PASS.
+Realny `~/Sauti-fixtures/he_test.aac` — 50/50 diagnostycznych
+ramek ROM, 43 200 wektorów, wszystkie z dodatnią amplitudą,
+końcowy indeks modulo 512 = 192. Wciąż stary tor PCM
+odrzuca trzecią ramkę (indeks 2). Nie mylić diagnostyki
+HF QMF ze zdekodowanym audio.
+
+Nowe **SBR-53g**: stateless `sauti_aac_sbr_temporal_noise_mix_preview`
+oblicza podgląd zespolonych wartości
+`gain-adjusted HF QMF + ROM vector * raw noise amplitude`
+wyłącznie dla ramek już wydanych przez SBR-53e i z
+pasującym indeksem ramki SBR-53f. Rozszerzono diagnostyczny
+format SBR-53f o jawną `active[32*64]` mapę — nawet dla
+zerowej amplitudy. Podgląd weryfikuje każde aktywne
+wyjście ROM z oryginalną 512-elementową tablicą,
+wszystkie liczby, licznik oraz indeks modulo 512, a
+na dowolny błąd pozostawia bufor wynikowy bez zmian.
+To **surowa demonstracja złożenia torów**, nie normatywny
+HE-AAC: NIE ma jeszcze wygładzania 5-slotowego,
+bramkowania ataku/harmonicznych, dodatkowych sinusoid,
+stabilizacji energii szumu czy syntezy 64-QMF/PCM.
+SBR-53g nie zmienia istniejącego toru PCM.
+
+Testy dodane, **nieuruchomione na Fedorze**:
+przekazanie 2/6 slotów, rozróżnienie zmiany amplitudy
+z poprzedniej i bieżącej ramki, ciągłość 512-elementowej
+tablicy ROM, zerowa amplituda z aktywnym indeksem,
+niepoprawny frame_index/ROM/NaN/overflow i rollback.
+Ważne: docelowy mixer nie może dodawać surowych
+amplitud bez docelowego smoothing i bramkowania.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-mix test-aac-sbr-temporal-noise test-aac-sbr-temporal-apply test-aac-sbr-adts-qmf probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 | grep -E 'SBR-53|Rdzen:|odrzucona'
+```
