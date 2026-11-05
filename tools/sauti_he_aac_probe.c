@@ -1258,6 +1258,17 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                             last_preview,32u*64u,
                             final_sine_hf,32u*64u,
                             &sine_qmf_state,&final_sine_qmf_report);
+                    SautiAacSbrComplex final_units_high[32u*64u];
+                    const int final_units_ok=final_sine_ok &&
+                        sauti_aac_sbr_temporal_hf_units_float(
+                            final_sine_hf,32u*64u,&last_noise,
+                            final_units_high,32u*64u);
+                    if(final_units_ok)
+                        units_qmf_frames++;
+                    else{
+                        puts("  SBR-54i: finalna konwersja HF odrzucona");
+                        units_io_ok=0;
+                    }
                     if(final_sine_ok){
                         sine_qmf_frames++;
                         sine_marked+=final_sine_qmf_report.marked_bins;
@@ -1304,6 +1315,34 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                             }else{
                                 puts("  SBR-54h: finalny tonal PCM 64-QMF odrzucony");
                                 sine_io_ok=0;
+                            }
+                        }
+                        if(final_units_ok){
+                            float final_units_pcm[2048u];
+                            SautiAacSbrTemporalPcmPreviewReport
+                                final_units_report;
+                            if(sauti_aac_sbr_temporal_pcm_preview_flush(
+                                   final_units_high,32u*64u,
+                                   &last_noise,&final_report,&last_mix,
+                                   &units_pcm_state,final_units_pcm,2048u,
+                                   &final_units_report) &&
+                               final_units_report.emitted &&
+                               final_units_report.frame_index==
+                                   final_pcm_report.frame_index){
+                                units_pcm_frames++;
+                                for(unsigned j=0u;j<2048u;j++){
+                                    const double v=final_units_pcm[j];
+                                    units_pcm_power+=v*v;
+                                    if(fabs(v)>units_pcm_peak)
+                                        units_pcm_peak=fabs(v);
+                                }
+                                if(units_spool &&
+                                   fwrite(final_units_pcm,sizeof(float),2048u,
+                                          units_spool)!=2048u)
+                                    units_io_ok=0;
+                            }else{
+                                puts("  SBR-54i: finalny PCM domeny float odrzucony");
+                                units_io_ok=0;
                             }
                         }
                         if(component_prefix){
@@ -1438,6 +1477,11 @@ static void diagnose_core_sequence(const char *path,size_t limit,
            sine_preview_peak,
            sine_preview_frames?
              sqrt(sine_delta_power/((double)sine_preview_frames*2048.0)):0.0);
+    printf("  SBR-54i: HF QMF domain A/B: ramki=%zu, PCM=%zu, RMS=%.9g, peak=%.9g, factor=32768 (DIAGNOSTYKA domeny, nie normatywny HE-AAC)\n",
+           units_qmf_frames,units_pcm_frames,
+           units_pcm_frames?
+             sqrt(units_pcm_power/((double)units_pcm_frames*2048.0)):0.0,
+           units_pcm_peak);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
@@ -1463,6 +1507,22 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         }
         for(unsigned c=0u;c<SBR_COMPONENTS;c++)
             if(component_spool[c])fclose(component_spool[c]);
+    }
+    if(units_spool){
+        const int complete=units_io_ok && decoded==limit &&
+            preview_frames==limit && units_qmf_frames==limit &&
+            units_pcm_frames==limit && units_pcm_state.closed==1u &&
+            units_pcm_state.emitted_frames==limit;
+        if(!complete)
+            fprintf(stderr,"SBR-54i: eksport POMINIETY: niepelny PCM (%zu/%zu)\n",
+                    units_pcm_frames,limit);
+        else if(sbr54c_export(units_spool,units_path,
+                              limit*2048u*sizeof(float)))
+            printf("  SBR-54i: zapisano A/B HF units PCM f32le: %s, ramki=%zu, probki=%zu (DO WALIDACJI)\n",
+                   units_path,units_pcm_frames,limit*2048u);
+        else
+            fprintf(stderr,"SBR-54i: nie mozna zapisac %s\n",units_path);
+        fclose(units_spool);
     }
     if(sine_spool){
         const int sine_complete=sine_io_ok && decoded==limit &&
