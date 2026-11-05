@@ -791,28 +791,6 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             printf("  ramka %zu: SBR-54g estymacja LPC/chirp odrzucona (bez zmiany PCM)\n",i);
             break;
         }
-        SautiAacSbrComplex predicted_hf[32u*64u];
-        for(unsigned t=0u;t<32u;t++){
-            const SautiAacSbrTemporalHfSlot *owner=&targets.slot[t];
-            const SautiAacSbrPayloadFrame *f=
-                owner->source==0u?&temporal_history.previous:
-                                  &temporal_history.current;
-            const SautiAacSbrChirp *chirp=
-                owner->source==0u?&lpc_previous_chirp:&next_chirp;
-            if(owner->source>1u ||
-               !sauti_aac_sbr_hf_predict(
-                   &f->patches,&f->tables,
-                   lpc_input+t*32u,3u*32u,1u,
-                   &lpc_coeff,chirp,
-                   predicted_hf+t*64u,64u)){
-                printf("  ramka %zu: SBR-54g HF predictor dla slotu %u odrzucony\n",
-                       i,t);
-                break;
-            }
-        }
-        /* This check is deliberately separate from the actual
-         * predictive call above; a rejected slot must not let the
-         * diagnostic use uninitialized predicted coefficients. */
         SautiAacSbrComplex predicted_check[32u*64u];
         unsigned lpc_good=1u;
         for(unsigned t=0u;t<32u;t++){
