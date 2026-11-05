@@ -58,7 +58,7 @@ INJECTION_BEGIN = """#if !USE_FIXED
 """
 INJECTION_END = """#if !USE_FIXED
     if (sbr54w_core_path) {
-        float sbr54w_record[32][4][2] = {{{0}}};
+        float sbr54w_record[32][4][2] = {0};
         for (int sbr54w_slot = 0; sbr54w_slot < 32; sbr54w_slot++)
             for (int sbr54w_band = 0; sbr54w_band < 4; sbr54w_band++) {
                 int src_slot = sbr54w_slot - 6;
@@ -120,8 +120,8 @@ def patch(text):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("ffmpeg_checkout", help="disposable FFmpeg source root")
-    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("ffmpeg_checkout", nargs="?", help="disposable FFmpeg source root")
+    parser.add_argument("--dry-run", action="store_true")\n    parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     file = Path(args.ffmpeg_checkout) / "libavcodec" / "aacsbr_template.c"
     try:
