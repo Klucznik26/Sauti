@@ -3532,3 +3532,61 @@ noise, a nie dobierać globalny gain. Jeśli TAK,
 najpierw sprawdzić normatywne wzmocnienie i opóźnienie.
 Stary tor odrzucający ramkę 2 pozostaje niezmieniony;
 nowe 54d nie tworzy PCM i nie integruje się z playerem.
+
+
+## SBR-54d wyniki Fedora: HF/NOISE nie wyjaśniają referencji (2026-11-05)
+
+Na `he_test.aac` użytkownik potwierdził przebiegi 50 ramek,
+102400 próbek i wspólne wyrównanie -6 próbek na podstawie LOW
+(korelacja LOW = 0.991765). Rekombinacja trzech osobno
+syntezowanych składników PCM zgadza się z 54a:
+**diff RMS = 4.36321317e-08, max = 2.55869236e-06**.
+Zatem test ablation mierzy składniki tego samego toru,
+nie przypadkowo rozjechane ścieżki eksportu.
+
+Least-squares residual przy jednym, wspólnym lag:
+- LOW: waga 1.44595651, RMS error 0.015439245,
+  relative 12.807%;
+- LOW + HF: wagi 1.44596558 i 0.000169065579,
+  RMS error 0.0154386103, relative 12.807%;
+  przyrost jakości zaledwie **0.0005 p.p.**;
+- LOW + HF + NOISE: wagi 1.44596559,
+  0.000169252947, -0.0000144148608,
+  RMS error 0.0154386096, relative 12.807%;
+  przyrost od NOISE **~0.0000 p.p.**.
+Wszystkie wagi są TYLKO diagnostyczne: NIE wolno
+wpisywać ich jako stałych gain do dekodera.
+
+**Ocena: sukces SBR-54d jako ablation diagnostycznej,
+ale nie jako HE-AAC conformance.** HF i NOISE mają
+nieprawidłowy poziom, a nawet swobodny dobór amplitudy
+nie odtwarza brakującego pasma referencji. Pierwszym
+obszarem weryfikacji jest ścieżka SBR-09 dequant energii
+→ SBR-53a target HF/noise → SBR-53c pomiar mocy
+→ SBR-53d limiter i gain → SBR-53f RAW amplitude,
+oraz osobno sygnatura fazy QMF SBR-27/26.
+Nie wprowadzać globalnego scalingu, clippingu ani
+kolejnego modułu harmonicznych na podstawie samych
+liczników PASS.
+
+**Błąd syntetycznego testu SBR-54d:**
+`make test-aac-he-stem-ablation` na Fedorze dał
+`AssertionError: 2.3295012311199514e-10`
+dla progu `1e-10`. Syntetyczny fit ma umyślne
+ridge regularization `1e-9`, które pozostawia
+residual rzędu `2.33e-10`, mimo prawidłowych wag.
+Poprawiono TYLKO test (próg na `1e-8`, nadal
+ściśle bliski zeru względem sygnału); nie zmieniono
+modelu, dekodera ani rzeczywistych wyników regresji.
+Niezbędne ponowne wykonanie syntetycznego testu
+na Fedorze.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-he-stem-ablation PKG_CONFIG=/bin/false
+```
+Następny etap: konkretny audyt jednostek energii,
+faz, limiter boost i harmonics/gating w HF. Punkt
+kontrolny: mierzyć istotny spadek error RMS
+po dołączeniu HF, nie tylko generację 50 ramek.
