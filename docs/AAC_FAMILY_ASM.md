@@ -3590,3 +3590,73 @@ Następny etap: konkretny audyt jednostek energii,
 faz, limiter boost i harmonics/gating w HF. Punkt
 kontrolny: mierzyć istotny spadek error RMS
 po dołączeniu HF, nie tylko generację 50 ramek.
+
+
+## SBR-54d Fedora PASS; SBR-54e audyt rozdziału energii HF/NOISE (2026-11-05)
+
+**Faktycznie potwierdzone:**
+- `make test-aac-he-stem-ablation` po zmianie progu
+  `1e-10 -> 1e-8` przeszedł PASS na Fedorze.
+  To kończy SBR-54d: osobna diagnostyka korelacji,
+  wspólny lag -6 próbek, 3 składniki i raport residual.
+- SBR-54d realny pomiar: tylko LOW daje 0.991765
+  korelacji z FFmpeg oraz błąd 12.807% po dopasowaniu.
+  Dodanie HF zmniejsza błąd o 0.0005 punktu procentowego;
+  NOISE nie obniża go w mierzalny sposób.
+- Nie wolno interpretować współczynników regresji
+  jako dozwolonych poprawek DSP.
+
+**SBR-54e — nowy wyizolowany, tylko-odczytowy
+moduł** `sauti_aac_sbr_temporal_energy_audit`:
+- dla oryginalnej, opóźnionej ramki i każdego pasma-slotu
+  analizuje deklarowaną energię E z SBR-53a,
+  aktualne |HF QMF|² po SBR-53e i nominalny przydział
+  NOISE = raw_amplitude² z SBR-53f;
+- zlicza biny o (HF_power + nominal_noise_power)/E > 1.0001
+  i maksymalny stosunek, energię sumaryczną oraz
+  sygnalizowane pasma harmonicznych;
+- sprawdza zgodność geometrii HF, ramki oraz matematycznej
+  zależności nominalnej energii NOISE=E*Q/(1+Q);
+- NIE zastępuje normatywnego obliczania szumu,
+  nie wymusza ograniczeń amplitudy, nie zmienia
+  dekodera ani wyjściowych próbek audio;
+- nie utożsamia bezpośrednio energii zespolonej QMF
+  z normatywnym PCM, bo do tego potrzebna jest pełna
+  analiza normalizacji, fazy, harmonics/gating i
+  cross-term między HF a noise.
+
+**Podejrzenie sprawdzane, a nie jeszcze udowodniona
+przyczyna**: w obecnym kodzie SBR-53d HF gain celuje
+w całą energię E, a SBR-53f dodaje osobno noise
+`sqrt(E)*sqrt(Q/(1+Q))`. Syntetyczny przykład E=4,
+Q=0.25, HF_amp=2 daje 4 + 0.8 = 4.8
+(1.2x nominalnego budżetu). Na realnych danych
+trzeba sprawdzić, czy i jak często występuje
+podobny nadmiar oraz ile wynosi jego rzeczywista skala.
+
+Nowy test `test-aac-sbr-temporal-energy-audit`
+sprawdza nadbudżet 1.2x, noise-only poniżej E,
+błędny indeks ramki, geometrię, niezgodny target
+i końcowy NaN przy atomowym rollback.
+Nowa diagnostyka w `sauti_he_aac_probe`
+wypisuje SBR-54e ramka 2 oraz SBR-54e audit bilansu
+sumaryczny dla 50 ramek, wraz z finalnym flush.
+
+**Wymaga pierwszej kompilacji i walidacji na Fedorze.**
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-energy-audit test-aac-sbr-temporal-mix test-aac-sbr-temporal-pcm-preview probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 |
+  grep -E 'SBR-54e|SBR-54a|SBR-53e|Rdzen:|odrzucony'
+```
+
+**Kamień milowy SBR-54e:** konkretny pomiar nadmiaru
+mocy HF+NOISE względem oryginalnych E dla 50 ramek.
+Jeśli hipoteza nadalokacji okaże się prawdziwa,
+dopiero osobno testować normatywny podział E
+w zależności od Q/limiter i harmonicznych. Jeśli
+nie — skoncentrować się na QMF phase/aliasing/
+LPC-chirp i porównaniu fazowym. Nadal NIE mamy
+HE-AAC conformance-quality PCM; nie zmieniać
+starego dekodera obsługującego 2 pierwsze ramki.
