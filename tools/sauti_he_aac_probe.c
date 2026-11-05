@@ -408,6 +408,13 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     size_t noise_frames=0u,noise_vectors=0u,noise_positive=0u;
     size_t mix_frames=0u,mix_active=0u,mix_noise=0u;
     size_t smooth_frames=0u,smooth_active=0u,smooth_bypasses=0u;
+    /* SBR-53h audit: distinguish a genuine FIR slot from deliberate
+     * SBR header bypass and envelope-attack bypass. Counting is by
+     * ORIGINAL source owner, including any inherited FIXVAR tail. */
+    size_t smoothing_headers[2]={0u,0u};
+    size_t smoothing_attack_envs=0u;
+    size_t smoothing_header_slots=0u,smoothing_attack_only=0u;
+    size_t smoothing_both=0u,smoothing_fir_slots=0u;
     SautiAacSbrTemporalSmoothState temporal_smooth={0};
     SautiAacSbrTemporalApplyState temporal_apply={0};
     SautiAacSbrTemporalNoiseState temporal_noise={0};
@@ -486,6 +493,44 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             break;
         }
         hf_target_frames++;
+        /* Audit the real source of the smoothing bypass. Do not
+         * override any bitstream flag or synthesize alternative PCM. */
+        size_t header_slots=0u,attack_only=0u,both=0u,fir=0u;
+        int smoothing_policy_ok=payload.bs_smoothing_mode<=1u;
+        for(unsigned t=0u;t<32u && smoothing_policy_ok;t++){
+            const SautiAacSbrSlotOwner owner=owners.slot[t];
+            const SautiAacSbrPayloadFrame *source=
+                owner.source==0u?&temporal_history.previous:
+                                  &temporal_history.current;
+            if(owner.source>1u ||
+               owner.envelope>=source->grid.env_count ||
+               source->bs_smoothing_mode>1u ||
+               source->attack[owner.envelope]>1u){
+                smoothing_policy_ok=0;
+                break;
+            }
+            const unsigned head=source->bs_smoothing_mode;
+            const unsigned attack=source->attack[owner.envelope];
+            if(targets.slot[t].smooth_bypass!=(head||attack)){
+                smoothing_policy_ok=0;
+                break;
+            }
+            if(head)header_slots++;
+            if(head && attack)both++;
+            if(!head && attack)attack_only++;
+            if(!head && !attack)fir++;
+        }
+        if(!smoothing_policy_ok){
+            printf("  ramka %zu: SBR-53h-audit niezgodny tryb filtru/ataku (bez PCM)\n",i);
+            break;
+        }
+        smoothing_headers[payload.bs_smoothing_mode]++;
+        for(unsigned e=0u;e<payload.grid.env_count;e++)
+            smoothing_attack_envs+=payload.attack[e];
+        smoothing_header_slots+=header_slots;
+        smoothing_attack_only+=attack_only;
+        smoothing_both+=both;
+        smoothing_fir_slots+=fir;
         /* SBR-53b exercises actual filter-bank analysis and
          * slot-owned HF patch transpose on the real AAC core.
          * Do not infer a playable 64-band HE-AAC waveform. */
@@ -649,6 +694,14 @@ static void diagnose_core_sequence(const char *path,size_t limit){
            mix_frames,mix_active,mix_noise);
     printf("  SBR-53h: wygladzanie amplitud ROM, ramki=%zu, aktywne pasma-sloty=%zu, bypass transient=%zu (bez normatywnego PCM HE-AAC)\n",
            smooth_frames,smooth_active,smooth_bypasses);
+    printf("  SBR-53h-audit: naglowki smoothing_mode=0: %zu, =1: %zu; obwiednie attack=%zu; sloty header-bypass=%zu, attack-only=%zu, wspolne=%zu, aktywny FIR=%zu; bypass zgodny=%s (bez PCM)\n",
+           smoothing_headers[0],smoothing_headers[1],
+           smoothing_attack_envs,smoothing_header_slots,
+           smoothing_attack_only,smoothing_both,smoothing_fir_slots,
+           smooth_frames==decoded &&
+           smoothing_header_slots+smoothing_attack_only==smooth_bypasses &&
+           smoothing_header_slots+smoothing_attack_only+smoothing_fir_slots==32u*decoded
+               ? "TAK":"NIE");
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
