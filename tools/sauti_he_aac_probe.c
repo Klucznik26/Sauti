@@ -514,7 +514,10 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     /* Spool all preview samples and publish only after a complete
      * successful decode and final one-frame-delayed QMF flush. */
     FILE *spool=NULL;
-    int export_io_ok=1;
+    FILE *component_spool[SBR_COMPONENTS]={0};
+    char component_path[SBR_COMPONENTS][1024];
+    Sbr54cComponents component_state={0};
+    int export_io_ok=1,component_io_ok=1;
     if(export_path){
         if(!strcmp(export_path,path)){
             fputs("SBR-54b: plik eksportu nie moze byc plikiem ADTS!\n",stderr);
@@ -524,6 +527,38 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         if(!spool){
             fprintf(stderr,"SBR-54b: nie mozna utworzyc bufora: %s\n",strerror(errno));
             fclose(f);return;
+        }
+    }
+    if(component_prefix){
+        if(!export_path){
+            fputs("SBR-54c: eksport skladnikow wymaga takze sciezki PREVIEW\n",stderr);
+            fclose(f);if(spool)fclose(spool);return;
+        }
+        for(unsigned k=0u;k<SBR_COMPONENTS;k++){
+            const int n=snprintf(component_path[k],
+                 sizeof(component_path[k]),"%s.%s.f32le",
+                 component_prefix,component_names[k]);
+            if(n<0 || (size_t)n>=sizeof(component_path[k]) ||
+               !strcmp(component_path[k],path) ||
+               !strcmp(component_path[k],export_path)){
+                fputs("SBR-54c: niepoprawna sciezka eksportu skladnikow\n",stderr);
+                component_io_ok=0;
+                break;
+            }
+            component_spool[k]=tmpfile();
+            if(!component_spool[k]){
+                fprintf(stderr,"SBR-54c: brak bufora %s: %s\n",
+                        component_names[k],strerror(errno));
+                component_io_ok=0;
+                break;
+            }
+        }
+        if(!component_io_ok){
+            for(unsigned k=0u;k<SBR_COMPONENTS;k++)
+                if(component_spool[k])fclose(component_spool[k]);
+            if(spool)fclose(spool);
+            fclose(f);
+            return;
         }
     }
     printf("Diagnostyka ciaglosci rdzenia AAC-LC + temporal SBR (%zu ramek, bez HE-AAC PCM):\n",limit);
@@ -746,6 +781,11 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             noise_vectors+=noise_report.vectors;
             noise_positive+=noise_report.nonzero_amplitudes;
         }
+        /* The SBR-54c decomposition consumes the LOW bands of the
+         * prior frame. Snapshot before SBR-54a replaces its buffer. */
+        SautiAacSbrComplex emitted_low[32u*32u];
+        if(component_prefix && noise_report.emitted)
+            memcpy(emitted_low,temporal_pcm.held_low,sizeof(emitted_low));
         /* SBR-54a: delay the LOW QMF by exactly the same frame as
          * SBR-53e HF, then synthesize the full 64-band preview.
          * This is a float waveform, NOT conformance HE-AAC PCM. */
@@ -763,6 +803,20 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             break;
         }
         if(pcm_report.emitted){
+            if(component_prefix){
+                float components[SBR_COMPONENTS][SBR_SAMPLES];
+                if(!sbr54c_render(emitted_low,adjusted_hf,preview,
+                                 &noise_frame,&component_state,components)){
+                    puts("  SBR-54c: rozdzielenie pasm QMF odrzucone");
+                    component_io_ok=0;
+                    break;
+                }
+                for(unsigned c=0u;c<SBR_COMPONENTS;c++)
+                    if(fwrite(components[c],sizeof(float),SBR_SAMPLES,
+                              component_spool[c])!=SBR_SAMPLES)
+                        component_io_ok=0;
+                if(!component_io_ok)break;
+            }
             if(spool && fwrite(preview_pcm,sizeof(float),2048u,spool)!=2048u)
                 export_io_ok=0;
             preview_frames++;
@@ -829,6 +883,19 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                            last_preview,32u*64u,&last_noise,
                            &final_report,&last_mix,&temporal_pcm,
                            final_pcm,2048u,&final_pcm_report)){
+                        if(component_prefix){
+                            float components[SBR_COMPONENTS][SBR_SAMPLES];
+                            if(!sbr54c_render(temporal_pcm.held_low,
+                                             final_hf,last_preview,
+                                             &last_noise,
+                                             &component_state,components)){
+                                puts("  SBR-54c: finalne skladniki QMF odrzucone");
+                                component_io_ok=0;
+                            }else for(unsigned c=0u;c<SBR_COMPONENTS;c++)
+                                if(fwrite(components[c],sizeof(float),SBR_SAMPLES,
+                                          component_spool[c])!=SBR_SAMPLES)
+                                    component_io_ok=0;
+                        }
                         if(spool && fwrite(final_pcm,sizeof(float),2048u,spool)!=2048u)
                             export_io_ok=0;
                         preview_frames++;
@@ -894,6 +961,29 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
+    if(component_prefix){
+        const int complete=component_io_ok && decoded==limit &&
+            preview_frames==limit && component_state.frames==limit &&
+            temporal_pcm.closed==1u;
+        if(!complete){
+            fprintf(stderr,"SBR-54c: eksport pominiety: niepelne skladniki %zu/%zu\n",
+                    component_state.frames,limit);
+        }else for(unsigned c=0u;c<SBR_COMPONENTS;c++){
+            if(sbr54c_export(component_spool[c],component_path[c],
+                             limit*SBR_SAMPLES*sizeof(float))){
+                const double rms=sqrt(component_state.sum_sq[c]/
+                                      ((double)limit*SBR_SAMPLES));
+                printf("  SBR-54c: %s: %s, RMS=%.9g, peak=%.9g, ramki=%zu\n",
+                       component_names[c],component_path[c],rms,
+                       component_state.peak[c],component_state.frames);
+            }else{
+                fprintf(stderr,"SBR-54c: nie zapisano %s\n",
+                        component_path[c]);
+            }
+        }
+        for(unsigned c=0u;c<SBR_COMPONENTS;c++)
+            if(component_spool[c])fclose(component_spool[c]);
+    }
     if(spool){
         const int complete=export_io_ok && decoded==limit &&
             preview_frames==limit && preview_samples==limit*2048u &&
@@ -931,7 +1021,8 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     fclose(f);
 }
 static int decode(const char *path,size_t max_decode,
-                  const char *export_path){
+                  const char *export_path,
+                  const char *component_prefix){
     FILE *f=fopen(path,"rb");
     if(!f){perror(path);return 2;}
     SautiAacHeAdtsQmfState state={0};
@@ -1006,7 +1097,7 @@ static int decode(const char *path,size_t max_decode,
                 }
             }
             printf("Udane ramki przed bledem: %zu\n",decoded);
-            diagnose_core_sequence(path,max_decode,export_path);
+            diagnose_core_sequence(path,max_decode,export_path,component_prefix);
             fclose(f);
             return 1; /* anticipated unsupported/invalid file */
         }
@@ -1031,9 +1122,9 @@ static int decode(const char *path,size_t max_decode,
 }
 
 int main(int argc,char **argv){
-    if(argc<2 || argc>4){
+    if(argc<2 || argc>5){
         fprintf(stderr,
-            "Uzycie: %s nagranie.aac [maks_ramek_do_dekodowania] [PCM_PREVIEW.f32le]\n",
+            "Uzycie: %s nagranie.aac [maks_ramek_do_dekodowania] [PCM_PREVIEW.f32le] [DIAGNOSTIC_PREFIX]\n",
             argv[0]);
         return 2;
     }
@@ -1065,7 +1156,8 @@ int main(int argc,char **argv){
     }
     if(limit>summary.frames)limit=summary.frames;
     printf("Dekodowanie pierwszych %zu ramek (ciagly stan):\n",limit);
-    const int status=decode(argv[1],limit,argc==4?argv[3]:NULL);
+    const int status=decode(argv[1],limit,argc>=4?argv[3]:NULL,
+                            argc==5?argv[4]:NULL);
     if(status==0)
         puts("OK: sprobowane ramki przeszly. To NIE dowodzi zgodnosci brzmienia HE-AAC.");
     else if(status==1)
