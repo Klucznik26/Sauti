@@ -4231,3 +4231,69 @@ realny SBR-54i nadal zaledwie odtwarza LOW
 (z korelacją 0.991765, ale nierozwiązanym błędem
 12.807%), a działający HF wciąż nie ma
 potwierdzonej poprawnej amplitudy, fazy i jakości.
+
+
+## SBR-54k Fedora PASS; SBR-54l realne kompletne obwiednie (2026-11-05)
+
+**Potwierdzony PASS na Fedorze dla SBR-54k:**
+`make test-aac-sbr-gain-limit-partition test-aac-sbr-gain-partition PKG_CONFIG=/bin/false`
+zbudował oba testy przy `-O2 -std=c11 -Wall -Wextra -Werror`.
+SBR-54k PASS: osobne grupy z boost, delta transient,
+jednoczesne ograniczenie HF i szumu, maksymalny boost
+oraz atomowy rollback dla NaN, Q, sin i geometrii.
+SBR-54j PASS ponownie. Są to **testy matematyki,
+nie gotowego HE-AAC**.
+
+**SBR-54l — adapter na realne dane, jeszcze nieprzetestowany
+na Fedorze:**
+- nowy kod `sauti_aac_sbr_temporal_reference_gain_calculate`
+  czyta `SBR-53c` full original envelope power i
+  oryginalny `SautiAacSbrTemporalHistory`, zachowując
+  `source=0` (poprzednia ramka z FIXVAR) i `source=1`;
+- najpierw waliduje tę samą strukturę
+  istniejącym `SBR-53d`, którego wartości posłużą
+  jako punkt porównania (NIE są modyfikowane);
+- z oryginalnego payloadu odtwarza E, Q i sinusoidy
+  z midpoint high-frequency harmonic flags,
+  generuje lim-bands poprzez SBR-17, uruchamia
+  przetestowany 54j+54k i porównuje HF gains;
+- dla delta=0 używa aktualnie oznaczonej lokalnej
+  `transient_env`, a dla pozostałych delta=1.
+  **Ważna niedokończona część normy**: FFmpeg
+  uwzględnia także delayed `e_a` oraz aktywną,
+  historyczną bramkę sinusoid. Dlatego jest to
+  obserwacyjny model z poprawną matematyką 54j/54k,
+  NIE normatywna synteza HE-AAC;
+- porównuje liczbę pasm o zmienionym HF gain,
+  liczbę aktualnie oznaczonych harmonicznych i
+  pasm szumu, ograniczenia szumu, liczność grup,
+  sumy HF power `sum(Ecurr * G²)` w obu modelach,
+  liczbę ukończonych obwiedni FIXVAR;
+- test `test-aac-sbr-temporal-reference-gain`
+  obejmuje 2- i 6-slotowe FIXVAR z prawdziwym
+  SBR-53c pomiarem, rozróżnia właścicieli,
+  transient/no-transient oraz harmonics,
+  zawiera późny NaN, ujemny Q, zły rozmiar
+  obwiedni i atomic rollback;
+- **żadnych zmian** w oryginalnym SBR-53d,
+  SBR-53e, SBR-54a, SBR-31 ani wyjściowym PCM.
+  Brak odrębnej kandydatury PCM na tym etapie;
+  przed zastąpieniem starego toru wymagane jest
+  bezpieczne przeniesienie opóźnionych
+  osobnych amplitud HF/noise/sine do
+  niezależnego QMF i pomiar korelacji z FFmpeg.
+
+**Komendy pierwszego testu:**
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-reference-gain test-aac-sbr-gain-limit-partition probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 |
+  grep -E 'SBR-54l|SBR-53d|SBR-54f|Rdzen:|odrzucony'
+```
+Sukcesem diagnostycznym będzie 50 ramek obliczeń
+i zgodna liczba kompletnych obwiedni 53c/53d/54l,
+bez regresji dotychczasowego PCM. Dalszy etap:
+zintegrować **poprawne wyjście audio w osobnym
+torze**, nie przeklejać samych znormalizowanych
+współczynników 54k do starego SBR-53d.
