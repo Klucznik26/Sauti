@@ -3726,3 +3726,83 @@ chirp/LPC i zgodnej syntezy fazowej oraz porównania
 z niezależnym dekoderem. Bez potwierdzenia nie
 zmieniać globalnego gain ani nie dopisywać sztucznego
 skalowania obwiedni.
+
+
+## SBR-54f Fedora PASS; SBR-54g LPC(2) + rzeczywisty chirp (2026-11-05)
+
+**Potwierdzona Fedora SBR-54f:**
+- `test-aac-sbr-temporal-envelope-audit`: PASS dla
+  32+2 slotów FIXVAR, pełnej średniej energii,
+  wycofywania błędnych danych.
+- `test-aac-sbr-temporal-energy-audit`: PASS.
+- realny plik `~/Sauti-fixtures/he_test.aac`:
+  50 ramek PCM PREVIEW i 57 pełnych obwiedni,
+  1539 pasm-obwiedni, 43200 slotów-pasm,
+  zgodność sum 54f z 54e = TAK.
+  Średni bilans HF+noise/target = 0.924334359.
+  Nadbudżet na 112/1539 obwiedni-pasm (~7.28%),
+  ponad 2x dla 62/1539 (~4.03%),
+  ponad 10x dla 0,
+  maksimum ŚREDNIE 2.8452198 dla źródłowej
+  ramki 2, obwiedni 0, pasma 18 (10 slotów).
+- Ta informacja koryguje błędną intuicję, że
+  lokalne 75.4x z 54e oznacza globalne przesterowanie.
+  Nie wprowadzać skali globalnej ani clippingu.
+- Wcześniejsze 54d wykazało, że dodanie dotychczasowych
+  HF i NOISE niemal nie zmienia błędu (12.807%)
+  referencji. Teraz priorytetem jest JAKOŚĆ HF
+  i zgodność fazy, nie liczniki energii.
+
+**Przegląd kodu przyniósł konkretny trop:**
+`sauti_aac_sbr_temporal_qmf_prepare` do SBR-53b
+korzysta tylko z `sauti_aac_sbr_hf_transpose`,
+a więc kopiuje dolne pasmo QMF na odpowiednie
+wysokie pasmo, bez LPC/chirp. Istniejący SBR-13
+`sauti_aac_sbr_hf_predict` realizuje matematyczny
+predyktor i `sauti_aac_sbr_chirp_update`, ale
+potrzebował rzeczywistych współczynników alpha0/1.
+
+**SBR-54g (nowy kod, wymaga Fedora PASS):**
+- `sauti_aac_sbr_lpc_estimate_2` — niezależna,
+  atomowa, autorska estymacja zespolonego
+  AR(2) z 2 slotów historycznych oraz 32
+  bieżących. Solves Hermitian covariance with
+  diagonal loading, rejects non-finite inputs
+  and unstable coefficients. No external codec.
+  Jest to estymator eksperymentalny, jeszcze
+  NIE potwierdzony jako dokładny wariant ISO.
+- Test syntetyczny generuje sygnał z zadanymi
+  zespolonymi alpha0=-0.55+0.14i,
+  alpha1=0.13-0.06i i porównuje odzyskane
+  współczynniki; waliduje rollback NaN,
+  krótkie bufory oraz ciszę.
+- Realny próbnik przyjmuje zaktualizowane
+  `invf_mode` z ramki SBR, oblicza czasowe
+  współczynniki i wywołuje istniejący
+  SBR-13 dla każdego z 32 slotów,
+  z poprawnymi 2 historycznymi slotami
+  i oryginalnym właścicielem FIXVAR.
+- Wypisuje `SBR-54g: LPC(2)+chirp alternatywa`
+  z liczbą niezerowych współczynników,
+  chirp i RMS różnicy między uzyskanym QMF
+  a dotychczasowym transpose QMF.
+- **Nie podłącza się jeszcze do 53c/d/e/g
+  ani do PCM PREVIEW i nie zmienia starego
+  toru AAC.** Realne A/B wyjścia PCM jest
+  kolejnym, osobnym kamieniem milowym,
+  dopiero po walidacji nowego estymatora.
+
+Komendy:
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-lpc-estimate test-aac-sbr-hf-predict probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 |
+  grep -E 'SBR-54g|SBR-54f|SBR-54a|Rdzen:|odrzucona|odrzucony'
+```
+Oczekujemy syntetycznego PASS oraz 50 ramek
+LPC(2) analizy bez regresji 54f/54a.
+**Nie zakładać z góry**, czy alternatywa LPC
+poprawi dźwięk; zmiana QMF nie świadczy o
+korelacji z niezależnym dekoderem. O tym
+rozstrzygnie następne A/B PCM vs FFmpeg.
