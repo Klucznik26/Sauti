@@ -4863,3 +4863,77 @@ na niezmienionej osi czasu, z referencyjnymi
 wektorami QMF/FFmpeg. Żadnej zmiany
 produkcyjnego dekodera bez poprawy
 rzeczywistej korelacji i bilansu.
+
+
+## SBR-54r Fedora PASS; nowy SBR-54s six-slot source-QMF diagnostic (2026-11-05)
+
+**Potwierdzony test Fedory SBR-54r**:
+`make test-aac-sbr-qmf-index-audit` PASS.
+Pierwsze sześć slotów ramki N korzysta w modelu
+indeksów FFmpeg z analizy `W[N-1][26..31]`, a
+slot 6 odpowiada `W[N][0]`. Dotychczasowe
+Sauti-53b bierze wprost `W[N][slot]`.
+Jest to **porównanie pochodzenia źródła**, nie
+numeryczna walidacja zespolonych współczynników.
+Utrzymujemy również korektę rozmiarów:
+1 slot analizy = 32 próbki rdzenia, 1 slot
+syntezy = 64 próbki wyjściowego PCM.
+
+**SBR-54s (diagnostyka QMF w C, jeszcze NIE
+przetestowana na Fedorze)**:
+- `sauti_aac_sbr_temporal_source6_prepare`
+  bierze istniejące **rzeczywiste** 32x32 zespolone
+  LOW QMF z SBR-53b, zachowuje ostatnie
+  sześć slotów poprzedniej ramki i zwraca
+  `aligned_low[t] = W[t-6]`, łącznie z
+  oryginalnymi `Re` i `Im`;
+- pierwsza ramka ma wyzerowany preroll w
+  slotach 0..5, który raportowany jest
+  jako *nieznany*, a nie jako prawidłowa
+  rekonstrukcja źródła;
+- niezależnie od źródłowej historii 6 slotów
+  wybiera oryginalnego właściciela geometrii
+  HF przez `SBR-52/53a`. FIXVAR ogon
+  długości 2/6 slotów **nie jest tożsamy**
+  z historią źródłowego QMF; nie wolno
+  łączyć tych dwóch mechanizmów;
+- na tak przesuniętym źródle wykonuje tylko
+  `sauti_aac_sbr_hf_transpose`, w drugim
+  buforze, bez zmiany zasilania SBR-53c,
+  wzmacniaczy, szumu, sinusoid, ani PCM;
+- nowy target
+  `make test-aac-sbr-temporal-source6`
+  sprawdza: 2/6 FIXVAR, pierwszy preroll,
+  skopiowane Re/Im na granicy ramek,
+  mapowanie oryginalnego właściciela
+  docelowego HF, zgodność wektorów z
+  per-slot transpose, NaN, replay i atomowy
+  rollback;
+- w `sauti_he_aac_probe` nowa linia
+  `SBR-54s: realne HF QMF W[i-6] audit`
+  z liczbą ukończonych ramek, skopiowanych
+  slotów poprzedniego LOW, preroll,
+  osobną liczbą FIXVAR owner-slot,
+  liczbą zmienionych zespolonych slot-binów,
+  `complex_corr` między prostym transponowaniem
+  SBR-53b a źródłem 6-slotowym i RMS różnicy QMF.
+- ta korelacja porównuje DWA WARIANTY SAUTI,
+  **nie jest korelacją z FFmpeg**. Nie daje
+  prawa do podmiany indeksów w produkcji.
+  Gdy uzyskamy pomiar, należy zbudować
+  niezależne referencyjne wektory pośrednie
+  W/X z FFmpeg lub zestaw normatywny, zanim
+  zmienimy kolejność HF/LOW w dekoderze.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-source6 probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe \
+  ~/Sauti-fixtures/he_test.aac 50 |
+  grep -E 'SBR-54s|SBR-53b|Rdzen:|odrzucon'
+```
+
+**Status:** SBR-54r PASS na Fedorze. SBR-54s
+w repo, jeszcze bez Fedora PASS. Oryginalny
+PCM HE-AAC i SBR-31 są bez zmian.
