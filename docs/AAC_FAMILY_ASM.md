@@ -4369,3 +4369,86 @@ python3 tools/sauti_he_aac_compare_pcm.py \
 ```
 Nie zastępować 53d/53e produkcyjnie nawet jeśli
 korelacja lub RMS będą wyglądały obiecująco.
+
+
+## SBR-54m Fedora real PCM: wysoki HF pozostaje błędny; SBR-54n diagnostyka stałego lag (2026-11-05)
+
+**Rzeczywisty wynik SBR-54m (użytkownik, Fedora)**:
+- pełne 50/50 ramek G-only HF i PCM, 102400 próbek,
+  eksport `he_test_sauti_preview.f32le.refhf.f32le` PASS;
+- PCM: RMS 0.143121202, peak 7.11286831;
+  FFmpeg: RMS 0.120547656, peak 0.22226046;
+- automatyczny wybór lag -4424 próbek (−92.167 ms),
+  korelacja 0.673192, optymalny fitted scale
+  0.44203216, względny błąd 84.572%.
+- wcześniej wariant prawie LOW (SBR-54i, HF/32768)
+  miał lag −6 próbek, korelację 0.991765,
+  optymalny fitted scale 1.4459592 i względny
+  błąd 12.807%.
+**Istotne zastrzeżenie:** automatyczna selekcja
+maksymalnej korelacji przy różnych lag może wybierać
+odległe, fałszywe maksimum; nie porównywać 0.673
+i 0.991 jako bezpośredniego kryterium dopóki nie
+zastosujemy JEDNEGO, fizycznie uzasadnionego lag.
+Gain fitting w zewnętrznym narzędziu jest jedynie
+diagnostyką, a nie poprawką dekodera. Duży peak
+przy prawie LOW-only RMS i niski residual nie
+potwierdzają jeszcze zgodnej syntezy HF.
+
+**SBR-54n: dodano niezależną, czysto diagnostyczną
+analizę przy ustalonym przesunięciu**:
+- `tools/sauti_he_aac_fixed_lag_audit.py` czyta
+  trzy istniejące raw f32le: baseline LOW/proxy,
+  kandydat SBR-54m, referencję FFmpeg.
+  Podstawowe wyrównanie = −6 próbek; opcjonalne
+  `--lag` pozwala jawnie zmienić przesunięcie.
+  Nie wyszukuje nowego maksimum korelacji.
+- osobno pokazuje baseline i HF-only RMS/peak,
+  korelację i residual RMS po diagnostycznym
+  LS fit gain+DC na dokładnie tym SAMYM oknie.
+  Raportuje również `HF = candidate - baseline`
+  jako źródło nadmiernych wartości.
+- dodatkowo ortogonalizuje HF względem LOW i DC,
+  mierzy korelację pozostałej składowej HF z
+  residualem `FFmpeg - fitted_LOWo`.
+  Wylicza maksymalny udział resztowej wariancji,
+  który mógłby zostać wyjaśniony przez tę
+  składową HF przy jednym dodatkowym LS
+  współczynniku; **nie stosuje** tej wartości
+  w dekoderze i nie twierdzi zgodności.
+- `--self-test` generuje deterministyczny
+  przypadek, w którym HF istotnie wyjaśnia
+  resztę, oraz test zerowego unikalnego HF
+  i zbyt małego overlap. Makefile:
+  `test-aac-sbr-fixed-lag-audit`.
+- `units.f32le` jako baseline jest **proxy LOW**,
+  ponieważ zawiera bardzo małe HF/32768.
+  Preferować czysty LOW-only stem, gdy będzie
+  dostępny, i oznaczać przybliżenie.
+
+**Status SBR-54n: zapisany w GitHub, test Fedora PENDING.**
+Nie zmienia kodu AAC, SBR-53d, SBR-54m ani
+żadnego bitu eksportowanego PCM; tylko analiza
+trzech plików z poprzedniej próby.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-fixed-lag-audit
+
+python3 tools/sauti_he_aac_fixed_lag_audit.py \
+  --lag -6 \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.units.f32le \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.refhf.f32le \
+  ~/Sauti-fixtures/he_test_ffmpeg_reference.f32le
+```
+
+**Decyzja dopiero po raporcie:** jeżeli HF wnosi
+mało informacji residual-correlated, nie dodawać
+kolejnego globalnego mnożnika. Zamiast tego
+szukać niezgodności fazy, QMF delay, mapowania
+pasm i domen skalowania. Jeśli unikalny HF
+jest silnie zgodny z residualem, zaprojektować
+osobne, prawidłowe wzmocnienie HF/noise/sine
+w wewnętrznej domenie SBR i zbadać normatywny
+end-to-end PCM. Bez zmian produkcyjnych w ciemno.
