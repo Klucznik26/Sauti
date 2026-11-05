@@ -5033,3 +5033,18 @@ make test-aac-sbr-hf-patch-route-audit test-aac-sbr-hf-band-audit probe-he-aac P
 ```
 
 **Next decision**: inspect the source LOW bins and original patch geometry. A stable patch source but poor audio fit should shift investigation toward source-QMF amplitude, LPC/chirp, phase alignment, envelope/noise/sine and a reference intermediate QMF vector, not another arbitrary HF scale.
+
+
+## SBR-54v — LOW source complex energy/phase audit (2026-11-05)
+
+After SBR-54u Fedora PASS, a read-only audit now measures source LOW QMF subbands 2–5 from the existing `source6_low[32][32]`. Metrics: Re/Im/total energy, RMS, peak and location, and adjacent-slot phase product normalized across each band. First-frame missing 6-slot preroll is excluded, including from phase products. No comparison to independent FFmpeg QMF vectors is claimed. No decoder or PCM change.
+
+**Fedora validation pending:**
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-low-source-audit probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 | grep -E 'SBR-54v|Rdzen:|odrzucon'
+```
+
+Next: independently extract FFmpeg or normative complex W/X vectors before using any 54v metric as a conformance claim.
