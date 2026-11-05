@@ -3401,3 +3401,64 @@ make probe-he-aac PKG_CONFIG=/bin/false
 Następnie użyć FFmpeg wyłącznie do utworzenia
 referencji i uruchomić porównanie; dopóki nie ma
 wyników korelacji/skali, **SBR-54b pozostaje WIP**.
+
+
+## SBR-54b porównane z FFmpeg: duża niezgodność; SBR-54c izolacja przyczyny (2026-11-05)
+
+**Wynik na Fedorze** po prawidłowym eksporcie f32le:
+- PREVIEW: 102400 próbek, RMS 0.900186297, peak 36.0775452;
+- FFmpeg: 102400 próbek, RMS 0.120547656, peak 0.22226046;
+- znaleziony przez korelator lag -4332 próbek, ale
+  korelacja zaledwie 0.069288; po optymalnym
+  skalowaniu signed 0.00794001 nadal pozostaje
+  błąd RMS 0.12098383 (~99.818% referencji).
+To NIE jest sam problem poziomu. Zmienianie globalnego
+gain, clipping albo potwierdzanie HE-AAC jest zabronione.
+Tak niska korelacja nie uprawnia do uznania -4332 za
+rzeczywisty delay/priming.
+
+**Nowy SBR-54c (diagnostyka, wymaga pierwszego testu Fedora):**
+Rozdzielenie diagnostycznej pełnej syntezy 64-QMF na
+trzy niezależne ciągłe banki, z tym samym źródłowym
+indeksem ramki i geometrią HF:
+1. low: tylko oryginalne dolne pasma AAC-LC QMF
+   dla właściwej, opóźnionej ramki;
+2. hf: tylko wysokie pasma po gain z SBR-53e,
+   BEZ dodatkowego szumu;
+3. noise: tylko różnica zespolonych współczynników
+   po miksie SBR-53g i przed nim, czyli surowy
+   szum ROM, z tym samym indeksem fazowym.
+
+Przed publikacją danych każda próbka jest sprawdzana:
+low_pcm + hf_pcm + noise_pcm musi odtworzyć pełny
+PCM PREVIEW w granicy tolerancji float32. Każdy stem
+zachowuje swój stan syntezy między ramkami, a
+eksport wymaga 50/50 ramek i poprawnego flush.
+Eksport jest WYŁĄCZNIE opcjonalny, podany jako
+czwarty ARGUMENT po nazwie pliku AAC, liczbie
+ramek oraz ścieżce głównego eksportu.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe \
+  ~/Sauti-fixtures/he_test.aac 50 \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le \
+  ~/Sauti-fixtures/he_test_parts
+for part in low hf noise; do
+  echo "=== $part ==="
+  python3 tools/sauti_he_aac_compare_pcm.py \
+    "$HOME/Sauti-fixtures/he_test_parts.$part.f32le" \
+    "$HOME/Sauti-fixtures/he_test_ffmpeg_reference.f32le" |
+    grep -E 'PREVIEW:|REFERENCE:|Best alignment:|Correlation:|After best scale'
+done
+```
+
+Kryterium: 50/50 stem frames, każdy plik
+409600 bajtów, brak dekompozycji niespójnej
+ze znanym PREVIEW. Dopiero RMS/correlation poszczególnych
+stemów pozwoli zdecydować, czy priorytetem jest
+poprawienie analizy/syntezy 32/64-QMF, wzmocnienia
+HF, czy surowego szumu. NIE dodawać następnego
+modułu harmonicznych zanim nie rozdzielimy źródła błędu.
