@@ -4608,3 +4608,78 @@ Następny krok po rzeczywistej walidacji:
   szukać problemu mapowania/phase/normalizacji
   w zespolonych pasmach, zamiast doklejać
   arbitralny PCM sample-shift.
+
+
+## SBR-54p Fedora PASS, ale naprawa aliasingu selekcji (+288 vs +295), 2026-11-05
+
+**Nowe realne dane na Fedorze (stara wersja selektora):**
+`test-aac-sbr-hf-shift-validation` syntetyczne przesunięcia
++37 i -48 oraz test złudnego optimum: wszystkie PASS.
+Dla `he_test.aac` (LOW vs FFmpeg lag=-6):
+- trenowanie na pierwszej połowie: wybrano +288,
+  korelacja TRAIN **-0.157254**, nieznana wcześniej
+  druga połowa **-0.263842**, wyjaśniono 6.961%
+  jej wariancji residualu;
+- trenowanie na drugiej połowie: wybrano +295,
+  lecz korelacja TRAIN wyniosła zaledwie **+0.048175**,
+  a walidacja na pierwszej części **+0.027005**,
+  wyjaśniono jedynie 0.073%;
+- jednocześnie w tej samej DRUGIEJ połowie
+  znane z SBR-54o **+288** dawało TRAIN
+  **-0.263842**, znacząco lepiej od +295.
+  W pierwszej połowie +288 dawało **-0.157254**.
+- zatem +295 jest **artefaktem narzędzia**, a nie
+  dowodem zmiennego opóźnienia QMF.
+
+**Znaleziony błąd w selekcji SBR-54p**:
+stary `select_shift` brał tylko 16 najlepszych
+z jednej fazy `positions[::16]`, a potem oceniał
+pełnopróbkowo TYLKO bliskich kandydatów.
+Takie decymowanie aliasuje składowe HF; globalnie
+silniejszy kandydat może w ogóle nie wejść na
+krótką listę. Sztuczny przypadek 8192 próbek
+ze szkodliwą fazą co 16 próbek dowiódł:
+stara procedura omija prawidłowe przesunięcie
++37, mimo że pełnopróbkowa korelacja sięga >0.8.
+
+**Poprawka zapisana w GitHub (wymaga testu Fedora):**
+- zgrubny skan osobno na gęstszej siatce
+  `positions[::4]` i na czterech niezależnych
+  fazach kroku 16: offset 0,4,8,12;
+- do dokładnej selekcji trafiają szerokie
+  shortlisty z każdej fazy, ich sąsiedzi,
+  `shift=0` i **obowiązkowo jawnie wskazany +288**;
+- pełnopróbkowy scoring na tym samym oknie
+  treningowym; jawny błąd, jeżeli wybrany shift
+  wypada słabiej niż +288 albo zero na tych
+  samych próbkach;
+- nowa regresja `stride-16 alias`, która wymaga
+  odnalezienia prawidłowego +37 na obu połowach.
+- nadal jest to przeszukiwanie shortlisty,
+  nie dowód globalnego optimum dla wszystkich
+  możliwych shiftów. Również nawet stabilne +288
+  z korelacjami -0.157/-0.264 tłumaczy tylko
+  część błędu, nie potwierdza normatywnego
+  opóźnienia ani polaryzacji SBR.
+
+**Wyłącznie narzędzie Python i dokumentacja.**
+Brak zmian Sauti QMF/AAC/HE-AAC, ROM, gain lub PCM.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-hf-shift-validation PKG_CONFIG=/bin/false
+python3 tools/sauti_he_aac_hf_shift_validation.py \
+  --lag -6 --max-shift 512 --test-shift 288 \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.units.f32le \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.refhf.f32le \
+  ~/Sauti-fixtures/he_test_ffmpeg_reference.f32le
+```
+
+**Kryterium:** żadne optymalne przesunięcie
+z podzbioru nie może mieć mniejszej bezwzględnej
+korelacji na pełnym train niż wcześniej
+zweryfikowane +288. Dopiero z wynikami
+walidacji obu połówek przechodzimy do
+izolowanego porównania faz zespolonych QMF,
+mapowania pasm oraz bilansu skali.
