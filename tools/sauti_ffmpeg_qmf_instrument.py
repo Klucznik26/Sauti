@@ -25,6 +25,8 @@ INJECTION_BEGIN = """#if !USE_FIXED
     static FILE *sbr54w_core_file;
     static FILE *sbr54w_qmf_file;
     static unsigned long long sbr54w_frame;
+    static int sbr54w_exhausted;
+    int sbr54w_active = 0;
     static float sbr54w_tail[6][4][2];
     float sbr54w_pcm[1024];
     const char *sbr54w_core_path = getenv("SAUTI_SBR54W_CORE");
@@ -33,7 +35,7 @@ INJECTION_BEGIN = """#if !USE_FIXED
         fprintf(stderr, "SBR-54w: both env paths are required\\n");
         abort();
     }
-    if (sbr54w_core_path) {
+    if (sbr54w_core_path && !sbr54w_exhausted) {
         if (nb != 1024 || sizeof(INTFLOAT) != sizeof(float)) {
             fprintf(stderr, "SBR-54w: require 1024-sample float core\\n");
             abort();
@@ -44,21 +46,35 @@ INJECTION_BEGIN = """#if !USE_FIXED
             sbr54w_qmf_file = fopen(sbr54w_qmf_path, "wb");
             if (!sbr54w_qmf_file) { perror(sbr54w_qmf_path); abort(); }
         }
-        if (fread(sbr54w_pcm, sizeof(float), 1024, sbr54w_core_file) != 1024) {
-            fprintf(stderr, "SBR-54w: core PCM exhausted or truncated\\n");
+        size_t sbr54w_got = fread(sbr54w_pcm, sizeof(float), 1024,
+                                  sbr54w_core_file);
+        if (sbr54w_got == 0 && feof(sbr54w_core_file)) {
+            /* The FFmpeg decode driver can invoke QMF more times
+             * than the requested audio output frames. Export only
+             * the complete supplied shared-core dataset; after EOF
+             * allow the normal FFmpeg input without aborting. */
+            fprintf(stderr,
+                    "SBR-54w: shared core exhausted after %llu complete "
+                    "QMF frames; leaving later FFmpeg QMF uninstrumented\\n",
+                    sbr54w_frame);
+            sbr54w_exhausted = 1;
+        } else if (sbr54w_got != 1024) {
+            fprintf(stderr, "SBR-54w: partial core PCM frame or read error\\n");
             abort();
+        } else {
+            for (int sbr54w_i = 0; sbr54w_i < 1024; sbr54w_i++)
+                if (!isfinite(sbr54w_pcm[sbr54w_i])) {
+                    fprintf(stderr, "SBR-54w: nonfinite core PCM\\n");
+                    abort();
+                }
+            in = sbr54w_pcm;
+            sbr54w_active = 1;
         }
-        for (int sbr54w_i = 0; sbr54w_i < 1024; sbr54w_i++)
-            if (!isfinite(sbr54w_pcm[sbr54w_i])) {
-                fprintf(stderr, "SBR-54w: nonfinite core PCM\\n");
-                abort();
-            }
-        in = sbr54w_pcm;
     }
 #endif
 """
 INJECTION_END = """#if !USE_FIXED
-    if (sbr54w_core_path) {
+    if (sbr54w_active) {
         float sbr54w_record[32][4][2] = {0};
         for (int sbr54w_slot = 0; sbr54w_slot < 32; sbr54w_slot++)
             for (int sbr54w_band = 0; sbr54w_band < 4; sbr54w_band++) {
@@ -119,11 +135,70 @@ def patch(text):
     return text[:start] + section + text[end:]
 
 
+def repair_exhaustion(text):
+    """Upgrade an already instrumented disposable FFmpeg checkout."""
+    if MARKER not in text:
+        raise ValueError("FFmpeg checkout not instrumented by SBR-54w")
+    old_begin = """    static unsigned long long sbr54w_frame;
+    static float sbr54w_tail"""
+    new_begin = """    static unsigned long long sbr54w_frame;
+    static int sbr54w_exhausted;
+    int sbr54w_active = 0;
+    static float sbr54w_tail"""
+    old_read = """        if (fread(sbr54w_pcm, sizeof(float), 1024, sbr54w_core_file) != 1024) {
+            fprintf(stderr, "SBR-54w: core PCM exhausted or truncated\\n");
+            abort();
+        }
+        for (int sbr54w_i = 0; sbr54w_i < 1024; sbr54w_i++)
+            if (!isfinite(sbr54w_pcm[sbr54w_i])) {
+                fprintf(stderr, "SBR-54w: nonfinite core PCM\\n");
+                abort();
+            }
+        in = sbr54w_pcm;"""
+    # A literal match from the original injected code is required.
+    if (text.count(old_begin) != 1 or text.count(old_read) != 1 or
+        text.count("    if (sbr54w_core_path) {") != 2):
+        raise ValueError("unexpected prior FFmpeg instrument code; refusing repair")
+    text = text.replace(old_begin, new_begin)
+    text = text.replace("    if (sbr54w_core_path) {",
+                        "    if (sbr54w_core_path && !sbr54w_exhausted) {",1)
+    text = text.replace(old_read, REPAIR_READ)
+    text = text.replace("    if (sbr54w_core_path) {",
+                        "    if (sbr54w_active) {",1)
+    return text
+
+REPAIR_READ = '''        size_t sbr54w_got = fread(sbr54w_pcm, sizeof(float), 1024,
+                                  sbr54w_core_file);
+        if (sbr54w_got == 0 && feof(sbr54w_core_file)) {
+            /* The FFmpeg decode driver can invoke QMF more times
+             * than the requested audio output frames. Export only
+             * the complete supplied shared-core dataset; after EOF
+             * allow the normal FFmpeg input without aborting. */
+            fprintf(stderr,
+                    "SBR-54w: shared core exhausted after %llu complete "
+                    "QMF frames; leaving later FFmpeg QMF uninstrumented\\n",
+                    sbr54w_frame);
+            sbr54w_exhausted = 1;
+        } else if (sbr54w_got != 1024) {
+            fprintf(stderr, "SBR-54w: partial core PCM frame or read error\\n");
+            abort();
+        } else {
+            for (int sbr54w_i = 0; sbr54w_i < 1024; sbr54w_i++)
+                if (!isfinite(sbr54w_pcm[sbr54w_i])) {
+                    fprintf(stderr, "SBR-54w: nonfinite core PCM\\n");
+                    abort();
+                }
+            in = sbr54w_pcm;
+            sbr54w_active = 1;
+        }'''
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("ffmpeg_checkout", nargs="?", help="disposable FFmpeg source root")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--repair-exhaustion", action="store_true")
     args = parser.parse_args()
     if args.self_test:
         sample = ('#include <stdint.h>\n'
@@ -139,6 +214,7 @@ def main():
                   '#endif\n')
         edited = patch(sample)
         assert MARKER in edited and "sbr54w_record" in edited
+        assert "sbr54w_exhausted" in edited
         try:
             patch(edited)
         except ValueError:
@@ -152,13 +228,13 @@ def main():
     file = Path(args.ffmpeg_checkout) / "libavcodec" / "aacsbr_template.c"
     try:
         before = file.read_text(encoding="utf-8")
-        after = patch(before)
+        after = repair_exhaustion(before) if args.repair_exhaustion else patch(before)
         if not args.dry_run:
             file.write_text(after, encoding="utf-8")
     except (OSError, ValueError) as exc:
         parser.exit(2, f"SBR-54w patch rejected: {exc}\n")
-    print("SBR-54w: FFmpeg patch anchors PASS" if args.dry_run
-          else f"SBR-54w: instrumented {file}")
+    print("SBR-54w: FFmpeg patch/repair anchors PASS" if args.dry_run
+          else f"SBR-54w: instrumented/updated {file}")
 
 
 if __name__ == "__main__":
