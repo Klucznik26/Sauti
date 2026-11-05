@@ -5247,3 +5247,26 @@ python3 tools/sauti_sbr54w_gain_audit.py \
 ```
 
 Next: validate amplitude convention, review low-band effective energy for bands 4–5, phase and filter edge effects. Do not equate `abs_coherence` with fraction of bit-exact agreement.
+
+
+### SBR-54w III — best complex-fit residuals, phase and lag next (2026-11-05)
+
+Fedora `sauti_sbr54w_gain_audit.py` measured, per LOW band, gain-corrected complex residual normalized to Sauti:
+
+| LOW | FFmpeg/Sauti RMS | Residual after complex gain | Coherence |
+|---|---:|---:|---:|
+| 2 | 32685.7675 | 0.0509517304 | 0.998701117 |
+| 3 | 33035.3651 | 0.0765318377 | 0.997067138 |
+| 4 | 3850.26481 | 0.996524351 | 0.0833019686 |
+| 5 | 2046.2611 | 0.99880265 | 0.048921026 |
+
+LOW 2–3 suggest near-common waveform with large scaling mismatch. LOW 4–5 remain uncorrelated after complex gain. Before changing the decoder check QMF integer-slot alignment: `tools/sauti_sbr54w_lag_audit.py` scans -16..16 reference-relative slot shifts, excluding the first 6 preroll slots in **both** signals and reporting best coherence and best complex residual. A high-coherence nonzero lag indicates potential time indexing mismatch; no improvement favors filter/window/modulation differences or weak energy, not necessarily a specific bug.
+
+```sh
+cd ~/Sauti && git pull --ff-only origin feature/aac-family-asm
+python3 tools/sauti_sbr54w_lag_audit.py \
+ /tmp/sbr54w-sauti.qmf.f32le /tmp/sbr54w-sauti.json \
+ /tmp/sbr54w-ffmpeg.qmf.f32le /tmp/sbr54w-ffmpeg.json
+```
+
+No production AAC changes; no QMF correctness claim from synthetic-only tests.
