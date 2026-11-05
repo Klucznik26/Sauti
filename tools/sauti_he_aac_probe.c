@@ -24,6 +24,7 @@
 #include "sauti_aac_sbr_temporal_noise.h"
 #include "sauti_aac_sbr_temporal_mix.h"
 #include "sauti_aac_sbr_temporal_smooth.h"
+#include "sauti_aac_sbr_temporal_pcm_preview.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -408,6 +409,9 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     size_t noise_frames=0u,noise_vectors=0u,noise_positive=0u;
     size_t mix_frames=0u,mix_active=0u,mix_noise=0u;
     size_t smooth_frames=0u,smooth_active=0u,smooth_bypasses=0u;
+    size_t preview_frames=0u,preview_samples=0u,preview_nonzero=0u;
+    size_t preview_first_nonzero=SIZE_MAX;
+    SautiAacSbrTemporalPcmPreviewState temporal_pcm={0};
     /* SBR-53h audit: distinguish a genuine FIR slot from deliberate
      * SBR header bypass and envelope-attack bypass. Counting is by
      * ORIGINAL source owner, including any inherited FIXVAR tail. */
@@ -584,6 +588,8 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             printf("  ramka %zu: SBR-53f kolejnosc ROM noise odrzucona (bez PCM HE-AAC)\n",i);
             break;
         }
+        SautiAacSbrComplex preview[32u*64u];
+        SautiAacSbrTemporalMixReport mix_report={0};
         if(noise_report.emitted){
             SautiAacSbrTemporalSmoothFrame smooth_frame;
             SautiAacSbrTemporalSmoothReport smooth_report;
@@ -596,8 +602,6 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             smooth_frames++;
             smooth_active+=smooth_report.active_bins;
             smooth_bypasses+=smooth_report.bypassed_slots;
-            SautiAacSbrComplex preview[32u*64u];
-            SautiAacSbrTemporalMixReport mix_report;
             if(!sauti_aac_sbr_temporal_noise_mix_preview(
                    adjusted_hf,32u*64u,&noise_frame,
                    &apply_report,&noise_report,
@@ -611,6 +615,33 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             noise_frames++;
             noise_vectors+=noise_report.vectors;
             noise_positive+=noise_report.nonzero_amplitudes;
+        }
+        /* SBR-54a: delay the LOW QMF by exactly the same frame as
+         * SBR-53e HF, then synthesize the full 64-band preview.
+         * This is a float waveform, NOT conformance HE-AAC PCM. */
+        float preview_pcm[2048u];
+        SautiAacSbrTemporalPcmPreviewReport pcm_report;
+        if(!sauti_aac_sbr_temporal_pcm_preview_push(
+               low_qmf,32u*32u,
+               noise_report.emitted?preview:NULL,
+               noise_report.emitted?32u*64u:0u,
+               noise_report.emitted?&noise_frame:NULL,
+               &apply_report,
+               noise_report.emitted?&mix_report:NULL,
+               &temporal_pcm,preview_pcm,2048u,&pcm_report)){
+            printf("  ramka %zu: SBR-54a PCM preview 64-QMF odrzucony (bez normatywnego HE-AAC)\n",i);
+            break;
+        }
+        if(pcm_report.emitted){
+            preview_frames++;
+            preview_samples+=pcm_report.samples;
+            preview_nonzero+=pcm_report.nonzero;
+            if(pcm_report.nonzero && preview_first_nonzero==SIZE_MAX)
+                preview_first_nonzero=pcm_report.frame_index;
+            if(pcm_report.frame_index==2u)
+                printf("  SBR-54a: ramka 2 PCM PREVIEW=%u probek, RMS=%.9g, max=%.9g, niezerowe=%u (NIE zweryfikowano HE-AAC)\n",
+                       pcm_report.samples,pcm_report.rms,
+                       pcm_report.peak,pcm_report.nonzero);
         }
         if(power_report.completed_count &&
            power_report.completed[0].source==0u){
@@ -660,6 +691,26 @@ static void diagnose_core_sequence(const char *path,size_t limit){
                     mix_frames++;
                     mix_active+=last_mix.active_bins;
                     mix_noise+=last_mix.noise_bins;
+                    float final_pcm[2048u];
+                    SautiAacSbrTemporalPcmPreviewReport final_pcm_report;
+                    if(sauti_aac_sbr_temporal_pcm_preview_flush(
+                           last_preview,32u*64u,&last_noise,
+                           &final_report,&last_mix,&temporal_pcm,
+                           final_pcm,2048u,&final_pcm_report)){
+                        preview_frames++;
+                        preview_samples+=final_pcm_report.samples;
+                        preview_nonzero+=final_pcm_report.nonzero;
+                        if(final_pcm_report.nonzero &&
+                           preview_first_nonzero==SIZE_MAX)
+                            preview_first_nonzero=final_pcm_report.frame_index;
+                        if(final_pcm_report.frame_index==2u)
+                            printf("  SBR-54a: ramka 2 PCM PREVIEW=%u probek, RMS=%.9g, max=%.9g, niezerowe=%u (NIE zweryfikowano HE-AAC)\n",
+                                   final_pcm_report.samples,
+                                   final_pcm_report.rms,
+                                   final_pcm_report.peak,
+                                   final_pcm_report.nonzero);
+                    }else
+                        puts("  SBR-54a: finalny PCM preview 64-QMF odrzucony");
                 }else
                     puts("  SBR-53g: finalny podglad HF + ROM noise odrzucony (bez PCM)");
                 noise_frames++;
@@ -702,6 +753,10 @@ static void diagnose_core_sequence(const char *path,size_t limit){
            smoothing_header_slots+smoothing_attack_only==smooth_bypasses &&
            smoothing_header_slots+smoothing_attack_only+smoothing_fir_slots==32u*decoded
                ? "TAK":"NIE");
+    printf("  SBR-54a: PCM PREVIEW 64-QMF, ramki=%zu, probki=%zu, niezerowe=%zu, pierwsza niezerowa=",
+           preview_frames,preview_samples,preview_nonzero);
+    if(preview_first_nonzero==SIZE_MAX)puts("brak (niezweryfikowany dzwiek HE-AAC)");
+    else printf("%zu (bez potwierdzenia zgodnosci z dekoderem HE-AAC)\n",preview_first_nonzero);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
