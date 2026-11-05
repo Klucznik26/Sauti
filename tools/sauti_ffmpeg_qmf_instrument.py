@@ -99,7 +99,7 @@ def patch(text):
     if text.count("sbrdsp->qmf_post_shuffle(W[buf_idx][i], z);") != 1:
         raise ValueError("unsupported FFmpeg QMF output layout")
     start = text.index("static void sbr_qmf_analysis(")
-    end = text.index("\n#endif", start)
+    end = text.index("\n}\n#endif", start) + 2
     original = text[start:end]
     if original.count(TAIL) != 1 or "int nb = numTimeSlots * 64;" not in original:
         raise ValueError("unsupported FFmpeg QMF routine; stop")
@@ -107,7 +107,7 @@ def patch(text):
     # unrelated FFmpeg function signature or linking an external helper.
     text = "#include <stdio.h>\n#include <stdlib.h>\n#include <math.h>\n" + MARKER + "\n" + text
     start = text.index("static void sbr_qmf_analysis(")
-    end = text.index("\n#endif", start)
+    end = text.index("\n}\n#endif", start) + 2
     section = text[start:end]
     section = section.replace(ANCHOR, INJECTION_BEGIN + "    " + ANCHOR)
     # The closing hook runs after W generation and before function return.
