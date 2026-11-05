@@ -28,7 +28,7 @@ static void run(unsigned source){
     assert(out.completed[0].source==source);
     assert(out.completed[0].slots==34u);
     assert(out.completed[0].limiter_count==2u);
-    assert(out.completed[0].applied_gain[16]==0.17);
+    assert(fabs(out.completed[0].applied_gain[16]-0.17)<1e-13);
     assert(out.completed[0].applied_gain[0]==0.0);
     assert(out.completed[0].applied_gain[32]==0.0);
     assert(out.completed[0].limiter_max[1]==2.25);
