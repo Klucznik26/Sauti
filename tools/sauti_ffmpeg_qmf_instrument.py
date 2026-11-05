@@ -121,8 +121,33 @@ def patch(text):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("ffmpeg_checkout", nargs="?", help="disposable FFmpeg source root")
-    parser.add_argument("--dry-run", action="store_true")\n    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
+    if args.self_test:
+        sample = ('#include <stdint.h>\n'
+                  '#ifndef sbr_qmf_analysis\n'
+                  'static void sbr_qmf_analysis(void) {\n'
+                  'int nb = numTimeSlots * 64;\n'
+                  'memcpy(x+288, in, nb*sizeof(x[0]));\n'
+                  'for (i = 0; i < 32; i++) {\n'
+                  'sbrdsp->qmf_post_shuffle(W[buf_idx][i], z);\n'
+                  '        x += 32;\n'
+                  '    }\n'
+                  '}\n'
+                  '#endif\n')
+        edited = patch(sample)
+        assert MARKER in edited and "sbr54w_record" in edited
+        try:
+            patch(edited)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("duplicate patch accepted")
+        print("PASS SBR-54w III FFmpeg instrumentation anchors (synthetic)")
+        return
+    if not args.ffmpeg_checkout:
+        parser.error("ffmpeg_checkout is required unless --self-test")
     file = Path(args.ffmpeg_checkout) / "libavcodec" / "aacsbr_template.c"
     try:
         before = file.read_text(encoding="utf-8")
