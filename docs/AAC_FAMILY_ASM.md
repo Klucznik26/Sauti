@@ -3968,3 +3968,37 @@ wyłącznie nieużywaną deklarację bez zmiany algorytmu.
 Status SBR-54h nadal WIP: po `git pull` wykonać wszystkie testy,
 próbkę 50 ramek oraz porównanie pliku `*.sine.f32le`
 z FFmpeg. Nie ogłaszać PASS przed wynikiem z Fedory.
+
+
+## SBR-54h: Fedora PASS testów jednostkowych i kompilacji (2026-11-05)
+
+Użytkownik potwierdził na Fedorze po pobraniu HEAD `97136e9`:
+- `make test-aac-sbr-temporal-harmonic-preview`: PASS,
+  3-slot transient onset, 4-phase/parity, ROM noise gating,
+  continued tone, flag removal, bypass i rollback;
+- `make test-aac-sbr-hf-sine`: PASS, w tym 11589
+  prawidłowych geometrii pasm QMF;
+- `make test-aac-sbr-temporal-pcm-preview`: PASS
+  dla 2- i 6-slotowego przekazania między ramkami;
+- `make probe-he-aac`: kompilacja bez błędów
+  przy `-Wall -Wextra -Werror`.
+
+**Status**: SBR-54h zaliczony jednostkowo, lecz
+NIE zweryfikowany jeszcze na rzeczywistych 50 ramkach
+PCM ani pod względem brzmienia. Nie ogłaszać sukcesu
+HE-AAC. Najbliższy krok to eksport dwóch równoległych
+plików:
+```sh
+./build/sauti_he_aac_probe \
+  ~/Sauti-fixtures/he_test.aac 50 \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le
+```
+Sprawdzić log `SBR-54h: tonal A/B PCM` i
+`SBR-54h: zapisano A/B tonal PCM`.
+Drugi plik `he_test_sauti_preview.f32le.sine.f32le`
+porównać z `he_test_ffmpeg_reference.f32le`
+przez `tools/sauti_he_aac_compare_pcm.py`, a wynik
+zestawić z bazowym 54a. Stary produkcyjny SBR-31
+nadal może skończyć się kodem 1 na ramce 2;
+to nie przekreśla poprawnego 50/50 eksportu
+diagnostycznego z późniejszego przebiegu.
