@@ -1408,3 +1408,10 @@ test-aac-sbr-qmf-shared-input:
 test-aac-sbr-qmf-tones: $(OBJDIR)/sauti_qmf_low_export
 	python3 -m py_compile tools/sauti_sbr54x_tone_sweep.py
 	python3 tools/sauti_sbr54x_tone_sweep.py
+
+# SBR-54y: compare existing single-tone QMF exports by time window.
+.PHONY: test-aac-sbr-qmf-steady
+test-aac-sbr-qmf-steady:
+	python3 -m py_compile tools/sauti_sbr54y_steady_audit.py
+	python3 tools/sauti_sbr54y_steady_audit.py --self-test
+	python3 tools/sauti_sbr54y_steady_audit.py
