@@ -1402,3 +1402,9 @@ test-aac-sbr-ffmpeg-qmf-instrument:
 test-aac-sbr-qmf-shared-input:
 	python3 -m py_compile tools/sauti_sbr54w_shared_pcm.py tools/sauti_sbr54w_verify_reference.py tools/sauti_ffmpeg_qmf_instrument.py tools/sauti_ffmpeg_qmf_manifest.py
 	python3 tools/sauti_ffmpeg_qmf_instrument.py --self-test
+
+# SBR-54x: four tone-driven independent QMF transfer experiments.
+.PHONY: test-aac-sbr-qmf-tones
+test-aac-sbr-qmf-tones: $(OBJDIR)/sauti_qmf_low_export
+	python3 -m py_compile tools/sauti_sbr54x_tone_sweep.py
+	python3 tools/sauti_sbr54x_tone_sweep.py
