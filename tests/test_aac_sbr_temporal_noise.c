@@ -53,6 +53,7 @@ static void check_rom(const SautiAacSbrTemporalNoiseFrame *out,
 static void tail_test(unsigned tail){
     SautiAacSbrPayloadFrame first,second;
     setup(&first,64.0,0.25);extend(&first,tail);
+    first.attack[0]=1u; /* original payload requires smoothing bypass */
     setup(&second,144.0,1.0);follow(&second,tail);
     SautiAacSbrTemporalHistory history={0};
     SautiAacSbrTemporalHandoff handoff;
@@ -101,6 +102,8 @@ static void tail_test(unsigned tail){
            report.nonzero_amplitudes==32u*m &&
            state.rom.emitted==32u*m &&
            state.rom.index==(32u*m&511u));
+    for(unsigned t=0u;t<32u;t++)
+        assert(out.smooth_bypass[t]==1u);
     check_rom(&out,0u,k,1u,amp0);
     check_rom(&out,31u,k+m-1u,32u*m,amp0);
 
@@ -122,6 +125,8 @@ static void tail_test(unsigned tail){
     assert(state.closed && state.emitted_frames==2u &&
            state.rom.emitted==64u*m &&
            report.frame_index==1u && report.vectors==32u*m);
+    for(unsigned t=0u;t<32u;t++)
+        assert(out.smooth_bypass[t]==(t<tail?1u:0u));
     check_rom(&out,0u,k,32u*m+1u,amp0);
     check_rom(&out,tail-1u,k,32u*m+(tail-1u)*m+1u,amp0);
     check_rom(&out,tail,k,32u*m+tail*m+1u,amp1);
