@@ -3203,3 +3203,44 @@ make test-aac-sbr-temporal-smooth test-aac-sbr-temporal-noise test-aac-sbr-tempo
 Po SBR-53h PASS: osobno zweryfikować gating i sinusoids
 w historii oryginalnego źródła oraz dopiero potem użyć
 wygładzonych poziomów do normatywnej mieszanki HF QMF.
+
+
+## SBR-53h PASS na Fedorze; audyt rzeczywistego bypass (2026-11-05)
+
+Użytkownik potwierdził kompilację `test-aac-sbr-temporal-smooth`
+oraz **PASS** dla ogonów 2/6 slotów, 5-tap smoothing,
+bypass ataku, startup pierwszego aktywnego pasma i rollback.
+Regresje SBR-53f/g/e oraz SBR-31/46 również PASS.
+Na rzeczywistym `~/Sauti-fixtures/he_test.aac`:
+50 ramkowych diagnoz, 43 200 aktywnych pasm-slotów,
+ale 1 600/1 600 slotów zostało pominiętych przez filtr
+(`bypass transient=1600` w dotychczasowej diagnostyce).
+**To nie jest dowód, że FIR wygładził tę próbkę.**
+
+Dodano **SBR-53h-audit** do `sauti_he_aac_probe`, bez zmian
+w dekoderze PCM: zlicza nagłówki `bs_smoothing_mode=0/1`,
+obwiednie `attack`, sloty bypass z nagłówka,
+sloty bypass WYŁĄCZNIE z ataku, ich przecięcie i sloty
+rzeczywiście filtrowane FIR. Wszystko liczy według
+oryginalnego właściciela SBR każdego slotu, również
+podczas FIXVAR handoff. Sprawdza zgodność sum bypass
+z raportem SBR-53h. Dodano regresję bezpośredniego
+mapowania `smooth_bypass` dla 2 slotów wcześniejszej
+ramki i kolejnych obwiedni; błędna flaga ataku ma
+spowodować rollback. Nowa diagnostyka wymaga uruchomienia
+na Fedorze, więc nie twierdzić z góry, co powoduje
+1 600 bypass — możliwe, że nagłówek kodeka wskazuje
+`smoothing_mode=1` w całym strumieniu.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-payload test-aac-sbr-temporal-smooth test-aac-sbr-temporal-noise probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 | grep -E 'SBR-53h|SBR-53h-audit|Rdzen:'
+```
+
+Po analizie rozkładu bypass: utworzyć testowy
+realny strumień HE-AAC z nagłówkiem `smoothing_mode=0`
+(bez zgadywania i przepisywania bitów na żywym strumieniu),
+dopiero potem przechodzić do normatywnego
+gatingu harmonicznych i syntezy 64-QMF.
