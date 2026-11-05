@@ -4297,3 +4297,75 @@ bez regresji dotychczasowego PCM. Dalszy etap:
 zintegrować **poprawne wyjście audio w osobnym
 torze**, nie przeklejać samych znormalizowanych
 współczynników 54k do starego SBR-53d.
+
+
+## SBR-54l Fedora PASS; SBR-54m osobny PCM z nowym gain HF (2026-11-05)
+
+**Rzeczywisty przebieg Fedory SBR-54l — PASS**:
+- test `test-aac-sbr-temporal-reference-gain`: oba FIXVAR 2/6,
+  właściciele previous/current, harmoniczne, attack, rollback PASS;
+- test `test-aac-sbr-gain-limit-partition` PASS;
+- `make probe-he-aac` skompilował się przy `-Werror`;
+- 50 ramek prawdziwego `he_test.aac`, 57 pełnych obwiedni
+  (tak jak 53d i 54f), 2 odziedziczone FIXVAR,
+  171 grup limitera, 1335 zmienionych gainów pasm-obwiedni,
+  1539 pasm z dodatnim docelowym noise, 104 oznaczone
+  harmoniczne, 207 ograniczonych szumów;
+- porównanie tylko sygnałowej składowej HF, bez szumu i sine:
+  `old_HF_power=1177579.6` i `new_HF_power=47361.1999`
+  (około 24.9 razy niżej w nowym modelu).
+  Te sumy są energią z raportowanych obwiedni, NIE
+  bezpośrednim RMS ani sumą realnego PCM.
+- **To nie dowodzi poprawy HE-AAC**: w nowym modelu energia
+  jest rozdzielana pomiędzy HF, szum i harmoniczne;
+  pozostaje brak właściwej skali, bramkowania sine/delta
+  i przesunięcia fazowego.
+
+**SBR-54m: pierwszy eksperyment A/B z rzeczywistą nową
+składową HF (G only), bez zmian produkcyjnych**:
+- `sauti_aac_sbr_temporal_gain_bridge` mapuje tylko G
+  z pełnych oryginalnych obwiedni SBR-54l do struktury
+  już przetestowanego SBR-53e, zachowując komplet
+  `source,env,slots,kx,k2`, cap i boost.
+  Czysta, atomowa funkcja. Osobny test syntetyczny
+  sprawdza previous/current, 34-slotową obwiednię,
+  zero poza HF, NaN, niepoprawną geometrię i rollback;
+- istniejący SBR-53e stosuje nowy gain przez DRUGI,
+  całkowicie niezależny stan `ref_hf_apply_state`,
+  zachowując własne opóźnienie 32 slotów i FIXVAR;
+- istniejąca synteza 64-QMF dostaje nowy G-adjusted HF
+  oraz NIEZMIENIONE LOW w trzecim niezależnym
+  `ref_hf_pcm_state`. W tym wariancie **nie dodaje się
+  żadnego NOISE ani SINE**: celem jest izolacja
+  samego wpływu nowego ograniczania HF. Maska aktywnych
+  wysokich pasm pochodzi z tego samego poprawnie
+  wyrównanego, oryginalnego noise-frame;
+- zachowuje ciągłość historii od 1. do 50. ramki,
+  końcowy `flush`, pomiar RMS i peak
+  oraz dodatkowy eksport `*.refhf.f32le` po 50/50
+  ramkach; bazowe PREVIEW, .sine, .units i cały
+  dekoder SBR-31 pozostają nietknięte;
+- **UWAGA: 54m nadal nie jest kompletnym SBR ani
+  właściwym brzmieniem.** Pomyślny test ma odpowiedzieć,
+  czy same nowe ograniczone G poprawia korelację PCM
+  z FFmpeg w stosunku do samego LOW. Następny etap to
+  niezależna synteza całości HF+Q_M+S_M po odpowiedniej
+  bramce opóźnionych transientów i sin/carry oraz
+  poprawienie jednostek QMF.
+
+**STATUS: SBR-54m WIP, zapisany w GitHub i oczekuje
+na pierwsze testy Fedory.**
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-gain-bridge test-aac-sbr-temporal-reference-gain test-aac-sbr-temporal-apply probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe \
+  ~/Sauti-fixtures/he_test.aac 50 \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le |
+  grep -E 'SBR-54m|SBR-54l|SBR-54a|Rdzen:|odrzucon'
+python3 tools/sauti_he_aac_compare_pcm.py \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.refhf.f32le \
+  ~/Sauti-fixtures/he_test_ffmpeg_reference.f32le
+```
+Nie zastępować 53d/53e produkcyjnie nawet jeśli
+korelacja lub RMS będą wyglądały obiecująco.
