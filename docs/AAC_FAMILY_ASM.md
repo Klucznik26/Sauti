@@ -4759,3 +4759,107 @@ python3 tools/sauti_he_aac_fixed_lag_audit.py \
 
 **SBR-54p PASS i diagnoza zapisana; SBR-54q
 w kodzie WIP, oczekuje na test Fedory.**
+
+
+## SBR-54q Fedora PASS, ale conjugation NIE NAPRAWIA HF; SBR-54r indeksy źródła QMF (2026-11-05)
+
+**Wyniki z realnego pliku `he_test.aac` na Fedorze**:
+- `test-aac-sbr-hf-phase-probe` PASS i
+  `make probe-he-aac` kompiluje się bez błędów `-Werror`.
+- SBR-54q: odwrócony wyłącznie `Im(HF)`,
+  50/50 ramek, 102400 PCM, RMS **0.193644462**,
+  peak **9.64282417**.
+- dla porównania nieodwrócony SBR-54m:
+  RMS **0.143121202**, peak **7.11286831**;
+  referencja FFmpeg RMS **0.120547656**,
+  peak **0.22226046**.
+- przy tym samym `lag=-6` i overlap=102394:
+  nowy SBR-54q `corr=0.420329`,
+  `relative_error=90.737%`,
+  dodany HF vs LOW-fit residual `corr=0.012603`,
+  wyjaśniona wariancja **0.016%**.
+- poprzedni SBR-54m `corr=0.568249`,
+  `relative_error=82.286%`,
+  `HF-residual explained=0.012%`.
+**Wniosek**: conjugation nie poprawia brzmienia
+i globalne odwrócenie `Im(HF)` nie może trafić
+do produkcyjnego dekodera. Minimalny wzrost
+`0.012% -> 0.016%` residual jest bez znaczenia;
+zbieżność PCM spadła, amplituda dodatkowo wzrosła.
+
+**Weryfikacja źródeł FFmpeg** (master, 2026-11-05):
+https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/aacsbr_template.c
+- `sbr_lf_gen` używa `t_HFGen=8` i
+  `X_low[i] <- W[i-8]`, także z poprzedniej
+  ramki dla pierwszych 8 slotów.
+- `sbr_hf_gen` korzysta z offsetu
+  `ENVELOPE_ADJUSTMENT_OFFSET=2`:
+https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/aacsbr.h
+- `sbr_hf_assemble` w
+https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/aacsbr.c
+  pobiera `X_high[i+2]`; `sbr_x_gen` pobiera
+  analogicznie LOW `X_low[i+2]`.
+  Dlatego z samego indeksowania źródła
+  bez LPC, przy output slot `i`, pochodzi
+  ono z analizy `W[i+2-8] = W[i-6]`.
+- Sauti `sauti_aac_sbr_temporal_qmf_prepare`
+  analizuje 32 QMF na bieżącym `core_pcm` i
+  robi prostą transpozycję `low[slot][src]`
+  do `high[slot][target]` bez tego buforowania.
+  Stan 53e odkłada gotowe HF o ramkę dla
+  rozliczenia pełnej obwiedni, ale to NIE jest
+  identyczne z referencyjną kolejnością
+  `W[i-8]`, `Y[i]` i `X[i]`.
+  Do poprawnego odwzorowania konieczne jest
+  osobne rozróżnienie czasu LOW i HF,
+  tail-FIXVAR, analizy QMF i czasu syntezy;
+  nie wolno dodać globalnego przesunięcia
+  samego HF na podstawie tych indeksów.
+
+**KOREKTA WCZEŚNIEJSZEJ POMYŁKI**:
+wcześniejsze wyjaśnienie `+288 próbek = 9 slotów
+QMF` pomieszało 32 próbki *rdzenia wejściowego*
+z 64 próbkami *wyjściowego PCM przy 48 kHz*.
+Poprawnie +288 wyjściowych próbek = **4.5 slotu
+64-QMF**, natomiast 9 slotów analizy
+32 próbek rdzenia (24 kHz) stanowi 576
+wyjściowych próbek po 2x upsampling, przed
+opóźnieniami filtrów. Referencyjne `8-2=6`
+slotów oznacza 6×32=192 wejściowe próbki
+rdzenia i teoretycznie 6×64=384
+próbki wyjściowego zegara; NIE jest to
+równoznaczne z konkretnym przesunięciem
+porównywanych PCM. Wyrównanie LOW/FFmpeg
+`lag=-6` (próbek wyjściowego PCM) również
+nie jest tym samym, co `t_HFGen=8` (sloty QMF).
+
+**SBR-54r**: w `tools/sauti_he_aac_qmf_index_audit.py`
+zapisano jawny, deterministyczny model
+indeksowania na 32-slotowym frame:
+- `FFmpeg source global W-slot = 32*frame+slot-6`;
+- `Sauti current source global W-slot = 32*frame+slot`;
+- testy sprawdzają pierwszych sześć
+  slotów z poprzedniej ramki, slot 6 jako
+  początek bieżącej oraz przejścia na końcu.
+- ważne: jest to **model indeksów zweryfikowany
+  na źródłach**, nie pomiar amplitudy,
+  fazy, numerycznych wartości FFmpeg QMF,
+  ani dowód konkretnego opóźnienia PCM.
+- nie modyfikuje AAC/SBR, QMF, PCM ani ścieżki
+  produkcyjnej.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-qmf-index-audit
+```
+
+**Następna sensowna implementacja po potwierdzeniu
+SBR-54r**: osobny, stanowy bufor LOW QMF
+8 slotów z poprawnym `+2` indeksem w
+eksperymentalnym torze; test przejścia
+między ramkami, porównanie LOW/HF PCM
+na niezmienionej osi czasu, z referencyjnymi
+wektorami QMF/FFmpeg. Żadnej zmiany
+produkcyjnego dekodera bez poprawy
+rzeczywistej korelacji i bilansu.
