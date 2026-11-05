@@ -29,6 +29,7 @@
 #include "sauti_aac_sbr_temporal_envelope_audit.h"
 #include "sauti_aac_sbr_lpc_estimate.h"
 #include "sauti_aac_sbr_temporal_harmonic_preview.h"
+#include "sauti_aac_sbr_temporal_hf_units.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -615,6 +616,29 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             sine_io_ok=0;
         }
     }
+    FILE *units_spool=NULL;
+    char units_path[1024]={0};
+    int units_io_ok=1;
+    if(export_path){
+        const int n=snprintf(units_path,sizeof(units_path),
+                             "%s.units.f32le",export_path);
+        if(n<0 || (size_t)n>=sizeof(units_path) ||
+           !strcmp(units_path,path) ||
+           !strcmp(units_path,sine_path)){
+            fputs("SBR-54i: niepoprawna nazwa wyjsciowa PCM\n",stderr);
+            if(sine_spool)fclose(sine_spool);
+            if(spool)fclose(spool);
+            for(unsigned k=0u;k<SBR_COMPONENTS;k++)
+                if(component_spool[k])fclose(component_spool[k]);
+            fclose(f);return;
+        }
+        units_spool=tmpfile();
+        if(!units_spool){
+            fprintf(stderr,"SBR-54i: brak bufora PCM: %s\n",
+                    strerror(errno));
+            units_io_ok=0;
+        }
+    }
     printf("Diagnostyka ciaglosci rdzenia AAC-LC + temporal SBR (%zu ramek, bez HE-AAC PCM):\n",limit);
     size_t decoded=0,first_nonzero=SIZE_MAX;
     SautiAacSbrTemporalHistory temporal_history={0};
@@ -649,6 +673,9 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     size_t preview_first_nonzero=SIZE_MAX;
     SautiAacSbrTemporalPcmPreviewState temporal_pcm={0};
     SautiAacSbrTemporalPcmPreviewState sine_pcm_state={0};
+    SautiAacSbrTemporalPcmPreviewState units_pcm_state={0};
+    size_t units_qmf_frames=0u,units_pcm_frames=0u;
+    double units_pcm_power=0.0,units_pcm_peak=0.0;
     SautiAacSbrTemporalHarmonicPreviewState sine_qmf_state={0};
     uint8_t sine_held_onset[32u]={0};
     size_t sine_preview_frames=0u,sine_qmf_frames=0u;
@@ -975,6 +1002,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         }
         SautiAacSbrComplex preview[32u*64u];
         SautiAacSbrComplex sine_high[32u*64u];
+        SautiAacSbrComplex units_high[32u*64u];
         SautiAacSbrTemporalMixReport mix_report={0};
         if(noise_report.emitted){
             SautiAacSbrTemporalSmoothFrame smooth_frame;
@@ -1029,6 +1057,13 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                 printf("  ramka %zu: SBR-54h harmonic preview odrzucony\n",i);
                 break;
             }
+            if(!sauti_aac_sbr_temporal_hf_units_float(
+                   sine_high,32u*64u,&noise_frame,
+                   units_high,32u*64u)){
+                printf("  ramka %zu: SBR-54i konwersja domeny HF odrzucona\n",i);
+                break;
+            }
+            units_qmf_frames++;
             sine_qmf_frames++;
             sine_marked+=tone_report.marked_bins;
             sine_activated+=tone_report.active_tones;
@@ -1092,6 +1127,33 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             if(sine_spool &&
                fwrite(sine_pcm,sizeof(float),2048u,sine_spool)!=2048u)
                 sine_io_ok=0;
+        }
+        float units_pcm[2048u];
+        SautiAacSbrTemporalPcmPreviewReport units_pcm_report;
+        if(!sauti_aac_sbr_temporal_pcm_preview_push(
+               low_qmf,32u*32u,
+               noise_report.emitted?units_high:NULL,
+               noise_report.emitted?32u*64u:0u,
+               noise_report.emitted?&noise_frame:NULL,
+               &apply_report,
+               noise_report.emitted?&mix_report:NULL,
+               &units_pcm_state,units_pcm,2048u,&units_pcm_report) ||
+           units_pcm_report.emitted!=pcm_report.emitted ||
+           (pcm_report.emitted &&
+            units_pcm_report.frame_index!=pcm_report.frame_index)){
+            printf("  ramka %zu: SBR-54i PCM alternatywny odrzucony\n",i);
+            break;
+        }
+        if(units_pcm_report.emitted){
+            units_pcm_frames++;
+            for(unsigned j=0u;j<2048u;j++){
+                const double v=units_pcm[j];
+                units_pcm_power+=v*v;
+                if(fabs(v)>units_pcm_peak)units_pcm_peak=fabs(v);
+            }
+            if(units_spool &&
+               fwrite(units_pcm,sizeof(float),2048u,units_spool)!=2048u)
+                units_io_ok=0;
         }
         if(pcm_report.emitted){
             if(component_prefix){
