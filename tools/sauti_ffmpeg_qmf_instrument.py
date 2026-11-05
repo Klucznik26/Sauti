@@ -130,7 +130,7 @@ def main():
                   '#ifndef sbr_qmf_analysis\n'
                   'static void sbr_qmf_analysis(void) {\n'
                   'int nb = numTimeSlots * 64;\n'
-                  'memcpy(x+288, in, nb*sizeof(x[0]));\n'
+                  'memcpy(x+288, in,         nb*sizeof(x[0]));\n'
                   'for (i = 0; i < 32; i++) {\n'
                   'sbrdsp->qmf_post_shuffle(W[buf_idx][i], z);\n'
                   '        x += 32;\n'
