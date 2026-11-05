@@ -4452,3 +4452,83 @@ jest silnie zgodny z residualem, zaprojektować
 osobne, prawidłowe wzmocnienie HF/noise/sine
 w wewnętrznej domenie SBR i zbadać normatywny
 end-to-end PCM. Bez zmian produkcyjnych w ciemno.
+
+
+## SBR-54n Fedora PASS: HF bez informacji residual; SBR-54o przesunięcie fazowo-czasowe (2026-11-05)
+
+**Wynik Fedory dla rzeczywistego SBR-54n (50 ramek)**:
+- `make test-aac-sbr-fixed-lag-audit`: PASS wszystkich
+  trzech przypadków syntetycznych;
+- wymuszone JEDNO wyrównanie LOW vs FFmpeg: `lag=-6`,
+  wspólne `overlap=102394` próbek;
+- prawie LOW (54i): `corr=0.991765`,
+  `relative_error=12.807%`, `RMS=0.0826845388`;
+- referencyjny G-only HF (54m): `corr=0.568249`,
+  `relative_error=82.286%`, `RMS=0.143125395`,
+  `peak=7.11286831` (na tym samym opóźnieniu);
+- wyizolowana różnica `54m-54i`: `RMS=0.117423672`,
+  `peak=7.20016`;
+- dodany HF po ortogonalizacji LOW+DC do resztowego
+  błędu FFmpeg: `corr=0.011160`,
+  `max_residual_variance_explained=0.012%`,
+  `optimal_ADDITIONAL_coefficient=0.0014673358`,
+  `theoretical_best_error_RMS=0.0154380181`
+  w porównaniu z baseline `0.0154389795`.
+
+**Wniosek:** sama zmiana gain/limiter w HF nie naprawia
+brzmienia; nawet po optymalnym dodatkowym globalnym
+mnożniku HF nie ma istotnej informacji o brakującej
+części FFmpeg przy fizycznie uzasadnionym lag=-6.
+Nie wprowadzać globalnego gain ani clippingu do PCM.
+Pomiar nie odróżnia jednak błędnej fazy lub osobnego
+opóźnienia HF od niepoprawnego źródła widma i
+niewłaściwego mapowania subbandów.
+
+**SBR-54o — kolejne zawężenie błędu bez mutacji kodu
+dekodera**:
+- dodano `tools/sauti_he_aac_hf_shift_audit.py`
+  i target `make test-aac-sbr-hf-shift-audit`;
+- LOW i FFmpeg pozostają wyrównane na `lag=-6`;
+  przesuwane są WYŁĄCZNIE próbki składowej
+  `HF=candidate-LOW_proxy`, w zakresie ±512 próbek
+  (opcjonalnie `--max-shift`);
+- skrypt używa tego samego wewnętrznego okna
+  dla wszystkich shiftów; po odjęciu rzutu na LOW/DC
+  maksymalizuje wyłącznie korelację z resztą FFmpeg.
+  Pierwszy przebieg decymowany testuje KAŻDY
+  shift; finał liczy najlepsze pełnopróbkowo.
+- raportuje `HF shift=0` i najlepszy osobny shift,
+  korelacje i **kwadrat** korelacji, czyli maksymalny
+  odsetek resztowej wariancji możliwy do wyjaśnienia
+  przez liniowe dopasowanie przesuniętego HF;
+- test syntetyczny: znane osobne przesunięcia HF
+  +37 i -48 próbek z prawidłowo wyrównanym LOW,
+  i pełne odtworzenie sygnału resztowego.
+- **Status: SBR-54o zapisany w GitHub, pierwsze
+  testy na Fedorze PENDING.** Nie zmienia
+  żadnego PCM, QMF, gain, ROM ani historii dekodera.
+  Jest to poszukiwanie maksimum, więc zwycięski
+  shift jest optymistycznym wskaźnikiem
+  diagnostycznym, NIE normatywnym opóźnieniem.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-hf-shift-audit
+python3 tools/sauti_he_aac_hf_shift_audit.py \
+  --lag -6 --max-shift 512 \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.units.f32le \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.refhf.f32le \
+  ~/Sauti-fixtures/he_test_ffmpeg_reference.f32le
+```
+
+**Decyzja po pomiarze:**
+- znaczna poprawa przy małym shift -> badać
+  opóźnienie QMF, timing X_low/X_high i bank syntezy;
+- minimalna poprawa nawet po najlepszym shift
+  -> badać fazę zespoloną QMF, znaki Im/syntezy,
+  mapowanie źródło/destynacja HF i domenę
+  poziomów energii;
+- nie uruchamiać równoległej przebudowy produkcyjnego
+  dekodera ani nie traktować korelacji fit jako dowodu
+  normatywnej zgodności.
