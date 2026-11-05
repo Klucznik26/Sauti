@@ -9,10 +9,11 @@ Use a disposable clone: no system libraries or installed FFmpeg modified.
 No reference claim until compiled, run, and compared on real shared PCM.
 """
 import argparse
+import re
 from pathlib import Path
 
 MARKER = "/* SBR-54w instrumented FFmpeg float QMF: diagnostic only. */"
-ANCHOR = "memcpy(x+288, in, nb*sizeof(x[0]));"
+ANCHOR = re.compile(r"memcpy\s*\(\s*x\s*\+\s*288\s*,\s*in\s*,\s*nb\s*\*\s*sizeof\s*\(\s*x\s*\[\s*0\s*\]\s*\)\s*\)\s*;")
 TAIL = "        x += 32;"
 
 INJECTION_BEGIN = """#if !USE_FIXED
@@ -94,8 +95,8 @@ INJECTION_END = """#if !USE_FIXED
 def patch(text):
     if MARKER in text:
         raise ValueError("source already instrumented")
-    if text.count(ANCHOR) != 1:
-        raise ValueError("expected exactly one FFmpeg QMF input anchor")
+    if len(ANCHOR.findall(text)) != 1:
+        raise ValueError("expected exactly one FFmpeg QMF input anchor (whitespace-normalized)")
     if text.count("sbrdsp->qmf_post_shuffle(W[buf_idx][i], z);") != 1:
         raise ValueError("unsupported FFmpeg QMF output layout")
     start = text.index("static void sbr_qmf_analysis(")
@@ -109,7 +110,7 @@ def patch(text):
     start = text.index("static void sbr_qmf_analysis(")
     end = text.index("\n}\n#endif", start) + 2
     section = text[start:end]
-    section = section.replace(ANCHOR, INJECTION_BEGIN + "    " + ANCHOR)
+    section = ANCHOR.sub(lambda m: INJECTION_BEGIN + "    " + m.group(0), section)
     # The closing hook runs after W generation and before function return.
     closing = "        x += 32;\n    }\n}"
     if section.count(closing) != 1:
