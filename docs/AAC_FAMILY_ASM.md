@@ -4532,3 +4532,79 @@ python3 tools/sauti_he_aac_hf_shift_audit.py \
 - nie uruchamiać równoległej przebudowy produkcyjnego
   dekodera ani nie traktować korelacji fit jako dowodu
   normatywnej zgodności.
+
+
+## SBR-54o Fedora PASS, realny peak shift=+288; SBR-54p niezależna walidacja (2026-11-05)
+
+**SBR-54o na Fedorze**:
+`make test-aac-sbr-hf-shift-audit` PASS:
+syntetyczny sygnał przesunięty o +37 i −48 próbek.
+W rzeczywistym `he_test.aac` z ustalonym
+`LOW/FFmpeg lag=-6` i wspólnym overlap
+`101370` próbek:
+- HF `shift=0`: `residual corr=0.011160`,
+  `variance explained=0.012%`;
+- najlepsze z przeszukanych przesunięć HF
+  `shift=+288`: `residual corr=−0.188268`,
+  `variance explained=3.544%`.
+- **+288 = 9 × 32 próbek banku QMF = 6 ms przy
+  48 kHz.** Ujemny znak sugeruje dodatkową
+  polaryzację/fazę, ale nie dowodzi, że
+  poprawką powinno być odwrócenie znaku.
+- 3.544% jest bardzo małą poprawą, dodatkowo
+  zawyżoną przez wyszukiwanie najlepszego
+  przesunięcia wśród 1025 kandydatów.
+  Nie wdrażać żadnego offsetu ani inversion
+  do produkcyjnego PCM na podstawie tego wyniku.
+
+**SBR-54p**: dodano `tools/sauti_he_aac_hf_shift_validation.py`
+oraz `make test-aac-sbr-hf-shift-validation`.
+Narzędzie nie modyfikuje Sauti, tylko trzech już
+wyeksportowanych f32le. Funkcje:
+- LOW/FFmpeg nadal przesunięte **tylko -6 próbek**;
+- szuka shift HF z pierwszej połowy nagrania i
+  ocenia BEZ ponownego dopasowania przesunięcia
+  na niewidzianej drugiej połowie;
+- powtarza eksperyment z zamienionymi połowami;
+- osobno w każdej połowie ocenia
+  wcześniej wskazane, jawne `shift=+288` i `shift=0`;
+- raportuje **podpisaną** korelację i
+  `corr²` na walidacji, bez optymalizacji
+  gain PCM i bez clippingu;
+- porównuje tylko z dopasowanym resztowym
+  FFmpeg po usunięciu LOW+DC, w stałym
+  wspólnym oknie umożliwiającym przesunięcia
+  ±512; liczba próbek w obu połowach pozostaje
+  taka sama pomiędzy kandydatami;
+- `--self-test`: rozpoznanie stałych
+  przesunięć +37/-48 na niezależnych połowach
+  oraz odrzucenie złudnego maksimum z części
+  treningowej, które nie występuje w walidacji.
+
+**Status SBR-54p: kod jest w GitHub, test na
+Fedorze jeszcze NIE WYKONANY.** Nadal nie mamy
+potwierdzonej zgodnej generacji HF ani
+normatywnego dekodera HE-AAC.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-hf-shift-validation PKG_CONFIG=/bin/false
+
+python3 tools/sauti_he_aac_hf_shift_validation.py \
+  --lag -6 --max-shift 512 --test-shift 288 \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.units.f32le \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.refhf.f32le \
+  ~/Sauti-fixtures/he_test_ffmpeg_reference.f32le
+```
+
+Następny krok po rzeczywistej walidacji:
+- jeśli niezależne połówki potwierdzą stałe
+  +288 próbek i znak korelacji, sprawdzić
+  opóźnienie 32-QMF vs 64-QMF, fazę Im i
+  oryginalne bufory HF;
+- jeśli wynik jest niestabilny lub nadal
+  wyjaśnia tylko kilka procent residualu,
+  szukać problemu mapowania/phase/normalizacji
+  w zespolonych pasmach, zamiast doklejać
+  arbitralny PCM sample-shift.
