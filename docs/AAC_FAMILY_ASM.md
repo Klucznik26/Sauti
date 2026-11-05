@@ -3806,3 +3806,62 @@ LPC(2) analizy bez regresji 54f/54a.
 poprawi dźwięk; zmiana QMF nie świadczy o
 korelacji z niezależnym dekoderem. O tym
 rozstrzygnie następne A/B PCM vs FFmpeg.
+
+
+## SBR-54g Fedora PASS: LPC działa, ale chirp wyłącza predykcję na he_test.aac (2026-11-05)
+
+**Potwierdzone w logach Fedory:**
+- `test-aac-sbr-lpc-estimate`: PASS (znane współczynniki
+  zespolone AR(2), cisza, błędne dane, rollback).
+- `test-aac-sbr-hf-predict`: PASS
+  (11438 predykcji zespolonych, 151 odrzuconych map).
+- Próba na 50 klatkach rzeczywistego
+  `~/Sauti-fixtures/he_test.aac`: 1549 niezerowych
+  zestawów współczynników alpha, ale
+  `dodatni_chirp_slot-band=0`,
+  `roznice_z_transpose=0/43200`,
+  `RMS_roznicy_QMF=0`.
+- SBR-54f, SBR-54a nadal PASS, PCM PREVIEW 50/50;
+  produkcyjny SBR-31 nadal zatrzymuje się na ramce 2.
+
+**Interpretacja:**
+Wzór SBR-13 jest `HF = X0 + bw*alpha0*X1 +
+bw²*alpha1*X2`. Przy `bw=0` alternatywa LPC
+MUSI być identyczna z prostą transpozycją
+bez względu na niezerowe alpha. Nie osiągnięto
+poprawy jakości PCM. Nie wolno sztucznie ustawiać
+`bw>0` wbrew zakodowanym `invf_mode`.
+
+**Audyt źródła chirp:**
+`sauti_aac_sbr_control_parse` bezpośrednio
+pobiera 2-bitowe `sbr_invf()` i zapisuje w
+`payload.control.invf_mode`. `54g` przekazuje
+to do `sauti_aac_sbr_chirp_update`.
+Dopisano rozkład źródłowych czterech trybów
+`OFF/LOW/MID/HIGH` i liczbę ramek z niezerowym
+INVF w 50 ramkach. Dzięki temu rozstrzygniemy,
+czy `bw=0` jest wprost sygnalizowane przez
+koder, czy warto śledzić wadliwy stan/chirp.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 |
+  grep -E 'SBR-54g|SBR-54a|SBR-54f|Rdzen:'
+```
+
+**Główna blokada HE-AAC:**
+Nadal tylko LOW ma wysoką korelację z FFmpeg
+(0.991765), a dotychczasowe HF i noise nie
+zmniejszają błędu 12.807%. SBR-53a wykrył
+aktywne harmoniczne, ale SBR-53g + 54a nie
+mają jeszcze sinusoid, tonal gating ani
+właściwego rozdziału energii HF/noise/harmonics.
+Jeśli zakodowane INVF rzeczywiście jest OFF,
+to dalsze liczenie LPC na tym samym strumieniu
+nie poprawi PCM. Następny konstrukcyjny krok:
+osobna opóźniona ścieżka sinusoid harmonicznych
+i gate zgodny z oryginalnym owner, bez naruszania
+54a/31, a potem bezpośredni odsłuch/PCM A/B
+wobec FFmpeg. Nie przyznawać 54g poprawy audio.
