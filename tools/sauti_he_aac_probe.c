@@ -1474,6 +1474,42 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                            &final_report,&last_mix,&temporal_pcm,
                            final_pcm,2048u,&final_pcm_report)){
                         if(final_ref_ok){
+                            SautiAacSbrComplex final_conj[32u*64u];
+                            if(sauti_aac_sbr_hf_conjugate_probe(
+                                   final_ref_hf,32u*64u,&last_noise,
+                                   final_conj,32u*64u)){
+                                conj_qmf_frames++;
+                                float final_conj_pcm[2048u];
+                                SautiAacSbrTemporalPcmPreviewReport
+                                    final_conj_report;
+                                if(sauti_aac_sbr_temporal_pcm_preview_flush(
+                                       final_conj,32u*64u,
+                                       &last_noise,&final_ref_report,
+                                       &last_mix,&conj_pcm_state,
+                                       final_conj_pcm,2048u,
+                                       &final_conj_report) &&
+                                   final_conj_report.emitted &&
+                                   final_conj_report.frame_index==
+                                       final_pcm_report.frame_index){
+                                    conj_pcm_frames++;
+                                    for(unsigned j=0u;j<2048u;j++){
+                                        const double v=final_conj_pcm[j];
+                                        conj_pcm_energy+=v*v;
+                                        if(fabs(v)>conj_pcm_peak)
+                                            conj_pcm_peak=fabs(v);
+                                    }
+                                    if(conj_spool &&
+                                       fwrite(final_conj_pcm,sizeof(float),
+                                              2048u,conj_spool)!=2048u)
+                                        conj_io_ok=0;
+                                }else{
+                                    puts("  SBR-54q: finalny PCM conjugated HF odrzucony");
+                                    conj_io_ok=0;
+                                }
+                            }else{
+                                puts("  SBR-54q: finalny QMF conjugation odrzucony");
+                                conj_io_ok=0;
+                            }
                             float final_ref_pcm[2048u];
                             SautiAacSbrTemporalPcmPreviewReport
                                 final_ref_pcm_report;
@@ -1701,6 +1737,11 @@ static void diagnose_core_sequence(const char *path,size_t limit,
            units_pcm_frames?
              sqrt(units_pcm_power/((double)units_pcm_frames*2048.0)):0.0,
            units_pcm_peak);
+    printf("  SBR-54q: HF imaginary sign A/B: QMF ramki=%zu, PCM ramki=%zu, RMS=%.9g, peak=%.9g; tylko HF CONJ, LOW bez zmian, bez noise/sine (EKSPERYMENT)\n",
+           conj_qmf_frames,conj_pcm_frames,
+           conj_pcm_frames?
+             sqrt(conj_pcm_energy/((double)conj_pcm_frames*2048.0)):0.0,
+           conj_pcm_peak);
     printf("  SBR-54m: nowy G-only QMF+PCM: HF ramki=%zu, PCM ramki=%zu, RMS=%.9g, peak=%.9g; NOISE/SINE OMITTED (eksp. A/B, NIE normatywny HE-AAC)\n",
            ref_hf_qmf_frames,ref_hf_frames,
            ref_hf_frames?sqrt(ref_hf_pcm_power/
@@ -1731,6 +1772,23 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         }
         for(unsigned c=0u;c<SBR_COMPONENTS;c++)
             if(component_spool[c])fclose(component_spool[c]);
+    }
+    if(conj_spool){
+        const int complete=conj_io_ok && decoded==limit &&
+            preview_frames==limit && conj_qmf_frames==limit &&
+            conj_pcm_frames==limit &&
+            conj_pcm_state.closed==1u &&
+            conj_pcm_state.emitted_frames==limit;
+        if(!complete)
+            fprintf(stderr,"SBR-54q: POMINIETY niepelny eksport PCM (%zu/%zu)\n",
+                    conj_pcm_frames,limit);
+        else if(sbr54c_export(conj_spool,conj_path,
+                              limit*2048u*sizeof(float)))
+            printf("  SBR-54q: zapisano A/B conjugated HF PCM f32le: %s, ramki=%zu, probki=%zu (DO WALIDACJI)\n",
+                   conj_path,conj_pcm_frames,limit*2048u);
+        else
+            fprintf(stderr,"SBR-54q: blad zapisu %s\n",conj_path);
+        fclose(conj_spool);
     }
     if(ref_hf_spool){
         const int complete=ref_hf_io_ok && decoded==limit &&
