@@ -60,22 +60,28 @@ def corr_at(x, y, lag, stride):
 
 
 def find_lag(x, y):
-    # Coarse search + 2-stage refinement, no NumPy dependency.
+    # Sample-exact alignment needs a sufficiently fine initial scan.
+    # The old 64-sample grid was anchored at -maxlag, not at zero:
+    # for maxlag=4128 it skipped lag=384 altogether and locked onto
+    # a distant periodic side-lobe (-3685). An 8-sample, ZERO-anchored
+    # grid captures sharp transients and both offset signs reliably.
     maxlag = min(MAX_LAG, max(len(x), len(y)) // 4)
+    coarse_step = 8
     coarse = []
-    for lag in range(-maxlag, maxlag + 1, 64):
+    for lag in range(-(maxlag // coarse_step) * coarse_step,
+                     maxlag + 1, coarse_step):
         c = corr_at(x, y, lag, 16)
         if c is not None:
             coarse.append((abs(c), lag))
     if not coarse:
         raise ValueError("insufficient overlapping non-silent samples")
     coarse.sort(reverse=True)
-    # Search around several promising coarse peaks to avoid picking
-    # the first periodic correlation lobe by accident.
+    # Refine several peaks at native sample offsets, rather than
+    # accepting periodic false matches from one wide coarse grid.
     candidates = {}
     for _, center in coarse[:8]:
-        for lag in range(max(-maxlag, center-64),
-                         min(maxlag, center+64) + 1, 2):
+        for lag in range(max(-maxlag, center-16),
+                         min(maxlag, center+16) + 1, 2):
             c = corr_at(x, y, lag, 8)
             if c is not None:
                 candidates[lag] = c
@@ -126,13 +132,23 @@ def synthetic_test():
         0.2*math.sin(i*0.061) + 0.07*math.sin(i*0.0193) +
         (0.3 if i%1109 < 5 else 0.0)
         for i in range(16000)])
-    shift = 384
-    y = array.array("f", [0.0]*shift +
-                    [float(v)*0.125 for v in x] + [0.0]*128)
-    lag,corr,n,gain,_,err,_ = compare(x,y)
-    assert lag == shift, (lag,shift)
-    assert abs(corr-1.0)<1e-6 and n>10000, (corr,n)
-    assert abs(gain-0.125)<1e-6 and err<1e-6, (gain,err)
+    # Exact-grid, non-grid, positive and negative offsets; also
+    # reversed polarity. These catch the old -3685 false peak.
+    for shift, scale in ((384, 0.125), (385, 0.125),
+                         (471, 0.125), (-423, -0.125)):
+        if shift >= 0:
+            y = array.array("f", [0.0]*shift +
+                            [float(v)*scale for v in x] + [0.0]*128)
+        else:
+            y = array.array("f",
+                            [float(v)*scale for v in x[-shift:]] +
+                            [0.0]*128)
+        lag,corr,n,gain,_,err,_ = compare(x,y)
+        assert lag == shift, (lag,shift)
+        expected_sign = 1.0 if scale > 0 else -1.0
+        assert abs(corr-expected_sign)<1e-6 and n>10000, (corr,n)
+        assert abs(gain-scale)<1e-6 and err<1e-6, (gain,err)
+        print(f"SBR-54b: synthetic shift={shift}, gain={scale} PASS")
     print("SBR-54b: pure-Python sample lag/scale comparison self-test PASS")
 
 
