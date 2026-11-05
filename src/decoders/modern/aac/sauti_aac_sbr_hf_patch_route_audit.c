@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 static int check_state(const SautiAacSbrHfPatchRouteAuditState *s){
-    if(!s || s->frames==UINT64_MAX)return 0;
+    if(!s || s->frames>=UINT64_MAX/32u)return 0;
     for(unsigned b=0;b<4u;b++){
         if(s->mapped[b]>s->frames*32u ||
            s->outside[b]>s->frames*32u ||
@@ -13,7 +13,8 @@ static int check_state(const SautiAacSbrHfPatchRouteAuditState *s){
            s->previous_owner[b]>s->frames*32u)
             return 0;
         /* Counts for all destination slots partition the frames. */
-        if(s->frames>UINT64_MAX/32u ||
+        if(s->mapped[b]>UINT64_MAX-s->outside[b] ||
+           s->mapped[b]+s->outside[b]>UINT64_MAX-s->unmapped[b] ||
            s->mapped[b]+s->outside[b]+s->unmapped[b]!=s->frames*32u)
             return 0;
         uint64_t total=0u;
