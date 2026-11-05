@@ -30,6 +30,7 @@
 #include "sauti_aac_sbr_lpc_estimate.h"
 #include "sauti_aac_sbr_temporal_harmonic_preview.h"
 #include "sauti_aac_sbr_temporal_hf_units.h"
+#include "sauti_aac_sbr_temporal_reference_gain.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -648,6 +649,11 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     size_t qmf_prepared_frames=0u;
     size_t power_frames=0u,power_envelopes=0u,power_handoffs=0u;
     size_t gain_frames=0u,gain_envelopes=0u,gain_noise_only=0u;
+    size_t ref_gain_frames=0u,ref_gain_envelopes=0u;
+    size_t ref_gain_changed=0u,ref_gain_noise_positive=0u;
+    size_t ref_gain_sine=0u,ref_gain_groups=0u;
+    size_t ref_gain_noise_capped=0u,ref_gain_carry=0u;
+    double ref_gain_old_power=0.0,ref_gain_new_power=0.0;
     size_t apply_frames=0u,apply_emitted=0u;
     size_t noise_frames=0u,noise_vectors=0u,noise_positive=0u;
     size_t mix_frames=0u,mix_active=0u,mix_noise=0u;
@@ -970,6 +976,28 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             printf("  ramka %zu: SBR-53d limiter pelnych obwiedni odrzucony (bez PCM HE-AAC)\n",i);
             break;
         }
+        /* SBR-54l: compare the tested 54j+54k gain model
+         * against SBR-53d on the SAME completed original envelopes.
+         * Only counters change; no PCM/QMF gain is replaced yet. */
+        SautiAacSbrTemporalReferenceGainReport reference_gain;
+        if(!sauti_aac_sbr_temporal_reference_gain_calculate(
+               &temporal_history,&power_report,&reference_gain) ||
+           reference_gain.completed_count!=gain_report.completed_count){
+            printf("  ramka %zu: SBR-54l referencyjny limiter obwiedni odrzucony (bez PCM)\n",i);
+            break;
+        }
+        ref_gain_frames++;
+        ref_gain_envelopes+=reference_gain.completed_count;
+        ref_gain_changed+=reference_gain.gain_changed_bins;
+        ref_gain_noise_positive+=reference_gain.noise_positive_bins;
+        ref_gain_sine+=reference_gain.sine_bins;
+        ref_gain_groups+=reference_gain.group_count;
+        ref_gain_noise_capped+=reference_gain.noise_capped_bins;
+        ref_gain_old_power+=reference_gain.old_gain_sq_sum;
+        ref_gain_new_power+=reference_gain.new_gain_sq_sum;
+        for(unsigned j=0u;j<reference_gain.completed_count;j++)
+            ref_gain_carry+=reference_gain.completed[j].source==0u;
+
         gain_frames++;
         gain_envelopes+=gain_report.completed_count;
         for(unsigned e=0u;e<gain_report.completed_count;e++)
@@ -1405,6 +1433,11 @@ static void diagnose_core_sequence(const char *path,size_t limit,
            temporal_power.pending?temporal_power.pending_remaining:0u);
     printf("  SBR-53d: limiter HF=%zu ramek, gotowe obwiednie=%zu, pasma noise-only=%zu (bez finalnego PCM HE-AAC)\n",
            gain_frames,gain_envelopes,gain_noise_only);
+    printf("  SBR-54l: realny limiter porownany: ramki=%zu, pelne_env=%zu, odziedziczone_FIXVAR=%zu, grupy=%zu, roznice_gain=%zu, szum_dodatni=%zu, harmoniczne=%zu, ograniczony_szum=%zu, old_HF_power=%.9g, new_HF_power=%.9g (diagnoza OBWIEDNI, nie PCM)\n",
+           ref_gain_frames,ref_gain_envelopes,ref_gain_carry,
+           ref_gain_groups,ref_gain_changed,
+           ref_gain_noise_positive,ref_gain_sine,
+           ref_gain_noise_capped,ref_gain_old_power,ref_gain_new_power);
     printf("  SBR-53e: QMF gain zastosowany z opoznieniem: wejscia=%zu, gotowe ramki HF=%zu, oczekujace sloty=%u (bez koncowego PCM HE-AAC)\n",
            apply_frames,apply_emitted,
            temporal_apply.pending_slots);
