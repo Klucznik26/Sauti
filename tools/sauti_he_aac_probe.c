@@ -28,6 +28,7 @@
 #include "sauti_aac_sbr_temporal_energy_audit.h"
 #include "sauti_aac_sbr_temporal_envelope_audit.h"
 #include "sauti_aac_sbr_lpc_estimate.h"
+#include "sauti_aac_sbr_temporal_harmonic_preview.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -592,6 +593,28 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             return;
         }
     }
+    /* Optional A/B output alongside the unchanged SBR-54a raw PCM. */
+    FILE *sine_spool=NULL;
+    char sine_path[1024]={0};
+    int sine_io_ok=1;
+    if(export_path){
+        const int n=snprintf(sine_path,sizeof(sine_path),
+                             "%s.sine.f32le",export_path);
+        if(n<0 || (size_t)n>=sizeof(sine_path) ||
+           !strcmp(sine_path,path)){
+            fputs("SBR-54h: nazwa pliku kandydata jest niepoprawna\n",stderr);
+            if(spool)fclose(spool);
+            for(unsigned k=0u;k<SBR_COMPONENTS;k++)
+                if(component_spool[k])fclose(component_spool[k]);
+            fclose(f);return;
+        }
+        sine_spool=tmpfile();
+        if(!sine_spool){
+            fprintf(stderr,"SBR-54h: brak tymczasowego pliku PCM: %s\n",
+                    strerror(errno));
+            sine_io_ok=0;
+        }
+    }
     printf("Diagnostyka ciaglosci rdzenia AAC-LC + temporal SBR (%zu ramek, bez HE-AAC PCM):\n",limit);
     size_t decoded=0,first_nonzero=SIZE_MAX;
     SautiAacSbrTemporalHistory temporal_history={0};
@@ -625,6 +648,13 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         puts("  SBR-54f: brak pamieci na grupowanie obwiedni, pomijam audit");
     size_t preview_first_nonzero=SIZE_MAX;
     SautiAacSbrTemporalPcmPreviewState temporal_pcm={0};
+    SautiAacSbrTemporalPcmPreviewState sine_pcm_state={0};
+    SautiAacSbrTemporalHarmonicPreviewState sine_qmf_state={0};
+    uint8_t sine_held_onset[32u]={0};
+    size_t sine_preview_frames=0u,sine_qmf_frames=0u;
+    size_t sine_marked=0u,sine_activated=0u,sine_gated=0u;
+    double sine_delta_power=0.0,sine_preview_power=0.0;
+    double sine_preview_peak=0.0;
     /* SBR-53h audit: distinguish a genuine FIR slot from deliberate
      * SBR header bypass and envelope-attack bypass. Counting is by
      * ORIGINAL source owner, including any inherited FIXVAR tail. */
@@ -718,6 +748,28 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             break;
         }
         hf_target_frames++;
+        /* Preserve per-slot ORIGINAL transient onset across the one
+         * frame delay. Only the already-parsed SBR owner is accepted.
+         * No guessed flags or artificial harmonic activation. */
+        uint8_t sine_current_onset[32u]={0};
+        int sine_gate_ok=1;
+        for(unsigned t=0u;t<32u;t++){
+            const SautiAacSbrTemporalHfSlot *owner=&targets.slot[t];
+            const SautiAacSbrPayloadFrame *source=
+                owner->source==0u?&temporal_history.previous:
+                                  &temporal_history.current;
+            if(owner->source>1u ||
+               owner->envelope>=source->grid.env_count ||
+               source->transient_env>source->grid.env_count){
+                sine_gate_ok=0;break;
+            }
+            sine_current_onset[t]=(uint8_t)(
+                owner->envelope>=source->transient_env);
+        }
+        if(!sine_gate_ok){
+            printf("  ramka %zu: SBR-54h transient owner niepoprawny\n",i);
+            break;
+        }
         /* Audit the real source of the smoothing bypass. Do not
          * override any bitstream flag or synthesize alternative PCM. */
         size_t header_slots=0u,attack_only=0u,both=0u,fir=0u;
@@ -922,6 +974,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             break;
         }
         SautiAacSbrComplex preview[32u*64u];
+        SautiAacSbrComplex sine_high[32u*64u];
         SautiAacSbrTemporalMixReport mix_report={0};
         if(noise_report.emitted){
             SautiAacSbrTemporalSmoothFrame smooth_frame;
@@ -967,6 +1020,19 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                        energy_entry.nominal_noise_power,
                        energy_entry.double_alloc_bins,
                        energy_entry.active_bins);
+            SautiAacSbrTemporalHarmonicPreviewReport tone_report;
+            if(!sauti_aac_sbr_temporal_harmonic_preview(
+                   &emitted_targets,sine_held_onset,
+                   &noise_frame,&noise_report,
+                   preview,32u*64u,sine_high,32u*64u,
+                   &sine_qmf_state,&tone_report)){
+                printf("  ramka %zu: SBR-54h harmonic preview odrzucony\n",i);
+                break;
+            }
+            sine_qmf_frames++;
+            sine_marked+=tone_report.marked_bins;
+            sine_activated+=tone_report.active_tones;
+            sine_gated+=tone_report.gated_noise_bins;
             mix_frames++;
             mix_active+=mix_report.active_bins;
             mix_noise+=mix_report.noise_bins;
@@ -974,6 +1040,10 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             noise_vectors+=noise_report.vectors;
             noise_positive+=noise_report.nonzero_amplitudes;
         }
+        /* One-frame delayed emission has used the prior source
+         * onset mask; stage the CURRENT one for the next emission. */
+        memcpy(sine_held_onset,sine_current_onset,
+               sizeof(sine_held_onset));
         /* The SBR-54c decomposition consumes the LOW bands of the
          * prior frame. Snapshot before SBR-54a replaces its buffer. */
         SautiAacSbrComplex emitted_low[32u*32u];
@@ -994,6 +1064,34 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                &temporal_pcm,preview_pcm,2048u,&pcm_report)){
             printf("  ramka %zu: SBR-54a PCM preview 64-QMF odrzucony (bez normatywnego HE-AAC)\n",i);
             break;
+        }
+        float sine_pcm[2048u];
+        SautiAacSbrTemporalPcmPreviewReport sine_pcm_report;
+        if(!sauti_aac_sbr_temporal_pcm_preview_push(
+               low_qmf,32u*32u,
+               noise_report.emitted?sine_high:NULL,
+               noise_report.emitted?32u*64u:0u,
+               noise_report.emitted?&noise_frame:NULL,
+               &apply_report,
+               noise_report.emitted?&mix_report:NULL,
+               &sine_pcm_state,sine_pcm,2048u,&sine_pcm_report) ||
+           sine_pcm_report.emitted!=pcm_report.emitted ||
+           (pcm_report.emitted &&
+            sine_pcm_report.frame_index!=pcm_report.frame_index)){
+            printf("  ramka %zu: SBR-54h niezalezna synteza 64-QMF odrzucona\n",i);
+            break;
+        }
+        if(sine_pcm_report.emitted){
+            sine_preview_frames++;
+            for(unsigned j=0u;j<2048u;j++){
+                const double v=sine_pcm[j],d=v-preview_pcm[j];
+                sine_preview_power+=v*v;
+                sine_delta_power+=d*d;
+                if(fabs(v)>sine_preview_peak)sine_preview_peak=fabs(v);
+            }
+            if(sine_spool &&
+               fwrite(sine_pcm,sizeof(float),2048u,sine_spool)!=2048u)
+                sine_io_ok=0;
         }
         if(pcm_report.emitted){
             if(component_prefix){
