@@ -20,12 +20,13 @@ int sauti_aac_sbr_gain_partition(
        !isfinite(delta_denom) || denominator<=0.0 ||
        ec_denom<=0.0 || delta_denom<=0.0)return 0;
 
-    const double n2=(e/denominator)*q;
+    /* Form Q/(1+Q) first: even if E and Q are finite and large,
+     * the product E*Q may overflow although final gain is valid. */
+    const double noise_share=q/denominator;
+    const double n2=e*noise_share;
     const double s2=harmonic?(e/denominator):0.0;
-    /* Divide before multiplying to avoid overflow when E and Q
-     * are individually valid but their product would overflow. */
     const double g2=harmonic?
-        ((e/ec_denom)/denominator)*q:
+        (e/ec_denom)*noise_share:
         (e/ec_denom)/delta_denom;
     if(!isfinite(n2)||!isfinite(s2)||!isfinite(g2)||
        n2<0.0||s2<0.0||g2<0.0)return 0;
