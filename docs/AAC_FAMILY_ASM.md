@@ -3660,3 +3660,69 @@ nie — skoncentrować się na QMF phase/aliasing/
 LPC-chirp i porównaniu fazowym. Nadal NIE mamy
 HE-AAC conformance-quality PCM; nie zmieniać
 starego dekodera obsługującego 2 pierwsze ramki.
+
+
+## SBR-54e Fedora PASS i wyniki — prawdziwy problem: MEAN vs slot (2026-11-05)
+
+Użytkownik uruchomił na Fedorze testy `test-aac-sbr-temporal-energy-audit`,
+`test-aac-sbr-temporal-mix`, `test-aac-sbr-temporal-pcm-preview`
+i przebadał realne 50 ramek `he_test.aac`. Wszystkie testy PASS.
+SBR-54e PASS na 50/50 ramek:
+- ramka indeks 2: sum(target E)=2620672,
+  sum(|HF|²)=2086390, sum(noise_nom)=5767.42014;
+  437/864 lokalnych pasm-slotów powyżej E;
+- wszystkie ramki: target=8567296, HF=6826699.94,
+  nominalny noise=1092346.11; sum(HF+noise)/target=0.924334359;
+  23725/43200 lokalnych pasm-slotów powyżej E;
+  harmonic_bins=3020; max lokalny stosunek=75.4060352.
+- tor 54a pozostaje 50/50 PCM PREVIEW 102400 próbek.
+
+**WAŻNA KOREKTA INTERPRETACJI:** raport 54e porównuje
+**energię jednego slotu** `|X[t,k]|²` do `E[envelope,k]`,
+a E jest energią **średnią w całej oryginalnej obwiedni**.
+Lokalne przekroczenie (nawet 75x) może być całkowicie
+prawidłowym krótkim transientem; samo w sobie NIE
+dowodzi błędu limitera, podwójnego przydziału energii
+ani nieprawidłowego zdekodowania HE-AAC. Dodatkowo
+całkowity budżet 92.43% nie potwierdza globalnego
+nadmiaru energii. Mimo to inne pomiary (PCM correlation
+54d) jednoznacznie pokazują niską jakość odbudowy HF.
+
+**SBR-54f** przygotowano właśnie do właściwej skali
+statystycznej:
+- `sauti_aac_sbr_temporal_envelope_audit_push` grupuje
+  wyniki `54e` po numerze ORYGINALNEJ ramki,
+  oryginalnej obwiedni i pasmie k;
+- `source=1` -> emitted-frame, `source=0` ->
+  emitted-frame minus jeden, więc FIXVAR 2/6 slotów
+  w następnej ramce nadal należy do pełnej obwiedni
+  poprzedniej ramki;
+- sumuje E, HF² i nominalny noise² przez wszystkie
+  sloty każdej oryginalnej obwiedni i dopiero
+  wtedy porównuje ich budżety (progi 1.0001/2/10);
+- wypisuje maksymalny *średni* stosunek oraz numer
+  oryginalnej ramki, obwiedni, pasma i liczbę slotów;
+- weryfikuje sumę 43200 pasm-slotów z audytem 54e;
+  nie wpływa na PCM, amplitudę ani historię kodeka;
+- w teście syntetycznym rozlicza 32 sloty + 2 sloty
+  FIXVAR w tej samej obwiedni; sprawdza rollback
+  dla niespójnego E, NaN i indeksu ramki.
+
+**Kod SBR-54f dodany do GitHub, jeszcze NIE zaliczony
+kompilacją ani testem na Fedorze.**
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-envelope-audit test-aac-sbr-temporal-energy-audit probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 |
+  grep -E 'SBR-54f|SBR-54e|SBR-54a|Rdzen:|odrzucony'
+```
+
+**Cel:** odpowiedzieć, czy nadmiar mocy HF/NOISE
+utrzymuje się na prawidłowych, pełnych obwiedniach.
+Nawet taki wynik będzie wciąż tylko diagnostyką:
+normatywny HF wymaga sinusoids, noise gating,
+chirp/LPC i zgodnej syntezy fazowej oraz porównania
+z niezależnym dekoderem. Bez potwierdzenia nie
+zmieniać globalnego gain ani nie dopisywać sztucznego
+skalowania obwiedni.
