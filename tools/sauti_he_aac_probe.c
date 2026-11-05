@@ -31,6 +31,7 @@
 #include "sauti_aac_sbr_temporal_harmonic_preview.h"
 #include "sauti_aac_sbr_temporal_hf_units.h"
 #include "sauti_aac_sbr_temporal_reference_gain.h"
+#include "sauti_aac_sbr_temporal_gain_bridge.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -640,6 +641,31 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             units_io_ok=0;
         }
     }
+    FILE *ref_hf_spool=NULL;
+    char ref_hf_path[1024]={0};
+    int ref_hf_io_ok=1;
+    if(export_path){
+        const int n=snprintf(ref_hf_path,sizeof(ref_hf_path),
+                             "%s.refhf.f32le",export_path);
+        if(n<0 || (size_t)n>=sizeof(ref_hf_path) ||
+           !strcmp(ref_hf_path,path) ||
+           !strcmp(ref_hf_path,sine_path) ||
+           !strcmp(ref_hf_path,units_path)){
+            fputs("SBR-54m: niedozwolona nazwa PCM\n",stderr);
+            if(units_spool)fclose(units_spool);
+            if(sine_spool)fclose(sine_spool);
+            if(spool)fclose(spool);
+            for(unsigned k=0u;k<SBR_COMPONENTS;k++)
+                if(component_spool[k])fclose(component_spool[k]);
+            fclose(f);return;
+        }
+        ref_hf_spool=tmpfile();
+        if(!ref_hf_spool){
+            fprintf(stderr,"SBR-54m: nie moge utworzyc bufora PCM: %s\n",
+                    strerror(errno));
+            ref_hf_io_ok=0;
+        }
+    }
     printf("Diagnostyka ciaglosci rdzenia AAC-LC + temporal SBR (%zu ramek, bez HE-AAC PCM):\n",limit);
     size_t decoded=0,first_nonzero=SIZE_MAX;
     SautiAacSbrTemporalHistory temporal_history={0};
@@ -680,6 +706,10 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     SautiAacSbrTemporalPcmPreviewState temporal_pcm={0};
     SautiAacSbrTemporalPcmPreviewState sine_pcm_state={0};
     SautiAacSbrTemporalPcmPreviewState units_pcm_state={0};
+    SautiAacSbrTemporalPcmPreviewState ref_hf_pcm_state={0};
+    SautiAacSbrTemporalApplyState ref_hf_apply_state={0};
+    size_t ref_hf_frames=0u,ref_hf_qmf_frames=0u;
+    double ref_hf_pcm_power=0.0,ref_hf_pcm_peak=0.0;
     size_t units_qmf_frames=0u,units_pcm_frames=0u;
     double units_pcm_power=0.0,units_pcm_peak=0.0;
     SautiAacSbrTemporalHarmonicPreviewState sine_qmf_state={0};
@@ -1012,6 +1042,24 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             printf("  ramka %zu: SBR-53e buforowany gain HF odrzucony (bez PCM HE-AAC)\n",i);
             break;
         }
+        /* SBR-54m: compare new HF G ONLY, without noise/sine.
+         * Reuse SBR-53e time alignment with an INDEPENDENT state. */
+        SautiAacSbrTemporalGainReport ref_bridge;
+        SautiAacSbrComplex ref_adjusted_hf[32u*64u];
+        SautiAacSbrTemporalApplyReport ref_apply_report;
+        if(!sauti_aac_sbr_temporal_gain_bridge(
+               &reference_gain,&ref_bridge) ||
+           !sauti_aac_sbr_temporal_gain_apply(
+               &temporal_history,baseline_hf,32u*64u,
+               &ref_bridge,&ref_hf_apply_state,
+               ref_adjusted_hf,32u*64u,&ref_apply_report) ||
+           ref_apply_report.emitted!=apply_report.emitted ||
+           (apply_report.emitted &&
+            ref_apply_report.frame_index!=apply_report.frame_index)){
+            printf("  ramka %zu: SBR-54m niezalezny gain G QMF odrzucony\n",i);
+            break;
+        }
+        if(ref_apply_report.emitted)ref_hf_qmf_frames++;
         apply_frames++;
         if(apply_report.emitted)apply_emitted++;
         /* SBR-53f: align the canonical noise sequence with the
@@ -1127,6 +1175,34 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                &temporal_pcm,preview_pcm,2048u,&pcm_report)){
             printf("  ramka %zu: SBR-54a PCM preview 64-QMF odrzucony (bez normatywnego HE-AAC)\n",i);
             break;
+        }
+        float ref_hf_pcm[2048u];
+        SautiAacSbrTemporalPcmPreviewReport ref_hf_pcm_report;
+        if(!sauti_aac_sbr_temporal_pcm_preview_push(
+               low_qmf,32u*32u,
+               noise_report.emitted?ref_adjusted_hf:NULL,
+               noise_report.emitted?32u*64u:0u,
+               noise_report.emitted?&noise_frame:NULL,
+               &ref_apply_report,
+               noise_report.emitted?&mix_report:NULL,
+               &ref_hf_pcm_state,ref_hf_pcm,2048u,
+               &ref_hf_pcm_report) ||
+           ref_hf_pcm_report.emitted!=pcm_report.emitted ||
+           (pcm_report.emitted &&
+            ref_hf_pcm_report.frame_index!=pcm_report.frame_index)){
+            printf("  ramka %zu: SBR-54m odrebny PCM ref HF odrzucony\n",i);
+            break;
+        }
+        if(ref_hf_pcm_report.emitted){
+            ref_hf_frames++;
+            for(unsigned j=0u;j<2048u;j++){
+                const double v=ref_hf_pcm[j];
+                ref_hf_pcm_power+=v*v;
+                if(fabs(v)>ref_hf_pcm_peak)ref_hf_pcm_peak=fabs(v);
+            }
+            if(ref_hf_spool &&
+               fwrite(ref_hf_pcm,sizeof(float),2048u,ref_hf_spool)!=2048u)
+                ref_hf_io_ok=0;
         }
         float sine_pcm[2048u];
         SautiAacSbrTemporalPcmPreviewReport sine_pcm_report;
