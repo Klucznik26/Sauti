@@ -36,6 +36,7 @@
 #include "sauti_aac_sbr_temporal_source6.h"
 #include "sauti_aac_sbr_hf_band_audit.h"
 #include "sauti_aac_sbr_hf_patch_route_audit.h"
+#include "sauti_aac_sbr_low_source_audit.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -707,6 +708,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     SautiAacSbrTemporalSource6State source6_state={0};
     SautiAacSbrHfBandAuditState source6_bands={0};
     SautiAacSbrHfPatchRouteAuditState source6_patch_routes={0};
+    SautiAacSbrLowSourceAuditState source6_low_audit={0};
     size_t source6_frames=0u,source6_carried=0u;
     size_t source6_missing=0u,source6_prior_owners=0u;
     size_t source6_active=0u,source6_changed=0u;
@@ -936,6 +938,11 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                &source6_state,source6_low,32u*32u,
                source6_high,32u*64u,&source6_report)){
             printf("  ramka %zu: SBR-54s historia 6 slotow QMF odrzucona\n",i);
+            break;
+        }
+        if(!sauti_aac_sbr_low_source_audit_add(
+               source6_low,32u*32u,&source6_report,&source6_low_audit)){
+            printf("  ramka %zu: SBR-54v LOW source audit odrzucony\n",i);
             break;
         }
         if(!sauti_aac_sbr_hf_patch_route_audit_add(
@@ -1744,6 +1751,23 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                (unsigned long long)source6_bands.active[k],
                (unsigned long long)source6_bands.changed[k],
                corr,rms,relative);
+    }
+    printf("  SBR-54v: LOW QMF W[i-6] audit ramki=%llu (Sauti-only; NOT FFmpeg/PCM)\n",
+           (unsigned long long)source6_low_audit.frames);
+    for(unsigned b=0u;b<4u;b++){
+        const double e=source6_low_audit.energy[b];
+        const double pr=source6_low_audit.adjacent_norm_prev[b];
+        const double pn=source6_low_audit.adjacent_norm_next[b];
+        const double norm=pr>0.0 && pn>0.0?sqrt(pr*pn):0.0;
+        printf("  SBR-54v: LOW=%u count=%llu energy=%.9g RMS=%.9g ReE=%.9g ImE=%.9g adjacent_phase_re=%.9g adjacent_phase_im=%.9g peak=%.9g frame=%llu slot=%u\n",
+               b+2u,(unsigned long long)source6_low_audit.count[b],e,
+               source6_low_audit.count[b]?sqrt(e/(double)source6_low_audit.count[b]):0.0,
+               source6_low_audit.real_energy[b],source6_low_audit.imag_energy[b],
+               norm?source6_low_audit.adjacent_real[b]/norm:0.0,
+               norm?source6_low_audit.adjacent_imag[b]/norm:0.0,
+               source6_low_audit.max_magnitude[b],
+               (unsigned long long)source6_low_audit.peak_frame[b],
+               (unsigned)source6_low_audit.peak_slot[b]);
     }
     printf("  SBR-54u: patch HF original owner profile, ramki=%llu (Sauti, bez FFmpeg/PCM)\n",
            (unsigned long long)source6_patch_routes.frames);
