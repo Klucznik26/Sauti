@@ -3462,3 +3462,73 @@ stemów pozwoli zdecydować, czy priorytetem jest
 poprawienie analizy/syntezy 32/64-QMF, wzmocnienia
 HF, czy surowego szumu. NIE dodawać następnego
 modułu harmonicznych zanim nie rozdzielimy źródła błędu.
+
+
+## SBR-54c Fedora PASS; SBR-54d wspólna regresja składników (2026-11-05)
+
+**Wynik użytkownika SBR-54c** na prawdziwym
+`~/Sauti-fixtures/he_test.aac`: kompilacja i
+eksport trzech składników 50/50 ramek PASS;
+rekombinacja LOW+HF+NOISE zgodna z PREVIEW.
+
+Po porównaniu z niezależnym FFmpeg (102400 próbek):
+- LOW: RMS 0.0826822439, peak 0.159414411;
+  najlepszy lag -6 próbek, korelacja 0.991765,
+  dopasowany gain 1.4459565, reszta RMS 0.015439245
+  (12.807% RMS referencji).
+- HF gain: RMS 0.828072518, peak 33.193573;
+  korelacja z CAŁYM FFmpeg 0.004770 przy lag -4350;
+  nie wolno interpretować -4350 jako opóźnienia.
+- Noise raw: RMS 0.317338204, peak 23.1169834;
+  korelacja z CAŁYM FFmpeg -0.000195, lag -458;
+  równie niewiarygodny jako rzeczywiste opóźnienie.
+
+Interpretacja: **LOW wygląda bardzo obiecująco**,
+ale sam korelator całego sygnału nie ocenia
+pasma wysokiego poprawnie, gdy referencja ma silny
+rdzeń niskoczęstotliwościowy. Ponadto duży HF/NOISE
+RMS pokazuje, że obecny bezpośredni mixer jest
+błędny w poziomie, normatywności lub fazie, ale
+NIE rozstrzyga jeszcze pojedynczej przyczyny.
+W kodzie widać jawne `sqrt(decoded_energy)`
+dla ROM noise oraz osobne `sqrt(target/current)`
+dla HF, więc przed zmianą normatywnego skalowania
+trzeba najpierw potwierdzić, czy te składowe
+zawierają jakikolwiek poprawny przebieg poza LOW.
+
+**Nowy SBR-54d**, tylko narzędzie Python:
+`tools/sauti_he_aac_stem_ablation.py`
+- ustala JEDEN lag względem FFmpeg na podstawie LOW
+  (oczekiwane -6 próbek dla tej próbki);
+- dopasowuje w tej samej osi czasu trzy modele
+  LOW, LOW+HF, LOW+HF+NOISE (łącznie z DC);
+- wypisuje zmniejszenie relatywnego RMS błędu przez
+  każdy kolejny składnik oraz 3 współczynniki
+  dopasowania, które są diagnostyczne, a NIE
+  poprawkami gain dekodera;
+- opcjonalnie mierzy różnicę sumy STEM-ów od
+  zapisanego pełnego PCM PREVIEW;
+- `make test-aac-he-stem-ablation` uruchamia
+  niezależny self-test z sygnałami o znanych
+  wagach, przesunięciu +37 i reszcie ~0.
+Do pierwszego uruchomienia na Fedorze:
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-he-stem-ablation PKG_CONFIG=/bin/false
+python3 tools/sauti_he_aac_stem_ablation.py \
+  ~/Sauti-fixtures/he_test_parts.low.f32le \
+  ~/Sauti-fixtures/he_test_parts.hf.f32le \
+  ~/Sauti-fixtures/he_test_parts.noise.f32le \
+  ~/Sauti-fixtures/he_test_ffmpeg_reference.f32le \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le
+```
+
+**Najbliższy punkt decyzyjny:** czy błąd względny
+po LOW (12.807%) zauważalnie maleje po HF i NOISE?
+Jeśli NIE, trzeba naprawiać źródłową rekonstrukcję
+HF / domenę energii / fazę / kontrolę sinusoid i
+noise, a nie dobierać globalny gain. Jeśli TAK,
+najpierw sprawdzić normatywne wzmocnienie i opóźnienie.
+Stary tor odrzucający ramkę 2 pozostaje niezmieniony;
+nowe 54d nie tworzy PCM i nie integruje się z playerem.
