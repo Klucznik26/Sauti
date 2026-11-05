@@ -709,6 +709,15 @@ test-aac-sbr-temporal-pcm-preview: $(OBJDIR)/test_aac_sbr_temporal_pcm_preview
 
 AAC_SBR_GAIN_PARTITION_SRC := src/decoders/modern/aac/sauti_aac_sbr_gain_partition.c
 
+AAC_SBR_GAIN_LIMIT_PARTITION_SRC := src/decoders/modern/aac/sauti_aac_sbr_gain_limit_partition.c
+
+$(OBJDIR)/test_aac_sbr_gain_limit_partition: tests/test_aac_sbr_gain_limit_partition.c include/sauti_aac_sbr_gain_limit_partition.h $(AAC_SBR_GAIN_LIMIT_PARTITION_SRC) $(AAC_SBR_GAIN_PARTITION_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_gain_limit_partition.c $(AAC_SBR_GAIN_LIMIT_PARTITION_SRC) $(AAC_SBR_GAIN_PARTITION_SRC) -lm -no-pie
+
+.PHONY: test-aac-sbr-gain-limit-partition
+test-aac-sbr-gain-limit-partition: $(OBJDIR)/test_aac_sbr_gain_limit_partition
+	./$(OBJDIR)/test_aac_sbr_gain_limit_partition
+
 $(OBJDIR)/test_aac_sbr_gain_partition: tests/test_aac_sbr_gain_partition.c include/sauti_aac_sbr_gain_partition.h $(AAC_SBR_GAIN_PARTITION_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_gain_partition.c $(AAC_SBR_GAIN_PARTITION_SRC) -lm -no-pie
 
