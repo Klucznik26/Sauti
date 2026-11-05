@@ -25,6 +25,7 @@
 #include "sauti_aac_sbr_temporal_mix.h"
 #include "sauti_aac_sbr_temporal_smooth.h"
 #include "sauti_aac_sbr_temporal_pcm_preview.h"
+#include "sauti_aac_sbr_temporal_energy_audit.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -517,6 +518,19 @@ static int sbr54c_export(FILE *src,const char *path,size_t expected){
     return 1;
 }
 
+static void sbr54e_accumulate(SautiAacSbrTemporalEnergyAudit *total,
+                              const SautiAacSbrTemporalEnergyAudit *value){
+    total->active_bins+=value->active_bins;
+    total->double_alloc_bins+=value->double_alloc_bins;
+    total->harmonic_bins+=value->harmonic_bins;
+    total->decoded_target_power+=value->decoded_target_power;
+    total->adjusted_hf_power+=value->adjusted_hf_power;
+    total->nominal_noise_power+=value->nominal_noise_power;
+    total->mixed_hf_power+=value->mixed_hf_power;
+    if(value->max_budget_ratio>total->max_budget_ratio)
+        total->max_budget_ratio=value->max_budget_ratio;
+}
+
 static void diagnose_core_sequence(const char *path,size_t limit,
                                    const char *export_path,
                                    const char *component_prefix){
@@ -590,6 +604,8 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     size_t mix_frames=0u,mix_active=0u,mix_noise=0u;
     size_t smooth_frames=0u,smooth_active=0u,smooth_bypasses=0u;
     size_t preview_frames=0u,preview_samples=0u,preview_nonzero=0u;
+    size_t energy_audit_frames=0u;
+    SautiAacSbrTemporalEnergyAudit energy_budget={0};
     size_t preview_first_nonzero=SIZE_MAX;
     SautiAacSbrTemporalPcmPreviewState temporal_pcm={0};
     /* SBR-53h audit: distinguish a genuine FIR slot from deliberate
@@ -760,6 +776,9 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         /* SBR-53f: align the canonical noise sequence with the
          * frame actually emitted by SBR-53e, never with a future
          * owner's current SBR side data. Still NO PCM synthesis. */
+        SautiAacSbrTemporalHfTargets emitted_targets={0};
+        if(temporal_noise.ready)
+            emitted_targets=temporal_noise.held_targets;
         SautiAacSbrTemporalNoiseFrame noise_frame;
         SautiAacSbrTemporalNoiseReport noise_report;
         if(!sauti_aac_sbr_temporal_noise_prepare(
@@ -789,6 +808,23 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                 printf("  ramka %zu: SBR-53g podglad ROM noise + HF odrzucony (bez PCM)\n",i);
                 break;
             }
+            SautiAacSbrTemporalEnergyAudit energy_entry;
+            if(!sauti_aac_sbr_temporal_energy_audit(
+                   &emitted_targets,adjusted_hf,32u*64u,
+                   &noise_frame,preview,32u*64u,
+                   &apply_report,&noise_report,&energy_entry)){
+                printf("  ramka %zu: SBR-54e audit bilansu energii odrzucony (bez zmiany PCM)\n",i);
+                break;
+            }
+            energy_audit_frames++;
+            sbr54e_accumulate(&energy_budget,&energy_entry);
+            if(energy_entry.frame_index==2u)
+                printf("  SBR-54e ramka 2: target=%.9g, HF=%.9g, NOISE_nom=%.9g, nadbudzet=%u/%u (przed synteza, nie normatywnie)\n",
+                       energy_entry.decoded_target_power,
+                       energy_entry.adjusted_hf_power,
+                       energy_entry.nominal_noise_power,
+                       energy_entry.double_alloc_bins,
+                       energy_entry.active_bins);
             mix_frames++;
             mix_active+=mix_report.active_bins;
             mix_noise+=mix_report.noise_bins;
@@ -890,6 +926,16 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                        final_hf,32u*64u,&last_noise,
                        &final_report,&last_report,
                        last_preview,32u*64u,&last_mix)){
+                    SautiAacSbrTemporalEnergyAudit final_energy;
+                    if(sauti_aac_sbr_temporal_energy_audit(
+                           &temporal_noise.held_targets,
+                           final_hf,32u*64u,&last_noise,
+                           last_preview,32u*64u,&final_report,
+                           &last_report,&final_energy)){
+                        energy_audit_frames++;
+                        sbr54e_accumulate(&energy_budget,&final_energy);
+                    }else
+                        puts("  SBR-54e: finalny bilans energii odrzucony (bez zmiany PCM)");
                     mix_frames++;
                     mix_active+=last_mix.active_bins;
                     mix_noise+=last_mix.noise_bins;
@@ -970,6 +1016,18 @@ static void diagnose_core_sequence(const char *path,size_t limit,
            smoothing_header_slots+smoothing_attack_only==smooth_bypasses &&
            smoothing_header_slots+smoothing_attack_only+smoothing_fir_slots==32u*decoded
                ? "TAK":"NIE");
+    printf("  SBR-54e: audit bilansu: ramki=%zu, target=%.9g, HF=%.9g, NOISE_nom=%.9g, HF_plus_NOISE/target=%.9g, nadbudzet=%u/%u, harmonic_bins=%u, max_ratio=%.9g (diagnoza przed QMF, nie normatywne HE-AAC)\n",
+           energy_audit_frames,
+           energy_budget.decoded_target_power,
+           energy_budget.adjusted_hf_power,
+           energy_budget.nominal_noise_power,
+           energy_budget.decoded_target_power>0.0?
+               (energy_budget.adjusted_hf_power+
+                energy_budget.nominal_noise_power)/
+                energy_budget.decoded_target_power:0.0,
+           energy_budget.double_alloc_bins,
+           energy_budget.active_bins,energy_budget.harmonic_bins,
+           energy_budget.max_budget_ratio);
     printf("  SBR-54a: PCM PREVIEW 64-QMF, ramki=%zu, probki=%zu, niezerowe=%zu, pierwsza niezerowa=",
            preview_frames,preview_samples,preview_nonzero);
     if(preview_first_nonzero==SIZE_MAX)puts("brak (niezweryfikowany dzwiek HE-AAC)");
