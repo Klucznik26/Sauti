@@ -5197,3 +5197,28 @@ python3 tools/sauti_he_aac_qmf_reference_audit.py \
 ```
 
 **CAUTION:** The experimental FFmpeg patch is deliberately intrusive and may need revision to compile against the precise checked-out FFmpeg commit. The synthetic instrumentation-anchor test does NOT establish successful compilation, run-time frame coverage or actual numerical agreement. Verify the resulting diff and source version; errors are diagnostic evidence. Do not infer that FFmpeg decoded exactly 50 SBR frames merely from `-frames:a 50`—the binary size validator must pass. No Sauti production decoder, original QMF path, or installed FFmpeg should be changed.
+
+
+### SBR-54w III Fedora result: FFmpeg QMF calls exceed supplied 50-frame input (2026-11-05)
+
+User successfully built and launched instrumented FFmpeg git-2026-11-05-f8a03cd. With exactly 50 shared synthetic 1024-sample frames, running `-frames:a 50` triggered `SBR-54w: core PCM exhausted or truncated` and `abort` before verification. Important: `-frames:a 50` governs **encoded output frames**, not the number of internal SBR QMF analysis invocations; decoder may perform additional lookahead/drain or differently grouped calls. This does not yet identify the exact cause or prove any Sauti QMF error.
+
+Corrected patcher `tools/sauti_ffmpeg_qmf_instrument.py` now supports `--repair-exhaustion` for the **already instrumented disposable FFmpeg checkout**, with exact fail-closed matching to the old injected text. A complete EOF after N=50 shared input frames is no longer fatal: log one warning, stop overriding FFmpeg QMF input and stop exporting further QMF records, while letting FFmpeg finish on its native input. **Partial input frames and nonfinite data remain fatal**. The output must still pass full-frame size/finite/preroll checks and remain diagnostic-only.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-ffmpeg-qmf-instrument
+python3 tools/sauti_ffmpeg_qmf_instrument.py --repair-exhaustion --dry-run ~/Sauti-tools/ffmpeg-sbr54w
+python3 tools/sauti_ffmpeg_qmf_instrument.py --repair-exhaustion ~/Sauti-tools/ffmpeg-sbr54w
+cd ~/Sauti-tools/ffmpeg-sbr54w
+make -j4 ffmpeg
+cd ~/Sauti
+rm -f /tmp/sbr54w-ffmpeg.qmf.f32le
+SAUTI_SBR54W_CORE=/tmp/sbr54w-shared-core.f32le SAUTI_SBR54W_QMF=/tmp/sbr54w-ffmpeg.qmf.f32le \
+ ~/Sauti-tools/ffmpeg-sbr54w/ffmpeg -hide_banner -v warning -threads 1 \
+ -i ~/Sauti-fixtures/he_test.aac -frames:a 50 -f null -
+python3 tools/sauti_sbr54w_verify_reference.py /tmp/sbr54w-shared-core.f32le /tmp/sbr54w-ffmpeg.qmf.f32le
+```
+
+The repair uses no production Sauti code; `--dry-run` and subsequent build/validation still require Fedora confirmation. A valid 50-frame output establishes data completeness, **not** conformance or identity of decoder internal calls.
