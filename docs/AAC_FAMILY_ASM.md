@@ -5285,3 +5285,17 @@ make test-aac-sbr-qmf-tones PKG_CONFIG=/bin/false
 ```
 
 No system FFmpeg or production decoder changes; all operations are separate tool invocations. The full four-tone suite was committed but **not yet executed on Fedora**; results require user-run validation. A non-zero exit is a failed/incomplete sweep, not an incorrect production decoder verdict.
+
+
+### SBR-54x Fedora measurement and SBR-54y steady-state audit (2026-11-05)
+
+The four-tone SBR-54x run on Fedora completed for all tone/observed-band pairs. Dominant excited band (LOW 2, 3, 4, 5 respectively) consistently showed complex coherence ~0.998525, best-fit residual ~0.05428 and FFmpeg/Sauti RMS ~33225.7. Dominant energy shares, **only among LOW 2..5**, Sauti ~0.99777..0.99817, FFmpeg ~0.99963..0.99984. Off-target bins had low energies and correlations; this does not by itself prove a defect in QMF.
+
+Added `tools/sauti_sbr54y_steady_audit.py` using the **existing** `/tmp/sbr54x-tones/low{2..5}` exported PCM-validated, SHA-matched manifests and complex QMF. It reports per-band, per-window complex coherence, best complex gain residual relative to Sauti, FFmpeg/Sauti amplitude RMS ratio and energy fractions within LOW 2..5. Time windows in global slots: early slots [6,64), transition [64,256), steady [256,1600) for 50 frames. The first six missing W[i-6] slots are excluded. Reports 4 tones × 3 windows × 4 observed bands to `/tmp/sbr54x-tones/steady_report.tsv`, with a compact per-target summary to stdout.
+
+```sh
+cd ~/Sauti && git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-qmf-steady PKG_CONFIG=/bin/false
+```
+
+The synthetic unit test validates metrics and window boundaries but **real Fedora results are pending**. This audit does not rebuild FFmpeg, rerun the four tones, change production AAC/QMF code or infer full-band (32-bin) leakage.
