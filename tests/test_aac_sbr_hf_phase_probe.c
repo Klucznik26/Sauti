@@ -24,8 +24,6 @@ int main(void){
             assert(input[i].im<0.0f);
         }
     puts("SBR-54q: conjugate only active complex HF; LOW unchanged PASS");
-    const SautiAacSbrComplex before[COUNT]={0}; /* unused? use snapshot */
-    (void)before;
     SautiAacSbrComplex snapshot[COUNT];
     memcpy(snapshot,out,sizeof(snapshot));
     input[COUNT-1].im=NAN;
