@@ -707,6 +707,15 @@ $(OBJDIR)/test_aac_sbr_temporal_pcm_preview: tests/test_aac_sbr_temporal_pcm_pre
 test-aac-sbr-temporal-pcm-preview: $(OBJDIR)/test_aac_sbr_temporal_pcm_preview
 	./$(OBJDIR)/test_aac_sbr_temporal_pcm_preview
 
+AAC_SBR_GAIN_PARTITION_SRC := src/decoders/modern/aac/sauti_aac_sbr_gain_partition.c
+
+$(OBJDIR)/test_aac_sbr_gain_partition: tests/test_aac_sbr_gain_partition.c include/sauti_aac_sbr_gain_partition.h $(AAC_SBR_GAIN_PARTITION_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_gain_partition.c $(AAC_SBR_GAIN_PARTITION_SRC) -lm -no-pie
+
+.PHONY: test-aac-sbr-gain-partition
+test-aac-sbr-gain-partition: $(OBJDIR)/test_aac_sbr_gain_partition
+	./$(OBJDIR)/test_aac_sbr_gain_partition
+
 AAC_SBR_TEMPORAL_HF_UNITS_SRC := src/decoders/modern/aac/sauti_aac_sbr_temporal_hf_units.c
 $(OBJDIR)/test_aac_sbr_temporal_hf_units: tests/test_aac_sbr_temporal_hf_units.c include/sauti_aac_sbr_temporal_hf_units.h $(AAC_SBR_TEMPORAL_HF_UNITS_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_temporal_hf_units.c $(AAC_SBR_TEMPORAL_HF_UNITS_SRC) -lm -no-pie
