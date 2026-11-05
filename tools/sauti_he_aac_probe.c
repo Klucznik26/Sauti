@@ -641,6 +641,8 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     size_t lpc_estimated_frames=0u,lpc_changed_bins=0u;
     size_t lpc_active_bins=0u,lpc_nonzero_coeffs=0u;
     size_t lpc_nonzero_chirp=0u;
+    size_t invf_modes[4]={0u,0u,0u,0u};
+    size_t invf_active_frames=0u,invf_total_bands=0u;
     double lpc_delta_power=0.0;
     SautiAacSbrTemporalPowerState temporal_power={0};
     for(size_t i=0;i<limit;i++){
@@ -777,6 +779,28 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                sizeof(lpc_previous_low));
         memcpy(lpc_input+2u*32u,low_qmf,
                32u*32u*sizeof(low_qmf[0]));
+        /* Count the ORIGINAL parsed inverse filtering modes, not
+         * inferred chirp values or a made-up override. Zero modes
+         * correctly disable the SBR-13 predictor correction. */
+        unsigned frame_active_invf=0u;
+        if(temporal_history.current.control.noise_band_count!=
+           temporal_history.current.tables.n_noise){
+            printf("  ramka %zu: SBR-54g invf count niezgodny\n",i);
+            break;
+        }
+        int invf_ok=1;
+        for(unsigned j=0u;j<temporal_history.current.tables.n_noise;j++){
+            const unsigned mode=temporal_history.current.control.invf_mode[j];
+            if(mode>3u){invf_ok=0;break;}
+            invf_modes[mode]++;
+            invf_total_bands++;
+            if(mode)frame_active_invf=1u;
+        }
+        if(!invf_ok){
+            printf("  ramka %zu: SBR-54g invalid invf_mode\n",i);
+            break;
+        }
+        invf_active_frames+=frame_active_invf;
         SautiAacSbrLpcCoeffs lpc_coeff;
         SautiAacSbrChirp next_chirp=lpc_previous_chirp;
         if(next_chirp.ready &&
@@ -1124,6 +1148,9 @@ static void diagnose_core_sequence(const char *path,size_t limit,
            lpc_estimated_frames,lpc_nonzero_coeffs,lpc_nonzero_chirp,
            lpc_changed_bins,lpc_active_bins,
            lpc_active_bins?sqrt(lpc_delta_power/(double)lpc_active_bins):0.0);
+    printf("  SBR-54g invf_mode bitstream: OFF=%zu, LOW=%zu, MID=%zu, HIGH=%zu; pasma=%zu; ramki_z_aktywnym_INVF=%zu/%zu (bez wymuszania chirp)\n",
+           invf_modes[0],invf_modes[1],invf_modes[2],invf_modes[3],
+           invf_total_bands,invf_active_frames,lpc_estimated_frames);
     printf("  SBR-53c: ciagly pomiar HF=%zu ramek, pelne obwiednie=%zu, dokonczenia=%zu, pozostale sloty=%u (bez finalnego PCM HE-AAC)\n",
            power_frames,power_envelopes,power_handoffs,
            temporal_power.pending?temporal_power.pending_remaining:0u);
