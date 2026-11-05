@@ -27,6 +27,7 @@
 #include "sauti_aac_sbr_temporal_pcm_preview.h"
 #include "sauti_aac_sbr_temporal_energy_audit.h"
 #include "sauti_aac_sbr_temporal_envelope_audit.h"
+#include "sauti_aac_sbr_lpc_estimate.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -635,6 +636,12 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     SautiAacSbrTemporalApplyState temporal_apply={0};
     SautiAacSbrTemporalNoiseState temporal_noise={0};
     SautiAacSbrQmfAnalysisState temporal_analysis={0};
+    SautiAacSbrComplex lpc_previous_low[2u*32u]={0};
+    SautiAacSbrChirp lpc_previous_chirp={0};
+    size_t lpc_estimated_frames=0u,lpc_changed_bins=0u;
+    size_t lpc_active_bins=0u,lpc_nonzero_coeffs=0u;
+    size_t lpc_nonzero_chirp=0u;
+    double lpc_delta_power=0.0;
     SautiAacSbrTemporalPowerState temporal_power={0};
     for(size_t i=0;i<limit;i++){
         uint8_t frame[MAX_ADTS_FRAME];
@@ -758,6 +765,115 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             break;
         }
         qmf_prepared_frames++;
+
+        /* SBR-54g: experimental native complex LPC(2) estimator,
+         * connected to the already existing SBR-13 predictor. This
+         * runs SIDE-BY-SIDE with direct transpose; it does NOT feed
+         * the original 53c/d/e/54a PCM production/preview path.
+         * Prior low/QMF and chirp states advance per AAC core frame.
+         */
+        SautiAacSbrComplex lpc_input[34u*32u];
+        memcpy(lpc_input,lpc_previous_low,
+               sizeof(lpc_previous_low));
+        memcpy(lpc_input+2u*32u,low_qmf,
+               32u*32u*sizeof(low_qmf[0]));
+        SautiAacSbrLpcCoeffs lpc_coeff;
+        SautiAacSbrChirp next_chirp=lpc_previous_chirp;
+        if(next_chirp.ready &&
+           next_chirp.count!=temporal_history.current.tables.n_noise)
+            memset(&next_chirp,0,sizeof(next_chirp));
+        if(!sauti_aac_sbr_lpc_estimate_2(
+               lpc_input,34u*32u,32u,&lpc_coeff) ||
+           !sauti_aac_sbr_chirp_update(
+               temporal_history.current.control.invf_mode,
+               temporal_history.current.tables.n_noise,
+               &next_chirp)){
+            printf("  ramka %zu: SBR-54g estymacja LPC/chirp odrzucona (bez zmiany PCM)\n",i);
+            break;
+        }
+        SautiAacSbrComplex predicted_hf[32u*64u];
+        for(unsigned t=0u;t<32u;t++){
+            const SautiAacSbrTemporalHfSlot *owner=&targets.slot[t];
+            const SautiAacSbrPayloadFrame *f=
+                owner->source==0u?&temporal_history.previous:
+                                  &temporal_history.current;
+            const SautiAacSbrChirp *chirp=
+                owner->source==0u?&lpc_previous_chirp:&next_chirp;
+            if(owner->source>1u ||
+               !sauti_aac_sbr_hf_predict(
+                   &f->patches,&f->tables,
+                   lpc_input+t*32u,3u*32u,1u,
+                   &lpc_coeff,chirp,
+                   predicted_hf+t*64u,64u)){
+                printf("  ramka %zu: SBR-54g HF predictor dla slotu %u odrzucony\n",
+                       i,t);
+                break;
+            }
+        }
+        /* This check is deliberately separate from the actual
+         * predictive call above; a rejected slot must not let the
+         * diagnostic use uninitialized predicted coefficients. */
+        SautiAacSbrComplex predicted_check[32u*64u];
+        unsigned lpc_good=1u;
+        for(unsigned t=0u;t<32u;t++){
+            const SautiAacSbrTemporalHfSlot *owner=&targets.slot[t];
+            const SautiAacSbrPayloadFrame *f=
+                owner->source==0u?&temporal_history.previous:
+                                  &temporal_history.current;
+            const SautiAacSbrChirp *chirp=
+                owner->source==0u?&lpc_previous_chirp:&next_chirp;
+            if(!sauti_aac_sbr_hf_predict(
+                   &f->patches,&f->tables,
+                   lpc_input+t*32u,3u*32u,1u,
+                   &lpc_coeff,chirp,
+                   predicted_check+t*64u,64u)){
+                lpc_good=0u;break;
+            }
+        }
+        if(!lpc_good){
+            printf("  ramka %zu: SBR-54g brak pelnej ramki predykcji, przerwano\n",i);
+            break;
+        }
+        for(unsigned k=0u;k<32u;k++){
+            const SautiAacSbrComplex a=lpc_coeff.alpha0[k];
+            const SautiAacSbrComplex b=lpc_coeff.alpha1[k];
+            if(a.re!=0.0f || a.im!=0.0f ||
+               b.re!=0.0f || b.im!=0.0f)lpc_nonzero_coeffs++;
+        }
+        for(unsigned t=0u;t<32u;t++){
+            const SautiAacSbrTemporalHfSlot *owner=&targets.slot[t];
+            const SautiAacSbrPayloadFrame *f=
+                owner->source==0u?&temporal_history.previous:
+                                  &temporal_history.current;
+            const SautiAacSbrChirp *chirp=
+                owner->source==0u?&lpc_previous_chirp:&next_chirp;
+            for(unsigned j=0u;j<f->tables.n_noise;j++)
+                if(chirp->bw[j]>0.0f)lpc_nonzero_chirp++;
+            for(unsigned k=owner->kx;k<owner->k2;k++){
+                const unsigned ix=t*64u+k;
+                const double re=(double)predicted_check[ix].re-
+                                 (double)baseline_hf[ix].re;
+                const double im=(double)predicted_check[ix].im-
+                                 (double)baseline_hf[ix].im;
+                const double p=re*re+im*im;
+                if(!isfinite(p)){
+                    lpc_good=0u;break;
+                }
+                lpc_delta_power+=p;
+                lpc_changed_bins+=(p>1e-14);
+                lpc_active_bins++;
+            }
+            if(!lpc_good)break;
+        }
+        if(!lpc_good){
+            printf("  ramka %zu: SBR-54g niepoprawna energia roznicy QMF\n",i);
+            break;
+        }
+        memcpy(lpc_previous_low,low_qmf+30u*32u,
+               sizeof(lpc_previous_low));
+        lpc_previous_chirp=next_chirp;
+        lpc_estimated_frames++;
+
         SautiAacSbrTemporalPowerReport power_report;
         if(!sauti_aac_sbr_temporal_power_measure(
                &temporal_history,baseline_hf,32u*64u,
@@ -1026,6 +1142,10 @@ static void diagnose_core_sequence(const char *path,size_t limit,
            (unsigned long long)temporal_history.frames,handoff_count,max_tail);
     printf("  SBR-53a: cele HF energia/szum/harmoniczne sprawdzone dla %zu ramek (bez syntezy HE-AAC PCM)\n",hf_target_frames);
     printf("  SBR-53b: ciagla analiza QMF 32 + HF transpose dla %zu ramek (bez finalnego PCM HE-AAC)\n",qmf_prepared_frames);
+    printf("  SBR-54g: LPC(2)+chirp alternatywa: ramki=%zu, niezerowe_zestawy_alpha=%zu, dodatni_chirp_slot-band=%zu, roznice_z_transpose=%zu/%zu, RMS_roznicy_QMF=%.9g (wylacznie HF QMF, nie PCM)\n",
+           lpc_estimated_frames,lpc_nonzero_coeffs,lpc_nonzero_chirp,
+           lpc_changed_bins,lpc_active_bins,
+           lpc_active_bins?sqrt(lpc_delta_power/(double)lpc_active_bins):0.0);
     printf("  SBR-53c: ciagly pomiar HF=%zu ramek, pelne obwiednie=%zu, dokonczenia=%zu, pozostale sloty=%u (bez finalnego PCM HE-AAC)\n",
            power_frames,power_envelopes,power_handoffs,
            temporal_power.pending?temporal_power.pending_remaining:0u);
