@@ -1396,3 +1396,9 @@ test-aac-sbr-qmf-export: $(OBJDIR)/sauti_qmf_low_export
 .PHONY: test-aac-sbr-ffmpeg-qmf-instrument
 test-aac-sbr-ffmpeg-qmf-instrument:
 	python3 tools/sauti_ffmpeg_qmf_instrument.py --self-test
+
+# SBR-54w: deterministic shared PCM for independent QMF comparison.
+.PHONY: test-aac-sbr-qmf-shared-input
+test-aac-sbr-qmf-shared-input:
+	python3 -m py_compile tools/sauti_sbr54w_shared_pcm.py tools/sauti_sbr54w_verify_reference.py tools/sauti_ffmpeg_qmf_instrument.py tools/sauti_ffmpeg_qmf_manifest.py
+	python3 tools/sauti_ffmpeg_qmf_instrument.py --self-test
