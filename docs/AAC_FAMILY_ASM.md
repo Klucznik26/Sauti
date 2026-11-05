@@ -3294,3 +3294,74 @@ Dalej: 54b harmonics/sine/gating oraz smoothed noise;
 54c LPC/chirp/delay i transakcja całego dekodera;
 54d porównanie z niezależnym dekoderem i odsłuch;
 potem stereo, PS/HE-AACv2 i integracja w playerze.
+
+
+## SBR-54a potwierdzone, SBR-54b walidacja amplitudy i opóźnienia (2026-11-05)
+
+**Raport Fedora użytkownika**:
+- test-aac-sbr-temporal-pcm-preview: PASS (2-slot, 6-slot,
+  3*2048 próbek, ciągłość syntezy 64-QMF, rollback);
+- testy regresyjne SBR-53e/g i SBR-31/46: PASS;
+- rzeczywisty plik ~/Sauti-fixtures/he_test.aac:
+  **50/50 RAMKI PCM PREVIEW**, 102400 próbek f32,
+  102399 próbek niezerowych, brak brakujących slotów,
+  pierwsza niezerowa ramka 0;
+- kluczowa ramka indeks 2 ze starego toru nadal jest
+  odrzucana, ale nowy tor dał 2048/2048 niezerowych
+  próbek przy RMS 3.08089898 i peak 33.2961998.
+
+**Ważna interpretacja:** uzyskaliśmy pierwszy pełny
+przebieg czasowy z modułów SBR-53 i syntezy SBR-25/26,
+ale wartości RMS/peak są niepokojąco duże wobec
+znormalizowanego PCM f32. Nie wolno normalizować,
+przycinać ani uznać tych próbek za poprawny
+HE-AAC przed porównaniem z niezależnym dekoderem.
+
+**SBR-54b** (dodany kod, oczekuje na Fedora PASS):
+- próbnik obsługuje opcjonalny 3. argument ścieżki
+  zapisu raw f32le (mono 48kHz). Buforuje PCM PREVIEW
+  w pliku tymczasowym i zapisuje wskazany plik dopiero
+  po kompletnym procesie 54a, końcowym flush i
+  zgodności liczników próbek. Nie zastępuje ścieżki AAC.
+- tools/sauti_he_aac_compare_pcm.py porównuje
+  eksport z referencyjnym plikiem float32 z FFmpeg:
+  korelacja próbek, najlepsze przesunięcie w granicach
+  +/-8192, względny błąd RMS po dopasowaniu skali/DC,
+  statystyki peak/RMS. NIE uznawać wysokiej korelacji
+  za pełną zgodność normatywną, a niskiej interpretować
+  jako błąd skali bez kolejnych badań.
+- make test-aac-he-preview-compare uruchamia
+  syntetyczny self-test porównywarki; nadal należy
+  potwierdzić go lokalnie na Fedorze.
+
+Komendy:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-he-preview-compare probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe \
+  ~/Sauti-fixtures/he_test.aac 50 \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le
+ffmpeg -hide_banner -loglevel error -y \
+  -i ~/Sauti-fixtures/he_test.aac -map 0:a:0 -ac 1 -ar 48000 \
+  -f f32le -acodec pcm_f32le \
+  ~/Sauti-fixtures/he_test_ffmpeg_reference.f32le
+python3 tools/sauti_he_aac_compare_pcm.py \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le \
+  ~/Sauti-fixtures/he_test_ffmpeg_reference.f32le
+```
+
+UWAGA: dawny status programu probe może pozostać 1,
+ponieważ jego pierwotny tor decoder SBR-31 celowo
+zwraca ograniczenie na ramce 2. Weryfikować osobny
+wiersz SBR-54b potwierdzający rzeczywisty zapis.
+
+**Dokładny stan:** SBR-54a — sukces konstrukcji
+2048*50 PRÓBEK PCM PREVIEW. SBR-54b — oczekuje na
+pierwszy wynik skali/opóźnienia/korelacji; normatywne
+HE-AAC PCM jeszcze nie jest skończone.
+Po pomiarze wybierzemy zmianę o największym znaczeniu:
+prawdopodobnie wyjaśnienie nadmiarowego RMS/peak,
+a dopiero potem harmoniczne/chirp/smoothing i
+integrację transakcyjną oraz stereo/HE-AACv2.
