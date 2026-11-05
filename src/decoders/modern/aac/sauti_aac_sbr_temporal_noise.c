@@ -27,8 +27,9 @@ static int produce(const SautiAacSbrTemporalHfTargets *targets,
     for(unsigned t=0u;t<32u;t++){
         const SautiAacSbrTemporalHfSlot *slot=&targets->slot[t];
         const unsigned kx=slot->kx,k2=slot->k2;
-        if(slot->source>1u || kx<1u || kx>32u ||
-           k2<=kx || k2>64u)return 0;
+        if(slot->source>1u || slot->smooth_bypass>1u ||
+           kx<1u || kx>32u || k2<=kx || k2>64u)return 0;
+        staged.smooth_bypass[t]=slot->smooth_bypass;
         for(unsigned k=kx;k<k2;k++){
             const double e=slot->energy[k];
             const double q=slot->noise_factor[k];
