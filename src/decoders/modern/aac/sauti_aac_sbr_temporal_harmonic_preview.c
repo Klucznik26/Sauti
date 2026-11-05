@@ -35,7 +35,6 @@ int sauti_aac_sbr_temporal_harmonic_preview(
 
     uint8_t running[BANDS];
     memcpy(running,state->previous,sizeof(running));
-    unsigned active=0u;
     for(unsigned t=0u;t<SLOTS;t++){
         const SautiAacSbrTemporalHfSlot *slot=&targets->slot[t];
         if(slot->source>1u || onset_allowed[t]>1u ||
