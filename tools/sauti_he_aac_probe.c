@@ -34,6 +34,7 @@
 #include "sauti_aac_sbr_temporal_gain_bridge.h"
 #include "sauti_aac_sbr_hf_phase_probe.h"
 #include "sauti_aac_sbr_temporal_source6.h"
+#include "sauti_aac_sbr_hf_band_audit.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -703,6 +704,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     size_t hf_target_frames=0u;
     size_t qmf_prepared_frames=0u;
     SautiAacSbrTemporalSource6State source6_state={0};
+    SautiAacSbrHfBandAuditState source6_bands={0};
     size_t source6_frames=0u,source6_carried=0u;
     size_t source6_missing=0u,source6_prior_owners=0u;
     size_t source6_active=0u,source6_changed=0u;
@@ -932,6 +934,12 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                &source6_state,source6_low,32u*32u,
                source6_high,32u*64u,&source6_report)){
             printf("  ramka %zu: SBR-54s historia 6 slotow QMF odrzucona\n",i);
+            break;
+        }
+        if(!sauti_aac_sbr_hf_band_audit_add(
+               baseline_hf,32u*64u,source6_high,32u*64u,
+               &source6_report,&source6_bands)){
+            printf("  ramka %zu: SBR-54t rozklad pasm HF QMF odrzucony\n",i);
             break;
         }
         source6_frames++;
@@ -1693,6 +1701,43 @@ static void diagnose_core_sequence(const char *path,size_t limit,
              source6_cross/sqrt(source6_old_energy*source6_new_energy):0.0,
            source6_active?sqrt(source6_delta_energy/
                                (double)source6_active):0.0);
+    printf("  SBR-54t: per-band HF audit ramki=%llu, aktywne=%llu, zmienione=%llu, peak_delta=%.9g na ramce=%llu slot=%u band=%u (TYLKO SAUTI vs SAUTI, NIE FFmpeg)\n",
+           (unsigned long long)source6_bands.frames,
+           (unsigned long long)source6_bands.active_total,
+           (unsigned long long)source6_bands.changed_total,
+           source6_bands.peak_difference,
+           (unsigned long long)source6_bands.peak_frame,
+           (unsigned)source6_bands.peak_slot,
+           (unsigned)source6_bands.peak_band);
+    /* Highest cumulative complex-QMF discrepancy by destination band.
+     * Select deterministically; each band can appear at most once. */
+    uint8_t selected_source6_bands[64]={0};
+    for(unsigned rank=0u;rank<4u;rank++){
+        int best=-1;
+        double best_delta=0.0;
+        for(unsigned k=0u;k<64u;k++)
+            if(!selected_source6_bands[k] &&
+               source6_bands.difference[k]>best_delta){
+                best_delta=source6_bands.difference[k];
+                best=(int)k;
+            }
+        if(best<0)break;
+        const unsigned k=(unsigned)best;
+        selected_source6_bands[k]=1u;
+        const double e_old=source6_bands.old_energy[k];
+        const double e_new=source6_bands.new_energy[k];
+        const double corr=e_old>0.0 && e_new>0.0?
+            source6_bands.cross[k]/sqrt(e_old*e_new):0.0;
+        const double rms=source6_bands.active[k]?
+            sqrt(best_delta/(double)source6_bands.active[k]):0.0;
+        const double relative=e_old>0.0?
+            sqrt(best_delta/e_old):0.0;
+        printf("  SBR-54t: TOP%u band=%u aktywne=%llu changed=%llu corr=%.9g diff_RMS=%.9g diff_rel=%.9g (wzgledem bezposredniego HF QMF)\n",
+               rank+1u,k,
+               (unsigned long long)source6_bands.active[k],
+               (unsigned long long)source6_bands.changed[k],
+               corr,rms,relative);
+    }
     printf("  SBR-54g: LPC(2)+chirp alternatywa: ramki=%zu, niezerowe_zestawy_alpha=%zu, dodatni_chirp_slot-band=%zu, roznice_z_transpose=%zu/%zu, RMS_roznicy_QMF=%.9g (wylacznie HF QMF, nie PCM)\n",
            lpc_estimated_frames,lpc_nonzero_coeffs,lpc_nonzero_chirp,
            lpc_changed_bins,lpc_active_bins,
