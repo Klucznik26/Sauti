@@ -4683,3 +4683,79 @@ zweryfikowane +288. Dopiero z wynikami
 walidacji obu połówek przechodzimy do
 izolowanego porównania faz zespolonych QMF,
 mapowania pasm oraz bilansu skali.
+
+
+## SBR-54p poprawiony PASS; +288 stabilne, ale HF nadal niezgodny. SBR-54q faza Im A/B (2026-11-05)
+
+**Realny test użytkownika, Fedora — SBR-54p**:
+- `make test-aac-sbr-hf-shift-validation`: PASS
+  przesunięć +37/-48, złudnego maksimum oraz
+  testu regresyjnego stride-16 alias.
+- Prawidłowy skan z kilku faz na dwóch niezależnych
+  połowach (po 50 685 próbek, LOW/FFmpeg lag=-6):
+  - trening pierwszej: shift +288, train corr
+    **-0.157254**, held-out druga corr **-0.263842**,
+    resztowa wariancja **6.961%**;
+  - trening drugiej: shift +288, train corr
+    **-0.263842**, held-out pierwsza corr **-0.157254**,
+    resztowa wariancja **2.473%**;
+  - przy HF shift=0 dwie corr tylko **+0.009846**
+    i **+0.014691**.
+- **Interpretacja**: +288 jest odtwarzalnym
+  maksimum spośród przesunięć objętych skanem,
+  odpowiada 9 slotom QMF po 32 próbki (6 ms
+  przy 48 kHz), z UJEMNYM znakiem korelacji.
+  To nie jest dowód normatywnego opóźnienia;
+  2.5–7.0% wyjaśnionej wariancji nadal jest niskie.
+  Znak przy przesunięciu nie dowodzi sam przez
+  się, że trzeba odwrócić część urojoną X[k].
+
+**SBR-54q — nowy kontrolowany eksperyment fazy
+zespolonej HF**:
+- nowa atomowa funkcja
+  `sauti_aac_sbr_hf_conjugate_probe` zamienia
+  `Im(X[k]) -> -Im(X[k])` wyłącznie dla aktywnych
+  wysokich pasm. `Re` i LOW nie ulegają
+  zmianie; puste pasma nadal są zerowe.
+  Nie zmienia produkcyjnego SBR-31/53e ani QMF.
+- oddzielne testy: przeliczenie wszystkich aktywnych
+  zespolonych HF, zachowanie LOW i wejścia,
+  nieprawidłowe NaN/maska/rozmiar oraz rollback;
+  target `test-aac-sbr-hf-phase-probe`;
+- eksperymentalny `sauti_he_aac_probe`
+  używa tych samych opóźnionych SBR-54m HF
+  z nowym `G`, tych samych LOW i slot-masek,
+  ale z conjugated Im w OSOBNEJ ciągłej
+  64-QMF syntezie `conj_pcm_state`;
+- cały 50-ramkowy zapis wraz z finalnym flush
+  do `he_test_sauti_preview.f32le.refhfconj.f32le`.
+  Oddzielny bufor i blokada eksportu niepełnego
+  przebiegu, bez modyfikacji starych plików
+  `.refhf.f32le`, `.sine.f32le`, `.units.f32le`
+  ani głównego PCM preview;
+- **konieczna walidacja Fedora**: wyraźna poprawa
+  residualu przy tej samej osi czasu `lag=-6`
+  przemawiałaby za problemem fazy/znaku Im.
+  Brak poprawy kieruje audyt do mapowania pasm,
+  szumu/sinusoid i czasu wewnątrz QMF.
+  Nawet dobry wynik nie upoważnia do wdrożenia
+  conjugation jako normatywnej poprawki.
+
+Test:
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-hf-phase-probe probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe \
+  ~/Sauti-fixtures/he_test.aac 50 \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le |
+  grep -E 'SBR-54q|SBR-54m|Rdzen:|odrzucon'
+python3 tools/sauti_he_aac_fixed_lag_audit.py \
+  --lag -6 \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.units.f32le \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.refhfconj.f32le \
+  ~/Sauti-fixtures/he_test_ffmpeg_reference.f32le
+```
+
+**SBR-54p PASS i diagnoza zapisana; SBR-54q
+w kodzie WIP, oczekuje na test Fedory.**
