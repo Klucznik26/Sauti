@@ -5299,3 +5299,28 @@ make test-aac-sbr-qmf-steady PKG_CONFIG=/bin/false
 ```
 
 The synthetic unit test validates metrics and window boundaries but **real Fedora results are pending**. This audit does not rebuild FFmpeg, rerun the four tones, change production AAC/QMF code or infer full-band (32-bin) leakage.
+
+
+## CHECKPOINT — 2026-11-05 — STOP FOR TODAY: SBR-54y complete, SBR-54z next
+
+**Status:** Work paused intentionally at the user's request. All recent measurements below were actually run on Fedora, not merely synthetic predictions. No further AAC/QMF production changes are authorized by these results. Continue next session at **SBR-54z**, inspecting the first 64 global QMF slots individually.
+
+**Independent reference established:** a separately compiled instrumented FFmpeg git-2026-11-05-f8a03cd (in `~/Sauti-tools/ffmpeg-sbr54w`) successfully exported exactly 50 frames of complex W[i-6] LOW 2–5 from byte-identical synthetic PCM as Sauti, with a verified byte count, finite values, and zero initial six-slot preroll. FFmpeg's extra internal QMF calls past 50 shared frames are now handled without abort. FFmpeg remains a local diagnostic reference, not a Sauti dependency. Strict source-hash manifests and exported QMF binaries underpin comparisons; a manifest flag alone does not authenticate independence.
+
+**SBR-54w:** initial mixed-frequency input: complex coherences LOW2 0.998701117, LOW3 0.997067138, LOW4 0.0833019686, LOW5 0.048921026. Complex-gain-adjusted relative residuals: 0.0509517304, 0.0765318377, 0.996524351, 0.99880265 respectively. Lag sweep [-16,+16] slots: best lag **0 for all bands**. Do not interpret low coherence in weakly excited bands as proof of defective filtering.
+
+**SBR-54x:** four independent mono 24-kHz synthetic sinusoids, nominal LOW centers: 937.5, 1312.5, 1687.5, 2062.5 Hz; 50 frames each. The excited/dominant band in every run had complex coherence ~0.998525–0.998526, complex-gain residual ~0.05428 and FFmpeg/Sauti RMS ratio ~33225.7. Main-band energy fractions normalized **only over LOW 2..5**: Sauti ~0.99777–0.99817; FFmpeg ~0.99963–0.99984. Low cross-band energy can explain unexpectedly low overall correlation when those bins are not directly excited; these values are not full 32-band spectral measurements. Full saved report: `/tmp/sbr54x-tones/report.tsv`.
+
+**SBR-54y: Fedora PASS — test actually completed.** `make test-aac-sbr-qmf-steady PKG_CONFIG=/bin/false` passed Python syntax, synthetic self-test, and real analysis of the four previously exported tone datasets. Windows in global QMF slots: early [6,64), transition [64,256), steady [256,1600). Results for **the stimulated band** across all four tones:
+
+| Window | Complex coherence | Complex-gain residual relative to Sauti | FFmpeg/Sauti RMS |
+|---|---:|---:|---:|
+| Early | ~0.95871–0.95874 | ~0.28428–0.28438 | ~31744–31746 |
+| Transition | 0.99987797 | ~0.0156218–0.0156219 | ~33275.90 |
+| Steady | 0.99987797 | ~0.0156218–0.0156219 | ~33275.90 |
+
+Transition and steady values being virtually identical indicate the discrepancy is strongly **startup-dependent**; this does **not** yet prove a defect in Sauti's history initialization or identify which code path is responsible. Remaining steady-state ~1.56% gain-fitted residual is nonzero. Full report: `/tmp/sbr54x-tones/steady_report.tsv`. Note: correlation is not bit-exact agreement, and amplitude ratio ~33k is not yet assigned definitively to a PCM scale convention.
+
+**NEXT: SBR-54z (NOT YET STARTED).** Diagnose QMF transient **slot by slot** during global slots [0,64), excluding first 6 undefined/zero W[i-6] slots when comparing. Measure windowed and per-slot complex mismatch and coherence (single complex sample requires a different statistic than multi-slot coherence), energy, and gain/phase evolution. Look for the exact stabilization boundary; then investigate filter history, window and modulation conventions. Preserve strict shared-source provenance and full-frame geometry. Never edit production QMF/AAC solely on this evidence; perform independent diagnostic tests first.
+
+**Resume prerequisites on user's Fedora:** `~/Sauti` branch `feature/aac-family-asm`; independent FFmpeg binary `~/Sauti-tools/ffmpeg-sbr54w/ffmpeg`; retained four tone folders under `/tmp/sbr54x-tones/low{2,3,4,5}`. `/tmp` is ephemeral: if removed, regenerate via `make test-aac-sbr-qmf-tones PKG_CONFIG=/bin/false` (using the already built instrumented FFmpeg) before evaluating SBR-54z. No background tasks; work intentionally stops here.
