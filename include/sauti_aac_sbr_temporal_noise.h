@@ -26,6 +26,7 @@ typedef struct {
     double raw_amplitude[32u*64u];
     uint8_t active[32u*64u]; /* 1 even if amplitude is zero;
                                * inactive bins have zero vector/amp */
+    uint8_t smooth_bypass[32u]; /* per-slot original header/attack choice */
 } SautiAacSbrTemporalNoiseFrame;
 
 typedef struct {
