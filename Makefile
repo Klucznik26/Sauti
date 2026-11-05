@@ -1380,3 +1380,14 @@ test-aac-sbr-low-source-audit: $(OBJDIR)/test_aac_sbr_low_source_audit
 .PHONY: test-aac-sbr-qmf-reference-audit
 test-aac-sbr-qmf-reference-audit:
 	python3 tools/sauti_he_aac_qmf_reference_audit.py --self-test
+
+# SBR-54w II: export diagnostic LOW W[i-6] QMF from SHARED core PCM.
+$(OBJDIR)/sauti_qmf_low_export: tools/sauti_qmf_low_export.c include/sauti_aac_sbr_qmf_analysis.h $(AAC_SBR_QMF_ANALYSIS_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_qmf_low_export.c $(AAC_SBR_QMF_ANALYSIS_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+.PHONY: export-aac-sbr-low-qmf test-aac-sbr-qmf-export
+export-aac-sbr-low-qmf: $(OBJDIR)/sauti_qmf_low_export
+	@echo "Usage: ./$(OBJDIR)/sauti_qmf_low_export CORE.f32le OUT.qmf.f32le"
+
+test-aac-sbr-qmf-export: $(OBJDIR)/sauti_qmf_low_export
+	python3 tools/test_sauti_qmf_low_export.py ./$(OBJDIR)/sauti_qmf_low_export
