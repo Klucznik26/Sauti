@@ -1375,3 +1375,8 @@ $(OBJDIR)/test_aac_sbr_low_source_audit: tests/test_aac_sbr_low_source_audit.c i
 .PHONY: test-aac-sbr-low-source-audit
 test-aac-sbr-low-source-audit: $(OBJDIR)/test_aac_sbr_low_source_audit
 	./$(OBJDIR)/test_aac_sbr_low_source_audit
+
+# SBR-54w: independent-reference comparison gate; synthetic test only.
+.PHONY: test-aac-sbr-qmf-reference-audit
+test-aac-sbr-qmf-reference-audit:
+	python3 tools/sauti_he_aac_qmf_reference_audit.py --self-test
