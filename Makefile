@@ -1391,3 +1391,8 @@ export-aac-sbr-low-qmf: $(OBJDIR)/sauti_qmf_low_export
 
 test-aac-sbr-qmf-export: $(OBJDIR)/sauti_qmf_low_export
 	python3 tools/test_sauti_qmf_low_export.py ./$(OBJDIR)/sauti_qmf_low_export
+
+# SBR-54w III: fail-closed FFmpeg source instrumentation smoke-test.
+.PHONY: test-aac-sbr-ffmpeg-qmf-instrument
+test-aac-sbr-ffmpeg-qmf-instrument:
+	python3 tools/sauti_ffmpeg_qmf_instrument.py --self-test
