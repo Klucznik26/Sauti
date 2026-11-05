@@ -3244,3 +3244,53 @@ realny strumień HE-AAC z nagłówkiem `smoothing_mode=0`
 (bez zgadywania i przepisywania bitów na żywym strumieniu),
 dopiero potem przechodzić do normatywnego
 gatingu harmonicznych i syntezy 64-QMF.
+
+
+## SBR-54a — most z opóźnionych pasm QMF do PCM PREVIEW (2026-11-05)
+
+Punkt konstrukcyjny po SBR-53a–h: w branchu feature/aac-family-asm
+zapisano eksperymentalne API
+sauti_aac_sbr_temporal_pcm_preview_push/flush. Wcześniej
+przygotowywaliśmy HF QMF i szum, ale nie mieliśmy pełnych
+próbek czasu po ich połączeniu z właściwymi dolnymi pasmami.
+
+SBR-54a:
+- przechowuje 32*32 dolnych pasm QMF z bieżącej ramki AAC-LC;
+- gdy SBR-53e/g wyda poprzednią ramkę HF, łączy pasma z
+  właściwymi, wcześniej przechowanymi dolnymi pasmami;
+- wykorzystuje maskę aktywnych binów z SBR-53f w każdym
+  slocie, także przy FIXVAR i dwóch źródłach SBR;
+- wykonuje już istniejącą 64-pasmową syntezę QMF SBR-25/26,
+  z ciągłą historią, generując 2048 próbek float na ramkę;
+- flush na końcu nie uzupełnia brakujących danych ciszą,
+  a nieprawidłowy indeks, mapa HF, liczby i etap syntezy
+  pozostawiają stan i wynik niezmienione.
+
+SBR-54a jest WYŁĄCZNIE eksperymentalnym podglądem przebiegu!
+NIE stanowi poprawnego końcowego dekodera HE-AAC.
+Nie mamy jeszcze normatywnego harmonic/sine processing,
+zintegrowanych wyników wygładzania SBR-53h, LPC/chirp,
+ani zgodności delay/priming i porównania PCM z FFmpeg.
+Oryginalny tor produkcyjny SBR-31 pozostaje bez zmian
+i nadal zatrzymuje się na ramce indeks 2.
+
+Nowy test test-aac-sbr-temporal-pcm-preview porównuje
+bitowo trzy ramki wyjściowe z ręcznie złożonym referencyjnym
+łańcuchem 64-QMF, dla 2 i 6 slotów odziedziczonych.
+Dodatkowo testuje opóźnienie jednej ramki, numerację,
+NaN, nieciągłą mapę, końcowy flush i atomowy rollback.
+NIE JEST JESZCZE POTWIERDZONY W KOMPILACJI NA FEDORZE.
+
+Test w katalogu ~/Sauti:
+  git pull --ff-only origin feature/aac-family-asm
+  make test-aac-sbr-temporal-pcm-preview test-aac-sbr-temporal-mix test-aac-sbr-temporal-noise test-aac-sbr-temporal-apply test-aac-sbr-adts-qmf probe-he-aac PKG_CONFIG=/bin/false
+  ./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 | grep -E 'SBR-54a|SBR-53e|SBR-53g|Rdzen:|odrzucona'
+
+CEL nr 1 po testach: RAMKA 2, 2048 niezerowych próbek
+w torze PCM PREVIEW. CEL nr 2: 50 * 2048 = 102400
+próbek bez utraty slotów i z ciągłością QMF.
+OBA CELE SĄ TYLKO PODGLĄDEM, NIE WALIDACJĄ DŹWIĘKU.
+Dalej: 54b harmonics/sine/gating oraz smoothed noise;
+54c LPC/chirp/delay i transakcja całego dekodera;
+54d porównanie z niezależnym dekoderem i odsłuch;
+potem stereo, PS/HE-AACv2 i integracja w playerze.
