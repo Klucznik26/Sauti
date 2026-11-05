@@ -5,7 +5,7 @@
  * The independent encoder and an external decoder can be used by
  * the developer to GENERATE/VERIFY fixtures, not by this executable.
  *
- * CLI: ./build/sauti_he_aac_probe input.aac [max_decode_frames]
+ * CLI: ./build/sauti_he_aac_probe input.aac [max_decode_frames] [preview.f32le]
  *
  * FIRST pass reads every ADTS header, counts stereo/mono, rates,
  * malformed length/CRC; SECOND pass runs a continuous native decoder
@@ -389,12 +389,28 @@ static void diagnose_sbr_rejection(const uint8_t *frame,size_t len,
         return;
     }
 }
-static void diagnose_core_sequence(const char *path,size_t limit){
+static void diagnose_core_sequence(const char *path,size_t limit,
+                                   const char *export_path){
     FILE *f=fopen(path,"rb");
     if(!f){perror(path);return;}
     SautiAacHeAdtsMonoState core_state={0};
     if(!sauti_aac_he_adts_mono_init(&core_state)){
         fclose(f);return;
+    }
+    /* Spool all preview samples and publish only after a complete
+     * successful decode and final one-frame-delayed QMF flush. */
+    FILE *spool=NULL;
+    int export_io_ok=1;
+    if(export_path){
+        if(!strcmp(export_path,path)){
+            fputs("SBR-54b: plik eksportu nie moze byc plikiem ADTS!\n",stderr);
+            fclose(f);return;
+        }
+        spool=tmpfile();
+        if(!spool){
+            fprintf(stderr,"SBR-54b: nie mozna utworzyc bufora: %s\n",strerror(errno));
+            fclose(f);return;
+        }
     }
     printf("Diagnostyka ciaglosci rdzenia AAC-LC + temporal SBR (%zu ramek, bez HE-AAC PCM):\n",limit);
     size_t decoded=0,first_nonzero=SIZE_MAX;
@@ -633,6 +649,8 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             break;
         }
         if(pcm_report.emitted){
+            if(spool && fwrite(preview_pcm,sizeof(float),2048u,spool)!=2048u)
+                export_io_ok=0;
             preview_frames++;
             preview_samples+=pcm_report.samples;
             preview_nonzero+=pcm_report.nonzero;
@@ -697,6 +715,8 @@ static void diagnose_core_sequence(const char *path,size_t limit){
                            last_preview,32u*64u,&last_noise,
                            &final_report,&last_mix,&temporal_pcm,
                            final_pcm,2048u,&final_pcm_report)){
+                        if(spool && fwrite(final_pcm,sizeof(float),2048u,spool)!=2048u)
+                            export_io_ok=0;
                         preview_frames++;
                         preview_samples+=final_pcm_report.samples;
                         preview_nonzero+=final_pcm_report.nonzero;
@@ -760,9 +780,42 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
+    if(spool){
+        const int complete=export_io_ok && decoded==limit &&
+            preview_frames==limit && preview_samples==limit*2048u &&
+            temporal_pcm.closed==1u && temporal_pcm.emitted_frames==limit &&
+            fflush(spool)==0 && fseek(spool,0L,SEEK_SET)==0;
+        if(!complete){
+            fprintf(stderr,"SBR-54b: eksport POMINIETY: niepelny PCM PREVIEW (%zu/%zu ramek)\n",
+                    preview_frames,limit);
+        }else{
+            FILE *dst=fopen(export_path,"wb");
+            int copied=dst!=NULL;
+            uint8_t bytes[4096];
+            size_t written=0u,n=0u;
+            while(copied && (n=fread(bytes,1u,sizeof(bytes),spool))>0u){
+                if(fwrite(bytes,1u,n,dst)!=n){
+                    copied=0;break;
+                }
+                written+=n;
+            }
+            if(ferror(spool))copied=0;
+            if(dst && fclose(dst)!=0)copied=0;
+            if(copied && written==preview_samples*sizeof(float)){
+                printf("  SBR-54b: zapisano PCM PREVIEW f32le: %s, probki=%zu, bytes=%zu (NIE potwierdzono jakosci HE-AAC)\n",
+                       export_path,preview_samples,written);
+            }else{
+                (void)remove(export_path);
+                fprintf(stderr,"SBR-54b: blad eksportu PCM PREVIEW: %s\n",
+                        export_path);
+            }
+        }
+        fclose(spool);
+    }
     fclose(f);
 }
-static int decode(const char *path,size_t max_decode){
+static int decode(const char *path,size_t max_decode,
+                  const char *export_path){
     FILE *f=fopen(path,"rb");
     if(!f){perror(path);return 2;}
     SautiAacHeAdtsQmfState state={0};
@@ -837,7 +890,7 @@ static int decode(const char *path,size_t max_decode){
                 }
             }
             printf("Udane ramki przed bledem: %zu\n",decoded);
-            diagnose_core_sequence(path,max_decode);
+            diagnose_core_sequence(path,max_decode,export_path);
             fclose(f);
             return 1; /* anticipated unsupported/invalid file */
         }
@@ -862,14 +915,14 @@ static int decode(const char *path,size_t max_decode){
 }
 
 int main(int argc,char **argv){
-    if(argc<2 || argc>3){
+    if(argc<2 || argc>4){
         fprintf(stderr,
-            "Uzycie: %s nagranie.aac [maks_ramek_do_dekodowania]\n",
+            "Uzycie: %s nagranie.aac [maks_ramek_do_dekodowania] [PCM_PREVIEW.f32le]\n",
             argv[0]);
         return 2;
     }
     size_t limit=DEFAULT_DECODE_LIMIT;
-    if(argc==3){
+    if(argc>=3){
         errno=0;
         char *end=NULL;
         const unsigned long n=strtoul(argv[2],&end,10);
@@ -896,7 +949,7 @@ int main(int argc,char **argv){
     }
     if(limit>summary.frames)limit=summary.frames;
     printf("Dekodowanie pierwszych %zu ramek (ciagly stan):\n",limit);
-    const int status=decode(argv[1],limit);
+    const int status=decode(argv[1],limit,argc==4?argv[3]:NULL);
     if(status==0)
         puts("OK: sprobowane ramki przeszly. To NIE dowodzi zgodnosci brzmienia HE-AAC.");
     else if(status==1)
