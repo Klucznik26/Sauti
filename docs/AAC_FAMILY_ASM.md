@@ -5066,3 +5066,38 @@ All four LOW bands have `count=1594` (first-frame 6-slot missing-preroll exclude
 **Interpretation:** LOW 2 energy is about 60.6x LOW 3; the SBR-54u route LOW 2 -> HF 18 explains why HF 18 dominates absolute Sauti-vs-Sauti differences. This is **not** evidence that LOW 2 values or amplification are incorrect. LOW 2/3 show strong adjacent complex rotation whereas LOW 4/5's normalized adjacent complex coherence is weaker. Since the metric is aggregate, it does not directly establish a single phase step or reveal FFmpeg agreement. SBR-54v is validated as a diagnostic only, not an HE-AAC conformance or PCM improvement.
 
 **Next gated action (SBR-54w):** obtain comparable *independent*, time-aligned intermediate complex QMF source vectors W for LOW 2–5 from FFmpeg (or standard vectors) and compare Re/Im, energy and lag, respecting filter normalization and delay. Verify source sampling and geometry first. Avoid modifying production HF/PCM or arbitrary scale factors until this cross-implementation evidence exists.
+
+
+## SBR-54w — independent QMF-reference comparison gate, phase I (2026-11-05)
+
+An initial **strict comparator** was added in `tools/sauti_he_aac_qmf_reference_audit.py`, with `make test-aac-sbr-qmf-reference-audit` to exercise synthetic complete-frame matching and rejection of mismatched core identity or truncated data.
+
+The comparator accepts interleaved little-endian complex float32 samples with layout `[frame][slot=0..31][LOW band=2..5][Re,Im]`, and two JSON manifests containing:
+
+```json
+{
+  "format": "sauti-sbr54w-low-qmf-complex32-v1",
+  "producer": "Sauti",
+  "independent": false,
+  "core_sha256": "64 lowercase hexadecimal digits for the exact shared AAC-LC PCM",
+  "sample_rate_core": 24000,
+  "frame_count": 50,
+  "qmf_source": "W[i-6]",
+  "first_frame_preroll": 6,
+  "bands": [2, 3, 4, 5],
+  "layout": "frame-slot-band-re-im-f32le"
+}
+```
+
+The independent producer must set a distinct producer label and `independent: true`. Labels are *user-supplied declarations*, not cryptographic proof of a reference implementation; source capture and comparison still require manual verification. The tool checks source input SHA identity as declared in the manifests, sample rate, frame count, geometry, exact binary size and finite values before measuring per-band complex coherence, energy ratio and differences. It excludes six missing first-frame source slots.
+
+**Important status:** This is only a Phase-I comparison gate. **No FFmpeg intermediate W/X extractor exists in this change, and the Sauti probe does not yet export the required complex W tensors.** Therefore this phase is NOT an independent FFmpeg numeric comparison, nor evidence of HE-AAC conformity. No production decoder paths changed.
+
+Fedora self-test:
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-qmf-reference-audit
+```
+
+Next phase must instrument a compatible reference QMF analysis and export Sauti W with a common verified AAC-LC core input, matching normalization/filter history and index conventions before using this comparator on real data.
