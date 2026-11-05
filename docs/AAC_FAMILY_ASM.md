@@ -4937,3 +4937,70 @@ make test-aac-sbr-temporal-source6 probe-he-aac PKG_CONFIG=/bin/false
 **Status:** SBR-54r PASS na Fedorze. SBR-54s
 w repo, jeszcze bez Fedora PASS. Oryginalny
 PCM HE-AAC i SBR-31 są bez zmian.
+
+
+## SBR-54s Fedora PASS; SBR-54t lokalizacja różnic według pasm HF (2026-11-05)
+
+**Rzeczywisty raport Fedory SBR-54s na `he_test.aac`:**
+- `make test-aac-sbr-temporal-source6 probe-he-aac` z `-Werror`: PASS;
+- 2-/6-slotowy FIXVAR, carry, preroll, replay i rollback PASS;
+- wszystkie 50 ramek przeszło diagnostykę, 294 sloty
+  źródła QMF zostały przejęte z poprzedniej ramki,
+  6 slotów brakującego preroll tylko w pierwszej,
+  8 slotów należało do wcześniejszego właściciela FIXVAR;
+- `aktywne_slot-biny=41634`, `zmienione=41634`,
+  `complex_corr=0.995847548`,
+  `RMS_roznicy_QMF=0.0968231162`.
+
+**Co to mówi:** dwie rekonstrukcje Sauti mają bardzo podobne
+zespolone widmo (corr ~0.996) pomimo zmian wszystkich
+współczynników. Sama wysoka korelacja nie oznacza
+zgodności z FFmpeg ani małej różnicy amplitudowej.
+Nie zastępujemy w ten sposób SBR-53b ani HF w PCM.
+Zwrócić uwagę, że globalna korelacja może ukrywać
+kilka bardzo odmiennych pasm i lokalnych pików QMF.
+
+**SBR-54t — nowy read-only per-band HF audit:**
+- `sauti_aac_sbr_hf_band_audit_add` zbiera
+  `old_energy`, `new_energy`, `cross`,
+  `difference` i liczbę aktywnych/zmienionych
+  komórek QMF w każdym z 64 pasm,
+  wyłącznie na wcześniej porównanych slotach
+  (pierwsze 6 bez źródła wykluczone);
+- na końcu w `sauti_he_aac_probe` drukuje
+  cztery pasma o największej łącznej
+  różnicy zespolonej, ich `corr`,
+  `diff_RMS`, `diff_rel` (względem
+  energii starego HF) i maksimum różnicy
+  z numerem ramki, slotu i pasma;
+- dodatkowo potwierdza, że łączna liczba
+  aktywnych/zmienionych zgadza się z SBR-54s;
+  liczy metryki osobno dla pasm, bez
+  projektowania arbitralnych mnożników HF;
+- oddzielny target
+  `make test-aac-sbr-hf-band-audit` z
+  syntetyczną różnicą fazy w paśmie 21
+  oraz mocą w paśmie 20, testem preroll,
+  dwóch kolejnych ramek i atomowego
+  odrzucenia NaN/replay/złej geometrii;
+- **status: zapisane w repo, brak potwierdzenia Fedora**.
+  To tylko wariant Sauti-vs-Sauti, nie FFT
+  referencji FFmpeg ani zgodny HE-AAC PCM.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-hf-band-audit test-aac-sbr-temporal-source6 probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 |
+  grep -E 'SBR-54s|SBR-54t|Rdzen:|odrzucon'
+```
+
+**Kolejny krok zależy od wyniku:** jeżeli błędy koncentrują
+się w określonych pasmach, prześwietlić ich dokładną
+mapę patch-source i energię QMF / rozkład
+faz. Jeżeli są równomierne, priorytetem staje
+się konstrukcja niezależnego testu
+32->64 QMF end-to-end względem referencji
+i sprawdzenie oddzielnie chirp/LPC, noise/sine
+i konwencji jednostek. Nie dotykać produkcyjnego
+PCM bez dowodów numerycznych.
