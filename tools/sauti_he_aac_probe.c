@@ -1311,6 +1311,19 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         if(sauti_aac_sbr_temporal_gain_apply_flush(
                &temporal_apply,final_hf,32u*64u,&final_report)){
             apply_emitted++;
+            SautiAacSbrComplex final_ref_hf[32u*64u];
+            SautiAacSbrTemporalApplyReport final_ref_report;
+            const int final_ref_ok=
+                sauti_aac_sbr_temporal_gain_apply_flush(
+                    &ref_hf_apply_state,final_ref_hf,32u*64u,
+                    &final_ref_report) &&
+                final_ref_report.emitted &&
+                final_ref_report.frame_index==final_report.frame_index;
+            if(final_ref_ok)ref_hf_qmf_frames++;
+            else{
+                puts("  SBR-54m: finalny G-only gain flush odrzucony");
+                ref_hf_io_ok=0;
+            }
             SautiAacSbrTemporalNoiseFrame last_noise;
             SautiAacSbrTemporalNoiseReport last_report;
             if(sauti_aac_sbr_temporal_noise_flush(
@@ -1391,6 +1404,34 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                            last_preview,32u*64u,&last_noise,
                            &final_report,&last_mix,&temporal_pcm,
                            final_pcm,2048u,&final_pcm_report)){
+                        if(final_ref_ok){
+                            float final_ref_pcm[2048u];
+                            SautiAacSbrTemporalPcmPreviewReport
+                                final_ref_pcm_report;
+                            if(sauti_aac_sbr_temporal_pcm_preview_flush(
+                                   final_ref_hf,32u*64u,
+                                   &last_noise,&final_ref_report,&last_mix,
+                                   &ref_hf_pcm_state,final_ref_pcm,2048u,
+                                   &final_ref_pcm_report) &&
+                               final_ref_pcm_report.emitted &&
+                               final_ref_pcm_report.frame_index==
+                                   final_pcm_report.frame_index){
+                                ref_hf_frames++;
+                                for(unsigned j=0u;j<2048u;j++){
+                                    const double v=final_ref_pcm[j];
+                                    ref_hf_pcm_power+=v*v;
+                                    if(fabs(v)>ref_hf_pcm_peak)
+                                        ref_hf_pcm_peak=fabs(v);
+                                }
+                                if(ref_hf_spool &&
+                                   fwrite(final_ref_pcm,sizeof(float),2048u,
+                                          ref_hf_spool)!=2048u)
+                                    ref_hf_io_ok=0;
+                            }else{
+                                puts("  SBR-54m: finalny HF-only PCM odrzucony");
+                                ref_hf_io_ok=0;
+                            }
+                        }
                         if(final_sine_ok){
                             float final_sine_pcm[2048u];
                             SautiAacSbrTemporalPcmPreviewReport
@@ -1591,6 +1632,11 @@ static void diagnose_core_sequence(const char *path,size_t limit,
            units_pcm_frames?
              sqrt(units_pcm_power/((double)units_pcm_frames*2048.0)):0.0,
            units_pcm_peak);
+    printf("  SBR-54m: nowy G-only QMF+PCM: HF ramki=%zu, PCM ramki=%zu, RMS=%.9g, peak=%.9g; NOISE/SINE OMITTED (eksp. A/B, NIE normatywny HE-AAC)\n",
+           ref_hf_qmf_frames,ref_hf_frames,
+           ref_hf_frames?sqrt(ref_hf_pcm_power/
+                             ((double)ref_hf_frames*2048.0)):0.0,
+           ref_hf_pcm_peak);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
@@ -1616,6 +1662,23 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         }
         for(unsigned c=0u;c<SBR_COMPONENTS;c++)
             if(component_spool[c])fclose(component_spool[c]);
+    }
+    if(ref_hf_spool){
+        const int complete=ref_hf_io_ok && decoded==limit &&
+            preview_frames==limit && ref_hf_qmf_frames==limit &&
+            ref_hf_frames==limit && ref_hf_apply_state.closed==1u &&
+            ref_hf_pcm_state.closed==1u &&
+            ref_hf_pcm_state.emitted_frames==limit;
+        if(!complete)
+            fprintf(stderr,"SBR-54m: POMINIETY niepelny eksport HF-only PCM (%zu/%zu)\n",
+                    ref_hf_frames,limit);
+        else if(sbr54c_export(ref_hf_spool,ref_hf_path,
+                              limit*2048u*sizeof(float)))
+            printf("  SBR-54m: zapisano A/B nowy HF G-only PCM f32le: %s, ramki=%zu, probki=%zu (DO WALIDACJI)\n",
+                   ref_hf_path,ref_hf_frames,limit*2048u);
+        else
+            fprintf(stderr,"SBR-54m: blad zapisu %s\n",ref_hf_path);
+        fclose(ref_hf_spool);
     }
     if(units_spool){
         const int complete=units_io_ok && decoded==limit &&
