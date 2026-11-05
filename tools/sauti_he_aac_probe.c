@@ -805,7 +805,9 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                 printf("  SBR-54b: zapisano PCM PREVIEW f32le: %s, probki=%zu, bytes=%zu (NIE potwierdzono jakosci HE-AAC)\n",
                        export_path,preview_samples,written);
             }else{
-                (void)remove(export_path);
+                /* Never remove a pre-existing path if fopen failed
+                 * before this run could create/truncate its file. */
+                if(dst)(void)remove(export_path);
                 fprintf(stderr,"SBR-54b: blad eksportu PCM PREVIEW: %s\n",
                         export_path);
             }
