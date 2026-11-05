@@ -41,7 +41,7 @@ int sauti_aac_sbr_lpc_estimate_2(
             const C64 x=to64(low[t*32u+k]);
             const C64 p=to64(low[(t-1u)*32u+k]);
             const C64 q=to64(low[(t-2u)*32u+k]);
-            const C64 rpq=conj_mul(p,q);
+            const C64 rpq=conj_mul(q,p); /* X^H X: conj(previous1)*previous2 */
             const C64 bx=conj_mul(x,p),by=conj_mul(x,q);
             r00+=mag2(p);
             r11+=mag2(q);
