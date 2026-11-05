@@ -3865,3 +3865,94 @@ osobna opóźniona ścieżka sinusoid harmonicznych
 i gate zgodny z oryginalnym owner, bez naruszania
 54a/31, a potem bezpośredni odsłuch/PCM A/B
 wobec FFmpeg. Nie przyznawać 54g poprawy audio.
+
+
+## SBR-54g — invf_mode OFF jest prawidłowe; SBR-54h harmonic A/B PCM (2026-11-05)
+
+**Fedora SBR-54g — po bezpośrednim sprawdzeniu parsera bitstreamu:**
+```
+SBR-54g invf_mode bitstream:
+  OFF=150, LOW=0, MID=0, HIGH=0
+  pasma=150, ramki_z_aktywnym_INVF=0/50
+SBR-54g LPC(2)+chirp:
+  ramki=50, niezerowe_zestawy_alpha=1549,
+  dodatni_chirp_slot-band=0,
+  roznice_z_transpose=0/43200,
+  RMS_roznicy_QMF=0
+```
+Jest to **rozstrzygnięte**: kod `sauti_aac_sbr_control_parse`
+czyta z rzeczywistego FIL 2-bit `sbr_invf()`,
+a wszystkie wartości dla tego pliku są OFF.
+Normatywna reguła `bw=0` wyłącza dodatkową
+predykcję nawet przy poprawnym estymatorze LPC.
+W żadnym wypadku nie włączać sztucznego chirp.
+SBR-54g zakończony konstrukcyjnie, bez poprawy PCM.
+
+**SBR-54h — nowy KANDYDAT PCM A/B z sinusoidami i bramką szumu**:
+- moduł `sauti_aac_sbr_temporal_harmonic_preview` czyta
+  wcześniej zdekodowane `SBR-53a` harmonic flags,
+  E i Q, bieżące `SBR-53g` HF+ROM i niezależną
+  sekwencję ROM SBR-53f. Przy aktywnej sinusoidzie
+  dodaje znormalizowany *eksperymentalny* składnik
+  amplitudy `sqrt(E/(1+Q))` zgodnie z SBR-19,
+  z czterofazowym licznikiem QMF i parzystością k.
+- w oznaczonym paśmie k odejmuje RAW ROM noise
+  przed dodaniem sinusoidy; to eksperymentalna
+  bramka tonalna, NIE pełna norma MPEG-4 SBR.
+- odróżnia nową harmoniczną (wymaga zaliczonego
+  oryginalnego transient_env) od kontynuowanej
+  harmonicznej z poprzedniej ramki; uwzględnia
+  `source=0/1` podczas FIXVAR, a odpowiednia
+  maska onset jest buforowana na jedną ramkę
+  razem z opóźnionym QMF.
+- wykorzystuje DRUGĄ, niezależną ciągłą historię
+  syntezy 64-QMF; oryginalny PCM PREVIEW 54a,
+  SBR-31, gain, parser i wskaźnik ROM niezmienione.
+- mierzy `marked_slot_bands`, `active_tones`,
+  `gated_noise`, RMS i peak alternatywnego PCM
+  i RMS różnicy względem starego 54a.
+- gdy próbnik otrzyma ścieżkę zapisu PCM 54a
+  jako 3. argument CLI, automatycznie publikuje
+  nowy plik `<nazwa_f32le>.sine.f32le` TYLKO
+  po prawidłowych 50/50 ramkach, końcowym flush
+  i pełnym zapisie w buforze tymczasowym. Pierwszy
+  plik `<nazwa_f32le>` pozostaje bazowy.
+- test syntetyczny sprawdza 3-slot onset,
+  czterofazowy znak QMF, kontynuację, wyzerowanie,
+  odjęcie ROM i rollback przy NaN/indexie ramki.
+
+**STATUS SBR-54h: ZAPISANY, NIE TESTOWANY na Fedorze**.
+Także po pomyślnym teście **NIE będzie to jeszcze
+normatywny HE-AAC**, ponieważ brakuje m.in. korekt
+wzmocnienia harmonics/noise, envelope boost,
+transient gating, gain smoothing, QMF delay
+i konformancji w stosunku do referencji.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-harmonic-preview test-aac-sbr-hf-sine test-aac-sbr-temporal-pcm-preview probe-he-aac PKG_CONFIG=/bin/false
+
+./build/sauti_he_aac_probe \
+  ~/Sauti-fixtures/he_test.aac 50 \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le |
+  grep -E 'SBR-54h|SBR-54g|SBR-54a|Rdzen:'
+
+python3 tools/sauti_he_aac_compare_pcm.py \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le \
+  ~/Sauti-fixtures/he_test_ffmpeg_reference.f32le
+
+python3 tools/sauti_he_aac_compare_pcm.py \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.sine.f32le \
+  ~/Sauti-fixtures/he_test_ffmpeg_reference.f32le
+```
+
+**Kryterium realnego postępu audio:** spadek
+błędu PCM RMS po odpowiednim wyrównaniu z
+FFmpeg / poprawa korelacji. Sama liczba
+`active_tones>0` nie oznacza sukcesu.
+Jeżeli włączone sinusoidy nie zmienią PCM,
+sprawdzić oryginalne `transient_env` i
+ciągłość flag tonalnych bez wymuszania onset.
+Wynik A/B pozwoli ocenić dalszy priorytet
+normatywnego składania HF/sine/noise.
