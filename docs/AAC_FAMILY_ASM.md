@@ -5101,3 +5101,30 @@ make test-aac-sbr-qmf-reference-audit
 ```
 
 Next phase must instrument a compatible reference QMF analysis and export Sauti W with a common verified AAC-LC core input, matching normalization/filter history and index conventions before using this comparator on real data.
+
+
+## SBR-54w phase II — Sauti shared-core QMF export (2026-11-05)
+
+This change provides an isolated **Sauti** diagnostic exporter (not a decoder alteration):
+- `tools/sauti_qmf_low_export.c` uses the production 32-band QMF analysis directly on **shared external mono AAC-LC core PCM f32le**. It processes consecutive 1024-sample frames, keeps the QMF analysis filter state, preserves the previous frame's final six 32-band W slots, and exports W[i-6] for bands LOW 2..5.
+- Output `frame-major/slot-major/band-major` 32 slots x 4 bands x interleaved Re,Im float32 little-endian per frame (1024 bytes/frame). First six slots of frame zero contain placeholders; comparison scripts exclude them.
+- `tools/sauti_qmf_low_manifest.py` hashes *exact input PCM bytes* using SHA256, validates output byte count, records sample rate and geometry. The independent reference must consume **the exact same PCM** and emit the same geometry, independently, before the comparator may be used.
+- `tools/test_sauti_qmf_low_export.py` exercises the compiled C exporter, missing preroll, carry between two frames, output shape, manifest and incomplete input rejection.
+- No change to AAC-LC decoding, HE-AAC PCM, SBR synth, gain or QMF library logic. Production files remain untouched.
+
+**Fedora build and smoke:**
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-qmf-export test-aac-sbr-qmf-reference-audit PKG_CONFIG=/bin/false
+```
+
+**For subsequent real exports**, supply a byte-identical 24 kHz mono AAC-LC core stream with complete 1024-sample f32le frames:
+```sh
+make export-aac-sbr-low-qmf PKG_CONFIG=/bin/false
+./build/sauti_qmf_low_export /tmp/shared_core.f32le /tmp/sauti_low.qmf.f32le
+python3 tools/sauti_qmf_low_manifest.py --core-rate 24000 \
+  /tmp/shared_core.f32le /tmp/sauti_low.qmf.f32le /tmp/sauti_low.json
+```
+
+**Critical unfinished dependency:** there is still no instrumented FFmpeg analysis-QMF W exporter fed by these identical core PCM frames. The `he_test_ffmpeg_reference.f32le` audio output is *not* complex QMF and is not valid input for the independent comparator. Do not claim numerical reference agreement or change production audio until the independent W tensor is available. The manifest's producer label is a declaration, not cryptographic proof of independent processing.
