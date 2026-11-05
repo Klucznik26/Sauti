@@ -707,6 +707,16 @@ $(OBJDIR)/test_aac_sbr_temporal_pcm_preview: tests/test_aac_sbr_temporal_pcm_pre
 test-aac-sbr-temporal-pcm-preview: $(OBJDIR)/test_aac_sbr_temporal_pcm_preview
 	./$(OBJDIR)/test_aac_sbr_temporal_pcm_preview
 
+AAC_SBR_TEMPORAL_ENERGY_AUDIT_SRC := src/decoders/modern/aac/sauti_aac_sbr_temporal_energy_audit.c
+AAC_SBR_TEMPORAL_ENERGY_AUDIT_DEPS := $(sort $(AAC_SBR_TEMPORAL_MIX_DEPS) $(AAC_SBR_TEMPORAL_ENERGY_AUDIT_SRC))
+
+$(OBJDIR)/test_aac_sbr_temporal_energy_audit: tests/test_aac_sbr_temporal_energy_audit.c include/sauti_aac_sbr_temporal_energy_audit.h $(AAC_SBR_TEMPORAL_ENERGY_AUDIT_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_temporal_energy_audit.c $(AAC_SBR_TEMPORAL_ENERGY_AUDIT_DEPS) -lm -no-pie
+
+.PHONY: test-aac-sbr-temporal-energy-audit
+test-aac-sbr-temporal-energy-audit: $(OBJDIR)/test_aac_sbr_temporal_energy_audit
+	./$(OBJDIR)/test_aac_sbr_temporal_energy_audit
+
 AAC_SBR_ADTS_QMF_DEPS := $(sort $(AAC_HE_ADTS_QMF_SRC) $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS))
 
 $(OBJDIR)/test_aac_sbr_adts_qmf: tests/test_aac_sbr_adts_qmf.c tests/test_aac_sbr_adts_mono.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) | $(OBJDIR)
@@ -716,8 +726,8 @@ $(OBJDIR)/test_aac_sbr_adts_qmf: tests/test_aac_sbr_adts_qmf.c tests/test_aac_sb
 test-aac-sbr-adts-qmf: $(OBJDIR)/test_aac_sbr_adts_qmf
 	./$(OBJDIR)/test_aac_sbr_adts_qmf
 
-$(OBJDIR)/sauti_he_aac_probe: tools/sauti_he_aac_probe.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) $(AAC_SBR_TEMPORAL_MIX_SRC) $(AAC_SBR_TEMPORAL_SMOOTH_SRC) $(AAC_SBR_TEMPORAL_PCM_PREVIEW_SRC) | $(OBJDIR)
-	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_aac_probe.c $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) $(AAC_SBR_TEMPORAL_MIX_SRC) $(AAC_SBR_TEMPORAL_SMOOTH_SRC) $(AAC_SBR_TEMPORAL_PCM_PREVIEW_SRC) -lm -no-pie
+$(OBJDIR)/sauti_he_aac_probe: tools/sauti_he_aac_probe.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) $(AAC_SBR_TEMPORAL_MIX_SRC) $(AAC_SBR_TEMPORAL_SMOOTH_SRC) $(AAC_SBR_TEMPORAL_PCM_PREVIEW_SRC) $(AAC_SBR_TEMPORAL_ENERGY_AUDIT_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_aac_probe.c $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) $(AAC_SBR_TEMPORAL_MIX_SRC) $(AAC_SBR_TEMPORAL_SMOOTH_SRC) $(AAC_SBR_TEMPORAL_PCM_PREVIEW_SRC) $(AAC_SBR_TEMPORAL_ENERGY_AUDIT_SRC) -lm -no-pie
 
 .PHONY: test-aac-he-stem-ablation
 test-aac-he-stem-ablation:
