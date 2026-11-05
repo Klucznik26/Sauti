@@ -16,6 +16,7 @@ It cannot establish sample-accurate end-to-end PCM lag or prove that
 Sauti needs an HF-only +192/288-sample output shift.
 """
 import argparse
+from pathlib import Path
 
 SLOTS_PER_FRAME = 32
 FFMPEG_HFGEN_DELAY = 8
@@ -43,6 +44,14 @@ def label(global_index):
 
 
 def self_test():
+    # Verify the current checked-out Sauti source really uses the
+    # same-slot direct-low HF transposition we are contrasting.
+    # This is a source-structure guard, NOT a numerical FFmpeg test.
+    repo = Path(__file__).resolve().parents[1]
+    code = (repo / "src/decoders/modern/aac" /
+            "sauti_aac_sbr_temporal_qmf.c").read_text(encoding="utf-8")
+    assert "sauti_aac_sbr_hf_transpose(" in code
+    assert "low+(size_t)slot*32u,32u,1u," in code
     assert FFMPEG_HFGEN_DELAY == 8
     assert FFMPEG_ENVELOPE_ADJ == 2
     for frame in range(1, 4):
@@ -71,7 +80,7 @@ def self_test():
             raise AssertionError("malformed source index accepted")
     print("SBR-54r: W[i-8], X_high[i+2] -> W[i-6] provenance PASS")
     print("SBR-54r: six prior-frame slots carried across boundary PASS")
-    print("SBR-54r: current-slot Sauti 53b provenance distinguished PASS")
+    print("SBR-54r: current-slot Sauti 53b SOURCE and provenance PASS")
     print("PASS SBR-54r source-index model (NOT reference PCM/QMF)")
 
 
