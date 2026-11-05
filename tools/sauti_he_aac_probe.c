@@ -389,8 +389,122 @@ static void diagnose_sbr_rejection(const uint8_t *frame,size_t len,
         return;
     }
 }
+/* SBR-54c diagnostics: isolate the three sources of the abnormal
+ * PCM waveform. All component signals pass through their OWN 64-QMF
+ * synthesis histories; do not change SBR-54a or final audio PCM.
+ * Each active HF mask slot is contiguous and belongs to the emitted
+ * (not the current input) frame. Component outputs sum approximately
+ * to the SBR-54a preview due to linearity of QMF synthesis. */
+enum { SBR_COMPONENTS=3, SBR_SAMPLES=2048 };
+static const char *component_names[SBR_COMPONENTS]={
+    "low","hf","noise"
+};
+typedef struct {
+    SautiAacSbrQmfSynthWindowState synth[SBR_COMPONENTS];
+    size_t frames;
+    double sum_sq[SBR_COMPONENTS];
+    double peak[SBR_COMPONENTS];
+} Sbr54cComponents;
+
+static int sbr54c_render(
+    const SautiAacSbrComplex low[32u*32u],
+    const SautiAacSbrComplex high_gain[32u*64u],
+    const SautiAacSbrComplex mixed[32u*64u],
+    const SautiAacSbrTemporalNoiseFrame *noise,
+    Sbr54cComponents *state,
+    float pcm[SBR_COMPONENTS][SBR_SAMPLES]){
+    if(!low || !high_gain || !mixed || !noise || !state || !pcm)
+        return 0;
+    SautiAacSbrQmfSynthWindowState staged[SBR_COMPONENTS];
+    memcpy(staged,state->synth,sizeof(staged));
+    SautiAacSbrComplex bands[SBR_SAMPLES];
+    float outputs[SBR_COMPONENTS][SBR_SAMPLES];
+    double powers[SBR_COMPONENTS]={0},peaks[SBR_COMPONENTS]={0};
+    for(unsigned mode=0u;mode<SBR_COMPONENTS;mode++){
+        memset(bands,0,sizeof(bands));
+        for(unsigned t=0u;t<32u;t++){
+            unsigned kx=64u,ended=0u,started=0u;
+            for(unsigned k=0u;k<64u;k++){
+                const unsigned ix=t*64u+k;
+                const unsigned active=noise->active[ix];
+                if(active>1u)return 0;
+                if(active){
+                    if(ended)return 0;
+                    if(!started)kx=k;
+                    started=1u;
+                }else if(started)ended=1u;
+            }
+            if(!started || kx<1u || kx>32u)return 0;
+            if(mode==0u){
+                for(unsigned k=0u;k<kx;k++){
+                    const SautiAacSbrComplex x=low[t*32u+k];
+                    if(!isfinite(x.re)||!isfinite(x.im))return 0;
+                    bands[t*64u+k]=x;
+                }
+            }else for(unsigned k=0u;k<64u;k++){
+                const unsigned ix=t*64u+k;
+                const SautiAacSbrComplex g=high_gain[ix],m=mixed[ix];
+                if(!isfinite(g.re)||!isfinite(g.im)||
+                   !isfinite(m.re)||!isfinite(m.im))return 0;
+                if(noise->active[ix]){
+                    if(mode==1u)bands[ix]=g;
+                    else {
+                        bands[ix].re=m.re-g.re;
+                        bands[ix].im=m.im-g.im;
+                    }
+                }
+            }
+        }
+        if(!sauti_aac_sbr_qmf_synth_64(
+               bands,SBR_SAMPLES,32u,outputs[mode],SBR_SAMPLES,
+               &staged[mode]))return 0;
+        for(unsigned i=0u;i<SBR_SAMPLES;i++){
+            const double v=outputs[mode][i];
+            if(!isfinite(v))return 0;
+            powers[mode]+=v*v;
+            if(fabs(v)>peaks[mode])peaks[mode]=fabs(v);
+        }
+    }
+    memcpy(state->synth,staged,sizeof(staged));
+    for(unsigned mode=0u;mode<SBR_COMPONENTS;mode++){
+        state->sum_sq[mode]+=powers[mode];
+        if(peaks[mode]>state->peak[mode])
+            state->peak[mode]=peaks[mode];
+    }
+    state->frames++;
+    memcpy(pcm,outputs,sizeof(outputs));
+    return 1;
+}
+
+static int sbr54c_export(FILE *src,const char *path,size_t expected){
+    if(!src || !path ||
+       fflush(src)!=0 || fseek(src,0L,SEEK_SET)!=0)return 0;
+    FILE *dst=fopen(path,"wb");
+    if(!dst){
+        fprintf(stderr,"SBR-54c: nie mozna otworzyc %s: %s\n",
+                path,strerror(errno));
+        return 0;
+    }
+    unsigned char bytes[4096];
+    size_t written=0u,n=0u;
+    int ok=1;
+    while((n=fread(bytes,1u,sizeof(bytes),src))>0u){
+        if(fwrite(bytes,1u,n,dst)!=n){
+            ok=0;break;
+        }
+        written+=n;
+    }
+    if(ferror(src)||fclose(dst)!=0)ok=0;
+    if(!ok || written!=expected){
+        (void)remove(path);
+        return 0;
+    }
+    return 1;
+}
+
 static void diagnose_core_sequence(const char *path,size_t limit,
-                                   const char *export_path){
+                                   const char *export_path,
+                                   const char *component_prefix){
     FILE *f=fopen(path,"rb");
     if(!f){perror(path);return;}
     SautiAacHeAdtsMonoState core_state={0};
