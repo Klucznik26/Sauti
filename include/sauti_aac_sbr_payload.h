@@ -199,6 +199,7 @@ int sauti_aac_sbr_payload_make_hf(
  * On any invalid map/target *out remains byte-for-byte unchanged. */
 typedef struct {
     uint8_t source, envelope, noise, kx, k2;
+    uint8_t smooth_bypass; /* inherited source frame: bs_smoothing_mode || attack[env] */
     double energy[64];
     double noise_factor[64];
     uint8_t harmonic[64];
