@@ -37,23 +37,43 @@ def measure(low, hf, ref, positions, shift):
     return score(hf, positions, b, residual, bb, rr, shift)
 
 
-def select_shift(low, hf, ref, positions, maximum):
-    # A sample-exact coarse sweep with a constant train window.
-    sample = positions[::16]
-    b, residual, bb, rr = basis(low, ref, sample)
-    ranked = []
-    for shift in range(-maximum, maximum + 1):
-        c = score(hf, sample, b, residual, bb, rr, shift)
-        ranked.append((abs(c), shift))
-    ranked.sort(reverse=True)
-    finalists = {0}
-    for _, center in ranked[:16]:
-        for candidate in range(max(-maximum, center - 2),
-                               min(maximum, center + 2) + 1):
-            finalists.add(candidate)
+def select_shift(low, hf, ref, positions, maximum,
+                 mandatory_shift=None):
+    # SBR-54p-fix: A single stride-16 phase can alias a short
+    # high-energy HF event. The old top-16 shortlist could exclude a
+    # candidate that is 5x stronger when scored on ALL train samples.
+    #
+    # Diversify independent sample phases, retain a denser grid,
+    # and always check the previously published +288 candidate
+    # and zero on the COMPLETE training window. The shortlist is
+    # a screened search, NOT a global exhaustive max.
+    shortlist = {0}
+    if mandatory_shift is not None:
+        if abs(mandatory_shift) > maximum:
+            raise ValueError("preselected shift outside search radius")
+        shortlist.add(mandatory_shift)
+    for stride, offsets, keep in (
+        (4, (0,), 32),
+        (16, (0, 4, 8, 12), 16),
+    ):
+        for phase in offsets:
+            sample = positions[phase::stride]
+            if len(sample) < 128:
+                continue
+            b, residual, bb, rr = basis(low, ref, sample)
+            ranked = []
+            for shift in range(-maximum, maximum + 1):
+                c = score(hf, sample, b, residual, bb, rr, shift)
+                ranked.append((abs(c), shift))
+            ranked.sort(reverse=True)
+            for _, center in ranked[:keep]:
+                for candidate in range(
+                        max(-maximum, center - 2),
+                        min(maximum, center + 2) + 1):
+                    shortlist.add(candidate)
     b, residual, bb, rr = basis(low, ref, positions)
     scored = [(score(hf, positions, b, residual, bb, rr, shift),
-               shift) for shift in sorted(finalists)]
+               shift) for shift in sorted(shortlist)]
     return max(scored, key=lambda row: abs(row[0]))
 
 
@@ -66,7 +86,8 @@ def evaluate(low, candidate, reference, lag=-6, maximum=512,
         ("first_half", first, second),
         ("second_half", second, first),
     ):
-        train_corr, shift = select_shift(base, hf, ref, train, maximum)
+        train_corr, shift = select_shift(
+            base, hf, ref, train, maximum, candidate_shift)
         validation_corr = measure(base, hf, ref, holdout, shift)
         fixed_train = measure(base, hf, ref, train, candidate_shift)
         fixed_holdout = measure(base, hf, ref, holdout, candidate_shift)
@@ -129,6 +150,36 @@ def self_test():
     assert abs(changed[0]["validation_corr"]) < 0.2, changed
     print("SBR-54p: spurious good training correlation rejected "
           "by independent holdout PASS")
+
+    # Adversarial cadence: one stride-16 phase contains many
+    # structured false peaks. The original top-16 scan omits the
+    # objectively best shift=+37 from the full-sample shortlist.
+    # A denser, multi-phase search must recover it on both halves.
+    rng_alias = random.Random(5981)
+    size = 8192
+    aliased_low = [0.08 * math.sin(i * .03) +
+                   0.04 * math.cos(i * .067)
+                   for i in range(size)]
+    tone = [rng_alias.uniform(-1., 1.) for _ in range(size + 256)]
+    aliased_candidate = [
+        aliased_low[i] + tone[i - 37 + 128]
+        for i in range(size)
+    ]
+    aliased_reference = [
+        aliased_low[i] +
+        (sum(0.5 * tone[i + off + 128] for off in range(-70, -50))
+         if i % 16 == 0 else tone[i + 128])
+        for i in range(size)
+    ]
+    aliased = evaluate(aliased_low, aliased_candidate,
+                       aliased_reference, lag=0, maximum=96,
+                       candidate_shift=37)
+    for row in aliased:
+        assert row["chosen_shift"] == 37, row
+        assert abs(row["train_corr"]) > 0.7, row
+        assert abs(row["validation_corr"]) > 0.7, row
+    print("SBR-54p: stride-16 alias missing true HF peak "
+          "regression PASS")
     print("PASS SBR-54p HF shift cross-validation "
           "(no QMF/PCM decoder changes)")
 
