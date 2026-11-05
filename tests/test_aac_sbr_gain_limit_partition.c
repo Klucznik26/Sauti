@@ -25,8 +25,9 @@ int main(void){
      * Noise is absent from energy sum when S>0. */
     const double boost0=sqrt((100.0+0x1p-23)/(99.0+0x1p-23));
     const double boost1=sqrt((100.0+0x1p-23)/(97.0+0x1p-23));
-    eq(result.group_cap[0],sqrt(100.0/24.0));
-    eq(result.group_cap[1],sqrt(100.0/24.0));
+    const double nominal_cap=sqrt((100.0+0x1p-23)/(24.0+0x1p-23));
+    eq(result.group_cap[0],nominal_cap);
+    eq(result.group_cap[1],nominal_cap);
     eq(result.group_boost[0],boost0);
     eq(result.group_boost[1],boost1);
     eq(result.band[16].hf_gain,boost0);
