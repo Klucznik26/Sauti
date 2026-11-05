@@ -728,6 +728,11 @@ AAC_SBR_HF_PHASE_PROBE_SRC := src/decoders/modern/aac/sauti_aac_sbr_hf_phase_pro
 $(OBJDIR)/test_aac_sbr_hf_phase_probe: tests/test_aac_sbr_hf_phase_probe.c include/sauti_aac_sbr_hf_phase_probe.h $(AAC_SBR_HF_PHASE_PROBE_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_hf_phase_probe.c $(AAC_SBR_HF_PHASE_PROBE_SRC) -lm -no-pie
 
+.PHONY: test-aac-sbr-qmf-index-audit
+test-aac-sbr-qmf-index-audit:
+	python3 tools/sauti_he_aac_qmf_index_audit.py --self-test
+	python3 tools/sauti_he_aac_qmf_index_audit.py --frame 1
+
 .PHONY: test-aac-sbr-hf-phase-probe
 test-aac-sbr-hf-phase-probe: $(OBJDIR)/test_aac_sbr_hf_phase_probe
 	./$(OBJDIR)/test_aac_sbr_hf_phase_probe
