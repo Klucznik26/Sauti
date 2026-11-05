@@ -33,6 +33,7 @@
 #include "sauti_aac_sbr_temporal_reference_gain.h"
 #include "sauti_aac_sbr_temporal_gain_bridge.h"
 #include "sauti_aac_sbr_hf_phase_probe.h"
+#include "sauti_aac_sbr_temporal_source6.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -701,6 +702,12 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     unsigned max_tail=0u;
     size_t hf_target_frames=0u;
     size_t qmf_prepared_frames=0u;
+    SautiAacSbrTemporalSource6State source6_state={0};
+    size_t source6_frames=0u,source6_carried=0u;
+    size_t source6_missing=0u,source6_prior_owners=0u;
+    size_t source6_active=0u,source6_changed=0u;
+    double source6_old_energy=0.0,source6_new_energy=0.0;
+    double source6_cross=0.0,source6_delta_energy=0.0;
     size_t power_frames=0u,power_envelopes=0u,power_handoffs=0u;
     size_t gain_frames=0u,gain_envelopes=0u,gain_noise_only=0u;
     size_t ref_gain_frames=0u,ref_gain_envelopes=0u;
@@ -913,6 +920,42 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             break;
         }
         qmf_prepared_frames++;
+
+        /* SBR-54s: read-only six-slot SOURCE-QMF lookback W[i-6],
+         * independent of SBR's 2/6 FIXVAR original side-data owner.
+         * Do not feed this comparison to the normal HF gains or PCM. */
+        SautiAacSbrComplex source6_low[32u*32u];
+        SautiAacSbrComplex source6_high[32u*64u];
+        SautiAacSbrTemporalSource6Report source6_report;
+        if(!sauti_aac_sbr_temporal_source6_prepare(
+               &temporal_history,low_qmf,32u*32u,
+               &source6_state,source6_low,32u*32u,
+               source6_high,32u*64u,&source6_report)){
+            printf("  ramka %zu: SBR-54s historia 6 slotow QMF odrzucona\n",i);
+            break;
+        }
+        source6_frames++;
+        source6_carried+=source6_report.carried_from_previous;
+        source6_missing+=source6_report.missing_preroll;
+        source6_prior_owners+=source6_report.previous_owner_slots;
+        for(unsigned t=source6_report.missing_preroll;t<32u;t++)
+            for(unsigned k=0u;k<64u;k++){
+                const unsigned ix=t*64u+k;
+                const SautiAacSbrComplex old=baseline_hf[ix];
+                const SautiAacSbrComplex newer=source6_high[ix];
+                if(old.re==0.0f && old.im==0.0f &&
+                   newer.re==0.0f && newer.im==0.0f)continue;
+                const double orr=old.re,oi=old.im;
+                const double nr=newer.re,ni=newer.im;
+                source6_active++;
+                source6_changed+=(old.re!=newer.re ||
+                                  old.im!=newer.im);
+                source6_old_energy+=orr*orr+oi*oi;
+                source6_new_energy+=nr*nr+ni*ni;
+                source6_cross+=orr*nr+oi*ni;
+                const double dr=orr-nr,di=oi-ni;
+                source6_delta_energy+=dr*dr+di*di;
+            }
 
         /* SBR-54g: experimental native complex LPC(2) estimator,
          * connected to the already existing SBR-13 predictor. This
@@ -1643,6 +1686,13 @@ static void diagnose_core_sequence(const char *path,size_t limit,
            (unsigned long long)temporal_history.frames,handoff_count,max_tail);
     printf("  SBR-53a: cele HF energia/szum/harmoniczne sprawdzone dla %zu ramek (bez syntezy HE-AAC PCM)\n",hf_target_frames);
     printf("  SBR-53b: ciagla analiza QMF 32 + HF transpose dla %zu ramek (bez finalnego PCM HE-AAC)\n",qmf_prepared_frames);
+    printf("  SBR-54s: realne HF QMF W[i-6] audit: ramki=%zu, carry_src_slot=%zu, missing_preroll=%zu, prior_FIXVAR_owner_slot=%zu, aktywne_slot-biny=%zu, zmienione=%zu, complex_corr=%.9g, RMS_roznicy_QMF=%.9g (TYLKO POROWNANIE, NIE PCM)\n",
+           source6_frames,source6_carried,source6_missing,
+           source6_prior_owners,source6_active,source6_changed,
+           source6_old_energy>0.0 && source6_new_energy>0.0?
+             source6_cross/sqrt(source6_old_energy*source6_new_energy):0.0,
+           source6_active?sqrt(source6_delta_energy/
+                               (double)source6_active):0.0);
     printf("  SBR-54g: LPC(2)+chirp alternatywa: ramki=%zu, niezerowe_zestawy_alpha=%zu, dodatni_chirp_slot-band=%zu, roznice_z_transpose=%zu/%zu, RMS_roznicy_QMF=%.9g (wylacznie HF QMF, nie PCM)\n",
            lpc_estimated_frames,lpc_nonzero_coeffs,lpc_nonzero_chirp,
            lpc_changed_bins,lpc_active_bins,
