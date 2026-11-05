@@ -3365,3 +3365,39 @@ Po pomiarze wybierzemy zmianę o największym znaczeniu:
 prawdopodobnie wyjaśnienie nadmiarowego RMS/peak,
 a dopiero potem harmoniczne/chirp/smoothing i
 integrację transakcyjną oraz stereo/HE-AACv2.
+
+
+## SBR-54b: naprawa walidatora korelacji — błąd testu na Fedorze (2026-11-05)
+
+Użytkownik uruchomił `make test-aac-he-preview-compare probe-he-aac`
+na HEAD b76fc31. Self-test walidatora Pythona zatrzymał się na
+`AssertionError: (-3685, 384)`: algorytm miał znaleźć przesunięcie
+384 próbek. Ponieważ pierwszy target `make` nie przeszedł,
+**próbnik C nie został odbudowany**, więc wywołanie 3.
+argumentu eksportu pokazało starą składnię CLI.
+Ten wynik nie jest regresją dekodera AAC/SBR-54a.
+
+Poprawiono `tools/sauti_he_aac_compare_pcm.py`:
+- siatka wstępnego wyszukiwania jest teraz zakotwiczona
+  w zerowym opóźnieniu (wcześniej zaczynała się w
+  `-maxlag`; dla maxlag=4128 nie próbkowała lag=384);
+- krok wyszukiwania zmieniono z 64 na 8 próbek, aby
+  nie wybierać odległego maksimum korelacji z
+  okresowego sygnału testowego;
+- test obejmuje teraz przesunięcia +384, +385, +471,
+  -423 próbek oraz odwróconą polaryzację sygnału.
+- poprawkę przeanalizowano na analogicznym kodzie
+  lokalnie, ale nadal wymagana jest kompilacja oraz
+  wykonanie aktualnego pliku na Fedorze.
+
+Po `git pull` należy osobno potwierdzić:
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-he-preview-compare PKG_CONFIG=/bin/false
+make probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 ~/Sauti-fixtures/he_test_sauti_preview.f32le
+```
+Następnie użyć FFmpeg wyłącznie do utworzenia
+referencji i uruchomić porównanie; dopóki nie ma
+wyników korelacji/skali, **SBR-54b pozostaje WIP**.
