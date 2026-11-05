@@ -26,6 +26,7 @@
 #include "sauti_aac_sbr_temporal_smooth.h"
 #include "sauti_aac_sbr_temporal_pcm_preview.h"
 #include "sauti_aac_sbr_temporal_energy_audit.h"
+#include "sauti_aac_sbr_temporal_envelope_audit.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -606,6 +607,21 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     size_t preview_frames=0u,preview_samples=0u,preview_nonzero=0u;
     size_t energy_audit_frames=0u;
     SautiAacSbrTemporalEnergyAudit energy_budget={0};
+    /* SBR-54f owns only read-only diagnostics; it never alters HF,
+     * ROM noise, AAC state, QMF histories or emitted PCM. */
+    SautiAacSbrTemporalEnvelopeAuditGroup *envelope_groups=NULL;
+    SautiAacSbrTemporalEnvelopeAuditState envelope_audit={0};
+    if(limit && limit<=SIZE_MAX/SAUTI_AAC_SBR_MAX_ENV){
+        envelope_groups=calloc(
+            limit*SAUTI_AAC_SBR_MAX_ENV,sizeof(*envelope_groups));
+        if(envelope_groups){
+            envelope_audit.groups=envelope_groups;
+            envelope_audit.max_frames=limit;
+        }
+    }
+    int envelope_audit_ok=envelope_groups!=NULL;
+    if(!envelope_audit_ok)
+        puts("  SBR-54f: brak pamieci na grupowanie obwiedni, pomijam audit");
     size_t preview_first_nonzero=SIZE_MAX;
     SautiAacSbrTemporalPcmPreviewState temporal_pcm={0};
     /* SBR-53h audit: distinguish a genuine FIR slot from deliberate
@@ -818,6 +834,14 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             }
             energy_audit_frames++;
             sbr54e_accumulate(&energy_budget,&energy_entry);
+            if(envelope_audit_ok &&
+               !sauti_aac_sbr_temporal_envelope_audit_push(
+                   &emitted_targets,adjusted_hf,32u*64u,
+                   &noise_frame,&apply_report,&noise_report,
+                   &envelope_audit)){
+                printf("  ramka %zu: SBR-54f audit pelnych obwiedni odrzucony\n",i);
+                envelope_audit_ok=0;
+            }
             if(energy_entry.frame_index==2u)
                 printf("  SBR-54e ramka 2: target=%.9g, HF=%.9g, NOISE_nom=%.9g, nadbudzet=%u/%u (przed synteza, nie normatywnie)\n",
                        energy_entry.decoded_target_power,
@@ -934,6 +958,15 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                            &last_report,&final_energy)){
                         energy_audit_frames++;
                         sbr54e_accumulate(&energy_budget,&final_energy);
+                        if(envelope_audit_ok &&
+                           !sauti_aac_sbr_temporal_envelope_audit_push(
+                               &temporal_noise.held_targets,
+                               final_hf,32u*64u,
+                               &last_noise,&final_report,&last_report,
+                               &envelope_audit)){
+                            puts("  SBR-54f: finalny audit obwiedni odrzucony");
+                            envelope_audit_ok=0;
+                        }
                     }else
                         puts("  SBR-54e: finalny bilans energii odrzucony (bez zmiany PCM)");
                     mix_frames++;
@@ -1028,6 +1061,36 @@ static void diagnose_core_sequence(const char *path,size_t limit,
            energy_budget.double_alloc_bins,
            energy_budget.active_bins,energy_budget.harmonic_bins,
            energy_budget.max_budget_ratio);
+    SautiAacSbrTemporalEnvelopeAuditReport complete_env={0};
+    if(envelope_audit_ok &&
+       sauti_aac_sbr_temporal_envelope_audit_report(
+           &envelope_audit,&complete_env) &&
+       complete_env.completed_frames==preview_frames &&
+       complete_env.total_slot_bins==energy_budget.active_bins){
+        const double total_budget=complete_env.target_total>0.0?
+            (complete_env.hf_total+complete_env.noise_total)/
+            complete_env.target_total:0.0;
+        const int same_totals=
+            fabs(complete_env.target_total-energy_budget.decoded_target_power)
+                <=1e-7*fmax(1.0,energy_budget.decoded_target_power) &&
+            fabs(complete_env.hf_total-energy_budget.adjusted_hf_power)
+                <=1e-7*fmax(1.0,energy_budget.adjusted_hf_power) &&
+            fabs(complete_env.noise_total-energy_budget.nominal_noise_power)
+                <=1e-7*fmax(1.0,energy_budget.nominal_noise_power);
+        printf("  SBR-54f: obwiednie=%u, pasma-obwiednie=%u, sloty-biny=%llu, budzet_sredni=%.9g, nadbudzet_sredni=%u/%u, ponad_2x=%u, ponad_10x=%u, max_sredni_ratio=%.9g (ramka=%llu, env=%u, pasmo=%u, sloty=%u), zgodnosc_sum_54e=%s (nie normatywny HE-AAC)\n",
+               complete_env.envelopes,complete_env.active_envelope_bins,
+               (unsigned long long)complete_env.total_slot_bins,
+               total_budget,complete_env.above_target,
+               complete_env.active_envelope_bins,complete_env.above_twice,
+               complete_env.above_tenfold,complete_env.max_ratio,
+               (unsigned long long)complete_env.worst_frame,
+               complete_env.worst_envelope,complete_env.worst_bin,
+               complete_env.worst_slots,same_totals?"TAK":"NIE");
+    }else
+        printf("  SBR-54f: NIEPELNY audit pelnych obwiedni (%llu/%zu wyemitowanych ramek)\n",
+               (unsigned long long)envelope_audit.next_emitted_frame,
+               preview_frames);
+    free(envelope_groups);
     printf("  SBR-54a: PCM PREVIEW 64-QMF, ramki=%zu, probki=%zu, niezerowe=%zu, pierwsza niezerowa=",
            preview_frames,preview_samples,preview_nonzero);
     if(preview_first_nonzero==SIZE_MAX)puts("brak (niezweryfikowany dzwiek HE-AAC)");
