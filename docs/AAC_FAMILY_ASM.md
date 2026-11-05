@@ -5153,3 +5153,47 @@ python3 tools/sauti_ffmpeg_qmf_instrument.py /path/to/ffmpeg-source
 ```
 
 No independent QMF values have yet been compared. Next gate: build the modified float FFmpeg binary separately, decode the target mono HE-AAC while setting both environment paths, ensure exact output frame counts, generate the independent JSON manifest, and invoke `tools/sauti_he_aac_qmf_reference_audit.py`. No production decoder changes until numerical comparisons are credible.
+
+
+### SBR-54w III: shared-input test and real FFmpeg build instructions (2026-11-05)
+
+The real FFmpeg reference is **still unvalidated**. A deterministic 24-kHz mono float32 QMF input generator `tools/sauti_sbr54w_shared_pcm.py` supplies the **exact same 1024-sample frames** to Sauti and the instrumented FFmpeg analyzer. This avoids confounding differences in AAC-LC decoder output. A binary validator `tools/sauti_sbr54w_verify_reference.py` rejects truncated/nonfinite/silent/misframed files.
+
+**First, Fedora safe tests:**
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-qmf-shared-input test-aac-sbr-qmf-export test-aac-sbr-qmf-reference-audit PKG_CONFIG=/bin/false
+python3 tools/sauti_sbr54w_shared_pcm.py /tmp/sbr54w-shared-core.f32le --frames 50
+./build/sauti_qmf_low_export /tmp/sbr54w-shared-core.f32le /tmp/sbr54w-sauti.qmf.f32le
+python3 tools/sauti_qmf_low_manifest.py --core-rate 24000 /tmp/sbr54w-shared-core.f32le /tmp/sbr54w-sauti.qmf.f32le /tmp/sbr54w-sauti.json
+```
+
+**External reference build** (separate disposable checkout; never replace system FFmpeg):
+```sh
+mkdir -p ~/Sauti-tools
+git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git ~/Sauti-tools/ffmpeg-sbr54w
+cd ~/Sauti
+python3 tools/sauti_ffmpeg_qmf_instrument.py --dry-run ~/Sauti-tools/ffmpeg-sbr54w
+python3 tools/sauti_ffmpeg_qmf_instrument.py ~/Sauti-tools/ffmpeg-sbr54w
+cd ~/Sauti-tools/ffmpeg-sbr54w
+git diff -- libavcodec/aacsbr_template.c
+./configure --prefix="$HOME/Sauti-tools/ffmpeg-sbr54w-local" --disable-doc --disable-ffplay --disable-ffprobe --disable-shared --enable-static
+make -j4 ffmpeg
+```
+
+**Real reference measurement** (execute only after build succeeds, on a mono 50-frame HE-AAC fixture):
+```sh
+cd ~/Sauti
+SAUTI_SBR54W_CORE=/tmp/sbr54w-shared-core.f32le \
+SAUTI_SBR54W_QMF=/tmp/sbr54w-ffmpeg.qmf.f32le \
+~/Sauti-tools/ffmpeg-sbr54w/ffmpeg -hide_banner -v warning -threads 1 \
+ -i ~/Sauti-fixtures/he_test.aac -frames:a 50 -f null -
+python3 tools/sauti_sbr54w_verify_reference.py /tmp/sbr54w-shared-core.f32le /tmp/sbr54w-ffmpeg.qmf.f32le
+python3 tools/sauti_ffmpeg_qmf_manifest.py --core-rate 24000 /tmp/sbr54w-shared-core.f32le /tmp/sbr54w-ffmpeg.qmf.f32le /tmp/sbr54w-ffmpeg.json
+python3 tools/sauti_he_aac_qmf_reference_audit.py \
+ /tmp/sbr54w-sauti.qmf.f32le /tmp/sbr54w-sauti.json \
+ /tmp/sbr54w-ffmpeg.qmf.f32le /tmp/sbr54w-ffmpeg.json
+```
+
+**CAUTION:** The experimental FFmpeg patch is deliberately intrusive and may need revision to compile against the precise checked-out FFmpeg commit. The synthetic instrumentation-anchor test does NOT establish successful compilation, run-time frame coverage or actual numerical agreement. Verify the resulting diff and source version; errors are diagnostic evidence. Do not infer that FFmpeg decoded exactly 50 SBR frames merely from `-frames:a 50`—the binary size validator must pass. No Sauti production decoder, original QMF path, or installed FFmpeg should be changed.
