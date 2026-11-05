@@ -3156,3 +3156,50 @@ git pull --ff-only origin feature/aac-family-asm
 make test-aac-sbr-temporal-mix test-aac-sbr-temporal-noise test-aac-sbr-temporal-apply test-aac-sbr-adts-qmf probe-he-aac PKG_CONFIG=/bin/false
 ./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 | grep -E 'SBR-53|Rdzen:|odrzucona'
 ```
+
+
+## SBR-53g PASS Fedora; SBR-53h 5-tap noise coefficient smoothing pending (2026-11-05)
+
+Na Fedorze potwierdzono `test-aac-sbr-temporal-mix`:
+2-slot, 6-slot, pusty aktywny mask, niezmienność po błędzie PASS.
+Regresje SBR-53f, e, SBR-31/46 PASS. Realny `he_test.aac`:
+50/50 ramek HF/QMF, 43 200 aktywnych wektorów ROM, ROM index
+końcowy 192, 57 gotowych obwiedni, 0 nieukończonych slotów.
+SBR-53g to nadal NIE finalny PCM HE-AAC; stara synteza
+odrzuca ramkę 2. Mieszanie SBR-53g używa surowej amplitudy,
+bez normatywnego wygładzania i harmonicznego bramkowania.
+
+Wprowadzono izolowany etap **SBR-53h** (do pierwszych
+testów na Fedorze): `sauti_aac_sbr_temporal_noise_smooth`
+stosuje **ten sam pięciowspółczynnikowy filtr poziomów
+szumu co SBR-21**, utrzymując 4 poprzednie sloty dla
+każdego absolutnego pasma QMF. Przy ataku obwiedni lub
+`bs_smoothing_mode=1` pomija filtr, ale aktualizuje
+historię bieżącym surowym poziomem. Metadane bypass
+pochodzą z ORYGINALNEJ ramki SBR poprzez SBR-53a i
+SBR-53f (w tym odziedziczone sloty FIXVAR). Zmiany
+sygnatur dozwolone tylko po sprawdzeniu regresji.
+Pasma nieaktywne resetują historię konkretnego pasma
+zamiast przejmować poprzednią geometrię bez kontroli.
+Dokładny wariant normatywnej obsługi zmiany geometrii
+i harmonicznych pozostaje do przyszłych testów.
+
+Nowa struktura `SautiAacSbrTemporalSmoothFrame` zawiera
+wyłącznie wygładzone amplitudy, bez dodawania szumu do
+sygnału HF, sinusoid ani końcowej syntezy PCM. Dotychczasowy
+SBR-53g nadal pracuje na surowych amplitudach i pozostaje
+niezmieniony. Diagnostyka wypisuje liczbę obliczonych ramek,
+pasm-slotów i slotów bez filtru. Testy 2 i 6 slotów,
+attack/bypass, startup, NaN/replay oraz rollback wymagają
+uruchomienia na maszynie użytkownika.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-smooth test-aac-sbr-temporal-noise test-aac-sbr-temporal-mix test-aac-sbr-temporal-apply test-aac-sbr-adts-qmf probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 | grep -E 'SBR-53|Rdzen:|odrzucona'
+```
+
+Po SBR-53h PASS: osobno zweryfikować gating i sinusoids
+w historii oryginalnego źródła oraz dopiero potem użyć
+wygładzonych poziomów do normatywnej mieszanki HF QMF.
