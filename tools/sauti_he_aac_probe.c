@@ -411,9 +411,11 @@ static int sbr54c_render(
     const SautiAacSbrComplex high_gain[32u*64u],
     const SautiAacSbrComplex mixed[32u*64u],
     const SautiAacSbrTemporalNoiseFrame *noise,
+    const float full_preview[SBR_SAMPLES],
     Sbr54cComponents *state,
     float pcm[SBR_COMPONENTS][SBR_SAMPLES]){
-    if(!low || !high_gain || !mixed || !noise || !state || !pcm)
+    if(!low || !high_gain || !mixed || !noise || !full_preview ||
+       !state || !pcm)
         return 0;
     SautiAacSbrQmfSynthWindowState staged[SBR_COMPONENTS];
     memcpy(staged,state->synth,sizeof(staged));
@@ -465,6 +467,18 @@ static int sbr54c_render(
             if(fabs(v)>peaks[mode])peaks[mode]=fabs(v);
         }
     }
+    /* Mandatory linearity check against the already accepted 54a
+     * frame. Otherwise diagnostic stems could be misaligned or
+     * misleading even if they contain finite numbers. Allow only
+     * float32 rounding error, never a DSP-shape mismatch. */
+    for(unsigned i=0u;i<SBR_SAMPLES;i++){
+        const double full=full_preview[i];
+        const double recomposed=(double)outputs[0][i]+
+            (double)outputs[1][i]+(double)outputs[2][i];
+        if(!isfinite(full) || !isfinite(recomposed) ||
+           fabs(full-recomposed)>1e-3+fabs(full)*1e-5)
+            return 0;
+    }
     memcpy(state->synth,staged,sizeof(staged));
     for(unsigned mode=0u;mode<SBR_COMPONENTS;mode++){
         state->sum_sq[mode]+=powers[mode];
@@ -494,7 +508,8 @@ static int sbr54c_export(FILE *src,const char *path,size_t expected){
         }
         written+=n;
     }
-    if(ferror(src)||fclose(dst)!=0)ok=0;
+    if(ferror(src))ok=0;
+    if(fclose(dst)!=0)ok=0;
     if(!ok || written!=expected){
         (void)remove(path);
         return 0;
@@ -806,7 +821,8 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             if(component_prefix){
                 float components[SBR_COMPONENTS][SBR_SAMPLES];
                 if(!sbr54c_render(emitted_low,adjusted_hf,preview,
-                                 &noise_frame,&component_state,components)){
+                                 &noise_frame,preview_pcm,
+                                 &component_state,components)){
                     puts("  SBR-54c: rozdzielenie pasm QMF odrzucone");
                     component_io_ok=0;
                     break;
@@ -887,7 +903,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                             float components[SBR_COMPONENTS][SBR_SAMPLES];
                             if(!sbr54c_render(temporal_pcm.held_low,
                                              final_hf,last_preview,
-                                             &last_noise,
+                                             &last_noise,final_pcm,
                                              &component_state,components)){
                                 puts("  SBR-54c: finalne skladniki QMF odrzucone");
                                 component_io_ok=0;
