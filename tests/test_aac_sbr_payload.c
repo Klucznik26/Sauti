@@ -389,6 +389,35 @@ static void test_temporal_fixvar_17_side_data(void){
         const unsigned harmonic_bin=(tab->high[0]+tab->high[1])/2u;
         assert(slot->harmonic[harmonic_bin]==(t<2u?1u:0u));
     }
+    /* SBR-53h audit: distinguish HEADER bypass from envelope attack
+     * across a 2-slot FIXVAR handoff. Both are legitimate bitstream
+     * instructions; never force FIR for frames requesting bypass. */
+    SautiAacSbrTemporalHistory policy=aligned;
+    policy.previous.bs_smoothing_mode=1u;
+    policy.previous.attack[3]=0u;
+    policy.current.bs_smoothing_mode=0u;
+    policy.current.attack[0]=1u;
+    policy.current.attack[1]=0u;
+    SautiAacSbrTemporalHfTargets policy_targets;
+    assert(sauti_aac_sbr_temporal_hf_targets(&policy,&policy_targets));
+    for(unsigned t=0u;t<32u;t++)
+        assert(policy_targets.slot[t].smooth_bypass==(t<16u?1u:0u));
+    policy.previous.bs_smoothing_mode=0u;
+    policy.previous.attack[3]=1u; /* same two slots, different cause */
+    assert(sauti_aac_sbr_temporal_hf_targets(&policy,&policy_targets));
+    for(unsigned t=0u;t<32u;t++)
+        assert(policy_targets.slot[t].smooth_bypass==(t<16u?1u:0u));
+    policy.current.bs_smoothing_mode=1u;
+    assert(sauti_aac_sbr_temporal_hf_targets(&policy,&policy_targets));
+    for(unsigned t=0u;t<32u;t++)
+        assert(policy_targets.slot[t].smooth_bypass==1u);
+    SautiAacSbrTemporalHfTargets policy_before=policy_targets;
+    policy.current.attack[0]=2u; /* invalid flag -> atomic reject */
+    assert(!sauti_aac_sbr_temporal_hf_targets(&policy,&policy_targets));
+    assert(memcmp(&policy_targets,&policy_before,
+                  sizeof(policy_targets))==0);
+    puts("SBR-53h-audit: header/attack bypass source and inherited tail, rollback PASS");
+
     SautiAacSbrTemporalHfTargets hf_saved;
     memcpy(&hf_saved,&hf_targets,sizeof(hf_targets));
     SautiAacSbrTemporalHistory hf_bad=aligned;
