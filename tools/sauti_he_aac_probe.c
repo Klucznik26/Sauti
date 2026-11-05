@@ -1185,6 +1185,26 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                         }
                     }else
                         puts("  SBR-54e: finalny bilans energii odrzucony (bez zmiany PCM)");
+                    SautiAacSbrComplex final_sine_hf[32u*64u];
+                    SautiAacSbrTemporalHarmonicPreviewReport
+                        final_sine_qmf_report;
+                    const int final_sine_ok=
+                        sauti_aac_sbr_temporal_harmonic_preview(
+                            &temporal_noise.held_targets,
+                            sine_held_onset,
+                            &last_noise,&last_report,
+                            last_preview,32u*64u,
+                            final_sine_hf,32u*64u,
+                            &sine_qmf_state,&final_sine_qmf_report);
+                    if(final_sine_ok){
+                        sine_qmf_frames++;
+                        sine_marked+=final_sine_qmf_report.marked_bins;
+                        sine_activated+=final_sine_qmf_report.active_tones;
+                        sine_gated+=final_sine_qmf_report.gated_noise_bins;
+                    }else{
+                        puts("  SBR-54h: finalne harmoniczne QMF odrzucone");
+                        sine_io_ok=0;
+                    }
                     mix_frames++;
                     mix_active+=last_mix.active_bins;
                     mix_noise+=last_mix.noise_bins;
@@ -1194,6 +1214,36 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                            last_preview,32u*64u,&last_noise,
                            &final_report,&last_mix,&temporal_pcm,
                            final_pcm,2048u,&final_pcm_report)){
+                        if(final_sine_ok){
+                            float final_sine_pcm[2048u];
+                            SautiAacSbrTemporalPcmPreviewReport
+                                final_sine_pcm_report;
+                            if(sauti_aac_sbr_temporal_pcm_preview_flush(
+                                   final_sine_hf,32u*64u,&last_noise,
+                                   &final_report,&last_mix,
+                                   &sine_pcm_state,final_sine_pcm,2048u,
+                                   &final_sine_pcm_report) &&
+                               final_sine_pcm_report.emitted &&
+                               final_sine_pcm_report.frame_index==
+                                   final_pcm_report.frame_index){
+                                sine_preview_frames++;
+                                for(unsigned j=0u;j<2048u;j++){
+                                    const double v=final_sine_pcm[j];
+                                    const double d=v-final_pcm[j];
+                                    sine_preview_power+=v*v;
+                                    sine_delta_power+=d*d;
+                                    if(fabs(v)>sine_preview_peak)
+                                        sine_preview_peak=fabs(v);
+                                }
+                                if(sine_spool &&
+                                   fwrite(final_sine_pcm,sizeof(float),2048u,
+                                          sine_spool)!=2048u)
+                                    sine_io_ok=0;
+                            }else{
+                                puts("  SBR-54h: finalny tonal PCM 64-QMF odrzucony");
+                                sine_io_ok=0;
+                            }
+                        }
                         if(component_prefix){
                             float components[SBR_COMPONENTS][SBR_SAMPLES];
                             if(!sbr54c_render(temporal_pcm.held_low,
@@ -1318,6 +1368,14 @@ static void diagnose_core_sequence(const char *path,size_t limit,
            preview_frames,preview_samples,preview_nonzero);
     if(preview_first_nonzero==SIZE_MAX)puts("brak (niezweryfikowany dzwiek HE-AAC)");
     else printf("%zu (bez potwierdzenia zgodnosci z dekoderem HE-AAC)\n",preview_first_nonzero);
+    printf("  SBR-54h: tonal A/B PCM: QMF ramki=%zu, PCM ramki=%zu, marked_slot_bands=%zu, active_tones=%zu, gated_noise=%zu, PCM_RMS=%.9g, PCM_peak=%.9g, RMS_roznicy_vs_54a=%.9g (EKSPERYMENT, nie zgodnosc HE-AAC)\n",
+           sine_qmf_frames,sine_preview_frames,sine_marked,
+           sine_activated,sine_gated,
+           sine_preview_frames?
+             sqrt(sine_preview_power/((double)sine_preview_frames*2048.0)):0.0,
+           sine_preview_peak,
+           sine_preview_frames?
+             sqrt(sine_delta_power/((double)sine_preview_frames*2048.0)):0.0);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
@@ -1343,6 +1401,24 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         }
         for(unsigned c=0u;c<SBR_COMPONENTS;c++)
             if(component_spool[c])fclose(component_spool[c]);
+    }
+    if(sine_spool){
+        const int sine_complete=sine_io_ok && decoded==limit &&
+            sine_qmf_frames==limit && sine_preview_frames==limit &&
+            preview_frames==limit && sine_pcm_state.closed==1u &&
+            sine_pcm_state.emitted_frames==limit &&
+            sine_qmf_state.frames==limit;
+        if(!sine_complete)
+            fprintf(stderr,"SBR-54h: pomijam NIEPELNY eksport tonal PCM (%zu/%zu ramek)\n",
+                    sine_preview_frames,limit);
+        else if(sbr54c_export(sine_spool,sine_path,
+                              limit*2048u*sizeof(float)))
+            printf("  SBR-54h: zapisano A/B tonal PCM f32le: %s, ramki=%zu, probki=%zu (NIE potwierdzono HE-AAC)\n",
+                   sine_path,sine_preview_frames,limit*2048u);
+        else
+            fprintf(stderr,"SBR-54h: blad eksportu tonal PCM: %s\n",
+                    sine_path);
+        fclose(sine_spool);
     }
     if(spool){
         const int complete=export_io_ok && decoded==limit &&
