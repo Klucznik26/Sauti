@@ -4170,3 +4170,64 @@ make test-aac-sbr-gain-partition PKG_CONFIG=/bin/false
 **SBR-54i PASS (konstrukcyjny A/B), brak
 poprawy HE-AAC. SBR-54j WIP, czeka na
 kompilację na Fedorze.**
+
+
+## SBR-54j Fedora PASS; SBR-54k limiter/boost trzech składników WIP (2026-11-05)
+
+**Potwierdzony Fedora SBR-54j:**
+`make test-aac-sbr-gain-partition PKG_CONFIG=/bin/false`
+przeszedł wszystkie cztery grupy testów przy
+`-O2 -std=c11 -Wall -Wextra -Werror`:
+`non-tonal steady`, `non-tonal transient delta=0`,
+`tonal harmonic gain and sine`, `bounded big inputs
+and atomic rejection`. PASS dotyczy tylko
+matematyki pre-limiter, bez PCM czy gotowego HE-AAC.
+
+**SBR-54k — nowy kod, NIE SPRAWDZONY jeszcze na Fedorze.**
+Nowa funkcja `sauti_aac_sbr_gain_limit_partition`
+oblicza na kompletnym oryginalnym envelope i w
+granicach częstotliwości SBR-17 trzy wzajemnie
+zależne poziomy:
+- dla każdego pasma wywołuje przetestowany SBR-54j
+  i liczy wejściowe amplitudy `G,Q_M,S_M`;
+- w każdej grupie limitera używa
+  `gain_max=min(100000,limGain*sqrt((FLT_EPSILON+sumE)/
+  (FLT_EPSILON+sumEcurr)))`;
+- ogranicza `Q_M` proporcjonalnie do `gain_max/G`,
+  następnie ogranicza `G`;
+- liczy wspólną energię wyjściową
+  `sum(Ecurr*G² + S_M² + (delta && S_M==0)*Q_M²)`;
+- `boost=min(1.584893192,sqrt((FLT_EPSILON+sumE)/
+  (FLT_EPSILON+after)))` wspólnie mnoży `G,Q_M,S_M`;
+- zachowuje atomowy rollback i sprawdza `NaN`,
+  ujemne `Q`, flagi sinusoid, granice grup
+  oraz `gain_mode` i `delta`.
+
+Implementacja jest osobnym, czystym modułem
+`src/decoders/modern/aac/sauti_aac_sbr_gain_limit_partition.c`
+oraz testem `tests/test_aac_sbr_gain_limit_partition.c`.
+Nie zmienia SBR-53d ani istniejącego PCM.
+Ścieżka bin-group przyjmuje granice SBR-17
+jako parametr, dlatego w przyszłości można
+jej użyć dla rzeczywistych obwiedni i FIXVAR.
+
+Wzorcem jest referencyjna funkcja FFmpeg
+`libavcodec/aacsbr.c:sbr_gain_calc`:
+https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/aacsbr.c
+
+**Do wykonania na Fedorze:**
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-gain-limit-partition test-aac-sbr-gain-partition PKG_CONFIG=/bin/false
+```
+
+Po PASS: osobno podłączyć SBR-54k do kompletnych
+opóźnionych obwiedni wraz ze źródłowymi mapami
+harmonicznych / attack i następnie porównać
+alternatywny 64-QMF PCM z FFmpeg. Przede wszystkim
+nie mylić PASS jednostkowego z korelacją audio;
+realny SBR-54i nadal zaledwie odtwarza LOW
+(z korelacją 0.991765, ale nierozwiązanym błędem
+12.807%), a działający HF wciąż nie ma
+potwierdzonej poprawnej amplitudy, fazy i jakości.
