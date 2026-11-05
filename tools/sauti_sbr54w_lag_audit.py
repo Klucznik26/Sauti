@@ -17,7 +17,7 @@ def series(data,frames,band):
             for frame in range(frames) for slot in range(32)]
 
 def lag_stats(a,b,lag):
-    start=max(6,-lag)
+    start=max(6,6-lag)
     stop=min(len(a),len(b)-lag)
     if stop<=start:
         raise ValueError("no overlapping valid slots")
