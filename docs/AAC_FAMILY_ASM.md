@@ -5048,3 +5048,21 @@ make test-aac-sbr-low-source-audit probe-he-aac PKG_CONFIG=/bin/false
 ```
 
 Next: independently extract FFmpeg or normative complex W/X vectors before using any 54v metric as a conformance claim.
+
+
+### SBR-54v Fedora PASS — real 50-frame result (2026-11-05)
+
+User's Fedora: `make test-aac-sbr-low-source-audit probe-he-aac PKG_CONFIG=/bin/false` built with `-Wall -Wextra -Werror`; unit regression reported PASS for amplitude/complex phase/preroll/replay/atomic rollback. Real `~/Sauti-fixtures/he_test.aac`, 50-frame probe: `Rdzen: udane=50, pierwsza niezerowa=1`; separate probe also prints `Pierwsza odrzucona ramka: 2` (do not conflate with successful core frame count; inspect original reporting semantics if needed).
+
+All four LOW bands have `count=1594` (first-frame 6-slot missing-preroll excluded, i.e. 26 + 49*32). Values:
+
+| LOW band | Total complex energy | complex RMS | Re energy | Im energy | normalized adjacent Re | normalized adjacent Im | peak (frame,slot) |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 2 | 45658.1355 | 5.3519855 | 22144.557 | 23513.5785 | -0.499691465 | 0.865358747 | 6.23377305 (49,1) |
+| 3 | 753.521114 | 0.687548841 | 462.30102 | 291.220094 | -0.502609025 | 0.823481393 | 1.78564342 (49,6) |
+| 4 | 24.1515213 | 0.123091507 | 23.3182234 | 0.833297899 | -0.479297585 | 0.0153657012 | 0.467032571 (2,10) |
+| 5 | 23.6957111 | 0.121924425 | 23.0733444 | 0.622366744 | -0.496826019 | -0.00864669635 | 0.369335345 (49,6) |
+
+**Interpretation:** LOW 2 energy is about 60.6x LOW 3; the SBR-54u route LOW 2 -> HF 18 explains why HF 18 dominates absolute Sauti-vs-Sauti differences. This is **not** evidence that LOW 2 values or amplification are incorrect. LOW 2/3 show strong adjacent complex rotation whereas LOW 4/5's normalized adjacent complex coherence is weaker. Since the metric is aggregate, it does not directly establish a single phase step or reveal FFmpeg agreement. SBR-54v is validated as a diagnostic only, not an HE-AAC conformance or PCM improvement.
+
+**Next gated action (SBR-54w):** obtain comparable *independent*, time-aligned intermediate complex QMF source vectors W for LOW 2–5 from FFmpeg (or standard vectors) and compare Re/Im, energy and lag, respecting filter normalization and delay. Verify source sampling and geometry first. Avoid modifying production HF/PCM or arbitrary scale factors until this cross-implementation evidence exists.
