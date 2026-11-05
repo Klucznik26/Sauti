@@ -5270,3 +5270,18 @@ python3 tools/sauti_sbr54w_lag_audit.py \
 ```
 
 No production AAC changes; no QMF correctness claim from synthetic-only tests.
+
+
+### SBR-54x — independent four-tone QMF transfer experiment (2026-11-05)
+
+Observed on Fedora (50 common-input frames) after optimal per-band complex scaling: LOW2 residual 0.05095 / coherence 0.99870, LOW3 residual 0.07653 / coherence 0.99707, LOW4 residual 0.99652 / coherence 0.08330, LOW5 residual 0.99880 / coherence 0.04892. Lag sweep -16..16 slots reached maximum correlation at **zero lag in all four bands**, so simple integer slot displacement is not the explanation.
+
+Added `tools/sauti_sbr54x_tone_sweep.py`: four deterministic sine inputs centered nominally on 32-channel QMF bands LOW 2,3,4,5: 937.5 / 1312.5 / 1687.5 / 2062.5 Hz at 24 kHz. For each fresh input it independently exports Sauti and FFmpeg W[i-6] complex QMF samples, checks the **exact shared PCM SHA256** via strict manifests, checks size/finite/preroll, and computes per-band complex coherence, gain-corrected residual and **normalized energy shares within LOW 2..5 only**. It saves per-case artifacts and `report.tsv` under `/tmp/sbr54x-tones`. Do not interpret the energy share as percent of the entire 32-band spectrum. This is synthetic PCM directly entering the analysis filter, not encoded/decoded AAC-LC and not production acceptance.
+
+On Fedora, after the instrumented FFmpeg binary built successfully and fixture `~/Sauti-fixtures/he_test.aac` exists:
+```sh
+cd ~/Sauti && git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-qmf-tones PKG_CONFIG=/bin/false
+```
+
+No system FFmpeg or production decoder changes; all operations are separate tool invocations. The full four-tone suite was committed but **not yet executed on Fedora**; results require user-run validation. A non-zero exit is a failed/incomplete sweep, not an incorrect production decoder verdict.
