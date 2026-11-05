@@ -22,6 +22,7 @@
 #include "sauti_aac_sbr_temporal_gain.h"
 #include "sauti_aac_sbr_temporal_apply.h"
 #include "sauti_aac_sbr_temporal_noise.h"
+#include "sauti_aac_sbr_temporal_mix.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -404,6 +405,7 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     size_t gain_frames=0u,gain_envelopes=0u,gain_noise_only=0u;
     size_t apply_frames=0u,apply_emitted=0u;
     size_t noise_frames=0u,noise_vectors=0u,noise_positive=0u;
+    size_t mix_frames=0u,mix_active=0u,mix_noise=0u;
     SautiAacSbrTemporalApplyState temporal_apply={0};
     SautiAacSbrTemporalNoiseState temporal_noise={0};
     SautiAacSbrQmfAnalysisState temporal_analysis={0};
@@ -535,6 +537,18 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             break;
         }
         if(noise_report.emitted){
+            SautiAacSbrComplex preview[32u*64u];
+            SautiAacSbrTemporalMixReport mix_report;
+            if(!sauti_aac_sbr_temporal_noise_mix_preview(
+                   adjusted_hf,32u*64u,&noise_frame,
+                   &apply_report,&noise_report,
+                   preview,32u*64u,&mix_report)){
+                printf("  ramka %zu: SBR-53g podglad ROM noise + HF odrzucony (bez PCM)\n",i);
+                break;
+            }
+            mix_frames++;
+            mix_active+=mix_report.active_bins;
+            mix_noise+=mix_report.noise_bins;
             noise_frames++;
             noise_vectors+=noise_report.vectors;
             noise_positive+=noise_report.nonzero_amplitudes;
@@ -568,6 +582,17 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             if(sauti_aac_sbr_temporal_noise_flush(
                    &final_report,&temporal_noise,
                    &last_noise,&last_report)){
+                SautiAacSbrComplex last_preview[32u*64u];
+                SautiAacSbrTemporalMixReport last_mix;
+                if(sauti_aac_sbr_temporal_noise_mix_preview(
+                       final_hf,32u*64u,&last_noise,
+                       &final_report,&last_report,
+                       last_preview,32u*64u,&last_mix)){
+                    mix_frames++;
+                    mix_active+=last_mix.active_bins;
+                    mix_noise+=last_mix.noise_bins;
+                }else
+                    puts("  SBR-53g: finalny podglad HF + ROM noise odrzucony (bez PCM)");
                 noise_frames++;
                 noise_vectors+=last_report.vectors;
                 noise_positive+=last_report.nonzero_amplitudes;
@@ -596,6 +621,8 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     printf("  SBR-53f: ROM noise gotowe ramki=%zu, wektory=%zu, dodatnia amplituda=%zu, index=%u (bez finalnego PCM HE-AAC)\n",
            noise_frames,noise_vectors,noise_positive,
            temporal_noise.rom.index);
+    printf("  SBR-53g: HF + ROM noise PODGLAD, ramki=%zu, aktywne pasma-sloty=%zu, dodatnia amplituda=%zu (bez normatywnego PCM HE-AAC)\n",
+           mix_frames,mix_active,mix_noise);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
