@@ -4090,3 +4090,83 @@ Nie oceniać sukcesu po samej zmianie skali:
 sprawdzić korelację i relatywny RMS błędu,
 a także czy część HIGH faktycznie wnosi
 informację przy LOW-aligned lag -6.
+
+
+## SBR-54i Fedora PASS bez poprawy HE-AAC; nowy SBR-54j pre-limiter (2026-11-05)
+
+**Wynik na Fedorze, 50 ramek realnego he_test.aac:**
+- `make test-aac-sbr-temporal-hf-units` PASS;
+  `make probe-he-aac` kompiluje się poprawnie z `-Werror`.
+- diagnostyczny SBR-54i QMF+PCM: 50/50 ramek,
+  102400 f32le, HF dzielony przez 32768 wyłącznie
+  w OSOBNEJ ścieżce; RMS 0.0826821164,
+  peak 0.159405291.
+- porównanie z FFmpeg: lag -6 próbek, korelacja
+  0.991765, dopasowany gain 1.4459592,
+  error RMS 0.015438979 (12.807% RMS referencji).
+- Dla porównania wcześniejsze tylko LOW:
+  RMS 0.0826822439, korelacja 0.991765,
+  błąd względny 12.807%.
+**Interpretacja:** wariant `HF/32768` sprowadził
+wyjście praktycznie do samego LOW. Nie dowodzi to,
+że 32768 jest właściwą poprawką po syntezie; zniknął
+wpływ HF, ale nie odzyskano zgodności wysokich pasm.
+Nie wdrażać dzielnika do produkcyjnego odtwarzania.
+
+**Konkretny, źródłowo potwierdzony defekt modelu:**
+W `sauti_aac_sbr_temporal_gain.c:gain_one`
+dotychczasowy SBR-53d wylicza podstawowe
+`sqrt(E/E_curr)`, a potem limiter i boost,
+bez pełnego podziału `Q`, harmonicznych i
+`delta` początku obwiedni. W referencyjnym
+FFmpeg `libavcodec/aacsbr.c:sbr_gain_calc`
+są inne wyrażenia:
+- `Q_M = sqrt(E * Q/(1+Q))`;
+- `S_M = sqrt(E/(1+Q) * active_sine)`;
+- bez harmonicznej:
+  `G = sqrt(E / ((1 + E_curr) * (1 + Q*delta)))`;
+- z harmoniczną:
+  `G = sqrt(E*Q / ((1 + E_curr)*(1 + Q)))`.
+Źródło porównania:
+https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/aacsbr.c
+oraz skala 16-bit/QMF (inny osobny problem):
+https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/aacsbr_template.c
+To potwierdza *niezgodność wzorów* w bieżącym
+modelu Sauti, ale NIE przesądza jeszcze o
+konkretnej ilości błędu PCM.
+
+**SBR-54j przygotowany**: nowa, odizolowana
+funkcja `sauti_aac_sbr_gain_partition`
+w `src/decoders/modern/aac/sauti_aac_sbr_gain_partition.c`,
+wraz z nagłówkiem i jednostkowym testem.
+Odtwarza powyższe wzory w double, sprawdza
+E/E_curr/Q>=0, delta/tonal=0 lub 1, nie
+zapisuje nic przy błędnych danych. Bezpiecznie
+liczy Q/(1+Q) także dla dużych wartości.
+Test syntetyczny obejmuje E=100, E_curr=24,
+Q=3, delta=0/1, harmonic=0/1, przypadki
+Q=0, E=0, NaN, Inf, overflow i rollback.
+To jest PRE-LIMITER, jeszcze bez normatywnego
+ograniczania mocy q/sine, boost, fazy i
+smoothing. **Na razie nie jest podłączony
+do głównego 53d/53e/54a ani do odtwarzacza**.
+
+Kolejny cel inżynierski (po test PASS):
+zintegrować poprawny `G/Q_M/S_M` z pełnym
+limiterem i boostem na całych oryginalnych
+obwiedniach, uwzględniając FIXVAR/attack
+i wspólną domenę QMF; wtedy porównać nowe
+PCM z FFmpeg na jednym lag oraz residual
+pozostały po LOW. Nie modyfikować
+produkcyjnego SBR-31, dopóki nie będzie
+weryfikacji 50/50 ramek i poprawy PCM.
+
+Pierwszy test na Fedorze:
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-gain-partition PKG_CONFIG=/bin/false
+```
+**SBR-54i PASS (konstrukcyjny A/B), brak
+poprawy HE-AAC. SBR-54j WIP, czeka na
+kompilację na Fedorze.**
