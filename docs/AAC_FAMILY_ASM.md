@@ -5004,3 +5004,32 @@ się konstrukcja niezależnego testu
 i sprawdzenie oddzielnie chirp/LPC, noise/sine
 i konwencji jednostek. Nie dotykać produkcyjnego
 PCM bez dowodów numerycznych.
+
+
+## SBR-54t Fedora PASS: HF differences concentrated at bands 18–21; SBR-54u patch provenance (2026-11-05)
+
+**Actual Fedora test (SBR-54t)**: `make test-aac-sbr-hf-band-audit test-aac-sbr-temporal-source6 probe-he-aac` passed `-Wall -Wextra -Werror` and synthetic rollback tests. Real 50-frame ADTS `he_test.aac`:
+- SBR-54s: 294 previous-frame QMF source slots carried, 6 unavailable first-frame preroll, 8 previous FIXVAR-owner slots, 41,634/41,634 nonzero compared complex slot-bins changed, complex correlation 0.995847548, diff RMS 0.0968231162.
+- SBR-54t: largest instantaneous complex HF difference = **6.01597239**, **frame 49, slot 1, destination band 18** (comparing two SAUTI QMF streams).
+- Top destination subbands by cumulative squared complex difference:
+  - **k=18**: N=1542, corr 0.996160921, diff RMS 0.47681007, diff relative to baseline power 0.0876250985;
+  - **k=19**: N=1542, corr 0.979896113, diff RMS 0.140171764, relative 0.200518761;
+  - **k=20**: N=1542, corr 0.962206361, diff RMS 0.0344076027, relative 0.274931407;
+  - **k=21**: N=1542, corr 0.98116133, diff RMS 0.0240620618, relative 0.194106497.
+**Interpretation**: k18 dominates ABSOLUTE complex QMF difference but k20 has a larger RELATIVE difference. This is *not* evidence that these bands are numerically wrong vs FFmpeg, or that the 6-slot source history produces reference-conformant PCM. The baseline is direct SBR-53b, not the independent decoder.
+
+**SBR-54u: targeted read-only original-patch-route provenance**:
+- `sauti_aac_sbr_hf_patch_route_audit_add` consumes the existing real SBR temporal history and original owner-specific `source_for_target`; separately counts, for destinations k18..21, which LOW source subband 0..31 was selected in each output slot, whether target is outside kx..k2, intentionally unmapped, or owned by previous FIXVAR envelope.
+- Tested independent synthetic FIXVAR 2/6 sequences, source-route counts, malformed patch maps and replay/atomic rollback in `test-aac-sbr-hf-patch-route-audit`. **These Fedora tests are still PENDING.**
+- Real probe prints `SBR-54u: band=18 ... srcX=...` through k21, allowing us to tell whether the high-energy bins all originate from a single low subband, or the bitstream changes patch routes. It only counts source mapping; no low PCM, noise/sine, gain, phase, or QMF state modifications.
+- All 50-frame side-channel outputs remain *non-normative*. Do not feed source6 or source-route metrics into production decoder based on these results.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-hf-patch-route-audit test-aac-sbr-hf-band-audit probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 |
+  grep -E 'SBR-54s|SBR-54t|SBR-54u|Rdzen:|odrzucon'
+```
+
+**Next decision**: inspect the source LOW bins and original patch geometry. A stable patch source but poor audio fit should shift investigation toward source-QMF amplitude, LPC/chirp, phase alignment, envelope/noise/sine and a reference intermediate QMF vector, not another arbitrary HF scale.
