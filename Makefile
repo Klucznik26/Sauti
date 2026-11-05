@@ -719,6 +719,10 @@ test-aac-sbr-adts-qmf: $(OBJDIR)/test_aac_sbr_adts_qmf
 $(OBJDIR)/sauti_he_aac_probe: tools/sauti_he_aac_probe.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) $(AAC_SBR_TEMPORAL_MIX_SRC) $(AAC_SBR_TEMPORAL_SMOOTH_SRC) $(AAC_SBR_TEMPORAL_PCM_PREVIEW_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_aac_probe.c $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) $(AAC_SBR_TEMPORAL_MIX_SRC) $(AAC_SBR_TEMPORAL_SMOOTH_SRC) $(AAC_SBR_TEMPORAL_PCM_PREVIEW_SRC) -lm -no-pie
 
+.PHONY: test-aac-he-stem-ablation
+test-aac-he-stem-ablation:
+	python3 tools/sauti_he_aac_stem_ablation.py --self-test
+
 .PHONY: test-aac-he-preview-compare
 test-aac-he-preview-compare:
 	python3 tools/sauti_he_aac_compare_pcm.py --self-test
