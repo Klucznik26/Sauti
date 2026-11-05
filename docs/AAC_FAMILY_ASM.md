@@ -3956,3 +3956,15 @@ sprawdzić oryginalne `transient_env` i
 ciągłość flag tonalnych bez wymuszania onset.
 Wynik A/B pozwoli ocenić dalszy priorytet
 normatywnego składania HF/sine/noise.
+
+## SBR-54h — poprawka kompilacji (-Werror), 2026-11-05
+
+Pierwsza kompilacja nowego `test-aac-sbr-temporal-harmonic-preview` na
+Fedorze zatrzymała się na nieużywanej lokalnej zmiennej `active`
+w `sauti_aac_sbr_temporal_harmonic_preview.c:38`. Kompilator używa
+`-Wall -Wextra -Werror`, więc to fatalny błąd kompilacji,
+**nie** błąd działania harmonicznych ani testu PCM. Usunięto
+wyłącznie nieużywaną deklarację bez zmiany algorytmu.
+Status SBR-54h nadal WIP: po `git pull` wykonać wszystkie testy,
+próbkę 50 ramek oraz porównanie pliku `*.sine.f32le`
+z FFmpeg. Nie ogłaszać PASS przed wynikiem z Fedory.
