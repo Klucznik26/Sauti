@@ -435,7 +435,7 @@ static int temporal_hf_frame_valid(
     for(unsigned b=0u;b<tab->n_high;b++)
         if(frame->harmonic[b]>1u)return 0;
     for(unsigned e=0u;e<frame->energy.env_count;e++){
-        if(frame->energy.freq_res[e]>1u)return 0;
+        if(frame->energy.freq_res[e]>1u || frame->attack[e]>1u)return 0;
         const unsigned n=frame->energy.freq_res[e]?
                          tab->n_high:tab->n_low;
         for(unsigned b=0u;b<n;b++){
@@ -478,6 +478,7 @@ int sauti_aac_sbr_temporal_hf_targets(
         slot->source=owner.source;
         slot->envelope=owner.envelope;
         slot->noise=owner.noise;
+        slot->smooth_bypass=(uint8_t)(f->bs_smoothing_mode || f->attack[owner.envelope]);
         slot->kx=(uint8_t)tab->kx;
         slot->k2=(uint8_t)(tab->kx+tab->m);
         const unsigned fine=f->energy.freq_res[owner.envelope];
