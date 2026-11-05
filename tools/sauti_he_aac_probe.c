@@ -35,6 +35,7 @@
 #include "sauti_aac_sbr_hf_phase_probe.h"
 #include "sauti_aac_sbr_temporal_source6.h"
 #include "sauti_aac_sbr_hf_band_audit.h"
+#include "sauti_aac_sbr_hf_patch_route_audit.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -705,6 +706,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     size_t qmf_prepared_frames=0u;
     SautiAacSbrTemporalSource6State source6_state={0};
     SautiAacSbrHfBandAuditState source6_bands={0};
+    SautiAacSbrHfPatchRouteAuditState source6_patch_routes={0};
     size_t source6_frames=0u,source6_carried=0u;
     size_t source6_missing=0u,source6_prior_owners=0u;
     size_t source6_active=0u,source6_changed=0u;
@@ -934,6 +936,11 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                &source6_state,source6_low,32u*32u,
                source6_high,32u*64u,&source6_report)){
             printf("  ramka %zu: SBR-54s historia 6 slotow QMF odrzucona\n",i);
+            break;
+        }
+        if(!sauti_aac_sbr_hf_patch_route_audit_add(
+               &temporal_history,&source6_patch_routes)){
+            printf("  ramka %zu: SBR-54u oryginalne patch routes HF odrzucone\n",i);
             break;
         }
         if(!sauti_aac_sbr_hf_band_audit_add(
@@ -1737,6 +1744,34 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                (unsigned long long)source6_bands.active[k],
                (unsigned long long)source6_bands.changed[k],
                corr,rms,relative);
+    }
+    printf("  SBR-54u: patch HF original owner profile, ramki=%llu (Sauti, bez FFmpeg/PCM)\n",
+           (unsigned long long)source6_patch_routes.frames);
+    for(unsigned b=0u;b<4u;b++){
+        const unsigned k=SAUTI_AAC_SBR_ROUTE_BAND_FIRST+b;
+        const uint64_t frames=source6_patch_routes.frames;
+        const uint64_t mapped=source6_patch_routes.mapped[b];
+        printf("  SBR-54u: band=%u mapped=%llu/%llu outside=%llu unmapped=%llu previous_owner=%llu",
+               k,(unsigned long long)mapped,
+               (unsigned long long)(frames*32u),
+               (unsigned long long)source6_patch_routes.outside[b],
+               (unsigned long long)source6_patch_routes.unmapped[b],
+               (unsigned long long)source6_patch_routes.previous_owner[b]);
+        uint8_t printed[32]={0};
+        for(unsigned rank=0u;rank<3u;rank++){
+            int best=-1;
+            uint64_t count=0u;
+            for(unsigned src=0u;src<32u;src++)
+                if(!printed[src] &&
+                   source6_patch_routes.sources[b][src]>count){
+                    best=(int)src;
+                    count=source6_patch_routes.sources[b][src];
+                }
+            if(best<0)break;
+            printed[(unsigned)best]=1u;
+            printf(" src%u=%llu",(unsigned)best,(unsigned long long)count);
+        }
+        puts(" (tylko mapowanie patch, NIE widmo)");
     }
     printf("  SBR-54g: LPC(2)+chirp alternatywa: ramki=%zu, niezerowe_zestawy_alpha=%zu, dodatni_chirp_slot-band=%zu, roznice_z_transpose=%zu/%zu, RMS_roznicy_QMF=%.9g (wylacznie HF QMF, nie PCM)\n",
            lpc_estimated_frames,lpc_nonzero_coeffs,lpc_nonzero_chirp,
