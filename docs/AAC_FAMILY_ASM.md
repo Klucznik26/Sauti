@@ -4002,3 +4002,91 @@ zestawić z bazowym 54a. Stary produkcyjny SBR-31
 nadal może skończyć się kodem 1 na ramce 2;
 to nie przekreśla poprawnego 50/50 eksportu
 diagnostycznego z późniejszego przebiegu.
+
+
+## SBR-54h realny A/B bez poprawy; SBR-54i audyt domeny QMF (2026-11-05)
+
+**Potwierdzenie użytkownika na Fedorze** dla realnego
+`~/Sauti-fixtures/he_test.aac`:
+- SBR-54a: 50/50 ramek, 102400 PCM samples,
+  w ramce 2 RMS 3.08089898, peak 33.2961998.
+- SBR-54h: 50/50 ramek QMF i PCM, 3020 marked
+  slot-bands, 3000 aktywnych sinusoid i 3000
+  operacji bramkowania ROM noise.
+- PCM z harmonicznymi: RMS 0.893832395,
+  peak 36.0773697; RMS różnicy od bazowego
+  54a = 0.2581988. Eksport pełnych 102400
+  próbek do `he_test_sauti_preview.f32le.sine.f32le` PASS.
+- Porównanie z FFmpeg: korelacja **0.067763**,
+  względny błąd RMS **99.816%**, najlepszy
+  znaleziony lag -4332 próbek (niewiarygodny
+  fizycznie przy tak słabej korelacji).
+  Bazowy 54a: korelacja 0.069288, błąd 99.818%.
+  Zatem dodanie SBR-54h NIE poprawiło
+  dźwięku w istotny sposób; nie twierdzić
+  że uzyskano conformant PCM.
+
+**Audyt przyczyny — jednostki i skala amplitudy:**
+`sauti_aac_sbr_energy_dequant` rekonstruuje
+`E=2^(6 + quant*alpha)`, tak samo jak FFT/SBR
+referencji. Natomiast `sauti_aac_sbr_qmf_analyze_32`
+przyjmuje native float PCM AAC-LC około ±1.
+Dla porównania, implementacja float FFmpeg
+skalibruje SBR na PCM około ±32768 i
+normalizuje odwrotnie w syntezie. Por. źródło
+`libavcodec/aacsbr_template.c` w FFmpeg,
+komentarz w `ff_aac_sbr_ctx_alloc_init`:
+https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/aacsbr_template.c
+
+**Hipoteza, nie jeszcze zweryfikowany bug:**
+W Sauti wysokie pasma są dopasowywane do
+`E` zapisanej w jednostkach 16-bit PCM, ale
+po przetworzeniu są przekazywane bez
+przeliczenia do 64-QMF, która operuje na
+naturalnych float. To może tłumaczyć
+nieproporcjonalnie wysokie RMS i peak
+HF/NOISE z poprzednich audytów.
+
+**SBR-54i — eksperyment A/B bez naruszania
+starej ścieżki**:
+- czysty atomowy
+  `sauti_aac_sbr_temporal_hf_units_float`
+  dzieli tylko AKTYWNE wysokie pasma zespolone
+  przez **32768**; dolne pasma pozostają
+  nietknięte. Normalizacja dotyczy wariantu
+  z harmonicznymi SBR-54h; nie zmienia
+  SBR-53d, SBR-09, ROM, QMF LOW, starego
+  54a, 54h ani starego dekodera SBR-31;
+- oddzielne ciągłe 64-QMF PCM i buforowanie
+  50 ramek plus final flush, output
+  `he_test_sauti_preview.f32le.units.f32le`;
+- test jednostkowy wylicza
+  16384/32768=0.5 i -32768/32768=-1
+  oraz weryfikuje rollback NaN/mask/length;
+- **nie** jest to normatywne rozwiązanie:
+  poprawne SBR powinno mieć jednorodne
+  jednostki także WEWNĄTRZ energy/gain i
+  normalizację QMF oraz zgodne opóźnienia.
+  Wynik tego wariantu pokaże jednak,
+  czy niezgodność domen tłumaczy różnicę.
+
+**Status: SBR-54i zapisany w GitHub, czeka na
+pierwszy test Fedora i realne A/B względem FFmpeg.**
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-temporal-hf-units probe-he-aac PKG_CONFIG=/bin/false
+
+./build/sauti_he_aac_probe \
+  ~/Sauti-fixtures/he_test.aac 50 \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le |
+  grep -E 'SBR-54i|SBR-54h|SBR-54a|Rdzen:'
+
+python3 tools/sauti_he_aac_compare_pcm.py \
+  ~/Sauti-fixtures/he_test_sauti_preview.f32le.units.f32le \
+  ~/Sauti-fixtures/he_test_ffmpeg_reference.f32le
+```
+Nie oceniać sukcesu po samej zmianie skali:
+sprawdzić korelację i relatywny RMS błędu,
+a także czy część HIGH faktycznie wnosi
+informację przy LOW-aligned lag -6.
