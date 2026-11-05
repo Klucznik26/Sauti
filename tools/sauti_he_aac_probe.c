@@ -23,6 +23,7 @@
 #include "sauti_aac_sbr_temporal_apply.h"
 #include "sauti_aac_sbr_temporal_noise.h"
 #include "sauti_aac_sbr_temporal_mix.h"
+#include "sauti_aac_sbr_temporal_smooth.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
@@ -406,6 +407,8 @@ static void diagnose_core_sequence(const char *path,size_t limit){
     size_t apply_frames=0u,apply_emitted=0u;
     size_t noise_frames=0u,noise_vectors=0u,noise_positive=0u;
     size_t mix_frames=0u,mix_active=0u,mix_noise=0u;
+    size_t smooth_frames=0u,smooth_active=0u,smooth_bypasses=0u;
+    SautiAacSbrTemporalSmoothState temporal_smooth={0};
     SautiAacSbrTemporalApplyState temporal_apply={0};
     SautiAacSbrTemporalNoiseState temporal_noise={0};
     SautiAacSbrQmfAnalysisState temporal_analysis={0};
@@ -537,6 +540,17 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             break;
         }
         if(noise_report.emitted){
+            SautiAacSbrTemporalSmoothFrame smooth_frame;
+            SautiAacSbrTemporalSmoothReport smooth_report;
+            if(!sauti_aac_sbr_temporal_noise_smooth(
+                   &noise_frame,&noise_report,&temporal_smooth,
+                   &smooth_frame,&smooth_report)){
+                printf("  ramka %zu: SBR-53h czasowe wygladzanie szumu odrzucone (bez PCM)\n",i);
+                break;
+            }
+            smooth_frames++;
+            smooth_active+=smooth_report.active_bins;
+            smooth_bypasses+=smooth_report.bypassed_slots;
             SautiAacSbrComplex preview[32u*64u];
             SautiAacSbrTemporalMixReport mix_report;
             if(!sauti_aac_sbr_temporal_noise_mix_preview(
@@ -582,6 +596,16 @@ static void diagnose_core_sequence(const char *path,size_t limit){
             if(sauti_aac_sbr_temporal_noise_flush(
                    &final_report,&temporal_noise,
                    &last_noise,&last_report)){
+                SautiAacSbrTemporalSmoothFrame last_smooth;
+                SautiAacSbrTemporalSmoothReport last_smooth_report;
+                if(sauti_aac_sbr_temporal_noise_smooth(
+                       &last_noise,&last_report,&temporal_smooth,
+                       &last_smooth,&last_smooth_report)){
+                    smooth_frames++;
+                    smooth_active+=last_smooth_report.active_bins;
+                    smooth_bypasses+=last_smooth_report.bypassed_slots;
+                }else
+                    puts("  SBR-53h: finalne wygladzanie ROM noise odrzucone (bez PCM)");
                 SautiAacSbrComplex last_preview[32u*64u];
                 SautiAacSbrTemporalMixReport last_mix;
                 if(sauti_aac_sbr_temporal_noise_mix_preview(
@@ -623,6 +647,8 @@ static void diagnose_core_sequence(const char *path,size_t limit){
            temporal_noise.rom.index);
     printf("  SBR-53g: HF + ROM noise PODGLAD, ramki=%zu, aktywne pasma-sloty=%zu, dodatnia amplituda=%zu (bez normatywnego PCM HE-AAC)\n",
            mix_frames,mix_active,mix_noise);
+    printf("  SBR-53h: wygladzanie amplitud ROM, ramki=%zu, aktywne pasma-sloty=%zu, bypass transient=%zu (bez normatywnego PCM HE-AAC)\n",
+           smooth_frames,smooth_active,smooth_bypasses);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
