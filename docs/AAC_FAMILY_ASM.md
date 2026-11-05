@@ -5222,3 +5222,28 @@ python3 tools/sauti_sbr54w_verify_reference.py /tmp/sbr54w-shared-core.f32le /tm
 ```
 
 The repair uses no production Sauti code; `--dry-run` and subsequent build/validation still require Fedora confirmation. A valid 50-frame output establishes data completeness, **not** conformance or identity of decoder internal calls.
+
+
+### SBR-54w III — first independent QMF numeric comparison (2026-11-05)
+
+Fedora verified 50 complete shared-input instrumented FFmpeg W[i-6] frames: reference binary passed size/finite/preroll checks after EOF-safe patch. On Sauti-vs-FFmpeg 1594 valid slots per LOW band:
+
+| LOW | Sauti/FFmpeg energy | complex coherence magnitude | RMS difference / FFmpeg |
+|---|---:|---:|---:|
+| 2 | 9.36014605e-10 | 0.998701117 | 0.999969451 |
+| 3 | 9.1630863e-10 | 0.997067138 | 0.999969821 |
+| 4 | 6.74557229e-8 | 0.0833019686 | 0.999978537 |
+| 5 | 2.38823965e-7 | 0.048921026 | 0.999976341 |
+
+FFmpeg/Sauti **RMS amplitude ratios** inferred from energy: roughly 32686x (LOW 2) and 33035x (LOW 3), suggestive of a 32768 PCM amplitude-unit convention mismatch. This is **not proof** of which implementation is incorrectly scaled. LOW 4–5 have much poorer complex coherence; normalization alone cannot fix phase/filter response. No production changes justified.
+
+Added `tools/sauti_sbr54w_gain_audit.py` for diagnostic-only best-fit real and complex gains plus residuals **normalized to Sauti** (the existing strict audit normalizes to FFmpeg; huge scale differences mask differences in that metric). Requires byte-identical shared input manifests; does not rewrite QMF or production code. Run:
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+python3 tools/sauti_sbr54w_gain_audit.py \
+ /tmp/sbr54w-sauti.qmf.f32le /tmp/sbr54w-sauti.json \
+ /tmp/sbr54w-ffmpeg.qmf.f32le /tmp/sbr54w-ffmpeg.json
+```
+
+Next: validate amplitude convention, review low-band effective energy for bands 4–5, phase and filter edge effects. Do not equate `abs_coherence` with fraction of bit-exact agreement.
