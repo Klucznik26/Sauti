@@ -48,7 +48,7 @@ static int render(const SautiAacSbrComplex *low,
     unsigned counted=0u;
     for(unsigned t=0u;t<PCM_SLOTS;t++){
         unsigned kx=PCM_BANDS,k2=0u;
-        unsigned first=0u,last=0u;
+        unsigned started=0u,ended=0u;
         for(unsigned k=0u;k<PCM_BANDS;k++){
             const unsigned i=t*PCM_BANDS+k;
             const unsigned active=noise->active[i];
@@ -56,20 +56,17 @@ static int render(const SautiAacSbrComplex *low,
             if(active>1u || !isfinite(x.re) || !isfinite(x.im))
                 return 0;
             if(active){
-                if(!first)kx=k;
-                if(last && k!=k2)return 0;
+                if(ended)return 0; /* no sparse gaps within HF */
+                if(!started)kx=k;
+                started=1u;
                 k2=k+1u;
-                first=1u;
-                last=1u;
                 counted++;
             }else{
-                if(first)last=1u;
+                if(started)ended=1u;
                 if(x.re!=0.0f || x.im!=0.0f)return 0;
-                if(first)last=2u; /* no gaps after HF begins */
             }
-            if(first && last==2u && active)return 0;
         }
-        if(!first || kx<1u || kx>PCM_LOW ||
+        if(!started || kx<1u || kx>PCM_LOW ||
            k2<=kx || k2>PCM_BANDS)return 0;
         for(unsigned k=0u;k<PCM_LOW;k++){
             const SautiAacSbrComplex x=low[t*PCM_LOW+k];
