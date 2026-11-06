@@ -5391,3 +5391,21 @@ grep '^SBR54Z_CALL=' /tmp/sbr54z-trace-run.log | head -48
 ```
 
 Expected sweep still exits nonzero until the root cause is fixed; the trace log is the intended deliverable. The first 96 calls are logged regardless of exported frame count. This diagnostic patch should only be used on the disposable FFmpeg binary.
+
+
+### SBR-54z — observed call/state result; change selection hypothesis (2026-11-06)
+
+Fedora QMF trace: invocation **0** had a different history `x` pointer (`0x7f8c6087ee60`) than calls **1..47** (`0x7f8c5402ba20`). Calls 1..47 shared one history pointer, alternated `buf_idx` 0/1, and had nonzero history after initial startup. Therefore **alternating call parity cannot be used as channel identity**; even/odd selection was invalid. The exact audio-decoder reason for call 0's separate context remains unproven. Synthetic measurement duplicate startup can originate from mixing the one-off context with the continuous context.
+
+Added `tools/sauti_ffmpeg_qmf_context_select.py`, a **separate, one-time upgrade** to the existing trace-patched, disposable FFmpeg source. With `SAUTI_SBR54W_CHANNELS=2` enabled, skip first QMF call, then select every subsequent invocation provided the `x` history pointer remains identical; **abort on any pointer change**. This is explicitly specialized to the observed fixture and does not prove all calls are from the same logical channel. A subsequent 20-frame run must validate startup continuation and exact frame counts. Do not change Sauti production decoder. The preexisting env name is retained for patch compatibility, but now means opt-in selection by observed context, not stereo parity.
+
+```sh
+cd ~/Sauti && git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-qmf-context-select
+python3 tools/sauti_ffmpeg_qmf_context_select.py --dry-run ~/Sauti-tools/ffmpeg-sbr54w
+python3 tools/sauti_ffmpeg_qmf_context_select.py ~/Sauti-tools/ffmpeg-sbr54w
+make -C ~/Sauti-tools/ffmpeg-sbr54w -j4 ffmpeg
+SAUTI_SBR54W_CHANNELS=2 python3 tools/sauti_sbr54x_tone_sweep.py --frames 20 --decode-frames 100
+```
+
+**Do not** run the dependent startup-slot audit if the strict four-tone sweep rejects the selected reference. If the new selection aborts on a pointer mismatch, retain diagnostic traces for investigation; do not weaken the guard.
