@@ -13,7 +13,8 @@ from pathlib import Path
 
 MARKER = "/* SBR-73 FFmpeg f_indexsine read-only trace. */"
 INDEX_ANCHOR = re.compile(r"(?m)^(?P<indent>\s*)int indexsine\s*=\s*ch_data->f_indexsine\s*;\s*$")
-SLOT_ANCHOR = "        LOCAL_ALIGNED_16(float, g_filt_tab, [48]);"
+SLOT_ANCHOR = re.compile(
+    r"(?m)^[ \t]*LOCAL_ALIGNED_16\(\s*float\s*,\s*g_filt_tab\s*,\s*\[48\]\s*\)\s*;\s*$")
 FUNCTION = "static void sbr_hf_assemble("
 
 FUNCTION_ADD = r'''    /* SBR-73 FFmpeg f_indexsine read-only trace. */
@@ -53,7 +54,7 @@ def patch(text):
         raise ValueError("SBR-73 already instrumented")
     if text.count(FUNCTION) != 1:
         raise ValueError("expected exactly one float sbr_hf_assemble")
-    if text.count(SLOT_ANCHOR) != 1:
+    if len(SLOT_ANCHOR.findall(text)) != 1:
         raise ValueError("expected exactly one HF assembly slot anchor")
     if len(INDEX_ANCHOR.findall(text)) != 1:
         raise ValueError("expected exactly one channel-local f_indexsine anchor")
@@ -62,14 +63,14 @@ def patch(text):
     if fn_end < 0:
         raise ValueError("cannot find end of float HF assembly function")
     section = text[fn_start:fn_end]
-    if section.count(SLOT_ANCHOR) != 1 or not INDEX_ANCHOR.search(section):
+    if len(SLOT_ANCHOR.findall(section)) != 1 or not INDEX_ANCHOR.search(section):
         raise ValueError("FFmpeg aacsbr.c layout changed; no patch applied")
     if "indexsine = (indexsine + 1) & 3;" not in section:
         raise ValueError("unknown FFmpeg oscillator clock")
     section = INDEX_ANCHOR.sub(
         lambda m: m.group(0) + "\n" + FUNCTION_ADD,
         section, count=1)
-    section = section.replace(SLOT_ANCHOR, SLOT_ADD + SLOT_ANCHOR, 1)
+    section = SLOT_ANCHOR.sub(lambda m: SLOT_ADD + m.group(0), section, count=1)
     return ("#include <stdio.h>\n#include <stdlib.h>\n" +
             text[:fn_start] + section + text[fn_end:])
 
@@ -98,7 +99,7 @@ static void sbr_hf_assemble(float Y1[38][64][2],
     assert "sbr->s_m[e][42 - kx]" in result
     assert result.count("indexsine = (indexsine + 1) & 3;") == 1
     for invalid in (result, sample.replace("f_indexsine", "bad_index"),
-                    sample.replace(SLOT_ANCHOR, "unrecognized slot")):
+                    sample.replace("LOCAL_ALIGNED_16(float, g_filt_tab, [48]);", "unrecognized slot")):
         try:
             patch(invalid)
         except ValueError:
