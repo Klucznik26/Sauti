@@ -5370,3 +5370,24 @@ cd ~/Sauti && git pull --ff-only origin feature/aac-family-asm
 SAUTI_SBR54W_CHANNELS=2 make test-aac-sbr-qmf-tones test-aac-sbr-qmf-startup-slots PKG_CONFIG=/bin/false
 ```
 If output is still short, report how many real selected QMF frames the fixture supplied; next step is checking AAC fixture length rather than relaxing strict validation. All previously mixed-channel comparisons must remain labeled invalid for channel-specific transient claims.
+
+
+### SBR-54z — 20-frame selected-channel repeat unresolved; trace call state (2026-11-06)
+
+Fedora `SAUTI_SBR54W_CHANNELS=2 python3 tools/sauti_sbr54x_tone_sweep.py --frames 20 --decode-frames 100`: successfully exported 20 complete QMF frames, passed size/preroll/finite checks, but **correctly failed** repeat-frame guard: FFmpeg selected-channel frames 0 and 1 contain exactly the same complex bins, despite left-channel selection. Only LOW2 files regenerated; LOW3..5 directories held older 50-frame results. The prior stereo explanation is therefore not established as the complete cause. Do not change Sauti's production QMF or interpret this as a conformance verdict.
+
+New `tools/sauti_ffmpeg_qmf_call_trace.py` adds read-only logging for the first 96 actual QMF invocations to the already instrumented throwaway FFmpeg checkout. Log records call index, whether it was selected for shared PCM, address of history buffer `x`, `W` pointer, `buf_idx`, and the first/last historical float **before** normal analysis. It makes no changes to sampling, filter history, or export; a synthetic anchor self-test protects patch application. Correlate selected calls with history-pointer identity and alternating L/R order.
+
+Run on Fedora:
+```sh
+cd ~/Sauti && git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-qmf-call-trace
+python3 tools/sauti_ffmpeg_qmf_call_trace.py --dry-run ~/Sauti-tools/ffmpeg-sbr54w
+python3 tools/sauti_ffmpeg_qmf_call_trace.py ~/Sauti-tools/ffmpeg-sbr54w
+make -C ~/Sauti-tools/ffmpeg-sbr54w -j4 ffmpeg
+cd ~/Sauti
+SAUTI_SBR54W_CHANNELS=2 python3 tools/sauti_sbr54x_tone_sweep.py --frames 20 --decode-frames 100 > /tmp/sbr54z-trace-run.log 2>&1
+grep '^SBR54Z_CALL=' /tmp/sbr54z-trace-run.log | head -48
+```
+
+Expected sweep still exits nonzero until the root cause is fixed; the trace log is the intended deliverable. The first 96 calls are logged regardless of exported frame count. This diagnostic patch should only be used on the disposable FFmpeg binary.
