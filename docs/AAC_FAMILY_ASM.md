@@ -6268,3 +6268,47 @@ python3 tools/sauti_sbr72_hf_timing_control.py \
 ```
 
 **After SBR-72:** an independent complex-QMF trace of reference HF assembly must be compared with the same delayed Sauti QMF slots, including `f_indexsine` origin, 4-phase clock, `kx`/parity, envelope `add_harmonic` flags, transients and per-channel filter histories. FFmpeg's float implementation increments `indexsine` modulo four once per HF assembly slot and stores it per channel: https://ffmpeg.org/doxygen/trunk/aacsbr_8c_source.html . Whether Sauti's phase0 or phase+2 convention should ultimately be normative cannot be settled by PCM correlation alone. No production AAC-LC, SBR decoder or QMF synth code changed in SBR-72.
+
+
+### SBR-73 — trace the oscillator clock in Sauti and an independent FFmpeg checkout (2026-11-06)
+
+**Actual SBR-72 Fedora test: PASS** (`make test-aac-sbr-hf-timing-control PKG_CONFIG=/bin/false` plus same-file real PCM audit). Across 44 stable frames LOW anchor stayed `lag=384`, `corr=0.99999994`, `gain=1.41421308`. Relative spectral errors at nominal HF tone centers and in two known-good control regions:
+
+| Candidate | 6937.5 Hz | 15937.5 Hz | Control 8625–9000 Hz | Control 12000–15000 Hz |
+|---|---:|---:|---:|---:|
+| baseline | 0.999773 | 1.000458 | 0.081745 | 0.171377 |
+| phase0 | 1.630682 | 1.769914 | 0.081751 | 0.171376 |
+| **phase+2** | **0.369062** | **0.233051** | **0.081749** | **0.171379** |
+| shift entire HF −384 samples | 0.368993 | 0.230254 | **0.313725** | **0.361863** |
+| shift entire HF −128 samples | 0.369744 | 0.230586 | **1.181516** | **1.228396** |
+| shift entire HF +128 samples | 0.369559 | 0.231360 | **1.176671** | **1.238955** |
+| shift entire HF +384 samples | 0.369133 | 0.231619 | **0.220915** | **0.286490** |
+
+The 384-sample fixed LOW/reference offset equals 6 full-rate QMF slots, and `6 % 4 = 2`; it rotates any ideal nominal QMF-center sinusoid by 180°. This numerical identity is **not proof of a misplaced delay**. Shifting entire HF in time can mimic the tone correction but degrades otherwise working nonharmonic frequency regions. Therefore **do not** shift the full HF stream and **do not yet** make phase+2 normative.
+
+**Inspect actual implementation before a production fix**: In the FFmpeg float source `libavcodec/aacsbr.c`, the channel state variable `ch_data->f_indexsine` is read at the start of `sbr_hf_assemble`, used when adding harmonic `s_m[e][m]` and incremented after each HF synthesis slot (`indexsine = (indexsine + 1) & 3`). Sauti's separate experimental SBR-54h preview maintains its own four-phase counter, not necessarily FFmpeg's time origin or envelope start. Source: https://ffmpeg.org/doxygen/trunk/aacsbr_8c_source.html .
+
+**Added SBR-73 instruments, not a decoder fix:**
+- `tools/sauti_sbr73_ffmpeg_phase_trace.py`: opt-in, fail-closed source instrumentation for **a disposable FFmpeg float source checkout only** at `libavcodec/aacsbr.c`. Requires unique `sbr_hf_assemble`, exact `f_indexsine`, per-slot `g_filt_tab`, and modulo-four increment anchors. Writes FFmpeg trace only when the instrumented binary runs with `SAUTI_SBR73_FFMPEG_PHASE=/tmp/sbr73.ffmpeg.csv`: columns `call,env,slot,indexsine,kx,mmax,sine18,sine42`. `call` is a local FFmpeg HF-assembly invocation index, **not** automatically an AAC frame number or a Sauti channel index. Never instrument installed/system FFmpeg.
+- `tools/sauti_he_aac_probe.c`: with opt-in `SAUTI_SBR73_TRACE=1`, writes `SBR73_SAUTI` CSV lines to **stderr** for 32 slots of each real emitted SBR frame (including final flush), carrying emitted frame, phase0, phase+2, kx, k2, original source/envelope, flags at k18/k42 and original onset. It is a read-only trace and does not change PCM, QMF or default probe behavior.
+- `tools/sauti_sbr73_phase_trace_audit.py`: reads both traces; verifies full 32-slot frames and phase progression from Sauti, independent per-call FFmpeg slot/phase continuity, usable finite tone amplitudes, and no duplicate/malformed slots. By default it prints *separate source diagnostics*, not a supposed matched clock. It can compare clocks only with **explicit user-provided** `--ffmpeg-call-offset N --ffmpeg-slot-offset M`. These numbers must come from independently verified matching channel and QMF timeline; the tool **does not automatically infer them** to force a positive correlation.
+- Make target `test-aac-sbr-ffmpeg-phase-trace` compiles and runs both new Python synthetic checks; wired into `test-aac-native`.
+
+**Validation status**: SBR-73 changes are committed; Fedora C probe compilation, both Python self-tests, a real opt-in Sauti trace and independent instrumented FFmpeg HF trace have not yet run. There are **no new actual FFmpeg measurements** and no normative conclusion. The older FFmpeg QMF instrumentation already in this repo can be reused, but `sauti_sbr73_ffmpeg_phase_trace.py` targets specifically the *floating-point* `aacsbr.c` source, not the synthesis filterbank or installed FFmpeg binary.
+
+Initial Fedora tests (do not change your FFmpeg checkout yet):
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-ffmpeg-phase-trace probe-he-aac PKG_CONFIG=/bin/false
+SAUTI_SBR73_TRACE=1 ./build/sauti_he_aac_probe \
+  ~/Sauti-fixtures/he_test.aac 50 \
+  /tmp/sbr73.preview.f32le /tmp/sbr73 \
+  2> /tmp/sbr73.sauti.log | grep -E 'SBR-70|SBR-54h|odrzucon'
+grep -c '^SBR73_SAUTI,' /tmp/sbr73.sauti.log
+```
+
+Expected trace count if all 50 emitted HF frames succeeded: 50*32=1600, **but never claim it before measuring**. For a disposable, known FFmpeg checkout use `python3 tools/sauti_sbr73_ffmpeg_phase_trace.py /path/to/disposable-ffmpeg --dry-run` before applying without `--dry-run`; then build that isolated FFmpeg and run it with `SAUTI_SBR73_FFMPEG_PHASE` pointed to a separate CSV. After both traces exist, first run the auditor without explicit alignment to validate trace geometry. An aligned comparison requires external verification of FFmpeg channel/call and slot time origin.
+
+Future: compare complex reference HF QMF k18/k42 **after** the same envelope and synthesis slot mapping is established. Until that point keep phase+2 experimental, the AAC-LC production decoder and standard QMF synthesis unchanged.
