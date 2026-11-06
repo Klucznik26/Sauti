@@ -1422,3 +1422,9 @@ test-aac-sbr-qmf-startup-slots:
 	python3 -m py_compile tools/sauti_sbr54z_startup_slots.py
 	python3 tools/sauti_sbr54z_startup_slots.py --self-test
 	python3 tools/sauti_sbr54z_startup_slots.py
+
+# SBR-54z: stereo-aware independent QMF analyzer instrumentation only.
+.PHONY: test-aac-sbr-qmf-stereo-select
+test-aac-sbr-qmf-stereo-select:
+	python3 -m py_compile tools/sauti_ffmpeg_qmf_stereo_select.py
+	python3 tools/sauti_ffmpeg_qmf_stereo_select.py --self-test
