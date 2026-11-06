@@ -6159,3 +6159,40 @@ make test-aac-sbr-harmonic-phase2-ab test-aac-sbr-temporal-harmonic-preview PKG_
 ```
 
 **Important:** This is not a normative HE-AAC oscillator sign fix and must not be wired into production merely because it improves correlation for two selected tones. Independent complex-QMF validation, harmonic flag/phase-index audit, general real fixtures and full native regression are needed first.
+
+
+### SBR-70 — independent phase0 vs phase+2 PCM/QMF paths on the real ADTS fixture (2026-11-06)
+
+**SBR-69 Fedora results received:** `make test-aac-sbr-harmonic-phase2-ab test-aac-sbr-temporal-harmonic-preview PKG_CONFIG=/bin/false` **PASS**. Both C modules compile with `-O2 -std=c11 -Wall -Wextra -Werror`, and all reported checks pass:
+- +2 oscillator phase reverses *only* the added complex QMF harmonic, with identical raw ROM noise subtraction and frame ownership;
+- FIXVAR-style continuation, history/persistence, harmonic bypass and failure rollback pass;
+- the **unchanged** original SBR-54h delayed temporal harmonic/noise-gate tests also pass.
+
+These are **synthetic component tests**, not evidence of a real-file audio fix.
+
+**SBR-70 code:** Expanded only the diagnostic `tools/sauti_he_aac_probe.c`. It now owns independent `phase2_qmf_state` and `phase2_pcm_state`, separate from `sine_qmf_state` and `sine_pcm_state`. For each emitted HF frame it calls the *new experimental* `sauti_aac_sbr_temporal_harmonic_preview_phase2()` on the exact same raw QMF, noise vectors, SBR owner/onset masks as phase0, compares emitted frame indexes and phase/harmonic history, then renders `phase2_high` using an independent continuous 64-QMF synthesis. The original PCM output and existing `.sine.f32le` continue unchanged. It also runs the **last deferred HF frame through both phase2 QMF and the final PCM flush**. Export is spooled, gated on full `limit` frames, full QMF and PCM counts, a closed synth state and matching frame indexes; partial output is not published. The additional candidate is named `<PCM_PREVIEW>.sinephase2.f32le`.
+
+A new Python comparison, `tools/sauti_sbr70_qmf_phase_ab.py` with Make target `test-aac-sbr-qmf-phase-ab` (included in `test-aac-native`), evaluates **three separately synthesized** waveforms: normal baseline, phase0 (the existing `.sine.f32le`), and phase+2 (the new `.sinephase2.f32le`). It uses the **same LOW-anchored lag, gain and bias** for all and measures exact QMF-center tones at 6937.5 Hz (k18) and 15937.5 Hz (k42) plus 6750–7125, 8625–9000, 12–15 kHz and 15375–16875 Hz. There is **no PCM editing, no frequency/phase fitting, and no FFmpeg-driven phase selection in this stage**. Its synthetic self-test contains opposing and corrected two-tone QMF-center controls, rejects incomplete data, zero A/B differences and NaN.
+
+**Pending:** neither the new SBR-70 probe build on Fedora, the SBR-70 synthetic Python self-test, the real 50-frame export, nor the full native AAC test gate has yet been run. The production AAC-LC / public HE-AAC decoder, standard SBR-19 oscillator and QMF synthesis are untouched. The experimental SBR-54h implementation gained a *separate* phase+2 function but retains original phase0 behavior.
+
+Run on Fedora:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-harmonic-phase2-ab test-aac-sbr-temporal-harmonic-preview \
+     test-aac-sbr-qmf-phase-ab probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe \
+  ~/Sauti-fixtures/he_test.aac 50 \
+  /tmp/sbr70.preview.f32le /tmp/sbr70 | grep -E 'SBR-70|SBR-54h|odrzucon'
+python3 tools/sauti_sbr70_qmf_phase_ab.py \
+  --low /tmp/sbr70.low.f32le \
+  --reference /tmp/sbr61.reference.f32le \
+  --baseline /tmp/sbr70.preview.f32le \
+  --phase0 /tmp/sbr70.preview.f32le.sine.f32le \
+  --phase2 /tmp/sbr70.preview.f32le.sinephase2.f32le \
+  --first-frame 3 --last-frame 46 | tee /tmp/sbr70.log
+```
+
+**Interpretation:** A strong change of sign/correlation at both HF tone centers, with phase0 unchanged relative to SBR-66 and stable middle-band controls, would confirm that a **QMF oscillator phase-only** modification explains the improvement seen with PCM inversions in SBR-67/68. It would still **not** prove the normative phase convention, because the entire SBR-54h path is a nonnormative preview. To justify a production fix, compare captured complex HF QMF phase and indexsine against a verified reference decoder across multiple real bitstreams, including transients, different add_harmonic flags and alternate headers.
