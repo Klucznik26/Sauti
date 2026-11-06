@@ -6196,3 +6196,40 @@ python3 tools/sauti_sbr70_qmf_phase_ab.py \
 ```
 
 **Interpretation:** A strong change of sign/correlation at both HF tone centers, with phase0 unchanged relative to SBR-66 and stable middle-band controls, would confirm that a **QMF oscillator phase-only** modification explains the improvement seen with PCM inversions in SBR-67/68. It would still **not** prove the normative phase convention, because the entire SBR-54h path is a nonnormative preview. To justify a production fix, compare captured complex HF QMF phase and indexsine against a verified reference decoder across multiple real bitstreams, including transients, different add_harmonic flags and alternate headers.
+
+
+### SBR-71 — check phase+2 across individual frames, not just whole-file FFT (2026-11-06)
+
+**Actual Fedora results of SBR-70 were received.** `make test-aac-sbr-harmonic-phase2-ab test-aac-sbr-qmf-phase-ab test-aac-he-probe-smoke probe-he-aac PKG_CONFIG=/bin/false`: the C phase A/B test, new Python synthetic self-test, probe compilation under `-O2 -std=c11 -Wall -Wextra -Werror`, and the two-frame smoke probe **PASS**. The public HE-AAC decoder's test fixture decodes two QMF frames, but the real `he_test.aac` production decoder still rejects at frame 2. This is a known separate limitation: the diagnostic core-sequence exporter emitted complete **50-frame** previews for both phase0 and phase+2.
+
+**Real SBR-70 result** (44 steady frames 3..46, same independently exported FFmpeg PCM reference and LOW anchor lag=384, corr=0.99999994, gain=1.41421308):
+
+| QMF center frequency | phase0 amplitude/coherence/relative error | phase+2 amplitude/coherence/relative error |
+|---|---|---|
+| k18 = 6937.5 Hz | 0.630838 / −0.999597 / 1.630682 | **0.631562 / +0.999635 / 0.369062** |
+| k42 = 15937.5 Hz | 0.770049 / −0.999689 / 1.769914 | **0.769476 / +0.999239 / 0.233051** |
+
+Independent QMF/PCM phase0-baseline difference RMS `7.9527896e-06`; phase+2-baseline `7.952825e-06`; difference between both `1.5905605e-05`. The control regions remain unchanged: 8625–9000 Hz ~0.996795 spectral agreement and ~0.08175 relative error; 12000–15000 Hz ~0.995335 and ~0.17138. Wider edge errors remain significant despite phase+2: 6750–7125 Hz ~1.059725, 15375–16875 Hz ~1.303164.
+
+**Interpretation**: This rules out a *mere PCM-editing artifact* as the reason why reversing the experimental harmonic oscillator's tone phase improves the selected two frequencies; both results were produced by separate continuous QMF synthesis histories from the same bitstream. It still does **not** prove that phase+2 is correct per the HE-AAC specification or on other bitstreams: SBR-54h is a nonnormative diagnostic assembly, and FFmpeg PCM minus Sauti LOW is not an independent normative HF stem. The remaining edge-band errors have not been fixed.
+
+**SBR-71 next test**, implemented as `tools/sauti_sbr71_phase_frame_audit.py`, Make target `test-aac-sbr-qmf-phase-frames` (also included in `test-aac-native`). It reuses the **already exported** `/tmp/sbr70` outputs and `/tmp/sbr61.reference.f32le` without decoding again. It measures the complex 2048-point Hann-windowed PCM Fourier coefficients at preselected bins 296 and 680, independently **in each frame**; compares fixed LOW-anchored reference residual against phase0 and phase+2; reports per-frame signed cosine angle, relative error, amplitude ratio, number of improvements/regressions across steady frames 3..46, medians, and transition frames 2/47/48. No candidate-specific lag, phase or gain fitting. Weak reference bins below 1e-4 of the peak within the selected interval are flagged and excluded rather than classified as successes.
+
+Standalone Python self-test compiled and **PASS** in the assistant's local runtime: anti-phase tones with a known gain, one intentionally silent reference frame at k42, 2048-frame geometry rejection, short reference, no A/B delta, and NaN rejection. The new SBR-71 test and the full native AAC gate on Fedora are **pending**. There are no production decoder, FFmpeg integration, or QMF synthesis edits in SBR-71.
+
+Run:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-qmf-phase-frames PKG_CONFIG=/bin/false
+python3 tools/sauti_sbr71_phase_frame_audit.py \
+  --low /tmp/sbr70.low.f32le \
+  --reference /tmp/sbr61.reference.f32le \
+  --baseline /tmp/sbr70.preview.f32le \
+  --phase0 /tmp/sbr70.preview.f32le.sine.f32le \
+  --phase2 /tmp/sbr70.preview.f32le.sinephase2.f32le \
+  --first-frame 2 --last-frame 48 | tee /tmp/sbr71.log
+```
+
+If most valid steady frames and transition frames show the same polarity benefit, the next high-value engineering task is a **normative complex-QMF comparison** of k18/k42 phase-index and harmonic flags against an independent reference, not another blind gain or phase correction. If only some frames benefit, correlate the exceptions with SBR envelope ownership and transient/onset state.
