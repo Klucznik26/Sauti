@@ -1415,3 +1415,10 @@ test-aac-sbr-qmf-steady:
 	python3 -m py_compile tools/sauti_sbr54y_steady_audit.py
 	python3 tools/sauti_sbr54y_steady_audit.py --self-test
 	python3 tools/sauti_sbr54y_steady_audit.py
+
+# SBR-54z: first 64 global QMF slots, calibrated against stable late-slot gain.
+.PHONY: test-aac-sbr-qmf-startup-slots
+test-aac-sbr-qmf-startup-slots:
+	python3 -m py_compile tools/sauti_sbr54z_startup_slots.py
+	python3 tools/sauti_sbr54z_startup_slots.py --self-test
+	python3 tools/sauti_sbr54z_startup_slots.py
