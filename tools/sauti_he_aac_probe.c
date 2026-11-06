@@ -699,6 +699,28 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             conj_io_ok=0;
         }
     }
+    /* SBR-70 diagnostic-only PCM from an independent phase+2 oscillator.
+     * Keep the original SBR-54h file and synthesis state untouched. */
+    FILE *phase2_spool=NULL;
+    char phase2_path[1024]={0};
+    int phase2_io_ok=1;
+    if(export_path){
+        const int n=snprintf(phase2_path,sizeof(phase2_path),
+                             "%s.sinephase2.f32le",export_path);
+        if(n<0 || (size_t)n>=sizeof(phase2_path) ||
+           !strcmp(phase2_path,path) ||
+           !strcmp(phase2_path,export_path)){
+            fputs("SBR-70: niedozwolona sciezka PCM phase2\n",stderr);
+            phase2_io_ok=0;
+        }else{
+            phase2_spool=tmpfile();
+            if(!phase2_spool){
+                fprintf(stderr,"SBR-70: brak bufora phase2 PCM: %s\n",
+                        strerror(errno));
+                phase2_io_ok=0;
+            }
+        }
+    }
     printf("Diagnostyka ciaglosci rdzenia AAC-LC + temporal SBR (%zu ramek, bez HE-AAC PCM):\n",limit);
     size_t decoded=0,first_nonzero=SIZE_MAX;
     SautiAacSbrTemporalHistory temporal_history={0};
@@ -747,6 +769,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     size_t preview_first_nonzero=SIZE_MAX;
     SautiAacSbrTemporalPcmPreviewState temporal_pcm={0};
     SautiAacSbrTemporalPcmPreviewState sine_pcm_state={0};
+    SautiAacSbrTemporalPcmPreviewState phase2_pcm_state={0};
     SautiAacSbrTemporalPcmPreviewState units_pcm_state={0};
     SautiAacSbrTemporalPcmPreviewState ref_hf_pcm_state={0};
     SautiAacSbrTemporalPcmPreviewState conj_pcm_state={0};
@@ -758,6 +781,8 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     size_t units_qmf_frames=0u,units_pcm_frames=0u;
     double units_pcm_power=0.0,units_pcm_peak=0.0;
     SautiAacSbrTemporalHarmonicPreviewState sine_qmf_state={0};
+    SautiAacSbrTemporalHarmonicPreviewState phase2_qmf_state={0};
+    size_t phase2_qmf_frames=0u,phase2_pcm_frames=0u;
     uint8_t sine_held_onset[32u]={0};
     size_t sine_preview_frames=0u,sine_qmf_frames=0u;
     size_t sine_marked=0u,sine_activated=0u,sine_gated=0u;
@@ -1196,6 +1221,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         }
         SautiAacSbrComplex preview[32u*64u];
         SautiAacSbrComplex sine_high[32u*64u];
+        SautiAacSbrComplex phase2_high[32u*64u];
         SautiAacSbrComplex units_high[32u*64u];
         SautiAacSbrTemporalMixReport mix_report={0};
         if(noise_report.emitted){
@@ -1251,6 +1277,23 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                 printf("  ramka %zu: SBR-54h harmonic preview odrzucony\n",i);
                 break;
             }
+            SautiAacSbrTemporalHarmonicPreviewReport phase2_report;
+            if(!sauti_aac_sbr_temporal_harmonic_preview_phase2(
+                   &emitted_targets,sine_held_onset,
+                   &noise_frame,&noise_report,
+                   preview,32u*64u,phase2_high,32u*64u,
+                   &phase2_qmf_state,&phase2_report) ||
+               phase2_report.frame_index!=tone_report.frame_index ||
+               phase2_report.active_tones!=tone_report.active_tones ||
+               phase2_qmf_state.frames!=sine_qmf_state.frames ||
+               phase2_qmf_state.phase!=sine_qmf_state.phase ||
+               memcmp(phase2_qmf_state.previous,
+                      sine_qmf_state.previous,
+                      sizeof(phase2_qmf_state.previous))!=0){
+                printf("  ramka %zu: SBR-70 phase2 QMF odrzucona\n",i);
+                break;
+            }
+            phase2_qmf_frames++;
             if(!sauti_aac_sbr_temporal_hf_units_float(
                    sine_high,32u*64u,&noise_frame,
                    units_high,32u*64u)){
@@ -1377,6 +1420,29 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             if(sine_spool &&
                fwrite(sine_pcm,sizeof(float),2048u,sine_spool)!=2048u)
                 sine_io_ok=0;
+        }
+        float phase2_pcm[2048u];
+        SautiAacSbrTemporalPcmPreviewReport phase2_pcm_report;
+        if(!sauti_aac_sbr_temporal_pcm_preview_push(
+               low_qmf,32u*32u,
+               noise_report.emitted?phase2_high:NULL,
+               noise_report.emitted?32u*64u:0u,
+               noise_report.emitted?&noise_frame:NULL,
+               &apply_report,
+               noise_report.emitted?&mix_report:NULL,
+               &phase2_pcm_state,phase2_pcm,2048u,&phase2_pcm_report) ||
+           phase2_pcm_report.emitted!=sine_pcm_report.emitted ||
+           (sine_pcm_report.emitted &&
+            phase2_pcm_report.frame_index!=sine_pcm_report.frame_index)){
+            printf("  ramka %zu: SBR-70 osobna synteza QMF phase2 odrzucona\n",i);
+            break;
+        }
+        if(phase2_pcm_report.emitted){
+            phase2_pcm_frames++;
+            if(phase2_spool &&
+               fwrite(phase2_pcm,sizeof(float),2048u,
+                      phase2_spool)!=2048u)
+                phase2_io_ok=0;
         }
         float units_pcm[2048u];
         SautiAacSbrTemporalPcmPreviewReport units_pcm_report;
@@ -1521,6 +1587,31 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                             last_preview,32u*64u,
                             final_sine_hf,32u*64u,
                             &sine_qmf_state,&final_sine_qmf_report);
+                    SautiAacSbrComplex final_phase2_hf[32u*64u];
+                    SautiAacSbrTemporalHarmonicPreviewReport
+                        final_phase2_qmf_report;
+                    const int final_phase2_ok=
+                        sauti_aac_sbr_temporal_harmonic_preview_phase2(
+                            &temporal_noise.held_targets,
+                            sine_held_onset,&last_noise,&last_report,
+                            last_preview,32u*64u,
+                            final_phase2_hf,32u*64u,
+                            &phase2_qmf_state,&final_phase2_qmf_report);
+                    if(final_phase2_ok && final_sine_ok &&
+                       final_phase2_qmf_report.frame_index==
+                           final_sine_qmf_report.frame_index &&
+                       final_phase2_qmf_report.active_tones==
+                           final_sine_qmf_report.active_tones &&
+                       phase2_qmf_state.frames==sine_qmf_state.frames &&
+                       phase2_qmf_state.phase==sine_qmf_state.phase &&
+                       memcmp(phase2_qmf_state.previous,
+                              sine_qmf_state.previous,
+                              sizeof(phase2_qmf_state.previous))==0)
+                        phase2_qmf_frames++;
+                    else{
+                        puts("  SBR-70: finalny QMF phase2 odrzucony");
+                        phase2_io_ok=0;
+                    }
                     SautiAacSbrComplex final_units_high[32u*64u];
                     const int final_units_ok=final_sine_ok &&
                         sauti_aac_sbr_temporal_hf_units_float(
@@ -1642,6 +1733,28 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                             }else{
                                 puts("  SBR-54h: finalny tonal PCM 64-QMF odrzucony");
                                 sine_io_ok=0;
+                            }
+                        }
+                        if(final_phase2_ok && phase2_io_ok){
+                            float final_phase2_pcm[2048u];
+                            SautiAacSbrTemporalPcmPreviewReport
+                                final_phase2_pcm_report;
+                            if(sauti_aac_sbr_temporal_pcm_preview_flush(
+                                   final_phase2_hf,32u*64u,&last_noise,
+                                   &final_report,&last_mix,
+                                   &phase2_pcm_state,final_phase2_pcm,2048u,
+                                   &final_phase2_pcm_report) &&
+                               final_phase2_pcm_report.emitted &&
+                               final_phase2_pcm_report.frame_index==
+                                   final_pcm_report.frame_index){
+                                phase2_pcm_frames++;
+                                if(phase2_spool &&
+                                   fwrite(final_phase2_pcm,sizeof(float),
+                                          2048u,phase2_spool)!=2048u)
+                                    phase2_io_ok=0;
+                            }else{
+                                puts("  SBR-70: finalny PCM phase2 odrzucony");
+                                phase2_io_ok=0;
                             }
                         }
                         if(final_units_ok){
@@ -2006,6 +2119,26 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             fprintf(stderr,"SBR-54h: blad eksportu tonal PCM: %s\n",
                     sine_path);
         fclose(sine_spool);
+    }
+    if(phase2_spool){
+        const int complete=phase2_io_ok && decoded==limit &&
+            preview_frames==limit && sine_preview_frames==limit &&
+            phase2_qmf_frames==limit && phase2_pcm_frames==limit &&
+            phase2_qmf_state.frames==limit &&
+            phase2_pcm_state.closed==1u &&
+            phase2_pcm_state.emitted_frames==limit;
+        if(!complete)
+            fprintf(stderr,
+                    "SBR-70: POMINIETY niepelny phase2 PCM (%zu/%zu ramek)\n",
+                    phase2_pcm_frames,limit);
+        else if(sbr54c_export(phase2_spool,phase2_path,
+                              limit*2048u*sizeof(float)))
+            printf("  SBR-70: zapisano oddzielny phase+2 HF PCM: %s, ramki=%zu, probki=%zu (NIE normatywny HE-AAC)\n",
+                   phase2_path,phase2_pcm_frames,limit*2048u);
+        else
+            fprintf(stderr,"SBR-70: blad eksportu phase2 PCM: %s\n",
+                    phase2_path);
+        fclose(phase2_spool);
     }
     if(spool){
         const int complete=export_io_ok && decoded==limit &&
