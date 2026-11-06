@@ -6066,3 +6066,35 @@ Root cause: `sauti_sbr63_hf_spectral_audit.fft()` returns `FRAME=2048` complex b
 The earlier SBR-66 output contains **no real results** and must not be interpreted as failure of any HF A/B hypothesis. An independent 2048/1025 index-bounds smoke check passed; **the complete SBR-66 Python self-test and the real recording have not yet been rerun after this patch**.
 
 Next: `git pull --ff-only origin feature/aac-family-asm && make test-aac-sbr-tonal-ab-audit PKG_CONFIG=/bin/false`, followed by the same SBR-66 command from the preceding section. No production audio code was touched.
+
+
+### SBR-67 — harmonic-preview sign control, derived from SBR-66 real data (2026-11-06)
+
+**SBR-66 Fedora result**: fixed tool now passes `make test-aac-sbr-tonal-ab-audit PKG_CONFIG=/bin/false` and the 44-frame real fixture at LOW lag=384, LOW correlation=0.99999994, gain=1.41421308. The previous IndexError was confined to the SBR-66 Python FFT diagnostic; no AAC production code failed.
+
+**Critical observation at exact nominal QMF-band centers:**
+- k=18 / 6937.5 Hz: baseline HF amplitude ratio `0.017490`, signed coherence `+0.021698`, reference-bin relative error `0.999773`; experimental SBR-54h `sine` preview produces amplitude ratio **0.630838**, signed coherence **-0.999597**, relative error `1.630682`.
+- k=42 / 15937.5 Hz: baseline HF amplitude ratio `0.008640`, signed coherence `-0.048676`, relative error `1.000458`; SBR-54h `sine` amplitude ratio **0.770049**, signed coherence **-0.999689**, relative error `1.769914`.
+- In 8625–9000 Hz and 12000–15000 Hz, both baseline and `sine` previews retain high agreement with the FFmpeg-minus-LOW reference (about 0.9968 and 0.9953) and essentially unchanged errors. The harmonic preview worsens 6750–7125 Hz and 15375–16875 Hz. The `units`, `gonly` and `conj` experimental paths have near-zero amplitude at these exact tone centers, so their apparently smaller *numerical errors* near 1.0 are NOT a successful reconstruction.
+
+**Interpretation:** Both reference peaks were missing in baseline, while `sine` puts a strong component *at the correct frequency* but approximately 180 degrees out of phase. This is a strong phase/sign hypothesis, **not proof of a normative oscillator sign bug**: the SBR-54h preview is explicitly nonnormative and changes both tonal addition and ROM-noise gating. The baseline subtraction uses Sauti LOW; its residual against FFmpeg also contains LOW differences and reference noise. FFmpeg's `sbr_hf_assemble` uses a per-slot `indexsine` rotating modulo four with subband parity: https://ffmpeg.org/doxygen/trunk/aacsbr_8c_source.html ; a sign change must be checked against independently captured complex QMF and slot alignment before a production patch.
+
+**SBR-67 controlled A/B:** Added `tools/sauti_sbr67_tonal_delta_ab.py` with target `test-aac-sbr-tonal-delta-audit`, wired into `test-aac-native`. The fixed, no-fit hypothesis is `delta = sine_preview - baseline_preview`; `inverse_delta = baseline_preview - delta = 2*baseline - sine_preview`. Compare baseline, actual sine, and inverted-delta against the SAME FFmpeg-minus-LOW reference using the already verified SBR-66 per-tone and per-band analysis. This does not invert ONLY the sinusoid: it also reverses the effect of SBR-54h noise gating, so it must NOT be applied directly to the C implementation regardless of the result. Synthetic self-test checks a deliberately anti-phase two-tone preview at k18/k42, sign-inverted reconstruction, malformed PCM, NaN and missing delta. The real Fedora test and complete native AAC gate **have not yet been executed**.
+
+Run with existing SBR-61 files, no re-export required:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-tonal-delta-audit PKG_CONFIG=/bin/false
+python3 tools/sauti_sbr67_tonal_delta_ab.py \
+  --low /tmp/sbr61.low.f32le \
+  --reference /tmp/sbr61.reference.f32le \
+  --baseline /tmp/sbr61.preview.f32le \
+  --sine /tmp/sbr61.preview.f32le.sine.f32le \
+  --first-frame 3 --last-frame 46 | tee /tmp/sbr67.log
+```
+
+**After the test:** If inversion substantially improves both k18 and k42 without harming control bands, investigate SBR oscillator phase-index / delay (especially source-to-synthesis timing and FIXVAR boundaries) by exporting reference complex QMF at the same emitted slots. Do not do a blanket oscillator or final PCM sign flip, or tune amplitude at isolated FFT bins. If inversion does not help, split the effect of tonal addition from noise removal with a QMF-only A/B branch.
+
+No production AAC-LC, SBR parser, HFG, QMF analysis/synthesis, phase state, or output PCM was modified.
