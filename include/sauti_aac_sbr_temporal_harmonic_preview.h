@@ -48,4 +48,19 @@ int sauti_aac_sbr_temporal_harmonic_preview(
     SautiAacSbrTemporalHarmonicPreviewState *state,
     SautiAacSbrTemporalHarmonicPreviewReport *report);
 
+/* SBR-69 strictly diagnostic A/B: add the same tone at oscillator phase+2.
+ * Noise suppression, gain, onset/owner checks, 4-slot state clock and
+ * phase history are IDENTICAL to the original SBR-54h preview.
+ * This is not a normative HE-AAC oscillator fix. Use independent state
+ * and independent 64-QMF synthesis for an actual PCM comparison. */
+int sauti_aac_sbr_temporal_harmonic_preview_phase2(
+    const SautiAacSbrTemporalHfTargets *targets,
+    const uint8_t onset_allowed[32],
+    const SautiAacSbrTemporalNoiseFrame *noise,
+    const SautiAacSbrTemporalNoiseReport *noise_report,
+    const SautiAacSbrComplex *raw_mix,size_t raw_count,
+    SautiAacSbrComplex *output,size_t output_count,
+    SautiAacSbrTemporalHarmonicPreviewState *state,
+    SautiAacSbrTemporalHarmonicPreviewReport *report);
+
 #endif
