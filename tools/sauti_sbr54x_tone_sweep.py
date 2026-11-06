@@ -63,9 +63,14 @@ def main():
     p.add_argument("--exporter",default=str(ROOT/"build/sauti_qmf_low_export"))
     p.add_argument("--output-dir",default="/tmp/sbr54x-tones")
     p.add_argument("--frames",type=int,default=50)
+    p.add_argument("--decode-frames",type=int,default=None,
+                   help="FFmpeg output frame cap; defaults to twice the selected-channel QMF target")
     args=p.parse_args()
     if not 2<=args.frames<=100:
         p.error("--frames must be 2..100")
+    decode_frames = args.decode_frames if args.decode_frames is not None else args.frames * 2
+    if decode_frames < args.frames:
+        p.error("--decode-frames must be >= --frames")
     ffmpeg=Path(args.ffmpeg)
     fixture=Path(args.fixture)
     exporter=Path(args.exporter)
@@ -78,6 +83,8 @@ def main():
     results=[]
     print("SBR-54x: independent single-tone QMF analysis (24 kHz; 32 bands)")
     print("Cross-band energy shares are normalized ONLY over LOW 2..5, not all 32 bands.")
+    print(f"Selected-channel QMF frames={args.frames}; FFmpeg output cap={decode_frames}; "
+          "stereo channel selection requires SAUTI_SBR54W_CHANNELS=2")
     for target in BANDS:
         freq=(target+0.5)*RATE/64
         case=out/f"low{target}"
@@ -97,7 +104,17 @@ def main():
         env["SAUTI_SBR54W_QMF"]=str(ff)
         # Never append stderr to data: binary export remains separate.
         run_command([ffmpeg,"-hide_banner","-v","warning","-threads","1",
-                     "-i",fixture,"-frames:a",str(args.frames),"-f","null","-"],env=env)
+                     "-i",fixture,"-frames:a",str(decode_frames),"-f","null","-"],env=env)
+        actual_bytes=ff.stat().st_size if ff.exists() else 0
+        expected_bytes=args.frames*1024
+        if actual_bytes!=expected_bytes:
+            raise ValueError(
+                f"LOW {target}: incomplete selected-channel export: "
+                f"{actual_bytes//1024} complete QMF frames, expected {args.frames}; "
+                f"FFmpeg output cap={decode_frames}. "
+                "Fixture may be too short or channel selection/order differs. "
+                "Do not pad the QMF export; use a longer fixture or lower --frames."
+            )
         run_command([sys.executable,ROOT/"tools/sauti_sbr54w_verify_reference.py",pcm,ff])
         run_command([sys.executable,ROOT/"tools/sauti_ffmpeg_qmf_manifest.py",
                      "--core-rate",RATE,pcm,ff,ffm])
