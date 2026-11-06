@@ -1434,3 +1434,9 @@ test-aac-sbr-qmf-stereo-select:
 test-aac-sbr-qmf-call-trace:
 	python3 -m py_compile tools/sauti_ffmpeg_qmf_call_trace.py
 	python3 tools/sauti_ffmpeg_qmf_call_trace.py --self-test
+
+# SBR-54z: strict observed-context QMF selection for disposable FFmpeg only.
+.PHONY: test-aac-sbr-qmf-context-select
+test-aac-sbr-qmf-context-select:
+	python3 -m py_compile tools/sauti_ffmpeg_qmf_context_select.py
+	python3 tools/sauti_ffmpeg_qmf_context_select.py --self-test
