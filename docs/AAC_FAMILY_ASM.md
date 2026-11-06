@@ -5990,3 +5990,36 @@ python3 tools/sauti_sbr64_hf_edge_audit.py \
 ```
 
 No changes to AAC-LC, SBR parser, gain, HF transpose, QMF synthesis, or final PCM.
+
+### SBR-65 — isolate wrong HF tone frequencies after the real SBR-64 edge report (2026-11-06)
+
+**Fedora result for SBR-64 (44 stable frames 3..46)**: `make test-aac-sbr-hf-edge-audit PKG_CONFIG=/bin/false` PASS. Fixed LOW alignment `lag=384`, `corr=0.99999994`, `gain=1.41421308`. The three Sauti component stems still reconstruct the full preview (closure RMS `3.34820381e-09`).
+
+With FFT buckets 375 Hz wide (not complex QMF traces), the crucial observations are:
+- 6750–7125 Hz: reference energy share 0.14573, candidate share 0.15550, amplitude ratio 1.03298, signed coherence **0.03917**, relative error 1.40930, absolute error share 0.289435. Similar RMS but almost no waveform agreement: a phase or frequency mismatch is plausible, not proven.
+- 8625–9000 Hz: share 0.02785, candidate 0.02675, coherence 0.99681: the entire 6–9 kHz range is **not** uniformly wrong.
+- 12.375–15 kHz: high coherence (`0.99195`–`0.99913`) with amplitude ratios roughly 0.82–0.85. Good waveform agreement but some under-level.
+- 15750–16125 Hz: reference share 0.09779, candidate 0.00164, amplitude ratio 0.12939, coherence -0.00248. An expected reference feature is essentially absent from that output bucket.
+- Adjacent candidate-only spectral energy: 15375–15750 Hz (candidate share 0.08805), 16125–16500 Hz (0.04095), 16500–16875 Hz (0.03090); plus 15000–15375 Hz (0.00351). This could be a shifted/dispersed tone or an error in HF generation, but remains a hypothesis. The very small reference energy in these buckets makes the large `HF/ref` amplitude ratios unsuitable for direct gain corrections.
+- The large error buckets 6750–7125 (`0.289435`), 15375–15750 (`0.087625`), 15750–16125 (`0.099488`), 16125–16500 (`0.040749`), 16500–16875 (`0.030755`) together account for approximately **0.548 of the full reference residual's power** in SBR-64's reported normalization. This concentrates the investigation on a handful of frequency components.
+
+**Next test**: added `tools/sauti_sbr65_hf_peak_audit.py` and Make target `test-aac-sbr-hf-peak-audit` (also part of `test-aac-native`). Like SBR-63/64 it reads the existing LOW, HF, noise, full-preview and independent FFmpeg f32le files; uses *only* the LOW-derived lag, gain and bias; checks additive PCM closure and independently aggregates Hann-windowed FFT-bin power across the stable 44 frames. Frequency resolution is 48000/2048 = **23.4375 Hz**. For the 6–9 kHz and 15–18 kHz regions it reports the four strongest distinct peaks in reference and Sauti HF, dominant peak displacement, candidate power at the reference peak, and exact reference-bin signed coherence. No scale, phase or lag optimization is permitted on HF.
+
+The script includes a self-test using two exact bin-centered tones, then shifts both candidate peaks by a known number of bins; verifies the measured displacement, the exact-match control and rejection of malformed frame selection and NaN. **Real SBR-65 output and full native gate have not yet been run**; do not claim a production decoder fix from SBR-64's PCM-spectrum evidence alone.
+
+Run on Fedora using the existing files:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-hf-peak-audit PKG_CONFIG=/bin/false
+python3 tools/sauti_sbr65_hf_peak_audit.py \
+  --low /tmp/sbr61.low.f32le \
+  --hf /tmp/sbr61.hf.f32le \
+  --noise /tmp/sbr61.noise.f32le \
+  --preview /tmp/sbr61.preview.f32le \
+  --reference /tmp/sbr61.reference.f32le \
+  --first-frame 3 --last-frame 46 | tee /tmp/sbr65.log
+```
+
+The next substantive decoder change, if warranted, should be tested against an independently captured complex QMF HF reference before modifying patch mapping, transposition or harmonic reconstruction. **No production AAC-LC, SBR, QMF, HF or PCM code was changed in SBR-65.**
