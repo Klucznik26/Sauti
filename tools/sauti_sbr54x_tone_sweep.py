@@ -105,6 +105,16 @@ def main():
         from sauti_he_aac_qmf_reference_audit import read_complex
         a=read_complex(sa,args.frames)
         b=read_complex(ff,args.frames)
+        # Detect the former stereo-first-two-calls bug: its two initial
+        # QMF frame sections were bit-identical for every tone. A genuine
+        # single-channel continuation must preserve history across frames.
+        first = b[6*8:32*8]
+        second = b[(32+6)*8:64*8]
+        if first == second:
+            raise ValueError(
+                f"LOW {target}: FFmpeg repeated startup frames byte-for-byte; "
+                "check stereo channel selection and fixture"
+            )
         fitted=gain_compare(a,b,args.frames)
         ea=energy_profile(sa,args.frames)
         eb=energy_profile(ff,args.frames)
