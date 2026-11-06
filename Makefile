@@ -807,6 +807,14 @@ $(OBJDIR)/test_aac_sbr_temporal_hf_units: tests/test_aac_sbr_temporal_hf_units.c
 test-aac-sbr-temporal-hf-units: $(OBJDIR)/test_aac_sbr_temporal_hf_units
 	./$(OBJDIR)/test_aac_sbr_temporal_hf_units
 
+AAC_SBR_TEMPORAL_ENERGY_UNITS_SRC := src/decoders/modern/aac/sauti_aac_sbr_temporal_energy_units.c
+$(OBJDIR)/test_aac_sbr_temporal_energy_units: tests/test_aac_sbr_temporal_energy_units.c include/sauti_aac_sbr_temporal_energy_units.h $(AAC_SBR_TEMPORAL_ENERGY_UNITS_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_temporal_energy_units.c $(AAC_SBR_TEMPORAL_ENERGY_UNITS_SRC) -lm -no-pie
+
+.PHONY: test-aac-sbr-temporal-energy-units
+test-aac-sbr-temporal-energy-units: $(OBJDIR)/test_aac_sbr_temporal_energy_units
+	./$(OBJDIR)/test_aac_sbr_temporal_energy_units
+
 AAC_SBR_TEMPORAL_HARMONIC_PREVIEW_SRC := src/decoders/modern/aac/sauti_aac_sbr_temporal_harmonic_preview.c
 AAC_SBR_TEMPORAL_HARMONIC_PREVIEW_DEPS := $(sort $(AAC_SBR_TEMPORAL_MIX_DEPS) $(AAC_SBR_TEMPORAL_HARMONIC_PREVIEW_SRC))
 
@@ -855,8 +863,8 @@ $(OBJDIR)/test_aac_sbr_adts_qmf: tests/test_aac_sbr_adts_qmf.c tests/test_aac_sb
 test-aac-sbr-adts-qmf: $(OBJDIR)/test_aac_sbr_adts_qmf
 	./$(OBJDIR)/test_aac_sbr_adts_qmf
 
-$(OBJDIR)/sauti_he_aac_probe: tools/sauti_he_aac_probe.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) $(AAC_SBR_TEMPORAL_MIX_SRC) $(AAC_SBR_TEMPORAL_SMOOTH_SRC) $(AAC_SBR_TEMPORAL_PCM_PREVIEW_SRC) $(AAC_SBR_TEMPORAL_ENERGY_AUDIT_SRC) $(AAC_SBR_TEMPORAL_ENVELOPE_AUDIT_SRC) $(AAC_SBR_LPC_ESTIMATE_SRC) $(AAC_SBR_TEMPORAL_HARMONIC_PREVIEW_SRC) $(AAC_SBR_TEMPORAL_HF_UNITS_SRC) $(AAC_SBR_GAIN_PARTITION_SRC) $(AAC_SBR_GAIN_LIMIT_PARTITION_SRC) $(AAC_SBR_TEMPORAL_REFERENCE_GAIN_SRC) $(AAC_SBR_TEMPORAL_GAIN_BRIDGE_SRC) $(AAC_SBR_HF_PHASE_PROBE_SRC) $(AAC_SBR_TEMPORAL_SOURCE6_SRC) $(AAC_SBR_HF_BAND_AUDIT_SRC) $(AAC_SBR_HF_PATCH_ROUTE_AUDIT_SRC) src/decoders/modern/aac/sauti_aac_sbr_low_source_audit.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_aac_probe.c $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) $(AAC_SBR_TEMPORAL_MIX_SRC) $(AAC_SBR_TEMPORAL_SMOOTH_SRC) $(AAC_SBR_TEMPORAL_PCM_PREVIEW_SRC) $(AAC_SBR_TEMPORAL_ENERGY_AUDIT_SRC) $(AAC_SBR_TEMPORAL_ENVELOPE_AUDIT_SRC) $(AAC_SBR_LPC_ESTIMATE_SRC) $(AAC_SBR_TEMPORAL_HARMONIC_PREVIEW_SRC) $(AAC_SBR_TEMPORAL_HF_UNITS_SRC) $(AAC_SBR_GAIN_PARTITION_SRC) $(AAC_SBR_GAIN_LIMIT_PARTITION_SRC) $(AAC_SBR_TEMPORAL_REFERENCE_GAIN_SRC) $(AAC_SBR_TEMPORAL_GAIN_BRIDGE_SRC) $(AAC_SBR_HF_PHASE_PROBE_SRC) $(AAC_SBR_TEMPORAL_SOURCE6_SRC) $(AAC_SBR_HF_BAND_AUDIT_SRC) $(AAC_SBR_HF_PATCH_ROUTE_AUDIT_SRC) src/decoders/modern/aac/sauti_aac_sbr_low_source_audit.c -lm -no-pie
+$(OBJDIR)/sauti_he_aac_probe: tools/sauti_he_aac_probe.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) $(AAC_SBR_TEMPORAL_MIX_SRC) $(AAC_SBR_TEMPORAL_SMOOTH_SRC) $(AAC_SBR_TEMPORAL_PCM_PREVIEW_SRC) $(AAC_SBR_TEMPORAL_ENERGY_AUDIT_SRC) $(AAC_SBR_TEMPORAL_ENVELOPE_AUDIT_SRC) $(AAC_SBR_LPC_ESTIMATE_SRC) $(AAC_SBR_TEMPORAL_HARMONIC_PREVIEW_SRC) $(AAC_SBR_TEMPORAL_HF_UNITS_SRC) $(AAC_SBR_TEMPORAL_ENERGY_UNITS_SRC) $(AAC_SBR_GAIN_PARTITION_SRC) $(AAC_SBR_GAIN_LIMIT_PARTITION_SRC) $(AAC_SBR_TEMPORAL_REFERENCE_GAIN_SRC) $(AAC_SBR_TEMPORAL_GAIN_BRIDGE_SRC) $(AAC_SBR_HF_PHASE_PROBE_SRC) $(AAC_SBR_TEMPORAL_SOURCE6_SRC) $(AAC_SBR_HF_BAND_AUDIT_SRC) $(AAC_SBR_HF_PATCH_ROUTE_AUDIT_SRC) src/decoders/modern/aac/sauti_aac_sbr_low_source_audit.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_aac_probe.c $(AAC_SBR_ADTS_QMF_DEPS) $(AAC_SBR_TEMPORAL_QMF_SRC) $(AAC_SBR_TEMPORAL_POWER_SRC) $(AAC_SBR_TEMPORAL_GAIN_SRC) $(AAC_SBR_TEMPORAL_APPLY_SRC) $(AAC_SBR_TEMPORAL_NOISE_SRC) $(AAC_SBR_TEMPORAL_MIX_SRC) $(AAC_SBR_TEMPORAL_SMOOTH_SRC) $(AAC_SBR_TEMPORAL_PCM_PREVIEW_SRC) $(AAC_SBR_TEMPORAL_ENERGY_AUDIT_SRC) $(AAC_SBR_TEMPORAL_ENVELOPE_AUDIT_SRC) $(AAC_SBR_LPC_ESTIMATE_SRC) $(AAC_SBR_TEMPORAL_HARMONIC_PREVIEW_SRC) $(AAC_SBR_TEMPORAL_HF_UNITS_SRC) $(AAC_SBR_TEMPORAL_ENERGY_UNITS_SRC) $(AAC_SBR_GAIN_PARTITION_SRC) $(AAC_SBR_GAIN_LIMIT_PARTITION_SRC) $(AAC_SBR_TEMPORAL_REFERENCE_GAIN_SRC) $(AAC_SBR_TEMPORAL_GAIN_BRIDGE_SRC) $(AAC_SBR_HF_PHASE_PROBE_SRC) $(AAC_SBR_TEMPORAL_SOURCE6_SRC) $(AAC_SBR_HF_BAND_AUDIT_SRC) $(AAC_SBR_HF_PATCH_ROUTE_AUDIT_SRC) src/decoders/modern/aac/sauti_aac_sbr_low_source_audit.c -lm -no-pie
 
 .PHONY: test-aac-he-stem-ablation
 test-aac-he-stem-ablation:
@@ -1159,7 +1167,7 @@ test-aac-native-adapter: $(OBJDIR)/test_decoder_aac_native
 
 # Runs all native AAC modules without requiring libav*/FFmpeg.
 .PHONY: test-aac-native
-test-aac-native: test-aac-headers test-aac-syntax test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
+test-aac-native: test-aac-headers test-aac-syntax test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
 
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm
@@ -1422,6 +1430,62 @@ test-aac-sbr-qmf-startup-slots:
 	python3 -m py_compile tools/sauti_sbr54z_startup_slots.py
 	python3 tools/sauti_sbr54z_startup_slots.py --self-test
 	python3 tools/sauti_sbr54z_startup_slots.py
+
+# SBR-55: static, fail-closed QMF table/order audit.  Real comparison needs
+# an explicitly supplied disposable FFmpeg source checkout.
+.PHONY: test-aac-sbr-qmf-convention
+test-aac-sbr-qmf-convention:
+	python3 -m py_compile tools/sauti_sbr55_qmf_convention_audit.py
+	python3 tools/sauti_sbr55_qmf_convention_audit.py --self-test
+
+# SBR-55: profile periodic residual after a fixed complex-gain calibration.
+.PHONY: test-aac-sbr-qmf-modulation
+test-aac-sbr-qmf-modulation:
+	python3 -m py_compile tools/sauti_sbr55_modulation_audit.py
+	python3 tools/sauti_sbr55_modulation_audit.py --self-test
+
+# SBR-55: disposable FFmpeg stage trace and matching standalone Sauti export.
+$(OBJDIR)/sauti_qmf_stage_export: tools/sauti_qmf_stage_export.c include/sauti_aac_sbr_qmf_synth_window.h $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_qmf_stage_export.c $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+.PHONY: test-aac-sbr-qmf-stage-trace export-aac-sbr-qmf-stages
+test-aac-sbr-qmf-stage-trace:
+	python3 -m py_compile tools/sauti_ffmpeg_qmf_stage_trace.py
+	python3 tools/sauti_ffmpeg_qmf_stage_trace.py --self-test
+	python3 -m py_compile tools/sauti_sbr55_stage_audit.py
+	python3 tools/sauti_sbr55_stage_audit.py x x x x --self-test
+	python3 -m py_compile tools/sauti_ffmpeg_qmf_branch0_trace.py tools/sauti_sbr55_branch0_audit.py
+	python3 tools/sauti_ffmpeg_qmf_branch0_trace.py --self-test
+	python3 tools/sauti_sbr55_branch0_audit.py x x --self-test
+export-aac-sbr-qmf-stages: $(OBJDIR)/sauti_qmf_stage_export
+	@echo "Usage: ./$(OBJDIR)/sauti_qmf_stage_export CORE.f32le BRANCH0.f32le PRE.f32le POST.f32le"
+
+# SBR-57: trace the reference 64-band synthesis input/PCM and replay it
+# through Sauti's standalone synthesis implementation.  The trace patcher is
+# fail-closed and operates only on an explicitly supplied disposable FFmpeg.
+$(OBJDIR)/sauti_qmf_synth_export: tools/sauti_qmf_synth_export.c include/sauti_aac_sbr_qmf_synth_mod.h include/sauti_aac_sbr_qmf_synth_window.h $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_qmf_synth_export.c $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+.PHONY: test-aac-sbr-qmf-synth-trace export-aac-sbr-qmf-synth
+test-aac-sbr-qmf-synth-trace:
+	python3 -m py_compile tools/sauti_ffmpeg_qmf_synth_trace.py tools/sauti_sbr57_synth_audit.py tools/sauti_sbr57_trace_select.py
+	python3 tools/sauti_ffmpeg_qmf_synth_trace.py --self-test
+	python3 tools/sauti_sbr57_synth_audit.py x x --self-test
+	python3 tools/sauti_sbr57_trace_select.py --self-test
+export-aac-sbr-qmf-synth: $(OBJDIR)/sauti_qmf_synth_export
+	@echo "Usage: ./$(OBJDIR)/sauti_qmf_synth_export FF_X.f32le SAUTI_PCM.f32le 32768"
+
+# SBR-58: compare just the QMF complex-to-real modulation before the
+# prototype-window/history stage, against a disposable FFmpeg V trace.
+$(OBJDIR)/sauti_qmf_synth_mod_export: tools/sauti_qmf_synth_mod_export.c include/sauti_aac_sbr_qmf_synth_mod.h include/sauti_aac_sbr_qmf_synth_window.h $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_qmf_synth_mod_export.c $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+.PHONY: test-aac-sbr-qmf-synth-stage-trace export-aac-sbr-qmf-synth-mod
+test-aac-sbr-qmf-synth-stage-trace:
+	python3 -m py_compile tools/sauti_ffmpeg_qmf_synth_stage_trace.py
+	python3 tools/sauti_ffmpeg_qmf_synth_stage_trace.py --self-test
+export-aac-sbr-qmf-synth-mod: $(OBJDIR)/sauti_qmf_synth_mod_export
+	@echo "Usage: ./$(OBJDIR)/sauti_qmf_synth_mod_export FF_X.f32le SAUTI_V.f32le 32768"
 
 # SBR-54z: stereo-aware independent QMF analyzer instrumentation only.
 .PHONY: test-aac-sbr-qmf-stereo-select

@@ -2,9 +2,9 @@
  * modulation and atomic connection to SBR-25 polyphase window.
  *
  * Reference kernel: Real part of complex synthesis-QMF modulation:
- *   V[n] = (1/64) * sum_{k=0..63} (
+ *   V[n] = -(1/64) * sum_{k=0..63} (
  *             Re(X[k])*cos(theta) - Im(X[k])*sin(theta)),
- *   theta=pi*(k+1/2)*(2*n-63)/128, n=0..127.
+ *   theta=pi*(k+1/2)*(2*n+1)/128, n=0..127.
  *
  * The direct kernel is deliberately simple to test independently
  * before an optimized DCT-IV/MDCT/ASM path is added. The following
@@ -42,7 +42,7 @@ int sauti_aac_sbr_qmf_synth_modulate_64(
                 SAUTI_AAC_SBR_QMF_MOD_VALUES];
     for(unsigned t=0;t<slots;t++)
         for(unsigned n=0;n<SAUTI_AAC_SBR_QMF_MOD_VALUES;n++){
-            const double offset=(double)(2u*n)-63.0;
+            const double offset=(double)(2u*n)+1.0;
             double sum=0.0;
             for(unsigned k=0;k<SAUTI_AAC_SBR_QMF_MOD_BANDS;k++){
                 const SautiAacSbrComplex x=
@@ -52,7 +52,7 @@ int sauti_aac_sbr_qmf_synth_modulate_64(
                 sum+=(double)x.re*cos(theta)-
                      (double)x.im*sin(theta);
             }
-            const double y=sum/64.0;
+            const double y=-sum/64.0;
             if(!isfinite(y) || fabs(y)>FLT_MAX)return 0;
             stage[(size_t)t*SAUTI_AAC_SBR_QMF_MOD_VALUES+n]=(float)y;
         }

@@ -32,12 +32,18 @@ static void test_golden_coefficients(void){
     close_to(coeff(1u),-0.0005525286);
     close_to(coeff(64u),0.0026201758);
     close_to(coeff(320u),0.8537385600);
+    close_to(coeff(384u),-0.3611589903);
+    close_to(coeff(512u),-0.0132718220);
     close_to(coeff(639u),-0.0005525286);
     assert(coeff(320u)>0.85f);
-    /* QMF prototype is symmetric around coefficient 320 except for
-     * the extra zero sample at index 0. */
-    for(unsigned i=1u;i<640u;i++)
+    /* ISO/FFmpeg's prototype is symmetric around coefficient 320 except for
+     * the extra zero at 0 and the two required sign inversions 384/512. */
+    for(unsigned i=1u;i<640u;i++) {
+        if(i==128u || i==256u || i==384u || i==512u) continue;
         close_to(coeff(i),coeff(640u-i));
+    }
+    close_to(coeff(384u),-coeff(256u));
+    close_to(coeff(512u),-coeff(128u));
     float untouched=37.25f;
     assert(!sauti_aac_sbr_qmf_synth_window_coefficient(640u,&untouched));
     assert(untouched==37.25f);

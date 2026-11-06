@@ -2419,9 +2419,9 @@ na **128 rzeczywistych wartości modulacji V**.
 
 Dla numeru pasma `k=0..63` i próbki modulacji `n=0..127`:
 
-`phase = π*(k+0.5)*(2*n-63)/128`
+`phase = π*(k+0.5)*(2*n+1)/128`
 
-`V[n] = (1/64) * sum_k (Re(X[k])*cos(phase) - Im(X[k])*sin(phase))`.
+`V[n] = -(1/64) * sum_k (Re(X[k])*cos(phase) - Im(X[k])*sin(phase))`.
 
 To bezpośrednia postać zespolonego 64-pasmowego
 modulatora syntezy SBR, bez optymalizacji szybką
@@ -5445,3 +5445,388 @@ This closes the original false startup discontinuity finding under **this specif
 - **Kod produkcyjny AAC/QMF Sauti NIE był zmieniany.** Wyniki dotyczą diagnostycznego analizatora, konkretnych częstotliwości i pasm LOW 2–5; nie są deklaracją pełnej zgodności HE-AAC lub wszystkich 32 pasm.
 
 **Początek kolejnej sesji — proponowany SBR-55:** wykonać odrębny audyt skali i konwencji współczynników filtra (zwłaszcza różnicy ~1,56% po dopasowaniu zysku) na zweryfikowanych plikach `/tmp/sbr54x-tones/low{2,3,4,5}`. Najpierw diagnostyka, żadnych pochopnych zmian implementacji. Jeśli katalog `/tmp` zniknie, ponownie wyeksportować tony przez `SAUTI_SBR54W_CHANNELS=2 python3 tools/sauti_sbr54x_tone_sweep.py --frames 20 --decode-frames 100` na wcześniej przygotowanym, instrumentowanym FFmpeg. `SAUTI_SBR54W_CHANNELS=2` jest w tej wersji instrumentacji przełącznikiem **selekcji jednego obserwowanego kontekstu historii**, nie dowodem tożsamości kanału stereo. Nie porównywać ze starymi 50-ramkowymi pomiarami mieszającymi konteksty.
+
+### SBR-55 — statyczny audyt konwencji okna QMF (2026-11-06)
+
+Pierwszy krok SBR-55 jest wyłącznie diagnostyczny. Dodano
+`tools/sauti_sbr55_qmf_convention_audit.py` oraz cel
+`make test-aac-sbr-qmf-convention`. Test własny sprawdza parsery, dokładne
+mapowanie co-drugiego współczynnika i fail-closed kotwice źródła FFmpeg.
+
+W pełnym uruchomieniu narzędzie przyjmuje jawne pliki
+`aacsbrdata.h` i `aacsbr_template.c` z **jednego, jednorazowego checkoutu
+FFmpeg**. Wymaga 640-tapowej tablicy Sauti, 320-tapowej tablicy FFmpeg oraz
+kotwic kolejności historii: przesunięcia 320 próbek, dopisania wejścia pod
+`x+288`, odwróconego mnożenia okna, sumowania `64x5` i obu shuffle. Sprawdza
+relację `ffmpeg_ds[i] == sauti_prototype[2*i]` dla `i=0..319`.
+
+To może wykluczyć wyłącznie błąd skopiowanej tablicy prototypu, znaku lub
+prostej skali jej współczynników. Nie może dowieść zgodności transformacji,
+tożsamości kanału, geometrii fixture'u, skali PCM ani zgodności HE-AAC. Nie
+zmieniono produkcyjnego dekodera ani filtrów; różnica ~1,56% pozostaje
+otwartą hipotezą do sprawdzenia na ponownie wygenerowanych danych SBR-54x.
+
+Przykładowe uruchomienie referencyjne:
+```sh
+python3 tools/sauti_sbr55_qmf_convention_audit.py \
+  --ffmpeg-data ~/Sauti-tools/ffmpeg-sbr54w/libavcodec/aacsbrdata.h \
+  --ffmpeg-template ~/Sauti-tools/ffmpeg-sbr54w/libavcodec/aacsbr_template.c
+```
+
+#### SBR-55 — nieprawidłowy pierwszy PASS audytu statycznego (2026-11-06)
+
+Pierwszy raport `max_abs=0`, `rms=0` był **nieprawidłowy**: parser akceptował
+`-Q31(...)` jako dodatnie `Q31(...)`, więc pominął znak unarny występujący w
+referencyjnej tablicy FFmpeg. Nie wolno używać tego wcześniejszego wyniku jako
+dowodu zgodności prototypu. Poprawiony parser zachowuje znak zewnętrzny,
+posiada test własny dla `-Q31(...)` i fail-closed porównuje wszystkie 320
+współczynników.
+
+#### SBR-55 — świeże eksporty i brak opóźnienia całych slotów (2026-11-06)
+
+Odtworzono wszystkie cztery tony SBR-54x z `--frames 20` i
+`--decode-frames 100`, przy `SAUTI_SBR54W_CHANNELS=2`. Każdy eksport przeszedł
+sprawdzenie pełnego rozmiaru, skończoności, prerollu oraz ciągłości jednego
+kontekstu historii. Dla pobudzonego pasma LOW 2..5 wynik powtarza
+`coherence≈0.99987797`, `residual≈0.0156218` i
+`FFmpeg/Sauti RMS≈33275.9` po okresie rozruchu.
+
+`sauti_sbr54w_lag_audit.py --max-lag 8` wskazał dla każdego pobudzonego
+pasma jednoznacznie `best_lag=+0`. Nie jest to więc przesunięcie o całkowitą
+liczbę slotów QMF. Pasma niepobudzone mają zbyt małą energię, by ich lag
+interpretować jako wynik zgodności. Dodano kolejny, tylko-diagnostyczny
+profil `tools/sauti_sbr55_modulation_audit.py` i cel
+`test-aac-sbr-qmf-modulation`: po tym samym stałym dopasowaniu zespolonego
+zysku mierzy zakres modułu/fazy ilorazu oraz dominującą okresową składową
+reszty. Nie zmienia QMF ani PCM i nie stanowi podstawy do korekcji dekodera.
+
+#### SBR-55 — reszta ma parzystość co slot (2026-11-06)
+
+Pełne widmo 576 stabilnych slotów wykazało we wszystkich czterech pobudzonych
+pasmach tę samą dominującą harmoniczną `288` (Nyquist czasu slotów). Jej
+amplituda jest równa RMS reszty (`~0.0156237..0.0156238`), czyli praktycznie
+cała pozostałość po dopasowaniu stałego wzmocnienia zmienia znak **co jeden
+slot QMF**. Zakres ilorazu Sauti/(gain×FFmpeg) to odpowiednio LOW2
+`[0.98625, 1.01381]`, LOW3 `[0.98797, 1.01213]`, LOW4 `[0.99016, 1.00998]`,
+LOW5 `[0.99273, 1.00746]`; zakresy fazy nie przekraczają około `±0.80°`.
+
+Narzędzie domyślnie bada teraz całe widmo do Nyquista (`--max-harmonic 0`)
+i jawnie oznacza `alternating_slot_residual=yes`. To zawęża hipotezę do
+parzystości/koniugacji ścieżki modulacji lub formatu zapisu W, nie dowodzi
+jednak, po której stronie leży błąd ani nie uzasadnia przełączania znaków w
+kodzie produkcyjnym. Następny bezpieczny krok: wyeksportować przed/post-shuffle
+oraz wejście transformacji z instrumentowanego FFmpeg i porównać je z
+odpowiednikiem Sauti na jednym slocie parzystym i nieparzystym.
+
+#### SBR-55 — przygotowanie śladu granic modulacji (2026-11-06)
+
+Dodano dwa narzędzia diagnostyczne, jeszcze bez zmiany dekodera:
+`tools/sauti_ffmpeg_qmf_stage_trace.py` tworzy fail-closed patch wyłącznie
+dla wcześniej instrumentowanego, jednorazowego checkoutu FFmpeg, a
+`tools/sauti_qmf_stage_export.c` eksportuje z tego samego shared PCM wektor
+Sauti po sumowaniu polifazowym oraz wektor w współrzędnych FFmpeg sprzed
+`post_shuffle`. Patch FFmpeg zapisuje po 64 `float` po `sum64x5` i po MDCT,
+tylko dla aktywnych ramek shared PCM; wymaga obu ścieżek wyjściowych albo
+kończy pracę błędem.
+
+Kolejny przebieg musi najpierw przejść syntetyczny test kotwic patchera,
+następnie kompilację **wyłącznie** tego checkoutu FFmpeg i pełną kontrolę
+rozmiaru 20×32×64 wartości dla obu etapów. Dopiero porównanie wektorów
+parzystego i nieparzystego slotu może wykazać granicę, na której powstaje
+reszta Nyquista. Żadne dane śladowe nie są wejściem ani zmianą dekodera.
+
+`tools/sauti_sbr55_stage_audit.py` odrzuca niepełne lub niefinitywne dane,
+sprawdza liczbę wektorów i raportuje najlepszą z dwóch jawnych orientacji
+wektora przed transformacją (`identity` lub `reverse64`) oraz niezależny
+residual po MDCT. Dopuszcza tylko stały rzeczywisty gain diagnostyczny; nie
+ukrywa błędu przez korekcję co slot lub przez zmianę produkcyjnych współczynników.
+
+#### SBR-55 — pierwszy ślad etapów: źródło przed modulacją (2026-11-06)
+
+Patcher SBR-55 przeszedł test syntetyczny, zbudowano jednorazowy FFmpeg i
+uruchomiono go dla wspólnego tonu LOW2 z 20 ramkami. Wszystkie cztery ślady
+(`Sauti pre/post`, `FFmpeg pre/post`) miały wymagane `20×32×64×4 = 163840`
+bajtów. Audyt wybrał `identity` dla kolejności wektora przed transformacją,
+ale otrzymał już tam `gain=0.98488856`, `residual=0.122932428`. Po MDCT,
+przed `post_shuffle`, residual pozostaje praktycznie identyczny
+`0.122932423` (przy spodziewanej różnicy globalnej skali `gain≈3.00564e-05`).
+
+Zatem obserwowana później reszta Nyquista nie ma źródła w `pre_shuffle`,
+MDCT ani `post_shuffle`: jest obecna w danych po `sum64x5`, tj. w historii
+wejściowej, odwróceniu okna albo indeksowaniu polifazy. Dodano rozbicie
+parzyste/nieparzyste do audytu etapów; przed zmianą implementacji trzeba
+sprawdzić tę parzystość oraz porównać pięć składników każdego `sum64x5`.
+
+Wynik wstępny zawierał również pierwsze sloty po nieudostępnionym wywołaniu
+rozgrzewającym FFmpeg. Audyt etapów od wersji SBR-55 domyślnie odrzuca sloty
+`[0,64)`, identycznie jak zweryfikowany audyt SBR-54y; wynik dla całego
+zakresu jest zachowany wyłącznie jako diagnostyka rozruchu, nie jako miara
+stabilnej konwencji filtra.
+
+Audyt orientacji etapu polifazowego został rozszerzony z dwóch przypadków do
+wszystkich 64 przesunięć cyklicznych w obu kierunkach. Dzięki temu wynik nie
+zakłada z góry ani kolejności wektora, ani jego fazy indeksowej; raportuje
+najmniejszy residual jako `forward+N` lub `reverse+N` przed oceną wartości
+składników filtra.
+
+Na stabilnym fragmencie LOW2 audyt elementowy zawęził różnicę jeszcze dalej:
+elementy `1..63` po `sum64x5` zgadzają się z FFmpeg w granicy śladu `float`,
+natomiast różni się tylko element `0` (maksymalnie `0.0809907466` w tym
+eksperymencie). Następny ślad ma więc eksportować wyłącznie pięć iloczynów
+tworzących gałąź `z[0]`, zamiast rozbudowywać całe QMF lub modyfikować filtr.
+
+#### SBR-55 — ślad pięciu składników gałęzi `z[0]` (2026-11-06)
+
+Dodano fail-closed patcher `sauti_ffmpeg_qmf_branch0_trace.py`, który w
+jednorazowym FFmpeg zapisuje przed `sum64x5` wyłącznie `z[0]`, `z[64]`,
+`z[128]`, `z[192]` i `z[256]`. Eksporter Sauti zapisuje odpowiadające im pięć
+iloczynów historii i okna, a `sauti_sbr55_branch0_audit.py` porównuje każdy
+składnik od stabilnego slotu 64. Nie jest to poprawka dekodera; wynik ma
+jedynie wskazać konkretny offset historii wymagający audytu.
+
+#### SBR-55 — korekta dwóch znaków prototypu QMF (2026-11-06)
+
+Pomiar pięciu składników ustalił, że zgodne są gałęzie historii `0`, `64` i
+`128`, a rozbieżne `192` i `256`. Powtórzenie na nieokresowym, deterministycznym
+sygnale dało ten sam wynik; wykluczono więc artefakt pobudzenia tonalnego.
+Analiza tablicy FFmpeg wykazała następnie dwa szczególne wpisy zapisane jako
+`-Q31(...)`: `ds[192]` i `ds[256]`, czyli odpowiednio `prototype[384]` i
+`prototype[512]`. W Sauti oba były dodatnie.
+
+Skorygowano te dwa współczynniki w wspólnej 640-tapowej tablicy do
+`-0.3611589903f` oraz `-0.0132718220f`. To jest korekta danych prototypu,
+nie kompensacja skali ani fazy. Poprawiony audyt statyczny oraz ponowny ślad
+etapów muszą przejść przed uznaniem jej za zweryfikowaną; nadal nie stanowi to
+deklaracji pełnej zgodności HE-AAC.
+
+#### SBR-55 — walidacja korekty prototypu (2026-11-06)
+
+Po korekcie poprawiony audyt statyczny podał `max_abs=0`, `rms=0` dla pełnych
+320 par `FFmpeg ds[i]` i `Sauti prototype[2*i]`; obejmuje on teraz również
+zewnętrzny znak `-Q31(...)`. Na 20 ramkach wspólnego, deterministycznego i
+nieokresowego PCM pięć składników `z[0]` ma `max_abs_delta=0` dla każdego z
+offsetów historii `0, 64, 128, 192, 256`. Ślad etapu polifazowego po odrzuceniu
+rozgrzewki `[0,64)` osiągnął:
+
+```text
+pre_gain(FF->Sauti)=0.999999999  pre_residual=5.55748444e-08
+post_gain(FF->Sauti)=3.05175786e-05  post_residual=1.12306577e-07
+```
+
+Stały czynnik po MDCT to `1/32768`, tj. jawna skala Q31 po stronie FFmpeg;
+nie jest korygowany w kodzie Sauti. Kolejny niezależny przebieg SBR-54x dla
+czterech tonów LOW 2–5 potwierdził `coherence=1.000000`, stosunek RMS
+`FFmpeg/Sauti=32768` i residual pasma pobudzonego zaokrąglony do `0.000000`
+(największy ślad w sąsiednich badanych pasmach `0.000009`).
+
+Przeszły także `test-aac-sbr-qmf-synth-window`, `test-aac-sbr-qmf-synth-mod`,
+`test-aac-sbr-qmf-analysis`, `test-aac-sbr-qmf-frame` oraz testy własne
+narzędzi SBR-55 przy `-Wall -Wextra -Werror`. To waliduje 32-pasmową analizę
+QMF wobec tego konkretnego instrumentowanego FFmpeg i wspólnego wejścia;
+nie dowodzi jeszcze kompletności dekodera HE-AAC, parsowania SBR ani jakości
+końcowego PCM.
+
+Na końcu przeszedł również pełny pakiet `make test-aac-native
+PKG_CONFIG=/bin/false`, obejmujący wszystkie rodzime testy AAC/SBR, ADTS-QMF
+i adapter AAC-LC. Nie użyto systemowego FFmpeg ani nie zmodyfikowano jego
+instalacji; zewnętrzny checkout służył wyłącznie jako jednorazowa referencja
+diagnostyczna.
+
+### SBR-56 — pełna statyczna zgodność prototypu syntezy QMF (2026-11-06)
+
+Rozszerzono `tools/sauti_sbr55_qmf_convention_audit.py` o fail-closed odczyt
+obu tabel FFmpeg: 320-tapowego `sbr_qmf_window_ds` dla analizy oraz pełnego
+640-tapowego `sbr_qmf_window_us` dla syntezy. Parser zachowuje także zewnętrzny
+znak `-Q31(...)`; sam test własny obejmuje tę składnię.
+
+Pomiar na tym samym jednorazowym checkoutcie referencyjnym zakończył się:
+
+```text
+analysis  max_abs=0  rms=0  (FFmpeg ds[i] == Sauti prototype[2*i])
+synthesis max_abs=0  rms=0  (FFmpeg us[i] == Sauti prototype[i])
+```
+
+W ten sposób tabela używana przez `sauti_aac_sbr_qmf_synth_window_64` jest
+potwierdzona liczbowo, łącznie z dwiema wyjątkowymi inwersjami znaków 384/512.
+Nie jest to jeszcze dynamiczna walidacja syntezy: modulacja, historia 10
+bloków, skalowanie i opóźnienie końcowego PCM wymagają osobnego porównania
+wektorów QMF→PCM z referencją.
+
+### SBR-57 — przygotowanie dynamicznego śladu syntezy QMF (2026-11-06)
+
+Dodano niezależny od dekodera eksporter `sauti_qmf_synth_export` i dwa
+narzędzia diagnostyczne. Patcher `sauti_ffmpeg_qmf_synth_trace.py` może być
+zastosowany wyłącznie do jawnie podanego, jednorazowego checkoutu FFmpeg; przy
+włączonych **obu** zmiennych `SAUTI_SBR57_SYNTH_X` i
+`SAUTI_SBR57_SYNTH_PCM` zapisuje dla pełnego trybu float 32 sloty wejściowych
+współczynników `(re, im)` i odpowiadające im 2048 próbek PCM. Brak jednej ze
+ścieżek, profil niepełny albo tryb downsampled kończy program błędem — bez
+cichego częściowego pomiaru. Log zawiera także numer wywołania i adres stanu
+`v0`, aby dane kanałów/kontekstów nie zostały przypadkowo połączone.
+
+`sauti_sbr57_trace_select.py` wybiera wyłącznie całe rekordy o określonym
+starcie i kroku, po uprzedniej kontroli geometrii strumienia. Jest to wymagane
+dla stereo: każdy kanał ma własną historię syntezy i musi zostać przekazany do
+eksportera jako osobny, ciągły strumień — nie wolno przeplatać rekordów dwóch
+adresów `v0`.
+
+Eksporter dzieli wartości referencyjne przez jawną skalę wejściową (dla
+FFmpeg float oczekiwane `32768`) i zachowuje własny stan 10 bloków Sauti.
+`sauti_sbr57_synth_audit.py` oblicza tylko pojedynczy gain, residual i
+maksymalną różnicę — nie wprowadza kompensacji do dekodera. Na tym etapie
+przeszły wyłącznie testy własne oraz kompilacja narzędzi; pomiar z
+instrumentowanego checkoutu i wynik zgodności dynamicznej są jeszcze otwarte.
+
+### SBR-58 — rozdzielenie modulacji od okna syntezy (2026-11-06)
+
+Pierwszy pomiar SBR-57 na rzeczywistym `he_test.aac` zachował geometrię
+102 rekordów. Dwa początkowe adresy stanu były jednorazowe; od rekordu 2
+następowały naprzemiennie dwa stabilne adresy stereo. Po wybraniu wyłącznie
+parzystego kanału (`start=2`, `stride=2`) otrzymano 50 pełnych ramek, ale
+porównanie całego toru dało `gain=0.689597073`, `residual=0.716026104`.
+To jest wynik diagnostyczny, który **wyklucza** uznanie dynamicznej syntezy
+za zgodną.
+
+Dlatego dodano SBR-58: fail-closed patcher zapisuje bezpośrednio 32 bloki
+`V[128]` po deinterleave referencyjnego modulatora i przed oknem
+polifazowym, a osobny eksporter Sauti zapisuje 32 bloki z
+`sauti_aac_sbr_qmf_synth_modulate_64`. Pomiar ma wskazać, czy przyczyną jest
+konwencja `(re, im)`/faza modulacji, czy późniejsze okno i historia. Kod
+produkcyjny nie został na tym etapie zmieniony.
+
+#### SBR-58 — znaleziona i zweryfikowana korekta modulacji
+
+Ślad `V` wykazał, że błąd jest w SBR-26, przed oknem: dotychczasowe
+`phase = π*(k+0.5)*(2*n-63)/128` przesuwało modulację o 32 sloty fazowe.
+Referencja używa dokładnie:
+
+`phase = π*(k+0.5)*(2*n+1)/128`
+
+`V[n] = -(1/64) * Σ(Re(X[k])*cos(phase) - Im(X[k])*sin(phase))`.
+
+Zmieniono tę postać w implementacji, interfejsie i niezależnej referencji
+testu; zaktualizowano również wektory golden oraz symetrię wokół `n=63.5`.
+To jest zmiana normatywnej konwencji modulacji, nie dopasowanie gainu ani
+korekcja zależna od ramki.
+
+Na 50 ciągłych ramach **każdego** kanału rzeczywistego `he_test.aac`
+(kanały: rekordy `2,4,...,100` i `3,5,...,101`; każdy ma osobny stan)
+pomiar po korekcie dał w obu przypadkach:
+
+```text
+V:   gain(FFmpeg->Sauti)=0.99999998  residual=8.29265846e-08
+PCM: gain(FFmpeg->Sauti)=0.99999998  residual=8.31454214e-08
+```
+
+Maksymalne różnice po pojedynczym gainie wyniosły odpowiednio
+`2.49718017e-08` i `3.50104732e-08`. Wraz z SBR-56 (identyczna tabela
+640 współczynników) zamyka to dynamiczną walidację **64-pasmowej syntezy QMF
+dla tej referencji float i tego wejścia**. Nie oznacza jeszcze zakończenia
+całego dekodera HE-AAC: parser SBR, HF generation/adjustment, połączenie z
+rdzeniem AAC oraz testy wielostrumieniowe pozostają osobnymi etapami.
+
+#### SBR-58 — sprawdzenie ścieżki używanej przez dekoder
+
+Korekta nie jest ograniczona do eksportera: normalna droga
+`sauti_aac_he_adts_qmf_decode_ex` wywołuje
+`sauti_aac_sbr_qmf_frame_process`, a ten używa
+`sauti_aac_sbr_qmf_synth_64`. Pełne `make test-aac-native
+PKG_CONFIG=/bin/false` przeszło po zmianie, w tym SBR-26, SBR-28, SBR-31 i
+ADTS-QMF.
+
+`./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50` nadal uczciwie
+zatrzymuje właściwy dekoder po dwóch ramach na nieobsługiwanym wariancie
+`EXT_SBR_DATA`; nie wstawia ciszy. Jego niezależna diagnostyka przeprowadza
+jednak 50 ramek ciągłego rdzenia/temporalnego QMF i tworzy skończony preview
+64-QMF. To potwierdza użycie poprawionej syntezy w istniejącej ścieżce
+diagnostycznej, ale nie jest deklaracją dekodowania tego pliku do zgodnego
+końcowego PCM HE-AAC.
+
+### SBR-59 — rozdzielenie poprawnego LOW od niezweryfikowanego HF (2026-11-06)
+
+Po SBR-58 wykonano pomiar end-to-end na 50 ramach `he_test.aac`: temporalny
+parser i diagnostyczny 64-QMF przechodzą pełny ciąg, a FFmpeg dostarcza
+niezależne mono/48 kHz `f32le`. Surowy preview SBR-54a nadal nie jest zbieżny
+z referencją (`corr=0.099916`, `lag=-4896`, błąd po najlepszej skali
+`99.645%`).
+
+Wariant SBR-54i `units` (dzielenie gotowego aktywnego HF przez `32768`) dał
+pozornie bardzo dobry wynik całego przebiegu: `lag=384`, `corr=1.000000`,
+`gain=1.4142129` oraz błąd `0.043%`. Nie został jednak uznany za poprawkę.
+Eksport SBR-54c rozdzielił bowiem ten sam przebieg na trzy syntezy QMF:
+
+```text
+LOW:   corr=1.000000, lag=384, gain=1.4142131, relative error=0.034%
+HF:    corr=-0.000040 względem pełnej referencji
+noise: corr= 0.000011 względem pełnej referencji
+```
+
+Oznacza to, że dopasowanie `units` było zdominowane przez już zgodny tor LOW,
+nie że HF stał się zgodny. To ważne rozróżnienie: globalna korelacja pełnego
+PCM nie może być używana jako walidacja wysokich pasm, gdy ich energia jest
+mała względem sygnału podstawowego.
+
+Rozszerzono `tools/sauti_he_aac_compare_pcm.py` o tryb fail-closed:
+
+```text
+python3 tools/sauti_he_aac_compare_pcm.py --sbr59-audit LOW.f32le UNITS.f32le REF.f32le
+```
+
+Najpierw ustala on opóźnienie i pojedynczą skalę **wyłącznie** na LOW, a
+potem porównuje `scale * (units - low)` z resztą referencji po odjęciu LOW.
+Ma własny syntetyczny test, który uniemożliwia pomylenie korelacji całego
+sygnału z korelacją kandydackiego HF. Narzędzie, SBR-54i i wszystkie wyniki
+z tego akapitu pozostają diagnostyką; nie zmieniono ścieżki produkcyjnej,
+dekwantyzacji energii ani skali publicznego PCM.
+
+Na tym samym eksporcie właściwy audyt rozdzielony podał:
+
+```text
+reszta referencji po LOW: RMS=4.0628541e-05
+kandydat HF units:        RMS=4.1687096e-05
+korelacja tylko HF:       0.216312
+błąd tylko HF RMS:        5.1534094e-05
+```
+
+Skale RMS są przypadkowo podobne, ale korelacja wyklucza traktowanie ich jako
+tego samego sygnału. SBR-54i pozostaje odrzuconym A/B; nie wolno włączać go
+w dekoderze ani kompensować tym wynikiem końcowego PCM.
+
+Następny etap produkcyjny musi ustanowić jedną konwencję jednostek dla
+źródła QMF, energii obwiedni, gainu, szumu i sinusoidy **przed** ich złożeniem
+i syntezą. Dopiero osobny ślad HF wobec referencji może uzasadnić przeniesienie
+tej konwencji poza diagnostykę.
+
+### SBR-60 — jawna granica energii QMF w driverze temporalnym (2026-11-06)
+
+SBR-59 wskazał konkretną niespójność: `sauti_aac_sbr_energy_dequant` zachowuje
+wartości energii obwiedni w konwencji referencyjnego QMF, podczas gdy
+`sauti_aac_sbr_temporal_qmf_prepare` analizuje znormalizowane próbki float.
+Porównanie energii bez konwersji mieszało więc `E_ref` z `E_ref / 32768²`.
+
+Dodano transakcyjny adapter
+`sauti_aac_sbr_temporal_payload_normalize_qmf_energy`:
+
+```text
+E_unit = E_reference / 2^30
+Q_noise = Q_noise          (stosunek bez wymiaru)
+```
+
+Nie zmienia on parsera, jego stanu, dekwantyzacji ani publicznego dekodera.
+Wykorzystuje go wyłącznie `sauti_he_aac_probe`, bezpośrednio po udanym
+parsowaniu side-data i przed zbudowaniem historii temporalnej. Test jednostkowy
+sprawdza dokładne `1 -> 1`, `2^29 -> 0.5`, pozostawienie `Q` bez zmian oraz
+atomowość przy `NaN` i niepoprawnym `Q`; jest częścią `test-aac-native`.
+
+Na 50 ramach tego samego wejścia poprawka zmieniła diagnostyczny budżet z
+`HF+noise/target=0.909652518` na `0.994497015` i RMS surowego preview z
+`0.977584752` na `0.0852400952`; zniknęło więc zawyżenie energii o `2^30`.
+Wynik pełnego przebiegu nadal ma tylko diagnostyczną zgodność LOW
+(`corr=1.000000`, `lag=384`, skala około `sqrt(2)`). Audyt reszty po LOW dla
+nowego preview podaje korelację HF `0.252289` i błąd RMS `5.1936747e-05`.
+To jest postęp w określeniu jednostek, **nie** potwierdzenie normatywnego HF,
+noise, sine, smoothing ani PCM HE-AAC.
+
+Po dodaniu adaptera przeszedł pełny `make test-aac-native
+PKG_CONFIG=/bin/false`, w tym SBR-26/27/28/31, parser temporalny SBR-44 i
+nowy test SBR-60. Test ten nie korzysta z zewnętrznego kodeka.

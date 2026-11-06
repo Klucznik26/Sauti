@@ -30,6 +30,7 @@
 #include "sauti_aac_sbr_lpc_estimate.h"
 #include "sauti_aac_sbr_temporal_harmonic_preview.h"
 #include "sauti_aac_sbr_temporal_hf_units.h"
+#include "sauti_aac_sbr_temporal_energy_units.h"
 #include "sauti_aac_sbr_temporal_reference_gain.h"
 #include "sauti_aac_sbr_temporal_gain_bridge.h"
 #include "sauti_aac_sbr_hf_phase_probe.h"
@@ -805,6 +806,17 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             diagnose_sbr_rejection(frame,len,&core_state);
             break;
         }
+        /* SBR-60: the temporal QMF path uses unit-float samples while the
+         * decoded envelope remains in reference-QMF energy units. Keep this
+         * experimental conversion local to the diagnostic driver; the normal
+         * payload and public decoder remain unmodified. */
+        SautiAacSbrPayloadFrame normalized_payload;
+        if(!sauti_aac_sbr_temporal_payload_normalize_qmf_energy(
+               &payload,&normalized_payload)){
+            printf("  ramka %zu: SBR-60 normalizacja energii QMF odrzucona\\n",i);
+            break;
+        }
+        payload=normalized_payload;
         double sum=0.0,max_value=0.0;
         unsigned nonzero=0u;
         for(unsigned k=0;k<1024u;k++){

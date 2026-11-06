@@ -127,6 +127,72 @@ def compare(x, y):
     return lag,corr,n,gain,bias,error_rms,(error_rms/ref_rms if ref_rms else float("nan"))
 
 
+def rms(values):
+    return math.sqrt(sum(v*v for v in values)/len(values)) if values else 0.0
+
+
+def correlation(x, y):
+    if len(x) != len(y) or not x:
+        raise ValueError("invalid correlation vectors")
+    mx = sum(x)/len(x)
+    my = sum(y)/len(y)
+    xx = sum((v-mx)*(v-mx) for v in x)
+    yy = sum((v-my)*(v-my) for v in y)
+    if xx == 0.0 or yy == 0.0:
+        return float("nan")
+    return sum((a-mx)*(b-my) for a,b in zip(x,y))/math.sqrt(xx*yy)
+
+
+def sbr59_metrics(low, units, reference):
+    """Separate an HF A/B candidate from the already-aligned LOW path.
+
+    `units` is deliberately treated as diagnostic input.  This routine does
+    not infer a decoder gain from the whole SBR waveform: it first fits LOW
+    against the reference, then compares only (units - low) with the
+    remaining reference residual using that same alignment and scale.
+    """
+    if len(low) != len(units):
+        raise ValueError("LOW and units PCM must have equal lengths")
+    lag, corr, _, gain, bias, low_error, low_relative = compare(low, reference)
+    start = max(0, -lag)
+    stop = min(len(low), len(reference)-lag)
+    low_residual = []
+    units_high = []
+    high_error = []
+    for i in range(start, stop):
+        reference_high = float(reference[i+lag]) - (gain*float(low[i])+bias)
+        candidate_high = gain*(float(units[i])-float(low[i]))
+        low_residual.append(reference_high)
+        units_high.append(candidate_high)
+        high_error.append(candidate_high-reference_high)
+    return {
+        "lag": lag, "corr": corr, "gain": gain, "bias": bias,
+        "samples": stop-start, "low_error": low_error,
+        "low_relative": low_relative,
+        "reference_high_rms": rms(low_residual),
+        "candidate_high_rms": rms(units_high),
+        "high_corr": correlation(units_high, low_residual),
+        "high_error_rms": rms(high_error),
+    }
+
+
+def sbr59_audit(low_path, units_path, reference_path):
+    low, units, reference = load(low_path), load(units_path), load(reference_path)
+    result = sbr59_metrics(low, units, reference)
+    print("SBR-59: LOW/HF separation audit (diagnostic only)")
+    print(f"LOW alignment: lag={result['lag']} samples; corr={result['corr']:.6f}; "
+          f"scale={result['gain']:.8g}; DC={result['bias']:.8g}; "
+          f"overlap={result['samples']}")
+    print(f"LOW residual: RMS={result['low_error']:.8g}; "
+          f"relative={result['low_relative']:.3%}")
+    print(f"Reference residual after LOW: RMS={result['reference_high_rms']:.8g}")
+    print(f"units candidate HF only: RMS={result['candidate_high_rms']:.8g}; "
+          f"correlation={result['high_corr']:.6f}; "
+          f"error RMS={result['high_error_rms']:.8g}")
+    print("No value above is a production decoder scale or HE-AAC "
+          "conformance result.")
+
+
 def synthetic_test():
     x = array.array("f", [
         0.2*math.sin(i*0.061) + 0.07*math.sin(i*0.0193) +
@@ -151,14 +217,38 @@ def synthetic_test():
         print(f"SBR-54b: synthetic shift={shift}, gain={scale} PASS")
     print("SBR-54b: pure-Python sample lag/scale comparison self-test PASS")
 
+    # The SBR-59 metric must discard an exact LOW component before judging a
+    # deliberately small HF candidate. This catches a whole-waveform
+    # correlation being mistaken for HF validation.
+    low = array.array("f", [
+        0.25*math.sin(i*0.041) + 0.11*math.sin(i*0.0107)
+        for i in range(24000)])
+    hf = array.array("f", [0.006*math.sin(i*0.337) for i in range(24000)])
+    units = array.array("f", [float(a+b) for a,b in zip(low,hf)])
+    reference = array.array("f", [0.0]*384 +
+                            [1.25*(float(a)+float(b))+0.003
+                             for a,b in zip(low,hf)] + [0.0]*128)
+    result = sbr59_metrics(low, units, reference)
+    assert result["lag"] == 384, result
+    assert abs(result["gain"]-1.25) < 1e-6, result
+    assert result["high_corr"] > 0.99999, result
+    assert result["high_error_rms"] < 1e-6, result
+    print("SBR-59: LOW/HF separation synthetic self-test PASS")
+
 
 def main():
     if len(sys.argv)==2 and sys.argv[1]=="--self-test":
         synthetic_test()
         return 0
+    if len(sys.argv)==5 and sys.argv[1]=="--sbr59-audit":
+        sbr59_audit(sys.argv[2],sys.argv[3],sys.argv[4])
+        return 0
     if len(sys.argv)!=3:
         print("Usage: python3 tools/sauti_he_aac_compare_pcm.py "
-              "Sauti-preview.f32le FFmpeg-reference.f32le",file=sys.stderr)
+              "Sauti-preview.f32le FFmpeg-reference.f32le\n"
+              "   or: python3 tools/sauti_he_aac_compare_pcm.py "
+              "--sbr59-audit LOW.f32le UNITS.f32le FFmpeg-reference.f32le",
+              file=sys.stderr)
         return 2
     try:
         x,y = load(sys.argv[1]),load(sys.argv[2])

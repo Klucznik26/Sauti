@@ -38,13 +38,13 @@ static double reference_value(const SautiAacSbrComplex *x,unsigned n){
      * a different order of products and a separate real accumulation. */
     long double real_sum=0,imag_sum=0;
     const long double omega=(PI_L/128.0L)*
-                            (2.0L*(long double)n-63.0L);
+                            (2.0L*(long double)n+1.0L);
     for(unsigned k=0;k<B;k++){
         const long double theta=omega*((long double)k+0.5L);
         real_sum+=(long double)x[k].re*cosl(theta);
         imag_sum+=(long double)x[k].im*sinl(theta);
     }
-    return (double)((real_sum-imag_sum)/64.0L);
+    return (double)(-(real_sum-imag_sum)/64.0L);
 }
 static void test_golden_real_imag_single_bin(void){
     SautiAacSbrComplex x[B];
@@ -52,20 +52,20 @@ static void test_golden_real_imag_single_bin(void){
     const struct {
         unsigned band,n;float re,im;double expected;
     } cases[]={
-        {0,0,1,0,0.011183294145059666},
-        {0,31,1,0,0.015623823466236633},
-        {0,32,1,0,0.015623823466236633},
-        {0,63,1,0,0.011183294145059666},
-        {0,127,1,0,-0.010912128897015200},
-        {0,0,0,1,0.010912128897015202},
-        {0,31,0,1,0.00019174278571437383},
-        {0,32,0,1,-0.00019174278571437383},
-        {0,63,0,1,-0.010912128897015202},
-        {17,0,1,0,-0.005444041878897401},
-        {17,32,1,0,0.014205749735789412},
-        {63,0,0,1,-0.011183294145059648},
-        {63,32,0,1,-0.015623823466236633},
-        {63,63,0,1,0.011183294145059648}
+        {0,0,1,0,-0.015623823466236633},
+        {0,31,1,0,-0.011183294145059666},
+        {0,32,1,0,-0.010912128897015202},
+        {0,63,1,0,-0.000191742785714374},
+        {0,127,1,0,0.015623823466236633},
+        {0,0,0,1,0.000191742785714374},
+        {0,31,0,1,0.010912128897015202},
+        {0,32,0,1,0.011183294145059666},
+        {0,63,0,1,0.015623823466236633},
+        {17,0,1,0,-0.014205749735789412},
+        {17,32,1,0,0.014645922061133966},
+        {63,0,0,1,0.015623823466236633},
+        {63,32,0,1,0.010912128897015191},
+        {63,63,0,1,-0.000191742785714551}
     };
     for(unsigned i=0;i<sizeof(cases)/sizeof(cases[0]);i++){
         const unsigned k=cases[i].band,n=cases[i].n;
@@ -78,16 +78,16 @@ static void test_golden_real_imag_single_bin(void){
         for(unsigned q=0;q<V;q++)
             near_precise(out[q],reference_value(x,q));
     }
-    /* For a real single low band k=0, samples around n=31.5
-     * are symmetric. For a purely imaginary one they are opposite. */
+    /* For a real single low band k=0, samples around n=63.5
+     * are opposite. For a purely imaginary one they are symmetric. */
     one(x,0,1,0);
     assert(sauti_aac_sbr_qmf_synth_modulate_64(x,B,1,out,V));
-    for(unsigned q=0;q<32;q++)
-        near_precise(out[q],out[63u-q]);
+    for(unsigned q=0;q<64;q++)
+        near_precise(out[q],-out[127u-q]);
     one(x,0,0,1);
     assert(sauti_aac_sbr_qmf_synth_modulate_64(x,B,1,out,V));
-    for(unsigned q=0;q<32;q++)
-        near_precise(out[q],-out[63u-q]);
+    for(unsigned q=0;q<64;q++)
+        near_precise(out[q],out[127u-q]);
     puts("SBR-26: real/imag QMF single-bin golden phases and symmetry PASS");
 }
 

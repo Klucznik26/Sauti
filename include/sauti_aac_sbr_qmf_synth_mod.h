@@ -9,8 +9,8 @@
  * into the 128 REAL modulation V samples consumed by SBR-25.
  *
  * For QMF bin k and modulation sample n:
- * phase = pi*(k+0.5)*(2*n-63)/128,
- * V[n] = (1/64) * Re(sum(k=0..63, X[k]*exp(+i*phase))).
+ * phase = pi*(k+0.5)*(2*n+1)/128,
+ * V[n] = -(1/64) * Re(sum(k=0..63, X[k]*exp(+i*phase))).
  *
  * This is the straightforward reference form of the complex-modulated
  * 64-band SBR synthesis transform (without optimized DCT/MDCT).
