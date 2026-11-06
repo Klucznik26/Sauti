@@ -543,6 +543,31 @@ static void sbr54e_accumulate(SautiAacSbrTemporalEnergyAudit *total,
         total->max_budget_ratio=value->max_budget_ratio;
 }
 
+
+/* SBR-73 optional read-only emitted-HF oscillator slot trace.
+ * Enable with SAUTI_SBR73_TRACE=1 and capture stderr to a file. */
+static int sbr73_trace_phase(const SautiAacSbrTemporalHfTargets *targets,
+                            const uint8_t onset[32],
+                            uint64_t frame,unsigned phase_before){
+    if(!getenv("SAUTI_SBR73_TRACE"))return 1;
+    if(!targets || !onset || phase_before>3u)return 0;
+    for(unsigned t=0u;t<32u;t++){
+        const SautiAacSbrTemporalHfSlot *slot=&targets->slot[t];
+        if(slot->harmonic[18u]>1u || slot->harmonic[42u]>1u ||
+           slot->kx>64u || slot->k2>64u || onset[t]>1u)return 0;
+        if(fprintf(stderr,
+                   "SBR73_SAUTI,%llu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
+                   (unsigned long long)frame,t,
+                   (phase_before+t)&3u,(phase_before+t+2u)&3u,
+                   slot->kx,slot->k2,(unsigned)slot->source,
+                   (unsigned)slot->envelope,
+                   (unsigned)slot->harmonic[18u],
+                   (unsigned)slot->harmonic[42u],
+                   (unsigned)onset[t])<0)return 0;
+    }
+    return fflush(stderr)==0;
+}
+
 static void diagnose_core_sequence(const char *path,size_t limit,
                                    const char *export_path,
                                    const char *component_prefix){
@@ -1269,6 +1294,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                        energy_entry.double_alloc_bins,
                        energy_entry.active_bins);
             SautiAacSbrTemporalHarmonicPreviewReport tone_report;
+            const unsigned sbr73_phase_before=sine_qmf_state.phase;
             if(!sauti_aac_sbr_temporal_harmonic_preview(
                    &emitted_targets,sine_held_onset,
                    &noise_frame,&noise_report,
@@ -1294,6 +1320,11 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                 break;
             }
             phase2_qmf_frames++;
+            if(!sbr73_trace_phase(&emitted_targets,sine_held_onset,
+                                  tone_report.frame_index,sbr73_phase_before)){
+                printf("  ramka %zu: SBR-73 trace odrzucony\n",i);
+                break;
+            }
             if(!sauti_aac_sbr_temporal_hf_units_float(
                    sine_high,32u*64u,&noise_frame,
                    units_high,32u*64u)){
@@ -1579,6 +1610,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                     SautiAacSbrComplex final_sine_hf[32u*64u];
                     SautiAacSbrTemporalHarmonicPreviewReport
                         final_sine_qmf_report;
+                    const unsigned sbr73_final_phase_before=sine_qmf_state.phase;
                     const int final_sine_ok=
                         sauti_aac_sbr_temporal_harmonic_preview(
                             &temporal_noise.held_targets,
@@ -1610,6 +1642,14 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                         phase2_qmf_frames++;
                     else{
                         puts("  SBR-70: finalny QMF phase2 odrzucony");
+                        phase2_io_ok=0;
+                    }
+                    if(final_sine_ok && final_phase2_ok && phase2_io_ok &&
+                       !sbr73_trace_phase(&temporal_noise.held_targets,
+                                          sine_held_onset,
+                                          final_sine_qmf_report.frame_index,
+                                          sbr73_final_phase_before)){
+                        puts("  SBR-73: finalny trace odrzucony");
                         phase2_io_ok=0;
                     }
                     SautiAacSbrComplex final_units_high[32u*64u];
