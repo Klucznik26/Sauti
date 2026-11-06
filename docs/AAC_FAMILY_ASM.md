@@ -5356,3 +5356,17 @@ cd ~/Sauti-tools/ffmpeg-sbr54w && make -j4 ffmpeg
 ```
 
 Then use `SAUTI_SBR54W_CHANNELS=2` **in addition** to `SAUTI_SBR54W_CORE` and `SAUTI_SBR54W_QMF` when running the modified FFmpeg; re-run the complete four-tone sweep with the additional env variable and regenerate all results. DO NOT compare new mono-channel FFmpeg exports with old mixed-channel manifests. Instrumentation metadata provenance and correct channel order still require observational validation. If a different fixture is used, confirm its channels; the selection is specialized to two-channel sequential calls.
+
+
+### SBR-54z — selected stereo channel export length correction (2026-11-06)
+
+Fedora after applying the stereo-aware QMF patch: with `SAUTI_SBR54W_CHANNELS=2 make test-aac-sbr-qmf-tones`, LOW2 exported 26624 bytes = **26 complete single-channel QMF frames** instead of the 51200 bytes = 50 frames required; script correctly stopped without false PASS. This is an output-duration/fixture-coverage issue, **not** evidence of a Sauti decoder failure. Earlier `-frames:a 50` limited FFmpeg's audio output, not per-channel QMF invocations, so two-channel analysis yielded only ~26 selected left calls.
+
+Updated `tools/sauti_sbr54x_tone_sweep.py` defaults FFmpeg's `-frames:a` cap to **twice the requested per-channel QMF frame count** (50 selected → cap 100) with override `--decode-frames`. It verifies the exact exported byte count before any manifest or comparison. If the source fixture itself runs out, a larger cap does not extend it: use longer genuine stereo HE-AAC fixture or explicitly lower `--frames`; never invent or pad QMF records. No rebuild of already instrumented FFmpeg or any production Sauti change is required.
+
+Retry:
+```sh
+cd ~/Sauti && git pull --ff-only origin feature/aac-family-asm
+SAUTI_SBR54W_CHANNELS=2 make test-aac-sbr-qmf-tones test-aac-sbr-qmf-startup-slots PKG_CONFIG=/bin/false
+```
+If output is still short, report how many real selected QMF frames the fixture supplied; next step is checking AAC fixture length rather than relaxing strict validation. All previously mixed-channel comparisons must remain labeled invalid for channel-specific transient claims.
