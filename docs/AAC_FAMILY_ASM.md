@@ -6233,3 +6233,38 @@ python3 tools/sauti_sbr71_phase_frame_audit.py \
 ```
 
 If most valid steady frames and transition frames show the same polarity benefit, the next high-value engineering task is a **normative complex-QMF comparison** of k18/k42 phase-index and harmonic flags against an independent reference, not another blind gain or phase correction. If only some frames benefit, correlate the exceptions with SBR envelope ownership and transient/onset state.
+
+
+### SBR-72 — distinguish an oscillator-phase error from full HF timing (2026-11-06)
+
+**SBR-71 real Fedora run was successful**. `make test-aac-sbr-qmf-phase-frames PKG_CONFIG=/bin/false`: PASS, including synthetic guards. Recorded against unchanged FFmpeg PCM after fitting ONLY the same Sauti LOW baseline (`lag=384`, `corr=0.99999994`, `gain=1.41421308`).
+
+| Exact QMF center | Steady frames improved by phase+2 | Median phase0 relative error | Median phase+2 relative error | Median signed phase2 angle |
+|---|---:|---:|---:|---:|
+| k18 = 6937.5 Hz | **44/44**, none worsened | 1.627986 | **0.366541** | 0.999855 |
+| k42 = 15937.5 Hz | **44/44**, none worsened | 1.777365 | **0.218520** | 0.999979 |
+
+No reference-weak frames in 3..46. Early frame 2 improves for both k18 (`1.12344 → 0.80449`) and k42 (`1.43691 → 0.26100`). Frames 47 and 48 likewise improve for both. The per-frame result supports a stable **phase-only effect** in our experimental QMF tone generation, but the harmonic amplitudes remain about 0.63× and 0.78× of the reference tone amplitude; upper and lower edge-band errors are still not solved.
+
+**New timing hypothesis**: the LOW-vs-FFmpeg alignment `384 samples` equals exactly **6 full-rate 64-QMF output slots**. The experimental harmonic oscillator has a four-slot phase cycle; `6 mod 4 = 2`, exactly the phase advance that fixed our two tone polarities. For nominal centers `(k+0.5)*375 Hz` at 48 kHz, a six-slot (=384-sample) pure time shift gives an odd half-cycle for **every** nominal QMF-center tone: `6937.5*384/48000 = 55.5` cycles and `15937.5*384/48000 = 127.5` cycles. Thus a relative HF/LOW timing origin, 6-slot filterbank latency or phase-index clock convention could explain the sign difference. This is **only a hypothesis**, not proof: the 384-sample LOW correction is already applied in our spectral comparisons and may reflect independent synthesis latency rather than an HF clock error.
+
+**SBR-72 implementation**: added `tools/sauti_sbr72_hf_timing_control.py`, Make target `test-aac-sbr-hf-timing-control` and inclusion in `test-aac-native`. Using only pre-existing `/tmp/sbr70` experimental baseline, phase0 and phase+2 PCM, it compares against the same independent FFmpeg-minus-Sauti-LOW residual with frozen LOW lag/gain/bias. The alternative hypothesis is expressed by **predeclared** HF-only PCM offsets `−384, −128, +128, +384` samples, while the LOW part of the waveform stays unchanged. There is **no reference-derived lag or amplitude search** for any HF candidate. It measures both strong exact tone centers and the unaffected control bands 8625–9000 Hz and 12000–15000 Hz. A whole-HF shift that creates correct tone polarity but destroys well-matched non-tonal controls is evidence against a *global HF time shift* as a safe fix; it does not decide all per-slot indexing alternatives. No modified PCM is written to disk.
+
+Synthetic SBR-72 self-test models 384-sample LOW delay and two nominal-center tones, plus independent control tones at 8789 Hz and 12800 Hz. It checks the 6-slot/four-phase arithmetic, phase0 versus phase2 signs, destruction of previously correct control tones by ±128 full-HF timing shifts, non-slot-aligned lag rejection and invalid/NaN geometry. The script has been statically inspected in repo; **the test has not yet run on Fedora**, and no full native AAC gate has been rerun after adding it. This experiment is nonnormative.
+
+Run on Fedora (no AAC re-decode or new FFmpeg reference required):
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-hf-timing-control PKG_CONFIG=/bin/false
+python3 tools/sauti_sbr72_hf_timing_control.py \
+  --low /tmp/sbr70.low.f32le \
+  --reference /tmp/sbr61.reference.f32le \
+  --baseline /tmp/sbr70.preview.f32le \
+  --phase0 /tmp/sbr70.preview.f32le.sine.f32le \
+  --phase2 /tmp/sbr70.preview.f32le.sinephase2.f32le \
+  --first-frame 3 --last-frame 46 | tee /tmp/sbr72.log
+```
+
+**After SBR-72:** an independent complex-QMF trace of reference HF assembly must be compared with the same delayed Sauti QMF slots, including `f_indexsine` origin, 4-phase clock, `kx`/parity, envelope `add_harmonic` flags, transients and per-channel filter histories. FFmpeg's float implementation increments `indexsine` modulo four once per HF assembly slot and stores it per channel: https://ffmpeg.org/doxygen/trunk/aacsbr_8c_source.html . Whether Sauti's phase0 or phase+2 convention should ultimately be normative cannot be settled by PCM correlation alone. No production AAC-LC, SBR decoder or QMF synth code changed in SBR-72.
