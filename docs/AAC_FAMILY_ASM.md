@@ -5409,3 +5409,19 @@ SAUTI_SBR54W_CHANNELS=2 python3 tools/sauti_sbr54x_tone_sweep.py --frames 20 --d
 ```
 
 **Do not** run the dependent startup-slot audit if the strict four-tone sweep rejects the selected reference. If the new selection aborts on a pointer mismatch, retain diagnostic traces for investigation; do not weaken the guard.
+
+
+### SBR-54z — Fedora validation of single-history-context reference (2026-11-06)
+
+Confirmed on Fedora, in a throwaway instrumented FFmpeg checkout: `tools/sauti_ffmpeg_qmf_context_select.py` synthetic self-test, dry run and patch passed, and `make -C ~/Sauti-tools/ffmpeg-sbr54w -j4 ffmpeg` completed (compiler gave unrelated read_sbr_grid -Wstringop-overflow warnings). Then `SAUTI_SBR54W_CHANNELS=2 python3 tools/sauti_sbr54x_tone_sweep.py --frames 20 --decode-frames 100` completed **all four tones with no failure**. First QMF invocation from distinct pointer was skipped; selected calls 1..20 used same history address with alternating W buf_idx; later calls continued on the same address. 20 real QMF frames exported per tone; shared PCM and strict manifests, size and finite checks passed. Dominant-band metrics, each compared on its own tone:
+
+| Excited/observed LOW | Complex coherence | Best complex-scaled residual | FFmpeg/Sauti RMS | Sauti energy share of LOW2..5 | FFmpeg share of LOW2..5 |
+|---|---:|---:|---:|---:|---:|
+| 2 | 0.999878 | 0.015621 | 33275 | 0.998098 | 0.999817 |
+| 3 | 0.999878 | 0.015622 | 33275 | 0.997602 | 0.999585 |
+| 4 | 0.999878 | 0.015622 | 33275 | 0.997584 | 0.999569 |
+| 5 | 0.999878 | 0.015622 | 33275 | 0.998020 | 0.999739 |
+
+The repeated-startup-frame guard passed after switching from erroneous call-parity selection to one context with continuous history. This establishes consistency for the **tested 20-frame, 4-tone, LOW2..5 diagnostic scenario only**. The `x` pointer continuity does not, by itself, prove logical channel identity, exact bitwise QMF correctness, full 32-band conformance or production AAC/HE-AAC decoding correctness. The ~1.56% residual and amplitude scaling convention remain to explain. Previous 50-frame mixed-context results are invalid as a continuous-reference startup audit.
+
+**Next:** execute `make test-aac-sbr-qmf-startup-slots PKG_CONFIG=/bin/false` on the newly regenerated 20-frame tone datasets; verify no anomalous slots 38..42, then consider a fixed-gain/reference scaling analysis before any production change.
