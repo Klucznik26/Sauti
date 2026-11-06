@@ -6055,3 +6055,14 @@ python3 tools/sauti_sbr66_tonal_ab_audit.py \
 ```
 
 **Interpretation rule**: A/B result can identify which pre-existing experimental processing path helps or hurts the 6937.5/15937.5 Hz residual. It cannot make that path normative, nor establish why any FFmpeg/Sauti peaks differ. The subsequent justified engineering step is to compare complex HF QMF from a known single FFmpeg context against Sauti at bands k=18/k=42 (including `add_harmonic` and per-envelope owner). No production AAC-LC, SBR, synthesis QMF or PCM code was changed.
+
+
+### SBR-66 hotfix — spectral accumulator bounds (2026-11-06)
+
+Real Fedora invocation stopped before any A/B result, both in self-test and in real-fixture evaluation, with `IndexError` at the reference power array (the initial implementation iterated `enumerate(ref_f)`). This is an implementation bug in the NEW SBR-66 Python diagnostic, **not a failure of the decoder, AAC-LC, SBR, or QMF**.
+
+Root cause: `sauti_sbr63_hf_spectral_audit.fft()` returns `FRAME=2048` complex bins, whereas SBR-66 allocates only `FRAME//2+1=1025` nonnegative-frequency accumulators (the correct geometry for real-valued PCM). Fixed the reference and variant accumulation loops to iterate only `range(FRAME//2+1)`. Commit `6cd1bcd5342065e3bddcd8b12debed96ebea5f12`.
+
+The earlier SBR-66 output contains **no real results** and must not be interpreted as failure of any HF A/B hypothesis. An independent 2048/1025 index-bounds smoke check passed; **the complete SBR-66 Python self-test and the real recording have not yet been rerun after this patch**.
+
+Next: `git pull --ff-only origin feature/aac-family-asm && make test-aac-sbr-tonal-ab-audit PKG_CONFIG=/bin/false`, followed by the same SBR-66 command from the preceding section. No production audio code was touched.
