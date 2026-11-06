@@ -6098,3 +6098,37 @@ python3 tools/sauti_sbr67_tonal_delta_ab.py \
 **After the test:** If inversion substantially improves both k18 and k42 without harming control bands, investigate SBR oscillator phase-index / delay (especially source-to-synthesis timing and FIXVAR boundaries) by exporting reference complex QMF at the same emitted slots. Do not do a blanket oscillator or final PCM sign flip, or tune amplitude at isolated FFT bins. If inversion does not help, split the effect of tonal addition from noise removal with a QMF-only A/B branch.
 
 No production AAC-LC, SBR parser, HFG, QMF analysis/synthesis, phase state, or output PCM was modified.
+
+
+### SBR-68 — test only the two spectral lines of the tonal-preview delta (2026-11-06)
+
+**Real SBR-67 Fedora results**: `make test-aac-sbr-tonal-delta-audit PKG_CONFIG=/bin/false`: PASS. Forty-four stable frames, LOW anchor lag=384, corr=0.99999994, gain=1.41421308. `sine - baseline` experimental PCM difference RMS=7.95278956e-06.
+
+| Target QMF-band center | baseline: correlation / relative error | original SBR-54h sine: correlation / error | inverse *entire* delta: correlation / error |
+|---|---|---|---|
+| k=18, 6937.5 Hz | +0.021698 / 0.999773 | −0.999597 / 1.630682 | **+0.999635 / 0.369052** |
+| k=42, 15937.5 Hz | −0.048676 / 1.000458 | −0.999689 / 1.769914 | **+0.999239 / 0.232973** |
+
+At the wider 6750–7125 Hz and 15375–16875 Hz bands, errors remain high even after inverse-delta: **1.059688** and **1.303162**, respectively. This shows that the two lines explain substantial but not all differences. **Do not interpret the result as a normative sign fix**; `inverse_delta = baseline - (sine-baseline)` reverses both experimentally synthesized tones and noise-gating differences.
+
+**Next step:** new `tools/sauti_sbr68_target_lines_ab.py` with Make target `test-aac-sbr-tonal-lines-audit` (also a prerequisite of `test-aac-native`). Project the 2048-sample *sine-minus-baseline* PCM difference per frame onto just two previously identified, exact Fourier lines: FFT bin **296** (=6937.5 Hz) and bin **680** (=15937.5 Hz) at 48 kHz. The projection uses ONLY Sauti PCM; the reference FFmpeg PCM is never used to choose coefficients or fit a phase, gain, frequency or lag. Parseval/orthogonality closure is checked to reject numerical inconsistencies.
+
+Compare unchanged baseline, unchanged sine, inverted whole delta, inverted TWO lines but preserving the remaining experimental difference (`sine-2*line`), inverted two lines only (`baseline-line`), and remaining delta only (`sine-line`). These variants disentangle how much of SBR-67's benefit comes from the two strong tones versus other Fourier components. They are **NOT** physically isolated normatively generated harmonic sinusoids: projection includes any noise/leakage at the exact frequencies and discards sidebands, so this is an A/B PCM diagnostic only.
+
+Self-test: intentionally wrong-phase tones at the two bins plus an unrelated independent tone, source-blind projection, orthogonal energy closure, nonfinite PCM, zero delta and malformed frame geometry. The synthetic test and Python syntax compilation passed outside the actual Fedora fixture; **real SBR-68 results, the GitHub/Fedora self-test and complete native AAC gate are pending**. No SBR production code was edited.
+
+Run on Fedora (reuses existing `/tmp/sbr61*` files):
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-tonal-lines-audit PKG_CONFIG=/bin/false
+python3 tools/sauti_sbr68_target_lines_ab.py \
+  --low /tmp/sbr61.low.f32le \
+  --reference /tmp/sbr61.reference.f32le \
+  --baseline /tmp/sbr61.preview.f32le \
+  --sine /tmp/sbr61.preview.f32le.sine.f32le \
+  --first-frame 3 --last-frame 46 | tee /tmp/sbr68.log
+```
+
+After SBR-68, moving closer to a genuine decoding fix requires a *complex QMF-level* phase-index and sinusoid-versus-noise split against a verified FFmpeg reference. Do not flip the production oscillator's sign based on PCM projections alone.
