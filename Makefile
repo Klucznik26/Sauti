@@ -1428,3 +1428,9 @@ test-aac-sbr-qmf-startup-slots:
 test-aac-sbr-qmf-stereo-select:
 	python3 -m py_compile tools/sauti_ffmpeg_qmf_stereo_select.py
 	python3 tools/sauti_ffmpeg_qmf_stereo_select.py --self-test
+
+# SBR-54z: non-invasive trace of independent FFmpeg QMF state addresses.
+.PHONY: test-aac-sbr-qmf-call-trace
+test-aac-sbr-qmf-call-trace:
+	python3 -m py_compile tools/sauti_ffmpeg_qmf_call_trace.py
+	python3 tools/sauti_ffmpeg_qmf_call_trace.py --self-test
