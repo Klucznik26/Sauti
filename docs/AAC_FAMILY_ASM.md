@@ -5917,6 +5917,39 @@ python3 tools/sauti_sbr62_hf_stem_audit.py \
 ```
 
 This excludes the onset and tail to diagnose the 44 stable frames separately.
-Results from the real fixture are **pending**, and no production gain, QMF,
-parser, HF generation or PCM format has been changed. The reference residual
+The SBR-62 real-fixture measurement was subsequently received (see SBR-63 below). No production gain, QMF,
+parser, HF generation or PCM format was changed. The reference residual
 is *not* a clean FFmpeg HF stem: it contains LOW-model residual and other effects.
+
+### SBR-63 — frequency-resolved HF residual comparison (2026-11-06)
+
+**SBR-62 results received from Fedora, `he_test.aac` (44 stable frames 3..46):**
+- `make test-aac-sbr-hf-stem-audit PKG_CONFIG=/bin/false`: PASS.
+- LOW anchor `lag=384`, `corr=0.99999994`, `gain=1.41421308`, bias `3.17e-10`.
+- Component closure RMS `3.3482038e-09` against tolerance `8.5240095e-06`: the three stems reconstruct the exported preview.
+- FFmpeg-minus-LOW reference residual RMS `2.2349621e-05`; 44 measurable frames, none marked weak.
+- HF alone: correlation `0.7094658`, RMS `2.1832996e-05`, relative error `0.753771`.
+- Noise alone: correlation `-0.0008203`, RMS `3.7760634e-08`, relative error `1.000003`.
+- HF+noise: correlation `0.7094623`, RMS `2.1833062e-05`, relative error `0.753777`.
+- Thus current output noise is about 578 times weaker in RMS than HF, and does not materially change the current reference-residual mismatch. **This does not demonstrate that noise generation itself is correct**: it could be absent or underrepresented. The FFmpeg-minus-LOW residual is not an isolated reference HF stem.
+
+**Next discriminating test:** A uniform 0.709 HF correlation could still conceal much better agreement in some frequency regions and worse agreement in others. Added `tools/sauti_sbr63_hf_spectral_audit.py` and `make test-aac-sbr-hf-spectral-audit` (also part of `test-aac-native`). It computes independent 2048-point Hann-windowed FFTs over the same stable frames of the HF stem and the anchored FFmpeg-minus-LOW reference residual, with eight 3-kHz bands covering 0..24 kHz. All bins use the same LOW-derived lag/gain/bias; **there is no HF-specific alignment or phase/gain fitting**. Results are signed spectral coherence, magnitude coherence, mean phase, amplitude ratio, relative spectral error, and each band's share of reference-residual energy. Weak-energy bands are flagged inconclusive, rather than being assigned a PASS.
+
+The new synthetic self-test passes on two sinusoidal bands with exact agreement, then intentionally reverses the upper band's sign; it detects correct agreement below 9 kHz and negative coherence in 15..18 kHz, and rejects invalid frame ranges. This is **not** a HE-AAC standards conformance test, and does not isolate normative FFmpeg-generated HF.
+
+Run on Fedora without re-exporting the AAC fixture:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-hf-spectral-audit PKG_CONFIG=/bin/false
+python3 tools/sauti_sbr63_hf_spectral_audit.py \
+  --low /tmp/sbr61.low.f32le \
+  --hf /tmp/sbr61.hf.f32le \
+  --noise /tmp/sbr61.noise.f32le \
+  --preview /tmp/sbr61.preview.f32le \
+  --reference /tmp/sbr61.reference.f32le \
+  --first-frame 3 --last-frame 46 | tee /tmp/sbr63.log
+```
+
+**Pending:** real SBR-63 spectral results from the user's fixture; full `make test-aac-native` gate has not been rerun after the new audit was added. No production HE-AAC decoder, AAC-LC, QMF or PCM path was changed.
