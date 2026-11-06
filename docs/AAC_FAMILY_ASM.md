@@ -5830,3 +5830,60 @@ noise, sine, smoothing ani PCM HE-AAC.
 Po dodaniu adaptera przeszedł pełny `make test-aac-native
 PKG_CONFIG=/bin/false`, w tym SBR-26/27/28/31, parser temporalny SBR-44 i
 nowy test SBR-60. Test ten nie korzysta z zewnętrznego kodeka.
+
+
+### SBR-61 — per-frame HF+noise residual audit with a LOW anchor (2026-11-06)
+
+Added \`tools/sauti_sbr61_hf_frame_audit.py\` (standalone standard-library
+Python tool, diagnostic only) and \`make test-aac-sbr-hf-frame-audit\`;
+its synthetic self-test is also a prerequisite of \`test-aac-native\`.
+
+**Question.** SBR-60 improved energy-domain consistency but the HF-only
+correlation with the reference remains low (~0.2523). A single whole-file
+metric cannot reveal whether the mismatch is persistent, localized to
+particular frames or caused by almost silent reference residuals.
+
+**Method.** Read the SBR-54c LOW-only PCM, SBR-60 full diagnostic
+preview, and independent FFmpeg PCM as mono float32-le. Determine lag,
+gain and DC *only from LOW versus reference* using the existing
+\`sauti_he_aac_compare_pcm.py\` comparison; refuse if LOW correlation
+is below 0.98. Keep this anchor fixed for each complete 2048-sample
+frame (skip first two frames by default). Calculate:
+- reference residual = reference[frame + LOW_lag] - (LOW * LOW_gain + LOW_DC)
+- candidate HF+noise = (full diagnostic preview - LOW) * LOW_gain
+- per-frame reference/candidate RMS, HF-residual correlation and relative
+  RMS error, plus whole-run metrics over valid frames.
+
+Very weak reference residual frames are explicitly marked
+\`weak-reference\`; a zero-variance candidate has undefined correlation,
+not a false PASS. No HF-specific gain, phase, offset or lag is tuned.
+The tool lists the eight worst-correlated measurable frames by default,
+or all frames with \`--all-frames\`. NaN/Inf, incomplete frames and poor
+LOW alignment are rejected.
+
+**Run on Fedora with the user's real fixture:**
+
+\`\`\`sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-hf-frame-audit PKG_CONFIG=/bin/false
+make probe-he-aac PKG_CONFIG=/bin/false
+./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 \
+  /tmp/sbr61.preview.f32le /tmp/sbr61
+ffmpeg -hide_banner -loglevel error -y \
+  -i ~/Sauti-fixtures/he_test.aac -vn -ac 1 -ar 48000 \
+  -f f32le /tmp/sbr61.reference.f32le
+python3 tools/sauti_sbr61_hf_frame_audit.py \
+  --low /tmp/sbr61.low.f32le \
+  --candidate /tmp/sbr61.preview.f32le \
+  --reference /tmp/sbr61.reference.f32le --all-frames
+\`\`\`
+
+**Evidence so far.** The tool passed a synthetic self-test with
+perfect HF, a wrong-HF-phase control despite a matching LOW carrier,
+one reference-silent frame, invalid geometry and NaN rejection;
+\`python3 -m py_compile\` passed. The real \`he_test.aac\` run and
+the complete native test gate were **not run in this change**.
+Do not interpret LOW-subtracted full FFmpeg PCM as an isolated normative
+HF stem: it also contains noise and imperfectly modeled LOW.
+No production decode, dequantization, gain, noise or public PCM was modified.
