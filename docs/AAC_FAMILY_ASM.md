@@ -5337,3 +5337,22 @@ make test-aac-sbr-qmf-startup-slots PKG_CONFIG=/bin/false
 ```
 
 If /tmp was cleared, regenerate previous tones with `make test-aac-sbr-qmf-tones PKG_CONFIG=/bin/false` first. A synthetic self-test exercises stable calibration, forced transient, and zero-reference handling. **Real Fedora validation of SBR-54z pending.** The aim is to localize the startup mismatch without adjusting or rebuilding production filters.
+
+
+### SBR-54z — stereo fixture discovery and reference-method correction (2026-11-06)
+
+User confirmed via `ffprobe` that `~/Sauti-fixtures/he_test.aac` reports **48000 Hz stereo** (SBR output rate; the shared synthetic PCM used for each 1024-sample QMF analysis frame is 24000 Hz). In the pre-fix FFmpeg instrumentation the first 50 *QMF invocations*, not 50 frames of one channel, consumed shared PCM. Instrumented reference complex W across slots 6..31 and 38..63 were **bitwise identical**, all LOW 2..5; this is consistent with left and right channels each starting with fresh filter history. The instrumented FFmpeg QMF decoder has separate per-channel `analysis_filterbank_samples` and `W`. The preliminary 28.4% "startup" deviation and anomalous slots 38..42 therefore **cannot be attributed to Sauti's QMF history**; they reflect mixed-channel methodology. All prior comparison results must be remeasured using one consistent channel before any QMF correctness conclusion.
+
+Added `tools/sauti_ffmpeg_qmf_stereo_select.py`: one-time fail-closed patch for an **already instrumented** disposable checkout `~/Sauti-tools/ffmpeg-sbr54w`. Adds opt-in environment `SAUTI_SBR54W_CHANNELS=2`, selecting **even-indexed** QMF calls (left channel, assuming verified sequential L/R order) to read the shared core PCM and export W[i-6]. Odd-indexed calls still execute normal FFmpeg analysis using their own input and histories, but are not recorded; static selection assumes sequential `-threads 1` and one fixture stream. No modifications to production Sauti or system FFmpeg. Synthetic anchors self-test does not verify actual decode call order.
+
+Safe next Fedora steps:
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-qmf-stereo-select PKG_CONFIG=/bin/false
+python3 tools/sauti_ffmpeg_qmf_stereo_select.py --dry-run ~/Sauti-tools/ffmpeg-sbr54w
+python3 tools/sauti_ffmpeg_qmf_stereo_select.py ~/Sauti-tools/ffmpeg-sbr54w
+cd ~/Sauti-tools/ffmpeg-sbr54w && make -j4 ffmpeg
+```
+
+Then use `SAUTI_SBR54W_CHANNELS=2` **in addition** to `SAUTI_SBR54W_CORE` and `SAUTI_SBR54W_QMF` when running the modified FFmpeg; re-run the complete four-tone sweep with the additional env variable and regenerate all results. DO NOT compare new mono-channel FFmpeg exports with old mixed-channel manifests. Instrumentation metadata provenance and correct channel order still require observational validation. If a different fixture is used, confirm its channels; the selection is specialized to two-channel sequential calls.
