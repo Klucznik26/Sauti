@@ -6,7 +6,6 @@ FFmpeg minus the LOW reconstruction is a residual, NOT an isolated HF stem.
 """
 import argparse
 import math
-from sauti_he_aac_compare_pcm import compare, load
 from sauti_sbr61_hf_frame_audit import FRAME, _corr, _rms
 
 
@@ -135,6 +134,7 @@ def main():
         return 0
     if not all((args.low, args.hf, args.noise, args.preview, args.reference)):
         p.error("require --low --hf --noise --preview --reference")
+    from sauti_he_aac_compare_pcm import compare, load
     try:
         low, hf, noise, preview, reference = (
             load(path) for path in (args.low, args.hf, args.noise,
