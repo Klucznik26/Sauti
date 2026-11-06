@@ -5887,3 +5887,36 @@ the complete native test gate were **not run in this change**.
 Do not interpret LOW-subtracted full FFmpeg PCM as an isolated normative
 HF stem: it also contains noise and imperfectly modeled LOW.
 No production decode, dequantization, gain, noise or public PCM was modified.
+
+ 
+### SBR-62 — HF/noise stem attribution, based on the real SBR-61 run (2026-11-06)
+
+Fedora `he_test.aac` / 50-frame SBR-61 result supplied after `97a19e6`:
+- Self-test: PASS; all 50 native-core / diagnostic temporal-SBR frames exported, while the strict public HE-AAC decoder **still rejects frame 2** (`unsupported_fil`); this is NOT a completed HE-AAC decode.
+- LOW anchor: lag 384 samples; correlation 0.9999999; scale 1.41421308.
+- Reference residual RMS 3.19625123e-05; preview HF+noise RMS 3.15371274e-05.
+- 47 measurable complete frames (2..48), none too weak; combined HF+noise correlation 0.3926397, relative RMS error 1.094866.
+- Frame 2: correlation 0.11107, error 1.33028; frames 3..46: mean per-frame correlation approximately 0.7093, in a stable 3-frame pattern (normally 0.705..0.718), relative error about 0.754; frames 47..48: 0.69115 and 0.63071. The repeating 3-frame pattern may come from the periodic test input, **not** necessarily from a 3-frame decoder bug.
+- Interpretation: LOW is aligned; the signal mismatch persists in the steady portion, although reference and candidate residual RMS are similar. The frame-2 transient disproportionately affects the whole-file correlation, so **do not replace per-frame metrics with one global figure**.
+
+Added `tools/sauti_sbr62_hf_stem_audit.py` to isolate diagnostic SBR-54c `hf` and `noise` PCM stems relative to the **same** FFmpeg-minus-LOW residual. It uses the fixed, independent LOW alignment/gain/bias (no HF-specific tuning), reports `HF`, `noise` and `HF+noise` correlation and relative errors, and rejects mismatched stem files using PCM reconstruction closure: `preview ≈ low + hf + noise`. Its synthetic self-test covers valid reconstruction, a deliberately changed noise stem, corrupted closure, malformed geometry and NaN; `make test-aac-sbr-hf-stem-audit` runs it, also added to `test-aac-native`.
+
+**Run next on Fedora (no need to decode/re-export; all four components are already in /tmp from SBR-61):**
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-hf-stem-audit PKG_CONFIG=/bin/false
+python3 tools/sauti_sbr62_hf_stem_audit.py \
+  --low /tmp/sbr61.low.f32le \
+  --hf /tmp/sbr61.hf.f32le \
+  --noise /tmp/sbr61.noise.f32le \
+  --preview /tmp/sbr61.preview.f32le \
+  --reference /tmp/sbr61.reference.f32le \
+  --first-frame 3 --last-frame 46 --all-frames | tee /tmp/sbr62.log
+```
+
+This excludes the onset and tail to diagnose the 44 stable frames separately.
+Results from the real fixture are **pending**, and no production gain, QMF,
+parser, HF generation or PCM format has been changed. The reference residual
+is *not* a clean FFmpeg HF stem: it contains LOW-model residual and other effects.
