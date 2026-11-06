@@ -6,6 +6,7 @@
 #include "sauti_decoder_voc.h"
 #include "sauti_decoder_aiff.h"
 #include "sauti_decoder_ffmpeg.h"
+#include "sauti_decoder_aac_native.h"
 #include "sauti_decoder_midi.h"
 #include "sauti_decoder_opus.h"
 #include "sauti_decoder_flac.h"
@@ -34,7 +35,65 @@ struct SautiMp3SdlPlayer {
     uint64_t submitted,loop_start;
     int has_loop;
     int active,paused,ended,muted,diagnosed;
+    SDL_mutex *seek_mutex;
+    SDL_Thread *seek_thread;
+    SDL_atomic_t seek_busy;
+    uint64_t seek_request;
+    int seek_pending;
 };
+/* AAC-LC seek must not run thousands of IMDCT frames on the SDL/UI
+ * event thread. The worker owns decoder state while seek_busy is set;
+ * pump() never reads it concurrently. New slider positions coalesce
+ * to the newest requested frame, without launching parallel decoders. */
+static int aac_seek_worker(void *userdata){
+    SautiMp3SdlPlayer *p=userdata;
+    for(;;){
+        SDL_LockMutex(p->seek_mutex);
+        if(!p->seek_pending){
+            SDL_AtomicSet(&p->seek_busy,0);
+            SDL_UnlockMutex(p->seek_mutex);
+            return 0;
+        }
+        const uint64_t frame=p->seek_request;
+        p->seek_pending=0;
+        SDL_UnlockMutex(p->seek_mutex);
+        const int ok=sauti_decoder_seek(&p->decoder,frame);
+        SDL_LockMutex(p->seek_mutex);
+        if(p->seek_pending){
+            /* Slider was moved again while this seek was running.
+             * Keep the old audio queued until the final target is ready. */
+            SDL_UnlockMutex(p->seek_mutex);
+            continue;
+        }
+        if(ok){
+            /* Atomically switch from old queued PCM to the prepared target.
+             * Clearing at request time caused 0.5-1 s of silence. */
+            SDL_ClearQueuedAudio(p->device);
+            p->submitted=frame;
+            p->ended=0;
+            p->diagnosed=0;
+        }else{
+            p->ended=1;
+            fprintf(stderr,"Sauti AAC: failed to seek to frame %llu\\n",
+                    (unsigned long long)frame);
+        }
+        SDL_AtomicSet(&p->seek_busy,0);
+        SDL_UnlockMutex(p->seek_mutex);
+        return 0;
+    }
+}
+static void aac_seek_join(SautiMp3SdlPlayer *p){
+    if(!p->seek_mutex)return;
+    /* Stop only after any active worker has finished using decoder
+     * and the incoming compressed-data buffer. */
+    SDL_LockMutex(p->seek_mutex);
+    p->seek_pending=0;
+    SDL_UnlockMutex(p->seek_mutex);
+    if(p->seek_thread){
+        SDL_WaitThread(p->seek_thread,NULL);
+        p->seek_thread=NULL;
+    }
+}
 /* Optional unsigned PCM8 bank, supplied by the user, not bundled.
  * Filename scheme: SAUTI_YM2_BANK_DIR/<index>.raw (0..127).
  * Limit every sample to 1 MiB. The SDL player owns every allocation. */
@@ -104,7 +163,7 @@ SautiMp3SdlPlayer *sauti_mp3_sdl_open(const char *path){
 #ifdef SAUTI_HAVE_ATARIAUDIO
         &sauti_decoder_sndh_ops,
 #endif
-        &sauti_decoder_wav_ops,&sauti_decoder_voc_ops,&sauti_decoder_aiff_ops,&sauti_decoder_aac_ops,&sauti_decoder_alac_ops,&sauti_decoder_webm_ops,&sauti_decoder_opus_ops,&sauti_decoder_vorbis_ops,&sauti_decoder_midi_ops,&sauti_decoder_flac_ops,&sauti_decoder_wavpack_ops,&sauti_decoder_avr_ops,&sauti_decoder_dvsm_ops,&sauti_decoder_dtm_ops,&sauti_decoder_ym_ops,&sauti_decoder_mp3_ops};
+        &sauti_decoder_wav_ops,&sauti_decoder_voc_ops,&sauti_decoder_aiff_ops,&sauti_decoder_aac_native_ops,&sauti_decoder_aac_ops,&sauti_decoder_alac_ops,&sauti_decoder_webm_ops,&sauti_decoder_opus_ops,&sauti_decoder_vorbis_ops,&sauti_decoder_midi_ops,&sauti_decoder_flac_ops,&sauti_decoder_wavpack_ops,&sauti_decoder_avr_ops,&sauti_decoder_dvsm_ops,&sauti_decoder_dtm_ops,&sauti_decoder_ym_ops,&sauti_decoder_mp3_ops};
     if(!sauti_decoder_open(&p->decoder,decoders,sizeof(decoders)/sizeof(decoders[0]),p->bytes,len)){
         sauti_mp3_sdl_destroy(p);return NULL;
     }
@@ -158,11 +217,21 @@ SautiMp3SdlPlayer *sauti_mp3_sdl_open(const char *path){
     fprintf(stderr,"Sauti PCM: codec=%s, %u Hz, %u ch, %.2f s, device=%u, muted=%d\n",
             p->decoder.ops->name,p->decoder.info.sample_rate,p->decoder.info.channels,
             sauti_mp3_sdl_duration(p),(unsigned)p->device,p->muted);
+    if(p->decoder.ops==&sauti_decoder_aac_native_ops){
+        p->seek_mutex=SDL_CreateMutex();
+        if(!p->seek_mutex){
+            fprintf(stderr,"Sauti AAC: failed to create seek mutex\\n");
+            sauti_mp3_sdl_destroy(p);return NULL;
+        }
+        SDL_AtomicSet(&p->seek_busy,0);
+    }
     SDL_PauseAudioDevice(p->device,1);
     return p;
 }
 void sauti_mp3_sdl_destroy(SautiMp3SdlPlayer *p){
     if(!p)return;
+    aac_seek_join(p);
+    if(p->seek_mutex)SDL_DestroyMutex(p->seek_mutex);
     if(p->device)SDL_CloseAudioDevice(p->device);
     sauti_decoder_close(&p->decoder);
     for(unsigned id=0;id<128;id++)free(p->ym2_owned[id]);
@@ -171,6 +240,7 @@ void sauti_mp3_sdl_destroy(SautiMp3SdlPlayer *p){
 }
 void sauti_mp3_sdl_pump(SautiMp3SdlPlayer *p){
     if(!p || !p->active || p->paused)return;
+    if(p->seek_mutex && SDL_AtomicGet(&p->seek_busy))return;
     if(p->ended){
         if(queued_frames(p)==0){
             p->active=0;
@@ -178,7 +248,10 @@ void sauti_mp3_sdl_pump(SautiMp3SdlPlayer *p){
         }
         return;
     }
-    const uint64_t limit=p->decoder.info.sample_rate/2;
+    /* A two-second safety buffer keeps the current song audible while
+     * an AAC seek worker reconstructs history for a distant target. */
+    const uint64_t limit=(uint64_t)p->decoder.info.sample_rate*
+                         (p->seek_mutex?2u:1u)/ (p->seek_mutex?1u:2u);
     float pcm[4096];
     while(queued_frames(p)<limit){
         size_t frames=sauti_decoder_read(&p->decoder,pcm,
@@ -237,6 +310,7 @@ void sauti_mp3_sdl_pause(SautiMp3SdlPlayer *p){
 }
 void sauti_mp3_sdl_stop(SautiMp3SdlPlayer *p){
     if(!p)return;
+    aac_seek_join(p);
     SDL_PauseAudioDevice(p->device,1);
     SDL_ClearQueuedAudio(p->device);
     sauti_decoder_seek(&p->decoder,0);
@@ -247,6 +321,32 @@ void sauti_mp3_sdl_seek(SautiMp3SdlPlayer *p,double sec){
     double total=sauti_mp3_sdl_duration(p);
     if(sec>total)sec=total;
     uint64_t frame=(uint64_t)(sec*p->decoder.info.sample_rate);
+    if(p->seek_mutex){
+        SDL_LockMutex(p->seek_mutex);
+        p->seek_request=frame;
+        p->seek_pending=1;
+        if(!SDL_AtomicGet(&p->seek_busy)){
+            /* Previous thread has already exited: join without blocking
+             * on a live seek, then create the next worker. */
+            if(p->seek_thread){
+                SDL_Thread *previous=p->seek_thread;
+                p->seek_thread=NULL;
+                SDL_UnlockMutex(p->seek_mutex);
+                SDL_WaitThread(previous,NULL);
+                SDL_LockMutex(p->seek_mutex);
+            }
+            SDL_AtomicSet(&p->seek_busy,1);
+            p->seek_thread=SDL_CreateThread(aac_seek_worker,
+                                              "sauti-aac-seek",p);
+            if(!p->seek_thread){
+                p->seek_pending=0;
+                SDL_AtomicSet(&p->seek_busy,0);
+                fprintf(stderr,"Sauti AAC: failed to create seek thread\\n");
+            }
+        }
+        SDL_UnlockMutex(p->seek_mutex);
+        return;
+    }
     SDL_ClearQueuedAudio(p->device);
     if(sauti_decoder_seek(&p->decoder,frame)){
         p->submitted=frame;p->ended=0;
@@ -264,8 +364,26 @@ int sauti_mp3_sdl_paused(const SautiMp3SdlPlayer *p){
 }
 double sauti_mp3_sdl_position(const SautiMp3SdlPlayer *p){
     if(!p)return 0.0;
-    uint64_t queued=queued_frames(p);
-    uint64_t consumed=p->submitted>queued?p->submitted-queued:0;
+    uint64_t queued,submitted;
+    if(p->seek_mutex){
+        /* The SDL timeline must display the user's requested position
+         * throughout an async seek, not the old PCM still playing while
+         * the worker reconstructs history. Lock also synchronizes the
+         * worker's update of submitted and SDL queue handoff. */
+        SDL_LockMutex(p->seek_mutex);
+        if(SDL_AtomicGet((SDL_atomic_t *)&p->seek_busy)){
+            const uint64_t requested=p->seek_request;
+            SDL_UnlockMutex(p->seek_mutex);
+            return (double)requested/p->decoder.info.sample_rate;
+        }
+        queued=queued_frames(p);
+        submitted=p->submitted;
+        SDL_UnlockMutex(p->seek_mutex);
+    }else{
+        queued=queued_frames(p);
+        submitted=p->submitted;
+    }
+    uint64_t consumed=submitted>queued?submitted-queued:0;
     if(p->has_loop && consumed>=p->decoder.info.total_frames){
         uint64_t span=p->decoder.info.total_frames-p->loop_start;
         consumed=p->loop_start+(consumed-p->decoder.info.total_frames)%span;

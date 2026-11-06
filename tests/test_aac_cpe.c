@@ -1,0 +1,362 @@
+#include "sauti_aac_cpe.h"
+#include "sauti_aac_tables.h"
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+typedef struct{uint8_t b[128];size_t bits;} Bits;
+static void put(Bits *b,unsigned width,unsigned value){
+    assert(b->bits+width<=sizeof(b->b)*8u);
+    while(width--){
+        b->b[b->bits/8]|=(uint8_t)(((value>>width)&1u)<<(7-b->bits%8));
+        b->bits++;
+    }
+}
+static void symbol(Bits *b,unsigned book,unsigned index){
+    uint32_t value=0;uint8_t width=0;
+    assert(sauti_aac_standard_codeword(book,index,&value,&width));
+    put(b,width,value);
+}
+static void ics(Bits *b,unsigned max_sfb){
+    put(b,1,0);put(b,2,0);put(b,1,0); /* reserved, long, sin */
+    put(b,6,max_sfb);put(b,1,0);
+}
+static void channel(Bits *b,unsigned common){
+    put(b,8,100); /* global gain */
+    if(!common)ics(b,0);
+    put(b,1,0); /* pulse absent */
+    put(b,1,0); /* TNS absent */
+    put(b,1,0); /* gain absent */
+}
+static void sample(Bits *b,unsigned common,unsigned mask){
+    memset(b,0,sizeof(*b));
+    put(b,3,1);put(b,4,0);put(b,1,common); /* CPE */
+    if(common){
+        ics(b,0);
+        put(b,2,mask);
+    }
+    channel(b,common);channel(b,common);
+    put(b,3,7); /* END */
+    while(b->bits%8)put(b,1,0);
+}
+static void header(uint8_t *dst,unsigned len){
+    assert(len>=9 && len<8192);
+    memset(dst,0,len);
+    dst[0]=0xff;dst[1]=0xf1;
+    dst[2]=0x50; /* AAC-LC 44.1kHz */
+    dst[3]=(uint8_t)(0x80u|((len>>11)&3u)); /* stereo channel_config=2 */
+    dst[4]=(uint8_t)(len>>3);
+    dst[5]=(uint8_t)(((len&7u)<<5)|0x1fu);
+    dst[6]=0xfcu;
+}
+static void run(unsigned common,unsigned mask){
+    Bits raw;sample(&raw,common,mask);
+    size_t pos=0;
+    SautiAacCpeData parsed={0};
+    SautiAacReason reason=SAUTI_AAC_REASON_INVALID_SCE;
+    assert(sauti_aac_lc_cpe_parse(raw.b,raw.bits/8,&pos,4,
+                                  &parsed,&reason)==1);
+    assert(pos+3<=raw.bits && parsed.common_window==common);
+    assert(parsed.ms_mask_present==(common?mask:0u));
+    assert(parsed.channel[0].ics.max_sfb==0);
+    uint8_t frame[128];
+    size_t length=7+raw.bits/8;
+    header(frame,(unsigned)length);
+    memcpy(frame+7,raw.b,raw.bits/8);
+    SautiAacLcSynthesis state[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    float pcm[2048];for(unsigned i=0;i<2048;i++)pcm[i]=42;
+    assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                              state,pcm,&reason)==1);
+    assert(reason==SAUTI_AAC_REASON_OK);
+    for(unsigned i=0;i<2048;i++)assert(pcm[i]==0);
+    SautiAacLcSynthesis saved[2]={state[0],state[1]};
+    for(unsigned i=0;i<2048;i++)pcm[i]=42;
+    assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length-1,
+                                              state,pcm,&reason)==0);
+    assert(memcmp(saved,state,sizeof(saved))==0);
+    for(unsigned i=0;i<2048;i++)assert(pcm[i]==42);
+}
+static void unsupported(void){
+    Bits b;sample(&b,1,3); /* reserved mask */
+    size_t pos=0;
+    SautiAacCpeData out={0},old=out;
+    SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    assert(sauti_aac_lc_cpe_parse(b.b,b.bits/8,&pos,4,&out,&reason)==0);
+    assert(pos==0 && memcmp(&out,&old,sizeof(out))==0);
+}
+static void nonzero_ms(unsigned mask){
+    Bits raw={0};
+    put(&raw,3,1);put(&raw,4,0);put(&raw,1,1); /* CPE common */
+    ics(&raw,1); /* SFB0 has four spectral coefficients */
+    put(&raw,2,mask);
+    if(mask==1u)put(&raw,1,1); /* MS only in SFB0 */
+    for(unsigned ch=0;ch<2;ch++){
+        put(&raw,8,100); /* global gain */
+        put(&raw,4,1);put(&raw,5,1); /* section: codebook 1 */
+        symbol(&raw,0,60); /* scalefactor delta=0 */
+        put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);
+        symbol(&raw,1,ch==0?80u:40u); /* M=+1 quad, S=zero */
+    }
+    put(&raw,3,7);
+    while(raw.bits%8u)put(&raw,1,0);
+    uint8_t frame[128];unsigned length=7u+(unsigned)(raw.bits/8u);
+    header(frame,length);memcpy(frame+7,raw.b,raw.bits/8u);
+    SautiAacLcSynthesis state[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    float pcm[2048];SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                              state,pcm,&reason)==1);
+    assert(reason==SAUTI_AAC_REASON_OK);
+    double energy=0.0;
+    for(unsigned i=0;i<1024;i++){
+        float l=pcm[2*i],r=pcm[2*i+1];
+        assert(isfinite(l)&&isfinite(r));
+        if(mask!=0)assert(fabsf(l-r)<1e-6f);
+        else assert(r==0.0f);
+        energy+=(double)l*l;
+    }
+    assert(energy>0.0);
+    size_t pos=0;
+    SautiAacCpeData parsed={0};
+    assert(sauti_aac_lc_cpe_parse(raw.b,raw.bits/8,&pos,4,
+                                  &parsed,&reason)==1);
+    assert(parsed.ms_mask_present==mask);
+    assert(parsed.ms_used[0][0]==(mask!=0));
+}
+static void intensity_stereo(unsigned book,unsigned mask,unsigned position_delta){
+    Bits raw={0};
+    put(&raw,3,1);put(&raw,4,0);put(&raw,1,1);
+    ics(&raw,1);
+    put(&raw,2,mask);
+    if(mask==1u)put(&raw,1,1); /* MS changes intensity sign */
+    put(&raw,8,100);          /* left global_gain */
+    put(&raw,4,1);put(&raw,5,1);
+    symbol(&raw,0,60);       /* spectral scalefactor = 100 */
+    put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);
+    symbol(&raw,1,80);       /* left = +1,+1,+1,+1 */
+    put(&raw,8,100);         /* right global_gain */
+    put(&raw,4,book);put(&raw,5,1); /* intensity codebook 14/15 */
+    symbol(&raw,0,60u+position_delta); /* first is_pos = delta */
+    put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);
+    /* No coded right spectral data for intensity bands */
+    put(&raw,3,7);
+    while(raw.bits%8u)put(&raw,1,0);
+    uint8_t frame[128];
+    const unsigned size=7u+(unsigned)(raw.bits/8u);
+    header(frame,size);
+    memcpy(frame+7,raw.b,raw.bits/8u);
+    SautiAacCpeData parsed={0};
+    SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    size_t pos=0;
+    assert(sauti_aac_lc_cpe_parse(raw.b,raw.bits/8u,&pos,4,
+                                  &parsed,&reason)==1);
+    assert(parsed.channel[1].factors.codebook[0][0]==book);
+    assert(parsed.channel[1].factors.value[0][0]==(int)position_delta);
+    SautiAacLcSynthesis state[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    float pcm[2048];
+    assert(sauti_aac_lc_adts_stereo_decode_ex(frame,size,state,
+                                              pcm,&reason)==1);
+    const float sign=(book==15u?1.0f:-1.0f)*
+                     (mask? -1.0f:1.0f);
+    const float scale=exp2f(-(float)position_delta/4.0f)*sign;
+    double energy=0;
+    for(unsigned i=0;i<1024;i++){
+        const float l=pcm[i*2],r=pcm[i*2+1];
+        assert(isfinite(l) && isfinite(r));
+        assert(fabsf(r-l*scale)<1.e-6f);
+        energy+=(double)l*l;
+    }
+    assert(energy>0.0);
+}
+static void shared_pns_stream(void){
+    Bits raw={0};
+    put(&raw,3,1);put(&raw,4,0);put(&raw,1,1);
+    ics(&raw,1);put(&raw,2,0); /* common, no MS */
+    for(unsigned ch=0;ch<2;ch++){
+        put(&raw,8,100); /* gain */
+        put(&raw,4,13);put(&raw,5,1); /* PNS band 0 */
+        put(&raw,9,256); /* first noise energy delta = 0 */
+        put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);
+        /* PNS has no coded spectral values */
+    }
+    put(&raw,3,7);
+    while(raw.bits%8u)put(&raw,1,0);
+    uint8_t frame[128];unsigned length=7u+(unsigned)(raw.bits/8u);
+    header(frame,length);memcpy(frame+7,raw.b,raw.bits/8u);
+    SautiAacLcSynthesis state[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    assert(state[0].pns_seed==0x1f2e3d4cu);
+    float pcm[2048];SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    uint32_t expected=0x1f2e3d4cu;
+    for(unsigned frame_index=0;frame_index<2;frame_index++){
+        assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                                  state,pcm,&reason)==1);
+        for(unsigned i=0;i<8;i++)
+            expected=expected*1664525u+1013904223u;
+        assert(state[0].pns_seed==expected);
+        assert(state[1].pns_seed==expected);
+        double difference=0.0;
+        for(unsigned i=0;i<1024;i++)
+            difference+=fabs((double)pcm[2*i]-(double)pcm[2*i+1]);
+        assert(difference>0.0); /* Sequential RNG, not duplicated noise */
+    }
+}
+/* AAC-29C: ms_used over two PNS bands means correlated noise,
+ * not the M/S butterfly. Both synthesized channels must have the
+ * prescribed gain ratio, for two consecutive ADTS frames. */
+static void correlated_pns(unsigned mask,unsigned right_delta){
+    Bits raw={0};
+    put(&raw,3,1);put(&raw,4,0);put(&raw,1,1);
+    ics(&raw,1);
+    put(&raw,2,mask);
+    if(mask==1u)put(&raw,1,1);
+    for(unsigned ch=0;ch<2;ch++){
+        put(&raw,8,100);
+        put(&raw,4,13);put(&raw,5,1);
+        put(&raw,9,256u+(ch?right_delta:0u));
+        put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);
+    }
+    put(&raw,3,7);
+    while(raw.bits%8u)put(&raw,1,0);
+    uint8_t frame[128];unsigned length=7u+(unsigned)(raw.bits/8u);
+    header(frame,length);memcpy(frame+7,raw.b,raw.bits/8u);
+    SautiAacLcSynthesis state[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    for(unsigned n=0;n<2;n++){
+        float pcm[2048];
+        assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                                  state,pcm,&reason)==1);
+        const float scale=exp2f((float)right_delta/4.0f);
+        double lenergy=0,renergy=0;
+        for(unsigned i=0;i<1024;i++){
+            const float left=pcm[2*i],right=pcm[2*i+1];
+            assert(isfinite(left)&&isfinite(right));
+            assert(fabsf(right-left*scale)<1e-5f);
+            lenergy+=(double)left*left;
+            renergy+=(double)right*right;
+        }
+        assert(lenergy>0);
+        assert(fabs(renergy/lenergy-(double)scale*scale)<0.001);
+        assert(state[0].pns_seed==state[1].pns_seed);
+    }
+}
+/* AAC-29D: reject malformed/truncated ADTS frames without changing
+ * either channel's overlap, PNS seed, or caller-owned PCM. A clean
+ * replay after each failure must match a pristine decoder state. */
+static void robustness(void){
+    Bits valid;sample(&valid,1,0);
+    uint8_t frame[128];
+    const size_t length=7u+valid.bits/8u;
+    header(frame,(unsigned)length);
+    memcpy(frame+7,valid.b,valid.bits/8u);
+    SautiAacLcSynthesis state[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    float clean[2048];SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                              state,clean,&reason)==1);
+    SautiAacLcSynthesis baseline[2]={state[0],state[1]};
+    float expected[2048];
+    assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                              state,expected,&reason)==1);
+    for(unsigned variant=0;variant<7;variant++){
+        SautiAacLcSynthesis retry[2]={baseline[0],baseline[1]};
+        float pcm[2048];
+        for(unsigned i=0;i<2048;i++)pcm[i]=42.125f;
+        uint8_t broken[128];memcpy(broken,frame,length);
+        size_t size=length;
+        switch(variant){
+        case 0: size=length-1u;break; /* physically truncated */
+        case 1: broken[0]=0;break;   /* invalid sync */
+        case 2: broken[2]|=0x3cu;break; /* invalid sample rate */
+        case 3: broken[3]&=(uint8_t)~0x80u;break; /* mono ADTS */
+        case 4: broken[5]|=0xe0u;break; /* declared length too large */
+        case 5: broken[length-1u]|=1u;break; /* invalid byte padding */
+        case 6: {
+            Bits reserved;sample(&reserved,1,3);
+            assert(reserved.bits==valid.bits);
+            memcpy(broken+7,reserved.b,valid.bits/8u);
+            break;
+        }
+        }
+        assert(sauti_aac_lc_adts_stereo_decode_ex(broken,size,
+                                                   retry,pcm,&reason)!=1);
+        assert(memcmp(baseline,retry,sizeof(baseline))==0);
+        for(unsigned i=0;i<2048;i++)assert(pcm[i]==42.125f);
+        assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,
+                                                   retry,pcm,&reason)==1);
+        assert(reason==SAUTI_AAC_REASON_OK);
+        assert(memcmp(expected,pcm,sizeof(expected))==0);
+        assert(memcmp(state,retry,sizeof(state))==0);
+    }
+    /* Reject every truncated byte prefix of a well-formed raw CPE;
+     * preserve both parser output and caller bit cursor. */
+    for(size_t bytes=0;bytes<valid.bits/8u;bytes++){
+        SautiAacCpeData output={0},saved=output;
+        size_t bitpos=0;
+        assert(sauti_aac_lc_cpe_parse(valid.b,bytes,&bitpos,4,
+                                      &output,&reason)!=1);
+        assert(bitpos==0 && memcmp(&output,&saved,sizeof(output))==0);
+    }
+}
+
+/* AAC-29E: deterministic single-bit ADTS mutation sweep. Successful
+ * decodes must return finite PCM; rejected frames must preserve both
+ * synthesis states and the complete user PCM buffer. This is not a
+ * coverage-guided fuzzer, but supplements selected malformed fixtures. */
+static void mutation_sweep(void){
+    Bits valid;sample(&valid,1,0);
+    uint8_t frame[128]={0};
+    const size_t length=7u+valid.bits/8u;
+    header(frame,(unsigned)length);
+    memcpy(frame+7,valid.b,valid.bits/8u);
+    SautiAacLcSynthesis baseline[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&baseline[0],0));
+    assert(sauti_aac_lc_synthesis_init(&baseline[1],0));
+    unsigned accepted=0,rejected=0;
+    for(size_t bit=0;bit<length*8u;bit++){
+        uint8_t broken[128];
+        memcpy(broken,frame,length);
+        broken[bit/8u]^=(uint8_t)(0x80u>>(bit%8u));
+        SautiAacLcSynthesis state[2]={baseline[0],baseline[1]};
+        float pcm[2048];
+        for(unsigned i=0;i<2048;i++)pcm[i]=-37.125f;
+        SautiAacReason reason=SAUTI_AAC_REASON_OK;
+        const int status=sauti_aac_lc_adts_stereo_decode_ex(
+            broken,length,state,pcm,&reason);
+        assert(status>=-1 && status<=1);
+        if(status==1){
+            accepted++;
+            for(unsigned i=0;i<2048;i++)assert(isfinite(pcm[i]));
+            assert(state[0].initialized==1 && state[1].initialized==1);
+        }else{
+            rejected++;
+            assert(memcmp(state,baseline,sizeof(state))==0);
+            for(unsigned i=0;i<2048;i++)assert(pcm[i]==-37.125f);
+        }
+    }
+    assert(accepted+rejected==length*8u);
+    assert(rejected>0);
+}
+int main(void){
+    run(0,0);run(1,0);run(1,1);run(1,2);
+    nonzero_ms(0);nonzero_ms(1);nonzero_ms(2);unsupported();
+    intensity_stereo(15,0,0);intensity_stereo(14,0,0);
+    intensity_stereo(15,1,0);intensity_stereo(14,2,0);
+    intensity_stereo(15,0,4);
+    shared_pns_stream();
+    correlated_pns(1,0);correlated_pns(2,4);
+    robustness();
+    mutation_sweep();
+    puts("PASS AAC-26/29D CPE: stereo PNS, malformed ADTS, bit mutations, rollback and recovery");
+    return 0;
+}
