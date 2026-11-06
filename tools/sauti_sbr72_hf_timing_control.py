@@ -88,7 +88,7 @@ def self_test():
              for i in range(n)]
     # Independent, deliberately non-QMF-center signal checks broad-band
     # damage from time-shifting the entire HF rather than only a tone.
-    control = [0.008 * math.sin(2*math.pi*10300*i/RATE) +
+    control = [0.008 * math.sin(2*math.pi*8789*i/RATE) +
                0.007 * math.cos(2*math.pi*12800*i/RATE)
                for i in range(n)]
     baseline = [l+c for l,c in zip(low,control)]
