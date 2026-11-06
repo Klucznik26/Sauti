@@ -5432,3 +5432,16 @@ The repeated-startup-frame guard passed after switching from erroneous call-pari
 User ran `make test-aac-sbr-qmf-startup-slots PKG_CONFIG=/bin/false` after the 20-frame-per-tone **single-history-context** SBR-54x exports. Python syntax and synthetic self-test both PASS; all 4 × 58 observed startup slots were usable. The formerly huge error spikes at slots **38–42 disappeared in every excited band**. Fixed steady-state complex gain reference→Sauti was near 3.0048104e-05 with negligible imaginary component. For LOW 2..5, median per-slot relative complex error was ~0.015624 across startup windows [6,16), [16,32), [32,48), [48,64). Max in [6,16) LOW2 .01569423, LOW3 .01576285, LOW4 .01585006, LOW5 .0159518; from slot 16 onward typical/max reported values were ~0.015624 without the former >1 transient. Report `/tmp/sbr54x-tones/startup_slots_report.tsv`.
 
 This closes the original false startup discontinuity finding under **this specific diagnostic fixture and measurement geometry**, not full 32-band or AAC production conformance. Remaining systematic ~1.56% gain-calibrated complex error and large raw FFmpeg/Sauti amplitude scale ratio (~33275) warrant a separate scaling/filter-convention audit. Production AAC and QMF source untouched. No reason to rebuild production filtering from the old invalid mixed-context results.
+
+
+## HANDOFF / KONIEC SESJI — 2026-11-06 — SBR-54z ZAMKNIĘTY
+
+**Stan na koniec:** zakończono SBR-54z — diagnostykę rozruchu QMF na syntetycznych sygnałach LOW 2–5. Dziś nie rozpoczynamy kolejnego etapu. Gałąź: `feature/aac-family-asm`.
+
+**Co zostało potwierdzone na Fedorze:**
+- Niezależna, lokalnie instrumentowana wersja FFmpeg po korekcie metodologii pomiarowej eksportuje **20 kolejnych ramek QMF z jednego obserwowanego kontekstu historii**; test czterech tonów SBR-54x zakończony PASS.
+- Test `make test-aac-sbr-qmf-startup-slots PKG_CONFIG=/bin/false` zakończony PASS; **zniknęły anomalie w slotach 38–42** wszystkich czterech pasm. To były artefakty wcześniejszego doboru wywołań referencyjnego FFmpeg, nie potwierdzona wada Sauti.
+- Korelacja zespolona pasma pobudzonego ~`0.999878` w każdym z czterech eksperymentów. Pozostały systematyczny błąd po korekcji zespolonego wzmocnienia ~`0.01562` (1,56%). Stosunek RMS FFmpeg/Sauti ~`33275`; nie wyjaśniono jeszcze jego konwencji skali.
+- **Kod produkcyjny AAC/QMF Sauti NIE był zmieniany.** Wyniki dotyczą diagnostycznego analizatora, konkretnych częstotliwości i pasm LOW 2–5; nie są deklaracją pełnej zgodności HE-AAC lub wszystkich 32 pasm.
+
+**Początek kolejnej sesji — proponowany SBR-55:** wykonać odrębny audyt skali i konwencji współczynników filtra (zwłaszcza różnicy ~1,56% po dopasowaniu zysku) na zweryfikowanych plikach `/tmp/sbr54x-tones/low{2,3,4,5}`. Najpierw diagnostyka, żadnych pochopnych zmian implementacji. Jeśli katalog `/tmp` zniknie, ponownie wyeksportować tony przez `SAUTI_SBR54W_CHANNELS=2 python3 tools/sauti_sbr54x_tone_sweep.py --frames 20 --decode-frames 100` na wcześniej przygotowanym, instrumentowanym FFmpeg. `SAUTI_SBR54W_CHANNELS=2` jest w tej wersji instrumentacji przełącznikiem **selekcji jednego obserwowanego kontekstu historii**, nie dowodem tożsamości kanału stereo. Nie porównywać ze starymi 50-ramkowymi pomiarami mieszającymi konteksty.
