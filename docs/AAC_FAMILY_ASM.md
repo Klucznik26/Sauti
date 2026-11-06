@@ -6312,3 +6312,28 @@ grep -c '^SBR73_SAUTI,' /tmp/sbr73.sauti.log
 Expected trace count if all 50 emitted HF frames succeeded: 50*32=1600, **but never claim it before measuring**. For a disposable, known FFmpeg checkout use `python3 tools/sauti_sbr73_ffmpeg_phase_trace.py /path/to/disposable-ffmpeg --dry-run` before applying without `--dry-run`; then build that isolated FFmpeg and run it with `SAUTI_SBR73_FFMPEG_PHASE` pointed to a separate CSV. After both traces exist, first run the auditor without explicit alignment to validate trace geometry. An aligned comparison requires external verification of FFmpeg channel/call and slot time origin.
 
 Future: compare complex reference HF QMF k18/k42 **after** the same envelope and synthesis slot mapping is established. Until that point keep phase+2 experimental, the AAC-LC production decoder and standard QMF synthesis unchanged.
+
+
+### SBR-73 — end-of-day checkpoint (2026-11-06)
+
+**STOP FOR TODAY.** This is the handoff for the next session. Working branch: `feature/aac-family-asm` of `Klucznik26/Sauti`. Previous implementation HEAD before the checkpoint: `0835bd1be54eb7e7f83b6293afd81a84e4f2b955`.
+
+**Verified final Fedora run (real fixture, 2026-11-06):**
+- `git pull --ff-only origin feature/aac-family-asm`: fast-forward `e983c19..0835bd1` PASS.
+- `make test-aac-sbr-ffmpeg-phase-trace probe-he-aac PKG_CONFIG=/bin/false`: PASS; Python syntax compilation plus two synthetic tests: `PASS SBR-73 FFmpeg indexsine tracer: exact source anchors, fail-closed` and `PASS SBR-73: strict per-slot oscillator CSV, explicit origins and fail-closed inputs`. The `sauti_he_aac_probe` compiled with `-O2 -std=c11 -Wall -Wextra -Werror`.
+- `SAUTI_SBR73_TRACE=1 ./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 /tmp/sbr73.preview.f32le /tmp/sbr73 2> /tmp/sbr73.sauti.log`: diagnostic QMF/PCM preview reported **50 frames**, including the existing harmonic `phase0` path and independent `phase+2` path.
+- SBR-54h: QMF frames=50, PCM frames=50, marked slot-bands=3020, active tones=3000, gated noise=3000, PCM RMS=0.0852400951, peak=0.157160804, difference RMS vs SBR-54a=7.95278956e-06.
+- Exported `phase0`: `/tmp/sbr73.preview.f32le.sine.f32le`, **50 frames / 102400 samples**. Exported `phase+2`: `/tmp/sbr73.preview.f32le.sinephase2.f32le`, **50 frames / 102400 samples**.
+- `grep -c '^SBR73_SAUTI,' /tmp/sbr73.sauti.log` returned **1600 = 50 × 32 slots**; this confirms line count, not independent validation of individual fields.
+- **Important limitation:** strict/public HE-AAC decode still outputs `Pierwsza odrzucona ramka: 2`. Successful 50-frame experimental QMF preview is NOT a completed production HE-AAC decoder.
+
+**Prior experiment conclusion:** SBR-69 to SBR-71 confirmed that the isolated experimental QMF phase+2 harmonic branch (same noise gating, independent QMF synth) improves k18=6937.5 Hz and k42=15937.5 Hz for **44/44 steady frames** apiece. SBR-72 showed shifting the entire HF PCM by ±128/±384 samples harms previously well-aligned nonharmonic controls. LOW-to-FFmpeg PCM alignment `lag=384` equals 6 full-rate QMF slots, whose phase clock modulo 4 equals 2. A clock-origin offset is a hypothesis, **not proof** of normative SBR phase or a reason to modify production.
+
+**NEXT SESSION — resume at SBR-73, do not start SBR-74 or change production code yet:**
+1. Inspect the saved `/tmp/sbr73.sauti.log` and preserve it/PCM if the machine may be rebooted; `/tmp` may be cleared.
+2. Find a **disposable FFmpeg source checkout** and first run `python3 tools/sauti_sbr73_ffmpeg_phase_trace.py /PATH/TO/DISPOSABLE-FFMPEG --dry-run`. Today's FFmpeg source test was synthetic only; no actual FFmpeg trace, build or independent complex QMF result exists yet.
+3. If and only if the source anchors match, instrument/build only that disposable FFmpeg checkout and capture its channel-local `f_indexsine` HF assembly log with `SAUTI_SBR73_FFMPEG_PHASE=/tmp/sbr73.ffmpeg.csv` on the known fixture. Do not modify installed/system FFmpeg.
+4. Validate the separate Sauti and FFmpeg traces with `tools/sauti_sbr73_phase_trace_audit.py`. **Do not assume FFmpeg call index is Sauti frame index.** Establish matching channel, call/frame, 64-QMF slot origin, envelope and `add_harmonic` mapping independently; apply explicit offsets only once grounded.
+5. Then compare the **actual complex HF QMF** at k18/k42 and the oscillator clock `f_indexsine` across transients and frame ownership. Keep phase+2 experimental until a normative reference confirms a fix. Preserve AAC-LC, normal QMF and rollback gates.
+
+**Documentation-only checkpoint.** No decoder, generator, tests or FFmpeg source changed by this end-of-day commit.
