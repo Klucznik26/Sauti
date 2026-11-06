@@ -6132,3 +6132,30 @@ python3 tools/sauti_sbr68_target_lines_ab.py \
 ```
 
 After SBR-68, moving closer to a genuine decoding fix requires a *complex QMF-level* phase-index and sinusoid-versus-noise split against a verified FFmpeg reference. Do not flip the production oscillator's sign based on PCM projections alone.
+
+
+### SBR-69 — isolate the 180° harmonic oscillator hypothesis in complex QMF (2026-11-06)
+
+**SBR-68 real Fedora result** (`he_test.aac`, 44 stable frames 3..46): `make test-aac-sbr-tonal-lines-audit PKG_CONFIG=/bin/false` PASS. Fixed LOW alignment `lag=384`, `corr=0.99999994`, `gain=1.41421308`. Separating exactly the two preselected 2048-point PCM FFT lines (k=296 / 6937.5 Hz and k=680 / 15937.5 Hz) from the *Sauti sine-minus-baseline* experimental PCM difference explains **52.2980% of that difference's energy**; remaining energy 47.7020%; orthogonality closure `3.03e-14`.
+
+Comparison against the SAME independent FFmpeg-minus-LOW residual:
+- Tone 6937.5 Hz: original baseline correlation +0.021698, relative error 0.999773; original experimental sine correlation −0.999597, error 1.630682; **invert only these two lines** correlation **+0.999635**, error **0.369067** (`inverse_whole_delta` error 0.369052).
+- Tone 15937.5 Hz: baseline correlation −0.048676, error 1.000458; sine correlation −0.999689, error 1.769914; **invert two lines** correlation **+0.999239**, error **0.233027** (`inverse_whole_delta` error 0.232973).
+- Working-band control remains stable: 8625–9000 Hz correlation ~0.996795, error ~0.081745; 12–15 kHz correlation ~0.995335, error ~0.171377.
+- The wider erroneous bands still have significant residual errors: 6750–7125 Hz ~1.0597 and 15375–16875 Hz ~1.3032 after two-line inversion. Therefore the SBR tone phase hypothesis is strongly supported at these two lines **but is not a complete HF repair**.
+
+**SBR-69 next test — complex QMF, not PCM manipulation**: added the strictly experimental function `sauti_aac_sbr_temporal_harmonic_preview_phase2()` alongside the existing `sauti_aac_sbr_temporal_harmonic_preview()`. The original SBR-54h ABI and behavior remain accessible through a wrapper calling the same internal implementation with oscillator phase offset `0`. The new variant uses `(phase+2)&3` ONLY when adding each active harmonic's complex tone; it retains the identical `raw - noise_vector*noise_amplitude` term, per-slot owner, `onset_allowed`, transient gating and four-phase oscillator clock. A +2 phase offset produces a sign-reversed QMF harmonic **without reversing the noise gate**, unlike SBR-67/68's PCM delta inversion.
+
+**Synthetic C gate**: `tests/test_aac_sbr_harmonic_phase2_ab.c`, Make target `test-aac-sbr-harmonic-phase2-ab` (also prerequisite of `test-aac-native`). Verifies both even and odd `k` parity, identical oscillator state and report across variants, exactly opposite tone vectors after subtracting the SAME noise gate, cross-frame continuation with no new onset, harmonic flag bypass, corrupted NaN and frame-index rollback. This makes the experiment narrower and more discriminating than SBR-68.
+
+**Pending**: Fedora execution of this new C unit test and the complete AAC native gate. This stage does **not** yet create a real AAC output comparison for `phase2`: it validates the isolated QMF-domain hypothesis against synthetic structures. Next, after this gate passes, wire an *independent* QMF+PCM preview state in `sauti_he_aac_probe` and compare phase0/phase2 from the SAME fixture and FFmpeg, without touching production AAC-LC/SBR decoder.
+
+Run on Fedora:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-harmonic-phase2-ab test-aac-sbr-temporal-harmonic-preview PKG_CONFIG=/bin/false
+```
+
+**Important:** This is not a normative HE-AAC oscillator sign fix and must not be wired into production merely because it improves correlation for two selected tones. Independent complex-QMF validation, harmonic flag/phase-index audit, general real fixtures and full native regression are needed first.
