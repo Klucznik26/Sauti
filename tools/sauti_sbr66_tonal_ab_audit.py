@@ -54,13 +54,16 @@ def evaluate(low, reference, variants, lag, gain, bias, first_frame=3, last_fram
         ref_f = fft([(float(reference[start + lag + j]) -
                       gain * float(low[start + j]) - bias) * window[j]
                      for j in range(FRAME)])
-        for k, r in enumerate(ref_f):
-            ref_power[k] += abs(r)**2
+        # fft() returns 2048 bins; real PCM has only 1025 unique bins.
+        # Accumulators below represent non-negative frequencies only.
+        for k in range(FRAME // 2 + 1):
+            ref_power[k] += abs(ref_f[k])**2
         for name, pcm in variants.items():
             hf_f = fft([gain * (float(pcm[start + j]) -
                                 float(low[start + j])) * window[j]
                         for j in range(FRAME)])
-            for k, h in enumerate(hf_f):
+            for k in range(FRAME // 2 + 1):
+                h = hf_f[k]
                 r = ref_f[k]
                 accum[name]["power"][k] += abs(h)**2
                 accum[name]["difference"][k] += abs(h - r)**2
