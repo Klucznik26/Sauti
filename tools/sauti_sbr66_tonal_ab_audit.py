@@ -176,20 +176,22 @@ def main():
     print(f"SBR-66 DIAGNOSTIC: {result['frames']} frames, fixed LOW lag={lag}, "
           f"corr={low_corr:.8f}, gain={gain:.9g}, bias={bias:.9g}")
     baseline = result["variants"]["baseline"]
+    def fmt(value):
+        return "undefined" if value is None else f"{value:.6f}"
     for name, row in result["variants"].items():
         print(f"[{name}]")
         for index, target in enumerate(row["peaks"]):
             before = baseline["peaks"][index]["relative_error"]
             after = target["relative_error"]
-            change = before - after if before is not None and after is not None else float("nan")
+            change = before - after if before is not None and after is not None else None
             print(f"  QMF k={target['band']} center={target['hz']:.1f}Hz "
-                  f"amplitude={target['amplitude']:.5f} "
-                  f"coherence={target['signed']:.5f} "
-                  f"rel_error={after:.6f} change_vs_baseline={change:+.6f}")
+                  f"amplitude={fmt(target['amplitude'])} "
+                  f"coherence={fmt(target['signed'])} "
+                  f"rel_error={fmt(after)} change_vs_baseline={fmt(change)}")
         for band in row["bands"]:
-            print(f"  {band['start']}-{band['end']}Hz signed={band['signed']:.5f} "
-                  f"rel_error={band['relative_error']:.5f} "
-                  f"amplitude={band['ratio']:.5f}")
+            print(f"  {band['start']}-{band['end']}Hz signed={fmt(band['signed'])} "
+                  f"rel_error={fmt(band['relative_error'])} "
+                  f"amplitude={fmt(band['ratio'])}")
     print("SBR-66 compares EXPERIMENTAL signal paths, not normative HE-AAC. "
           "FFmpeg-minus-LOW contains noise and LOW residual error. "
           "No production fixes or HF-specific fitting.")
