@@ -5953,3 +5953,40 @@ python3 tools/sauti_sbr63_hf_spectral_audit.py \
 ```
 
 **Pending:** real SBR-63 spectral results from the user's fixture; full `make test-aac-native` gate has not been rerun after the new audit was added. No production HE-AAC decoder, AAC-LC, QMF or PCM path was changed.
+
+### SBR-64 — detailed 375 Hz HF edge audit after real SBR-63 (2026-11-06)
+
+**Real SBR-63 measurement received on Fedora**: `make test-aac-sbr-hf-spectral-audit PKG_CONFIG=/bin/false` PASS; 44 steady frames (3..46), LOW anchor `lag=384`, `corr=0.99999994`, `gain=1.41421308`; PCM component closure `3.3482038e-09`.
+
+| Band (Hz) | Share of FFmpeg-minus-LOW residual | HF/reference amplitude | Signed complex-spectrum agreement | Relative spectral error |
+|---|---:|---:|---:|---:|
+| 0–3000 | below threshold | 0.139500 | -0.011539 | inconclusive |
+| 3000–6000 | below threshold | 0.198972 | 0.434824 | inconclusive |
+| 6000–9000 | 0.173652 | 1.024643 | 0.186436 | 1.291445 |
+| 9000–12000 | 0.322498 | 1.000991 | 0.998551 | 0.053874 |
+| 12000–15000 | 0.406050 | 0.853688 | 0.995341 | 0.171353 |
+| 15000–18000 | 0.097798 | 1.300623 | 0.003015 | 1.638224 |
+| 18000–24000 | below threshold | — | — | inconclusive |
+
+**Interpretation, not yet a root-cause claim**: 72.85% of reference-residual energy lies in 9–15 kHz where spectral agreement is high, although the 12–15 kHz amplitude is lower (0.854×). The 6–9 kHz and 15–18 kHz edge ranges account for most of the remaining spectral mismatch. Because complex coherence is near zero at the top edge, its reported average phase (4.79°) is not a meaningful basis for phase correction. The synthesized HF is also a different signal from an isolated normative FFmpeg HF: FFmpeg-minus-LOW includes noise and LOW reconstruction error.
+
+**New test (diagnostic only)**: `tools/sauti_sbr64_hf_edge_audit.py`, `make test-aac-sbr-hf-edge-audit` (also included in `test-aac-native`). Uses the exact same SBR-61 exported components and fixed LOW-derived lag/gain/bias as SBR-63. Splits the Hann-windowed FFT into 64 buckets, each 375 Hz wide (equivalent frequency width to a 64-channel QMF band at 48 kHz, **not** a direct measurement of complex QMF subband outputs). Reports reference and candidate spectral-energy fractions, signed coherence, amplitude ratio, relative spectral error and the band's absolute contribution to error power. Strong unexplained candidate-only bands receive `EXTRA_CANDIDATE`, not `PASS`. Default output includes every bucket at 6–9 and 15–18 kHz plus the ten largest error contributors; `--all-bands` displays all 64.
+
+Synthetic test built into the new script: exact three-tone reference at QMF-width bucket centers, intentional inversion of the 16.5–17 kHz component, extra unreferenced HF tone near 19.5 kHz, invalid frame selection. **No real SBR-64 measurement or full AAC native gate has been run yet**.
+
+Run on Fedora (existing /tmp/sbr61 files suffice):
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-hf-edge-audit PKG_CONFIG=/bin/false
+python3 tools/sauti_sbr64_hf_edge_audit.py \
+  --low /tmp/sbr61.low.f32le \
+  --hf /tmp/sbr61.hf.f32le \
+  --noise /tmp/sbr61.noise.f32le \
+  --preview /tmp/sbr61.preview.f32le \
+  --reference /tmp/sbr61.reference.f32le \
+  --first-frame 3 --last-frame 46 | tee /tmp/sbr64.log
+```
+
+No changes to AAC-LC, SBR parser, gain, HF transpose, QMF synthesis, or final PCM.
