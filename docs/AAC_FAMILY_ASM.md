@@ -5324,3 +5324,16 @@ Transition and steady values being virtually identical indicate the discrepancy 
 **NEXT: SBR-54z (NOT YET STARTED).** Diagnose QMF transient **slot by slot** during global slots [0,64), excluding first 6 undefined/zero W[i-6] slots when comparing. Measure windowed and per-slot complex mismatch and coherence (single complex sample requires a different statistic than multi-slot coherence), energy, and gain/phase evolution. Look for the exact stabilization boundary; then investigate filter history, window and modulation conventions. Preserve strict shared-source provenance and full-frame geometry. Never edit production QMF/AAC solely on this evidence; perform independent diagnostic tests first.
 
 **Resume prerequisites on user's Fedora:** `~/Sauti` branch `feature/aac-family-asm`; independent FFmpeg binary `~/Sauti-tools/ffmpeg-sbr54w/ffmpeg`; retained four tone folders under `/tmp/sbr54x-tones/low{2,3,4,5}`. `/tmp` is ephemeral: if removed, regenerate via `make test-aac-sbr-qmf-tones PKG_CONFIG=/bin/false` (using the already built instrumented FFmpeg) before evaluating SBR-54z. No background tasks; work intentionally stops here.
+
+
+### SBR-54z — initial startup-slot audit (2026-11-06)
+
+One small diagnostic step, no changes to production AAC or QMF: `tools/sauti_sbr54z_startup_slots.py` uses existing SBR-54x data and strict matching producer/PCM-SHA manifests. For each excited band 2..5 it fits one complex reference→Sauti gain on steady slots [256, end), and applies that **same** gain to each startup slot [6,64). It records per-slot Sauti magnitude, calibrated FFmpeg magnitude, magnitude ratio, phase difference in degrees, complex residual relative to calibrated reference, and low-energy markers. It DOES NOT report meaningless single-sample coherence. It prints grouped early-time summaries and exports `/tmp/sbr54x-tones/startup_slots_report.tsv` (4×58 records).
+
+Fedora command:
+```sh
+cd ~/Sauti && git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-qmf-startup-slots PKG_CONFIG=/bin/false
+```
+
+If /tmp was cleared, regenerate previous tones with `make test-aac-sbr-qmf-tones PKG_CONFIG=/bin/false` first. A synthetic self-test exercises stable calibration, forced transient, and zero-reference handling. **Real Fedora validation of SBR-54z pending.** The aim is to localize the startup mismatch without adjusting or rebuilding production filters.
