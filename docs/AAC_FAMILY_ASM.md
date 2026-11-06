@@ -6023,3 +6023,35 @@ python3 tools/sauti_sbr65_hf_peak_audit.py \
 ```
 
 The next substantive decoder change, if warranted, should be tested against an independently captured complex QMF HF reference before modifying patch mapping, transposition or harmonic reconstruction. **No production AAC-LC, SBR, QMF, HF or PCM code was changed in SBR-65.**
+
+
+### SBR-66 — test the already-existing harmonic preview against exact HF tones (2026-11-06)
+
+**Real SBR-65 result from Fedora:** `make test-aac-sbr-hf-peak-audit PKG_CONFIG=/bin/false` PASS. Forty-four steady frames (3..46), LOW `lag=384`, `corr=0.99999994`, `gain=1.4142131`, closure RMS `3.34820381e-09`. Relative to the *FFmpeg-minus-Sauti-LOW* residual:
+- 6–9 kHz reference peak **6937.50 Hz** (55.83% of band power), Sauti HF peak **7007.81 Hz** (49.20% of its band power), shift **+70.31 Hz**. Candidate power in the exact reference peak bin only **0.01628% of candidate 6–9 kHz band power**; signed coherence in that bin 0.021344.
+- 15–18 kHz reference peak **15937.50 Hz** (66.62% of band power), Sauti HF strongest peaks **15492.19 Hz** (29.06%), **16500.00 Hz** (15.30%), **16242.19 Hz** (10.39%). Dominant shift **-445.31 Hz**, candidate power at reference bin only **0.00294% of candidate 15–18 kHz power**, signed coherence -0.054003.
+- The two strong reference peaks are exactly the nominal centers of 64-channel QMF bands **k=18** (`18.5*375=6937.5 Hz`) and **k=42** (`42.5*375=15937.5 Hz`) at 48 kHz. This **raises**, but does not prove, the possibility of missing or misplaced SBR harmonic sinusoids (`add_harmonic`); QMF patch mapping, phase, leakage and the residual reference definition also remain possible explanations.
+- The reference is a mixture: FFmpeg PCM minus the synthesized Sauti LOW. It is not a clean standalone FFmpeg HF stem. FFT peak shifts alone cannot justify editing the normative QMF patch map or decoder phase.
+
+**Next experiment without any re-encoding/re-decoding**: Sauti probe already exported separate 50-frame PCM previews from the SAME `he_test.aac` run: raw SBR-54a preview, SBR-54h harmonic/sine preview, SBR-54i amplitude-domain A/B, SBR-54m G-only A/B, and SBR-54q imaginary-conjugation A/B. Added `tools/sauti_sbr66_tonal_ab_audit.py` with `make test-aac-sbr-tonal-ab-audit` (also a `test-aac-native` dependency). It uses the same LOW-derived lag, gain and DC for all variants, and compares *each candidate minus LOW* to the exact same FFmpeg-minus-LOW reference residual over frames 3..46.
+
+The new test specifically measures at exact FFT-bin centers 6937.5 Hz and 15937.5 Hz and checks the following bands: 6750–7125, 8625–9000 (working-band control), 12000–15000 (working-band control), and 15375–16875 Hz. For each A/B candidate it prints amplitudes, signed spectral agreement, relative errors, and change in error vs untouched baseline. No candidate-specific gain/lag/phase/frequency search is allowed. Synthetic self-test covers two exact QMF-center tones, known displacements, a corrected A/B path, malformed sizes and NaN. **SBR-66 fixture output and full AAC gate still need Fedora execution.**
+
+Run:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-family-asm
+make test-aac-sbr-tonal-ab-audit PKG_CONFIG=/bin/false
+python3 tools/sauti_sbr66_tonal_ab_audit.py \
+  --low /tmp/sbr61.low.f32le \
+  --reference /tmp/sbr61.reference.f32le \
+  --baseline /tmp/sbr61.preview.f32le \
+  --sine /tmp/sbr61.preview.f32le.sine.f32le \
+  --units /tmp/sbr61.preview.f32le.units.f32le \
+  --gonly /tmp/sbr61.preview.f32le.refhf.f32le \
+  --conj /tmp/sbr61.preview.f32le.refhfconj.f32le \
+  --first-frame 3 --last-frame 46 | tee /tmp/sbr66.log
+```
+
+**Interpretation rule**: A/B result can identify which pre-existing experimental processing path helps or hurts the 6937.5/15937.5 Hz residual. It cannot make that path normative, nor establish why any FFmpeg/Sauti peaks differ. The subsequent justified engineering step is to compare complex HF QMF from a known single FFmpeg context against Sauti at bands k=18/k=42 (including `add_harmonic` and per-envelope owner). No production AAC-LC, SBR, synthesis QMF or PCM code was changed.
