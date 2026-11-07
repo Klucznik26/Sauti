@@ -69,6 +69,12 @@ YM_ASM := $(OBJDIR)/sauti_decoder_ym.o
 AAC_HEADERS_ASM := $(OBJDIR)/sauti_aac_headers.o
 AAC_CONFIG_SRC := src/decoders/modern/aac/sauti_aac_config.c
 AAC_SYNTAX_SRC := src/decoders/modern/aac/sauti_aac_syntax.c
+AAC_PS_MAP_SRC := src/decoders/modern/aac/sauti_aac_ps_map.c
+AAC_PS_HYBRID_SRC := src/decoders/modern/aac/sauti_aac_ps_hybrid.c
+AAC_PS_MATRIX_SRC := src/decoders/modern/aac/sauti_aac_ps_matrix.c
+AAC_PS_PHASE_SRC := src/decoders/modern/aac/sauti_aac_ps_phase.c
+AAC_PS_MIX_SRC := src/decoders/modern/aac/sauti_aac_ps_mix.c
+AAC_PS_MIX_ASM := $(OBJDIR)/sauti_aac_ps_mix.o
 AAC_SBR_GRID_SRC := src/decoders/modern/aac/sauti_aac_sbr_grid.c
 AAC_SBR_MASTER_SRC := src/decoders/modern/aac/sauti_aac_sbr_master.c
 AAC_SBR_MASTER_LOG_SRC := src/decoders/modern/aac/sauti_aac_sbr_master_log.c
@@ -97,8 +103,13 @@ AAC_SBR_QMF_SYNTH_MOD_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod
 AAC_SBR_QMF_ANALYSIS_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_analysis.c
 AAC_SBR_QMF_FRAME_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_frame.c
 AAC_SBR_PAYLOAD_SRC := src/decoders/modern/aac/sauti_aac_sbr_payload.c
+AAC_SBR_CRC_SRC := src/decoders/modern/aac/sauti_aac_sbr_crc.c
 AAC_HE_ADTS_MONO_SRC := src/decoders/modern/aac/sauti_aac_he_adts_mono.c
 AAC_HE_ADTS_QMF_SRC := src/decoders/modern/aac/sauti_aac_he_adts_qmf.c
+AAC_HE_ADTS_CPE_SRC := src/decoders/modern/aac/sauti_aac_he_adts_cpe.c
+AAC_HE_ADTS_CPE_QMF_SRC := src/decoders/modern/aac/sauti_aac_he_adts_cpe_qmf.c
+AAC_ADTS_CRC_SRC := src/decoders/modern/aac/sauti_aac_adts_crc.c
+AAC_NATIVE_ADAPTER_DEPS = $(sort $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_SBR_ADTS_CPE_DEPS))
 AAC_LC_SECTIONS_SRC := src/decoders/modern/aac/sauti_aac_lc_sections.c
 AAC_HUFFMAN_SRC := src/decoders/modern/aac/sauti_aac_huffman.c
 AAC_HUFFMAN_ASM := $(OBJDIR)/sauti_aac_huffman.o
@@ -113,7 +124,7 @@ AAC_IMDCT_SRC := src/decoders/modern/aac/sauti_aac_imdct.c
 AAC_IMDCT_ASM := $(OBJDIR)/sauti_aac_imdct.o
 AAC_WINDOW_SRC := src/decoders/modern/aac/sauti_aac_window.c
 AAC_LC_SYNTH_SRC := src/decoders/modern/aac/sauti_aac_lc_synth.c
-AAC_LC_FRAME_SRC := src/decoders/modern/aac/sauti_aac_lc_frame.c
+AAC_LC_FRAME_SRC := src/decoders/modern/aac/sauti_aac_lc_frame.c $(AAC_ADTS_CRC_SRC)
 AAC_PNS_SRC := src/decoders/modern/aac/sauti_aac_pns.c
 AAC_TNS_SRC := src/decoders/modern/aac/sauti_aac_tns.c
 AAC_SPECTRAL_ASM := $(OBJDIR)/sauti_aac_spectral.o
@@ -404,12 +415,50 @@ test-aac-headers: $(OBJDIR)/test_aac_headers
 $(AAC_DSP_ASM): src/decoders/modern/aac/sauti_aac_dsp.asm | $(OBJDIR)
 	$(NASM) -f elf64 -o $@ $<
 
+$(AAC_PS_MIX_ASM): src/decoders/modern/aac/sauti_aac_ps_mix.asm | $(OBJDIR)
+	$(NASM) -f elf64 -o $@ $<
+
 $(OBJDIR)/test_aac_syntax: tests/test_aac_syntax.c include/sauti_aac_syntax.h $(AAC_SYNTAX_SRC) $(AAC_DSP_ASM) $(AAC_HEADERS_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_syntax.c $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) $(AAC_DSP_ASM) -no-pie
 
 .PHONY: test-aac-syntax
 test-aac-syntax: $(OBJDIR)/test_aac_syntax
 	./$(OBJDIR)/test_aac_syntax
+
+$(OBJDIR)/test_aac_ps_map: tests/test_aac_ps_map.c include/sauti_aac_ps_map.h $(AAC_PS_MAP_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_map.c $(AAC_PS_MAP_SRC)
+
+.PHONY: test-aac-ps-map
+test-aac-ps-map: $(OBJDIR)/test_aac_ps_map
+	./$(OBJDIR)/test_aac_ps_map
+
+$(OBJDIR)/test_aac_ps_hybrid: tests/test_aac_ps_hybrid.c include/sauti_aac_ps_hybrid.h $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_hybrid.c $(AAC_PS_HYBRID_SRC)
+
+.PHONY: test-aac-ps-hybrid
+test-aac-ps-hybrid: $(OBJDIR)/test_aac_ps_hybrid
+	./$(OBJDIR)/test_aac_ps_hybrid
+
+$(OBJDIR)/test_aac_ps_matrix: tests/test_aac_ps_matrix.c include/sauti_aac_ps_matrix.h $(AAC_PS_MATRIX_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_matrix.c $(AAC_PS_MATRIX_SRC) -lm
+
+.PHONY: test-aac-ps-matrix
+test-aac-ps-matrix: $(OBJDIR)/test_aac_ps_matrix
+	./$(OBJDIR)/test_aac_ps_matrix
+
+$(OBJDIR)/test_aac_ps_phase: tests/test_aac_ps_phase.c include/sauti_aac_ps_phase.h $(AAC_PS_PHASE_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_phase.c $(AAC_PS_PHASE_SRC) -lm
+
+.PHONY: test-aac-ps-phase
+test-aac-ps-phase: $(OBJDIR)/test_aac_ps_phase
+	./$(OBJDIR)/test_aac_ps_phase
+
+$(OBJDIR)/test_aac_ps_mix: tests/test_aac_ps_mix.c include/sauti_aac_ps_mix.h $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_mix.c $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) -lm -no-pie
+
+.PHONY: test-aac-ps-mix
+test-aac-ps-mix: $(OBJDIR)/test_aac_ps_mix
+	./$(OBJDIR)/test_aac_ps_mix
 
 $(OBJDIR)/test_aac_sbr_grid: tests/test_aac_sbr_grid.c include/sauti_aac_sbr_grid.h $(AAC_SBR_GRID_SRC) $(AAC_HEADERS_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_grid.c $(AAC_SBR_GRID_SRC) $(AAC_HEADERS_ASM) -no-pie
@@ -609,7 +658,7 @@ $(OBJDIR)/test_aac_sbr_qmf_frame: tests/test_aac_sbr_qmf_frame.c include/sauti_a
 test-aac-sbr-qmf-frame: $(OBJDIR)/test_aac_sbr_qmf_frame
 	./$(OBJDIR)/test_aac_sbr_qmf_frame
 
-AAC_SBR_PAYLOAD_DEPS := $(AAC_SBR_PAYLOAD_SRC) $(AAC_SYNTAX_SRC) $(AAC_SBR_GRID_SRC) $(AAC_SBR_CONTROL_SRC) $(AAC_SBR_QUANT_SRC) $(AAC_SBR_HUFFMAN_SRC) $(AAC_SBR_ENERGY_SRC) $(AAC_SBR_LIMITS_SRC) $(AAC_SBR_MASTER_SRC) $(AAC_SBR_MASTER_LOG_SRC) $(AAC_SBR_FREQ_TABLES_SRC) $(AAC_SBR_PATCH_SRC) $(AAC_HEADERS_ASM)
+AAC_SBR_PAYLOAD_DEPS := $(AAC_SBR_PAYLOAD_SRC) $(AAC_SBR_CRC_SRC) $(AAC_SYNTAX_SRC) $(AAC_SBR_GRID_SRC) $(AAC_SBR_CONTROL_SRC) $(AAC_SBR_QUANT_SRC) $(AAC_SBR_HUFFMAN_SRC) $(AAC_SBR_ENERGY_SRC) $(AAC_SBR_LIMITS_SRC) $(AAC_SBR_MASTER_SRC) $(AAC_SBR_MASTER_LOG_SRC) $(AAC_SBR_FREQ_TABLES_SRC) $(AAC_SBR_PATCH_SRC) $(AAC_HEADERS_ASM)
 
 $(OBJDIR)/test_aac_sbr_payload: tests/test_aac_sbr_payload.c include/sauti_aac_sbr_payload.h $(AAC_SBR_PAYLOAD_DEPS) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_payload.c $(AAC_SBR_PAYLOAD_DEPS) -lm -no-pie
@@ -618,7 +667,7 @@ $(OBJDIR)/test_aac_sbr_payload: tests/test_aac_sbr_payload.c include/sauti_aac_s
 test-aac-sbr-payload: $(OBJDIR)/test_aac_sbr_payload
 	./$(OBJDIR)/test_aac_sbr_payload
 
-AAC_SBR_ADTS_MONO_DEPS := $(AAC_HE_ADTS_MONO_SRC) $(AAC_SBR_PAYLOAD_SRC) $(AAC_SBR_GRID_SRC) $(AAC_SBR_CONTROL_SRC) $(AAC_SBR_QUANT_SRC) $(AAC_SBR_HUFFMAN_SRC) $(AAC_SBR_ENERGY_SRC) $(AAC_SBR_LIMITS_SRC) $(AAC_SBR_MASTER_SRC) $(AAC_SBR_MASTER_LOG_SRC) $(AAC_SBR_FREQ_TABLES_SRC) $(AAC_SBR_PATCH_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM)
+AAC_SBR_ADTS_MONO_DEPS := $(AAC_HE_ADTS_MONO_SRC) $(AAC_SBR_PAYLOAD_SRC) $(AAC_SBR_CRC_SRC) $(AAC_SBR_GRID_SRC) $(AAC_SBR_CONTROL_SRC) $(AAC_SBR_QUANT_SRC) $(AAC_SBR_HUFFMAN_SRC) $(AAC_SBR_ENERGY_SRC) $(AAC_SBR_LIMITS_SRC) $(AAC_SBR_MASTER_SRC) $(AAC_SBR_MASTER_LOG_SRC) $(AAC_SBR_FREQ_TABLES_SRC) $(AAC_SBR_PATCH_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM)
 
 $(OBJDIR)/test_aac_sbr_adts_mono: tests/test_aac_sbr_adts_mono.c include/sauti_aac_he_adts_mono.h $(AAC_SBR_ADTS_MONO_DEPS) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_adts_mono.c $(AAC_SBR_ADTS_MONO_DEPS) -lm -no-pie
@@ -863,8 +912,23 @@ test-aac-sbr-temporal-envelope-audit: $(OBJDIR)/test_aac_sbr_temporal_envelope_a
 
 AAC_SBR_ADTS_QMF_DEPS := $(sort $(AAC_HE_ADTS_QMF_SRC) $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS))
 
-$(OBJDIR)/test_aac_sbr_adts_qmf: tests/test_aac_sbr_adts_qmf.c tests/test_aac_sbr_adts_mono.c include/sauti_aac_he_adts_qmf.h $(AAC_SBR_ADTS_QMF_DEPS) | $(OBJDIR)
-	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_adts_qmf.c $(AAC_SBR_ADTS_QMF_DEPS) -lm -no-pie
+AAC_SBR_ADTS_CPE_DEPS := $(sort $(AAC_HE_ADTS_CPE_QMF_SRC) $(AAC_HE_ADTS_CPE_SRC) src/decoders/modern/aac/sauti_aac_cpe.c $(AAC_SBR_ADTS_QMF_DEPS))
+$(OBJDIR)/test_aac_sbr_adts_cpe: tests/test_aac_sbr_adts_cpe.c tests/test_aac_sbr_payload.c include/sauti_aac_he_adts_cpe.h include/sauti_decoder_aac_native.h src/sauti_decoder.c src/decoders/modern/aac/sauti_decoder_aac_native.c $(AAC_SBR_ADTS_CPE_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_adts_cpe.c src/sauti_decoder.c src/decoders/modern/aac/sauti_decoder_aac_native.c $(AAC_SBR_ADTS_CPE_DEPS) -lm -no-pie
+
+.PHONY: test-aac-sbr-adts-cpe
+test-aac-sbr-adts-cpe: $(OBJDIR)/test_aac_sbr_adts_cpe
+	./$(OBJDIR)/test_aac_sbr_adts_cpe
+
+$(OBJDIR)/test_aac_adts_crc: tests/test_aac_adts_crc.c include/sauti_aac_adts_crc.h $(AAC_ADTS_CRC_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_adts_crc.c $(AAC_ADTS_CRC_SRC) -no-pie
+
+.PHONY: test-aac-adts-crc
+test-aac-adts-crc: $(OBJDIR)/test_aac_adts_crc
+	./$(OBJDIR)/test_aac_adts_crc
+
+$(OBJDIR)/test_aac_sbr_adts_qmf: tests/test_aac_sbr_adts_qmf.c tests/test_aac_sbr_adts_mono.c include/sauti_aac_he_adts_qmf.h include/sauti_decoder_aac_native.h src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_adts_qmf.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
 
 .PHONY: test-aac-sbr-adts-qmf
 test-aac-sbr-adts-qmf: $(OBJDIR)/test_aac_sbr_adts_qmf
@@ -1056,7 +1120,7 @@ test-aac-tns: $(OBJDIR)/test_aac_tns
 
 # Native AAC-LC is linked only into SDL player binaries; standalone
 # decoder tests use their own explicit source/object dependencies.
-AAC_PLAYER_SRC = $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC)
+AAC_PLAYER_SRC = $(sort $(AAC_NATIVE_ADAPTER_DEPS) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC))
 AAC_PLAYER_ASM = $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM)
 
 AAC_CPE_SRC := src/decoders/modern/aac/sauti_aac_cpe.c
@@ -1064,17 +1128,44 @@ AAC_CPE_SRC := src/decoders/modern/aac/sauti_aac_cpe.c
 $(OBJDIR)/test_aac_cpe: tests/test_aac_cpe.c include/sauti_aac_cpe.h $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_cpe.c $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) -lm -no-pie
 
-# ASan/UBSan is applied to the C sources of the CPE decoder and test.
-# Existing NASM objects are linked unchanged; sanitizer coverage does not
-# extend into hand-written assembly. Use a separate binary to keep normal
-# tests unaffected.
+# ASan/UBSan is applied to the C sources of the CPE decoder and to the
+# independent AAC syntax/PS parser test. Existing NASM objects are linked
+# unchanged, so sanitizer coverage does not extend into hand-written assembly.
 AAC_SAN_FLAGS := -O1 -g -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer
 $(OBJDIR)/test_aac_cpe_san: tests/test_aac_cpe.c include/sauti_aac_cpe.h $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) | $(OBJDIR)
 	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_cpe.c $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) -lm -no-pie
 
+$(OBJDIR)/test_aac_syntax_san: tests/test_aac_syntax.c include/sauti_aac_syntax.h $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) $(AAC_DSP_ASM) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_syntax.c $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) $(AAC_DSP_ASM) -no-pie
+
+$(OBJDIR)/test_aac_ps_map_san: tests/test_aac_ps_map.c include/sauti_aac_ps_map.h $(AAC_PS_MAP_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_map.c $(AAC_PS_MAP_SRC)
+
+$(OBJDIR)/test_aac_ps_hybrid_san: tests/test_aac_ps_hybrid.c include/sauti_aac_ps_hybrid.h $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_hybrid.c $(AAC_PS_HYBRID_SRC)
+
+$(OBJDIR)/test_aac_ps_matrix_san: tests/test_aac_ps_matrix.c include/sauti_aac_ps_matrix.h $(AAC_PS_MATRIX_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_matrix.c $(AAC_PS_MATRIX_SRC) -lm
+
+$(OBJDIR)/test_aac_ps_phase_san: tests/test_aac_ps_phase.c include/sauti_aac_ps_phase.h $(AAC_PS_PHASE_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_phase.c $(AAC_PS_PHASE_SRC) -lm
+
+$(OBJDIR)/test_aac_ps_mix_san: tests/test_aac_ps_mix.c include/sauti_aac_ps_mix.h $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_mix.c $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) -lm -no-pie
+
+$(OBJDIR)/test_aac_sbr_payload_san: tests/test_aac_sbr_payload.c include/sauti_aac_sbr_payload.h $(AAC_SBR_PAYLOAD_DEPS) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_sbr_payload.c $(AAC_SBR_PAYLOAD_DEPS) -lm -no-pie
+
 .PHONY: test-aac-sanitize
-test-aac-sanitize: $(OBJDIR)/test_aac_cpe_san
+test-aac-sanitize: $(OBJDIR)/test_aac_cpe_san $(OBJDIR)/test_aac_syntax_san $(OBJDIR)/test_aac_ps_map_san $(OBJDIR)/test_aac_ps_hybrid_san $(OBJDIR)/test_aac_ps_matrix_san $(OBJDIR)/test_aac_ps_phase_san $(OBJDIR)/test_aac_ps_mix_san $(OBJDIR)/test_aac_sbr_payload_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_cpe_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_syntax_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_map_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_hybrid_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_matrix_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_phase_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_mix_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_sbr_payload_san
 
 .PHONY: test-aac-cpe
 test-aac-cpe: $(OBJDIR)/test_aac_cpe
@@ -1165,8 +1256,8 @@ inspect-aac-29-tools: $(OBJDIR)/test_aac_real_stereo
 	python3 scripts/diagnose_aac_stereo_tools.py
 
 AAC_NATIVE_ADAPTER_SRC := src/decoders/modern/aac/sauti_decoder_aac_native.c
-$(OBJDIR)/test_decoder_aac_native: tests/test_decoder_aac_native.c include/sauti_decoder_aac_native.h $(AAC_NATIVE_ADAPTER_SRC) src/sauti_decoder.c $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) | $(OBJDIR)
-	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aac_native.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) -lm -no-pie
+$(OBJDIR)/test_decoder_aac_native: tests/test_decoder_aac_native.c include/sauti_decoder_aac_native.h $(AAC_NATIVE_ADAPTER_DEPS) src/sauti_decoder.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aac_native.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
 
 .PHONY: test-aac-native-adapter
 test-aac-native-adapter: $(OBJDIR)/test_decoder_aac_native
@@ -1235,7 +1326,7 @@ test-aac-sbr-hf-stem-audit:
 	python3 tools/sauti_sbr62_hf_stem_audit.py --self-test
 
 .PHONY: test-aac-native
-test-aac-native: test-aac-sbr-ffmpeg-phase-trace test-aac-sbr-hf-timing-control test-aac-sbr-qmf-phase-frames test-aac-sbr-qmf-phase-ab test-aac-sbr-harmonic-phase2-ab test-aac-sbr-tonal-lines-audit test-aac-sbr-tonal-delta-audit test-aac-sbr-tonal-ab-audit test-aac-sbr-hf-peak-audit test-aac-sbr-hf-edge-audit test-aac-sbr-hf-spectral-audit test-aac-sbr-hf-frame-audit test-aac-sbr-hf-stem-audit test-aac-headers test-aac-syntax test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
+test-aac-native: test-aac-sbr-ffmpeg-phase-trace test-aac-sbr-hf-timing-control test-aac-sbr-qmf-phase-frames test-aac-sbr-qmf-phase-ab test-aac-sbr-harmonic-phase2-ab test-aac-sbr-tonal-lines-audit test-aac-sbr-tonal-delta-audit test-aac-sbr-tonal-ab-audit test-aac-sbr-hf-peak-audit test-aac-sbr-hf-edge-audit test-aac-sbr-hf-spectral-audit test-aac-sbr-hf-frame-audit test-aac-sbr-hf-stem-audit test-aac-headers test-aac-syntax test-aac-ps-map test-aac-ps-hybrid test-aac-ps-matrix test-aac-ps-phase test-aac-ps-mix test-aac-adts-crc test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-sbr-adts-cpe test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
 
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm

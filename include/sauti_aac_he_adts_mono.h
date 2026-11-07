@@ -13,8 +13,10 @@
  * in the next stage, after adding normative delay/frame handling.
  *
  * Supported: AAC-LC 1024-sample single-channel-element mono ADTS with
- * one raw_data_block, no ADTS CRC, one SBR extension type 13 in FIL.
- * SBR-29 restricts SBR grid to [0,16] and rejects extensions/PS/CRC.
+ * one raw_data_block, ADTS CRC validated for SCE, one SBR extension type 13 or validated
+ * type 14 CRC in FIL. SBR-29 restricts SBR grid to [0,16] and returns a
+ * parsed PS extension only as side data; this entry point still outputs the
+ * mono AAC-LC core, never fabricated stereo.
  * Leading/trailing harmless EXT_FILL=0 FIL may be present. Multiple
  * SBR payloads, CPE, unknown extensions and extra channel elements
  * are explicitly rejected (never quietly discarded).

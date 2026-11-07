@@ -1,6 +1,8 @@
 # Sauti — własny dekoder AAC w NASM (AAC-LC + HE-AAC + HE-AAC v2)
 
-Status: **rozpoczęty, NIE odtwarza jeszcze PCM**. Gałąź \`feature/aac-family-asm\`.
+Status: AAC-LC oraz eksperymentalne HE-AAC/SBR odtwarzają PCM w restrykcyjnych
+ścieżkach ADTS; HE-AAC v2/PS nie ma jeszcze własnej rekonstrukcji stereo.
+Gałąź \`feature/aac-family-asm\`.
 Nie zastępuj obecnego działającego adaptera AAC/FFmpeg w rejestrze odtwarzacza
 aż do przejścia testów poprawności i odsłuchu prawdziwych plików.
 
@@ -8,8 +10,8 @@ aż do przejścia testów poprawności i odsłuchu prawdziwych plików.
 
 | Warstwa | Odpowiada za | Stan |
 | --- | --- | --- |
-| AAC-LC | ADTS/ASC, strumień bitowy, ICS, Huffman, odwrotna kwantyzacja, TNS, stereo, IMDCT/okna, PCM | Parser ADTS i czytnik bitów NASM: zaimplementowane. Dekodowanie: do wykonania |
-| HE-AAC (SBR) | Parsowanie danych SBR, siatka czasowo-częstotliwościowa, QMF, rekonstrukcja wysokich pasm | Wykrywanie jawnego AOT 5 w ASC: zaimplementowane. DSP: do wykonania |
+| AAC-LC | ADTS/ASC, strumień bitowy, ICS, Huffman, odwrotna kwantyzacja, TNS, stereo, IMDCT/okna, PCM | Działający dekoder ADTS mono/stereo AAC-LC z NASM w gorących prymitywach; nadal ograniczony do obsługiwanych elementów i jedno-RDB. |
+| HE-AAC (SBR) | Parsowanie danych SBR, siatka czasowo-częstotliwościowa, QMF, rekonstrukcja wysokich pasm | Eksperymentalny ADTS SCE/CPE type-13/type-14 z QMF i PCM 2×; wymagane dalsze porównanie z niezależnym PCM. |
 | HE-AAC v2 (PS) | Odczyt parametrów PS, dekorrelacja i rekonstrukcja stereo na wyjściu SBR | Wykrywanie jawnego AOT 29 w ASC: zaimplementowane. DSP: do wykonania |
 
 PS wykorzystuje SBR; SBR wykorzystuje ten sam podstawowy rdzeń AAC-LC.
@@ -65,8 +67,102 @@ osiągnięciu poprawności i pokrycia testami.
   nie jest jeszcze podłączony do transformacji IMDCT.
 - Testy: `make test-aac-syntax`; `make test-container-formats` sprawdza
   także parser na prawdziwym zakodowanym pliku ADTS z testów.
-- Stan nadal **bez własnego dekodowania AAC do PCM**; zachować dotychczasowy
-  odtwarzacz FFmpeg do czasu zakończenia Huffmana, IMDCT, SBR, PS.
+- Własne dekodowanie AAC-LC i restrykcyjne HE-AAC/SBR do PCM jest dostępne;
+  zachować ostrożność przy wyborze go zamiast FFmpeg, dopóki HE-AAC nie ma
+  porównania zgodności z niezależnym PCM, a PS pozostaje niezaimplementowane.
+
+### PS — stan nagłówka i ramek między ramkami (2026-11-07)
+
+Dodano `SautiAacPsHeaderState`. Modeluje semantykę `ps_header_flag`: pierwsza
+ramka bez nagłówka jest odrzucana, późniejsza dziedziczy ostatnie IID/ICC,
+a aktualizacja stanu i kursora jest atomowa. To nadal warstwa składni, bez
+hybrydowego QMF i stereo PCM.
+
+`sauti_aac_ps_frame_parse` rozszerza ten stan o normatywny szkielet
+`ps_data()`: `frame_class`, `num_env_idx`, tabelę liczby obwiedni (w tym
+legalne `num_env==0`), wyliczone granice klasy stałej oraz monotonicznie
+zweryfikowane granice klasy zmiennej, a także ściśle ograniczony długością
+blok `ps_extension`. Dekoduje dziesięć książek Huffmana: częstotliwościowe i
+czasowe dla obu rozdzielczości IID, obie książki ICC oraz cztery książki
+IPD/OPD. Parametry przechodzą weryfikację zakresu, a ostatnia obwiednia
+jest zapamiętana wyłącznie po udanym parsowaniu. IPD/OPD używa 5, 11 albo 17
+parametrów fazy modulo 8 (według trybu IID), niezależnie od 10/20/34 pasm
+samych parametrów IID. Tabele kodów zostały
+liczbowo sprawdzone względem FFmpeg n6.1 `aacpsdata.c` (Alex Converse,
+LGPL-2.1+); nie ma zależności runtime od FFmpeg, ale dane wymagają przeglądu
+licencyjnego przed dystrybucją pakietową.
+
+Parser wystawia osobno liczbę obwiedni sygnalizowaną przez bitstream oraz
+`resolved_num_env`: do tej drugiej dołącza syntetyczną końcową obwiednię
+z historią parametrów, jeśli legalna ramka nie obejmuje jeszcze slotu QMF 31.
+To jest wymagane przez późniejszą interpolację parametrów stereo i nie zmienia
+ani kursora, ani stanu różnicowego składni.
+
+`sauti_aac_ps_map_frame` normalizuje już parametry każdej rozwiązanej
+obwiedni do normatywnego układu 20 albo 34 pasm, zachowując osobne reguły
+5/11/17 dla faz IPD/OPD. Jest to czysty etap przygotowania danych, bez QMF i
+bez PCM; `make test-aac-ps-map` sprawdza przejścia 5/10/11/17/20/34 oraz
+atomowość błędnego wejścia.
+
+`sauti_aac_ps_hybrid_schedule_build` dokłada do tego sprawdzoną topologię
+warstwy hybrydowej: 32 sloty QMF są przypisane do obwiedni, a 71 albo 91
+hybrydowych pasm do właściwych 20 albo 34 parametrów (w tym znaki specjalnych
+pasów IPD/OPD). Nie wykonuje filtracji ani miksowania PCM. `make
+test-aac-ps-hybrid` obejmuje oba układy pasm, granice obwiedni i odrzucenie
+niepełnego harmonogramu, zanim stan może zostać opublikowany.
+
+`sauti_aac_ps_matrix_build` dekwantyzuje IID i ICC, a następnie buduje
+rzeczywiste współczynniki macierzy PS A/B dla każdej obwiedni i pasma.
+Obliczenie konfiguracji jest celowo skalarne; przyszła gorąca pętla mnożenia
+zespolonych slotów hybrydowych będzie kandydatem do NASM. IPD/OPD pozostaje
+odrębną rotacją zespoloną, więc ten etap nie deklaruje jeszcze stereo PCM.
+`make test-aac-ps-matrix` sprawdza dekwantyzację, obie macierze i rollback.
+Stałe dekwantyzacji i równania zostały liczbowo porównane z generatorem
+`aacps_tablegen.h` z FFmpeg n6.1 (LGPL-2.1+); implementacja Sauti nie ma od
+niego zależności runtime, lecz przed dystrybucją należy objąć ten materiał
+tym samym przeglądem licencyjnym co wcześniej dodane tabele PS.
+
+`sauti_aac_ps_mix_real_apply` ma już gorącą część w NASM/SSE: miesza 32
+sloty zespolonych pasm hybrydowych przez macierz IID/ICC, z routingiem
+obwiedni oraz pełną atomowością wyjścia zapewnianą przez warstwę C. Moduł
+jest świadomie ograniczony do części rzeczywistej macierzy — nie udaje
+dekorrelatora, IPD/OPD ani hybrydowej analizy. `make test-aac-ps-mix`
+porównuje oba kanały dla różnych obwiedni i bada rollback przy NaN.
+Ten sam rdzeń ma też wariant pełny zespolony, który stosuje IPD/OPD oraz
+normatywne odwrócenie znaku części urojonej na wybranych pasmach hybrydowych.
+
+`sauti_aac_ps_phase_apply` uzupełnia macierz o IPD/OPD: utrzymuje
+trójsymbolową historię fazy, normalizuje filtr wygładzający i tworzy
+zespolone współczynniki dla obu kanałów. Przejście 20/34 pasm resetuje tę
+historię, a błąd fazy nie publikuje ani wyniku, ani nowego stanu. Test
+`make test-aac-ps-phase` obejmuje IPD, OPD, brak rozszerzenia i rollback.
+
+`test-aac-syntax` dekoduje każde z 242 słów wszystkich dziesięciu tabel tym samym
+czytnikiem MSB-first, a także bada dziedziczenie, oba klasy ramek, IID/ICC
+różnicowe w czasie i częstotliwości, reset stanu po wyłączeniu parametrów,
+blok rozszerzeń, fazowe różnice w czasie modulo 8 oraz rollback uciętego
+payloadu. Zarezerwowany bit oraz
+nieznany identyfikator rozszerzenia są fail-closed odrzucane. Następne
+konieczne etapy to hybrydowy QMF, dekorrelator i macierz stereo.
+
+Po tej zmianie przeszło pełne, niezależne od bibliotek FFmpeg:
+
+```text
+make test-aac-native PKG_CONFIG=/bin/false
+```
+
+Obejmuje ono parser PS razem z AAC-LC, mono/stereo SBR, CPE, QMF oraz CRC
+transportowym. Parser SBR przekazuje też atomowo `EXTENSION_ID_PS=2` jako
+side-data, łącznie z ramkami zaczynającymi się pod niebajtowym offsetem.
+Wynik testu nie jest deklaracją obsługi HE-AAC v2 PCM: publiczna ścieżka
+HE-AAC/QMF rozpoznaje i odrzuca payload PS zamiast publikować go jako
+monofoniczne lub fałszywe stereo, dopóki nie powstanie hybrydowy QMF,
+dekorrelator i macierz stereo.
+
+Włączono także te parsery do `test-aac-sanitize`, więc ASan/UBSan wykonuje
+test CPE, pełne graniczne testy syntaktyczne PS, mapowanie pasm oraz zagnieżdżony
+parser SBR→PS. Kod NASM jest linkowany, lecz — zgodnie z ograniczeniem sanitizerów
+C — nie jest przez nie instrumentowany.
 
 
 ## AAC-LC — section_data() i rzeczywista ramka mono
@@ -5831,7 +5927,6 @@ Po dodaniu adaptera przeszedł pełny `make test-aac-native
 PKG_CONFIG=/bin/false`, w tym SBR-26/27/28/31, parser temporalny SBR-44 i
 nowy test SBR-60. Test ten nie korzysta z zewnętrznego kodeka.
 
-
 ### SBR-61 — per-frame HF+noise residual audit with a LOW anchor (2026-11-06)
 
 Added `tools/sauti_sbr61_hf_frame_audit.py` (standalone standard-library
@@ -6337,3 +6432,297 @@ Future: compare complex reference HF QMF k18/k42 **after** the same envelope and
 5. Then compare the **actual complex HF QMF** at k18/k42 and the oscillator clock `f_indexsine` across transients and frame ownership. Keep phase+2 experimental until a normative reference confirms a fix. Preserve AAC-LC, normal QMF and rollback gates.
 
 **Documentation-only checkpoint.** No decoder, generator, tests or FFmpeg source changed by this end-of-day commit.
+## AAC-61 — cel ukończenia rodziny AAC i baseline (2026-11-07)
+
+Cel rozwoju jest teraz jawny: doprowadzić do kompletnego, uczciwie
+zweryfikowanego dekodowania wszystkich profilów AAC, które Sauti już
+deklaruje i dla których zawiera kod: AAC-LC mono/stereo oraz HE-AAC/SBR
+mono/stereo. Wydajnościowe jądra bitreader/Huffman/dekwantyzacja/spektralne
+operacje/IMDCT pozostają w NASM; kod C zachowuje rolę bezpiecznego parsera,
+zarządzania stanem i walidacji granic. Nie jest poprawne ogłaszanie obsługi
+niezaimplementowanych w repozytorium profili AAC Main, SSR, LTP, LD, ELD ani
+Parametric Stereo (PS) — wymagają one własnej gramatyki, stanu i wektorów
+zgodności.
+
+**Warunek ukończenia obsługi deklarowanych profili:**
+
+1. publiczny adapter nie odrzuca poprawnego ADTS z `EXT_SBR_DATA` lub
+   `EXT_SBR_DATA_CRC` wyłącznie dlatego, że jest to FIL; przekazuje payload do
+   atomowego parsera SBR i zachowuje rollback przy błędzie;
+2. mono i stereo mają ciągły stan LC/SBR/QMF, jawne zasady zmian nagłówka,
+   rematrixingu CPE oraz brak cichego fallbacku do ciszy lub samego LOW;
+3. zgodność jest mierzona na rzeczywistych plikach ADTS wobec niezależnej
+   referencji PCM osobno dla LOW, HF/noise i pełnego sygnału; test syntetyczny
+   lub pojedyncza globalna korelacja nie wystarcza;
+4. wszystkie jednostkowe testy, testy odmowy/mutacji oraz testy end-to-end
+   przechodzą przy `-Wall -Wextra -Werror`, a dokumentacja rozróżnia wynik
+   eksperymentalny od produkcyjnego.
+
+**Baseline gałęzi `feature/aac-family-asm` (`d8490c2`):** wykonane lokalnie
+`make test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-he-probe-smoke
+PKG_CONFIG=/bin/false` przeszło. SBR-30 potwierdza ADTS AAC-LC SCE wraz z
+niewyrównanym `FIL/EXT_SBR_DATA`, reuse nagłówka i rollback; SBR-31 potwierdza
+dwie pełne ramki do 2048 próbek QMF z atomowym rollbackiem. Nie jest to
+jeszcze końcowy PCM HE-AAC: publiczna ścieżka AAC-LC nadal fail-closed odrzuca
+FIL, a aktualny probe ma charakter diagnostyczny. Pierwsza implementacja
+AAC-61 ma usunąć tę rozbieżność bez obniżania wymagań fail-closed.
+
+### AAC-62 — publiczny adapter HE-AAC/SBR, jeszcze eksperymentalny (2026-11-07)
+
+Pierwszy etap AAC-61 został domknięty na granicy API, bez ukrywania
+nieukończonej zgodności HE-AAC. Dodano osobny, jawnie opt-inowy
+`sauti_decoder_aac_he_native_ops` o nazwie
+`aac-he-sbr-native-adts-experimental`. Nie zastępuje on istniejącego
+`aac-lc-native-adts`: ten nadal jest adapterem produkcyjnego AAC-LC stereo.
+
+Nowy adapter korzysta z tej samej atomowej ścieżki
+`sauti_aac_he_adts_qmf_decode_ex`, a więc zachowuje razem stan AAC overlap,
+SBR, analizy/syntezy QMF, faz ROM i cache PCM. Udany access unit zwraca 2048
+mono próbek przy dwukrotnej częstotliwości rdzenia (dla testu: ADTS 24 kHz ->
+PCM 48 kHz). Seek zapisuje snapshot co 64 access unity i odtwarza stan od
+najbliższego snapshotu, tak jak adapter AAC-LC.
+
+Celowo ograniczony kontrakt v1 to wyłącznie ADTS AAC-LC, jeden raw data block,
+SCE mono oraz jawne `FIL/EXT_SBR_DATA` typu 13, bez ADTS CRC. Sam nagłówek
+mono AAC-LC może przejść tani `probe`, lecz `open` dekoduje pierwszą ramkę i
+odmawia otwarcia, jeśli nie ma poprawnego SBR. Dzięki temu zwykły AAC-LC mono
+nie otrzymuje fałszywej etykiety HE-AAC ani podwojonego sample rate. Późniejsza
+niewłaściwa ramka przerywa `read`; adapter nie wstawia interpolowanego LOW,
+ciszy ani zewnętrznego PCM.
+
+Nadal **nie** są obsłużone `EXT_SBR_DATA_CRC` (14), PS, CPE/stereo,
+multichannel ani poprawna zgodność HF/noise/sine/smoothing z referencją.
+Dlatego adapter pozostaje eksperymentalny i nie spełnia jeszcze warunku
+ukończenia AAC-61. Następny etap musi najpierw dodać zweryfikowaną obsługę
+CRC typu 14 oraz niezależne wektory rzeczywistego HE-AAC, a dopiero potem
+rozszerzać parser na stereo/CPE.
+
+Test SBR-61 buduje dwa rzeczywiste syntaktycznie access unity SCE+FIL,
+odczytuje 4096 próbek przez publiczne `SautiDecoderOps`, wykonuje seek do
+próbki 1231 i porównuje 777 ponownie odczytanych próbek bit-po-bicie z
+odczytem liniowym. Sprawdza także EOF oraz odmowę zwykłej ramki AAC-LC bez
+SBR. Po zmianie lokalnie przeszły przy `-Wall -Wextra -Werror`:
+
+```text
+make test-aac-native-adapter test-aac-sbr-adts-qmf PKG_CONFIG=/bin/false
+```
+
+Pierwszy test zachowuje regresję AAC-LC (ADTS/read/seek/EOF/fail-closed), a
+drugi obejmuje SBR-31, rollback SBR-46 oraz nowy publiczny SBR-61. Reguły
+linkowania obu testów zawierają teraz kompletny graf HE/SBR/QMF, aby sam
+adapter nie miał niezweryfikowanych symboli poza testem integracyjnym.
+
+### AAC-63 — `EXT_SBR_DATA_CRC` (14) z normatywną walidacją CRC-10 (2026-11-07)
+
+Domknięto pierwszy brak wymieniony w AAC-61: SCE mono z
+`EXT_SBR_DATA_CRC` (typ 14) nie jest już odrzucany tylko z powodu obecności
+CRC. Dodano mały, niezależny moduł `sauti_aac_sbr_crc.c` oraz jego publiczny
+kontrakt w `sauti_aac_sbr_crc.h`. Implementuje on CRC-10 MSB-first,
+wartość początkową zero i wielomian:
+
+```text
+G10(x) = x^10 + x^9 + x^5 + x^4 + x + 1
+```
+
+Granice są ważniejsze niż sama arytmetyka: CRC obejmuje dokładnie bity
+`sbr_extension_data()` po 10-bitowym `bs_sbr_crc_bits` i przed
+`bs_fill_bits`. Nie obejmuje ani 4-bitowego `extension_type`, ani
+wyrównania FIL. Parser najpierw dekoduje pełną składnię do lokalnych kopii,
+sprawdza CRC na jej rzeczywistej granicy, a dopiero potem publikuje historię
+SBR i side-data. Niezgodność CRC pozostawia historię, PCM i wynik parsera
+byte-for-byte bez zmian.
+
+Most ADTS mono akceptuje teraz zarówno typ 13, jak i typ 14; typ 14 może
+przejść wyłącznie z prawidłowym CRC-10. Test SBR-30 zawiera nie wyrównaną do
+bajtu ramkę ADTS SCE+FIL typu 14, a SBR-61 podaje pierwszą ramkę type-14 do
+publicznego adaptera HE-AAC i drugą type-13 z reuse nagłówka, następnie
+sprawdza bitowo zgodny seek. SBR-62 sprawdza niezależny wektor `0xA5 ->
+0x140`, prawidłowy type-14 oraz atomową odmowę po zmianie samego pola CRC.
+
+Po zmianie przeszły z `-Wall -Wextra -Werror`:
+
+```text
+make test-aac-sbr-payload test-aac-sbr-adts-mono \
+     test-aac-sbr-adts-qmf test-aac-native-adapter PKG_CONFIG=/bin/false
+```
+
+To nie jest obsługa 16-bitowego CRC ADTS (`protection_absent=0`) — ten
+wariant dalej jest świadomie odrzucany, podobnie jak PS, SBR stereo/CPE i
+multichannel. CRC-10 type-14 nie rozwiązuje też otwartego problemu zgodności
+HF/noise/sine z niezależnym referencyjnym PCM.
+
+### AAC-64 — sprzężone stereo SBR/CPE: parser i energie kanałów (2026-11-07)
+
+Dodano pierwszy rzeczywisty element ścieżki HE-AAC stereo: atomowy parser
+`sauti_aac_sbr_payload_cpe_parse`. Obejmuje klasyczny SBR
+`sbr_channel_pair_element` z `bs_coupling=1`, zarówno dla type-13, jak i
+CRC-zweryfikowanego type-14. Parser czyta wspólną siatkę, oba zestawy
+`sbr_dtdf`, wspólne `sbr_invf`, a następnie właściwie przeplataną składnię
+envelope/noise obu kanałów. Lewy kanał dekoduje poziom, prawy kanał używa
+codebooków balance; istniejące `sauti_aac_sbr_coupled_dequant` wykonuje
+normatywne rozdzielenie energii i noise floor na L/R.
+
+Wynikiem są dwa niezależne `SautiAacSbrPayloadFrame` oraz dwa ważne
+`SautiAacSbrHfJointConfig`, gotowe dla odrębnych historii QMF. Stan nagłówka
+i obu kanałów Huffmana aktualizuje się jedynie po przejściu kompletnej
+składni, CRC i paddingu. Test SBR-63 tworzy pełny coupled CPE, sprawdza
+type-13 oraz type-14, poprawność obu konfiguracji HF i byte-for-byte rollback
+po zmianie jednego bitu CRC.
+
+W chwili utworzenia AAC-64 API celowo odrzucało `bs_coupling=0`, a parser
+side-data nie publikował PCM. Ograniczenia te usunięto następnie w AAC-65 i
+AAC-67; ten akapit zachowuje stan historyczny etapu.
+
+Zweryfikowano lokalnie:
+
+```text
+make test-aac-sbr-payload PKG_CONFIG=/bin/false
+```
+
+### AAC-65 — ADTS CPE → rdzeń AAC-LC stereo → podwójny QMF SBR (2026-11-07)
+
+Domknięto pierwszy pionowy, testowalny przebieg stereo HE-AAC dla sprzężonego
+CPE. Funkcja `sauti_aac_lc_cpe_synthesize` wydziela z dotychczasowego dekodera
+ADTS AAC-LC część przetwarzającą już sparsowane `SautiAacCpeData`: scalefactors,
+PNS, MS/intensity stereo, TNS i syntezę obu kanałów. Dzięki temu nowy,
+restrykcyjny most `sauti_aac_he_adts_cpe_decode_ex` może sparsować pojedynczy
+ADTS AAC-LC CPE, przyjąć dokładnie jeden SBR CPE FIL type-13 albo
+CRC-sprawdzony type-14, a następnie atomowo zwrócić 1024 stereofoniczne ramki
+rdzenia (2048 próbek przeplatanych).
+
+`sauti_aac_he_adts_cpe_qmf_decode_ex` uruchamia następnie osobną historię QMF
+i HF dla lewego oraz prawego kanału i zwraca 2048 stereofonicznych ramek przy
+podwojonej częstotliwości (4096 próbek przeplatanych) wraz z dwoma raportami
+limitera. Liczniki historii rdzenia, SBR i obu QMF są kontrolowane jako jedna
+transakcja; niespójny stan zostaje odrzucony przed dekodowaniem.
+
+Test SBR-64 buduje prawidłowy CPE z coupled SBR type-14, sprawdza rdzeń,
+obie historie QMF oraz skończoność wszystkich 4096 wyników. Następnie zmienia
+wyłącznie bit CRC-10 i potwierdza rollback stanu, PCM i side-data. Test stał
+się także częścią zbiorczego `test-aac-native`.
+
+Po AAC-67 ten sam SBR-64 uruchamia ponadto pełny przebieg uncoupled
+`bs_coupling=0` z type-14 — od ADTS, przez rdzeń i dwa QMF, po adapter
+publiczny — oraz weryfikuje skończoność wyjściowego PCM.
+
+Zakres jest nadal jawnie ograniczony: brak CRC ADTS, PS, wielu elementów
+audio, innych konfiguracji kanałów i walidacji PCM na
+niezależnym materiale HE-AAC. To eksperymentalna ścieżka CPE, nie deklaracja
+pełnej zgodności stereo HE-AAC.
+
+Zweryfikowano lokalnie:
+
+```text
+make test-aac-sbr-adts-cpe PKG_CONFIG=/bin/false
+```
+
+### AAC-66 — eksperymentalny adapter publiczny stereo HE-AAC CPE (2026-11-07)
+
+Dodano `sauti_decoder_aac_he_cpe_native_ops`, osobny adapter publicznego API
+o nazwie `aac-he-sbr-cpe-native-adts-experimental`. Wystawia wyłącznie
+restrykcyjny wariant z AAC-65: ADTS AAC-LC CPE bez CRC, jeden SBR
+type-13/type-14 i dwa kanały QMF. Interfejs zwraca 2048 stereofonicznych ramek
+na access unit, `sample_rate = 2 * core_sample_rate`, natomiast własny cache
+ma 4096 próbek przeplatanych.
+
+Adapter najpierw waliduje wszystkie nagłówki ADTS, następnie dekoduje pierwszą
+pełną ramkę zanim poda wywołującemu podwojoną częstotliwość. Dzięki temu zwykły
+AAC-LC stereo o pasującym nagłówku nie może zostać błędnie opisany jako HE-AAC.
+Seek odtwarza historię z checkpointów co 64 access unity, więc zachowuje stan
+IMDCT, SBR i obydwu kanałów QMF bez buforowania całego PCM.
+
+SBR-64 rozszerzono o pełny odczyt adaptera, seek do środka strumienia i
+bitową równość odtworzonego fragmentu oraz odrzucenie CPE bez SBR. Adapter
+pozostaje eksperymentalny i nie rozszerza zakresu AAC-65.
+
+Zależności wspólnego adaptera w Makefile zostały celowo zebrane w
+`AAC_NATIVE_ADAPTER_DEPS`: każdy binarny klient adaptera linkuje także most
+CPE/QMF i jego komplet symboli, nawet jeśli dany test wykonuje tylko wariant
+mono albo AAC-LC. Eliminuje to błąd linkera po dodaniu nowej gałęzi ops i nie
+zmienia wyboru dekodera przez rejestrację.
+
+### AAC-67 — `bs_coupling=0` dla SBR CPE (2026-11-07)
+
+Parser CPE obsługuje teraz także uncoupled SBR (`bs_coupling=0`). W tym
+wariancie kanały mają osobne gridy, `sbr_dtdf` i `sbr_invf`, zaś składnia
+przenosi najpierw envelope lewego, potem envelope prawego kanału, a dopiero
+następnie oba noise floors. Dodano transakcyjną funkcję
+`sauti_aac_sbr_quant_decode_cpe_uncoupled`, która zachowuje niezależne
+historie Huffmana, odczytuje tę kolejność i zatwierdza oba kanały wyłącznie
+po pełnym sukcesie.
+
+SBR-63 serializuje teraz rzeczywisty uncoupled CPE o różnych wartościach
+envelope i noise dla L/R, sprawdza obie konfiguracje HF oraz rollback po
+ucięciu danych. SBR-64 prowadzi ten wariant przez ADTS, rdzeń CPE, dwa QMF i
+adapter publiczny. Brakuje jeszcze niezależnej próbki referencyjnej HE-AAC do
+porównania PCM.
+
+CRC-16 CPE dołącza dwa normatywne regiony: pierwsze 192 bity elementu po
+`id_syn_ele` oraz dodatkowe 128 bitów drugiego `individual_channel_stream`.
+Pozycja drugiego ICS jest zapisywana podczas istniejącego parsowania CPE,
+więc nie powstaje osobny heurystyczny skaner. Adapter stereo przyjmuje
+jednoblokowy ADTS CRC wyłącznie przez ten walidowany most.
+
+SBR-64 zawiera fixture transportowego CRC CPE: niezależnie wylicza oba
+regiony z granic zwróconych przez parser, dekoduje poprawną ramkę i zmienia
+jeden chroniony bit. Ta mutacja jest odrzucana przed commit stanu CPE/SBR/QMF.
+
+Ten sam jednoelementowy walker SCE jest użyty także przez zwykły dekoder
+AAC-LC mono, więc CRC nie jest cechą zastrzeżoną dla SBR. Stereo AAC-LC CPE
+jest podłączone do analogicznego walkera drugiego ICS; nadal świadomie
+odrzucane pozostają multi-RDB oraz nieobsługiwane elementy kanałowe.
+
+Do adaptera `aac-lc-native-adts` trafia teraz również jedno-RDB ADTS z CRC;
+walidacja odbywa się przy dekodowaniu ramki, przed cache PCM oraz checkpointem
+seek. Nagłówkowe dopasowanie nie wystarcza do opublikowania audio.
+
+Zależność CRC-16 jest własnością wspólnego `AAC_LC_FRAME_SRC`, dzięki czemu
+ścieżki AAC-LC i HE-AAC linkują ten sam prymityw dokładnie raz; pełna regresja
+wykryła i usunęła wcześniejsze podwójne linkowanie w teście mono SBR.
+
+Narzędzie `sauti_he_aac_probe` raportuje teraz CRC jako weryfikowane dla
+obsługiwanego podzbioru jedno-RDB SCE/CPE, zamiast nieaktualnego komunikatu o
+braku obsługi.
+
+### AAC-68 — następny zakres: transportowe CRC-16 ADTS (2026-11-07)
+
+Pozostałą świadomą luką transportową jest `protection_absent=0`. ADTS w tym
+trybie niesie 16-bitowe `crc_check`; CRC używa generatora
+`x^16 + x^15 + x^2 + 1` (`0x8005`), rejestru początkowego `0xffff`, kolejności
+MSB-first i bez końcowej inwersji. Nie wolno jednak walidować go prostym CRC
+po całej ramce: norma definiuje chroniony zakres względem elementów
+`raw_data_block`, a przy wielu blokach również pozycje i osobne pola CRC.
+
+W aktualnie wspieranym podzbiorze (`raw_blocks=1`) następny etap musi zatem
+najpierw dodać dokładny walker chronionych bitów dla SCE/CPE i testy golden
+wektorów, a dopiero potem odblokować ADTS CRC w adapterach mono i stereo.
+Do tego czasu odrzucenie takich ramek jest zachowaniem bezpiecznym, a nie
+brakiem walidacji.
+
+Pierwszym krokiem implementacyjnym jest niezależny
+`sauti_aac_adts_crc16_bits`: przyjmuje jawny zakres bitów, działa MSB-first i
+nie przypisuje semantyki całej ramce. Test obejmuje wektor kontrolny
+`"123456789" → 0xaee7`, niewyrównany zakres bitowy oraz atomowość przy
+błędnych granicach. Test `test-aac-adts-crc` należy do `test-aac-native`.
+
+Walker użyje też `sauti_aac_adts_crc16_update_bits`, który atomowo dokleja
+kolejny zakres do podanego rejestru. Test potwierdza, że dwa rozłączne zakresy
+bitowe dają identyczny wynik jak jeden zakres ciągły.
+
+Zaimplementowano pierwszy konsument walkera dla pojedynczego SCE w mono
+HE-AAC: po sparsowaniu SCE porównuje on `crc_check` z CRC 56-bitowego
+nagłówka oraz pierwszych 192 bitów elementu po `id_syn_ele`, dopełnionych
+zerami. FIL i `ID_END` nie wchodzą do zakresu. Następnym krokiem jest fixture
+z poprawnym `crc_check` i mutacją chronionego bitu, zanim zniesione zostanie
+ogólne oznaczenie eksperymentalne tej ścieżki.
+
+Fixture SBR-65 realizuje już ten krok: buduje pełny ADTS AAC-LC SCE + SBR z
+`protection_absent=0`, wylicza CRC po właściwych regionach i potwierdza
+dekodowanie. Zmiana jednego chronionego bitu musi odrzucić ramkę bez zmiany
+stanu, PCM ani parametrów SBR. Zakres ukończony na tym etapie to wyłącznie
+jedno-RDB mono SCE; CPE wymaga dodatkowego 128-bitowego regionu drugiego ICS.
+
+Adapter `aac-he-sbr-native-adts-experimental` nie odrzuca już samego
+`protection_absent=0`: skanuje taki sam jednoblokowy transport jak wariant
+bez CRC, a pierwsza i każda kolejna rama przechodzi walidację SCE przed
+zapisem do cache PCM. Nie rozszerza to jeszcze zakresu o CPE ani multi-RDB.

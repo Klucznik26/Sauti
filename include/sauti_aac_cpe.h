@@ -12,11 +12,24 @@ typedef struct {
     unsigned common_window;
     unsigned ms_mask_present;
     uint8_t ms_used[8][64];
+    /* Raw CPE bit position of second individual_channel_stream(), retained
+     * for the ADTS CRC-16 protected-region walk. */
+    size_t crc_second_ics_bit;
 } SautiAacCpeData;
 
 int sauti_aac_lc_cpe_parse(const uint8_t *raw,size_t length,
                            size_t *bit_offset,unsigned rate_index,
                            SautiAacCpeData *out,SautiAacReason *reason);
+
+/* Synthesize an already parsed CPE into one interleaved 1024-frame stereo
+ * AAC-LC block. This is the atomic core boundary used by both plain ADTS
+ * AAC-LC and the HE-AAC SBR bridge: on error neither synthesis history nor
+ * output is modified. */
+int sauti_aac_lc_cpe_synthesize(const SautiAacCpeData *cpe,
+                                unsigned rate_index,
+                                SautiAacLcSynthesis state[2],
+                                float pcm_interleaved[2048],
+                                SautiAacReason *reason);
 
 /* Atomic stereo ADTS decode: interleaved LRLR, 1024 frames per channel.
  * On any failure neither channel state nor PCM is modified.

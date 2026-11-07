@@ -43,4 +43,13 @@ int sauti_aac_sbr_quant_decode(const uint8_t *data, size_t size,
                                 unsigned amp_res, unsigned balanced,
                                 SautiAacSbrQuantState *state,
                                 SautiAacSbrQuantFrame *out);
+
+/* CPE with bs_coupling=0 serializes both envelope sets before both noise
+ * sets. Decode that grammar transactionally, preserving independent channel
+ * histories and the exact same quantization rules as the single-channel API. */
+int sauti_aac_sbr_quant_decode_cpe_uncoupled(
+    const uint8_t *data,size_t size,size_t *bit_offset,
+    const SautiAacSbrGrid grid[2],const SautiAacSbrTables *tables,
+    const SautiAacSbrControl control[2],unsigned amp_res,
+    SautiAacSbrQuantState state[2],SautiAacSbrQuantFrame out[2]);
 #endif

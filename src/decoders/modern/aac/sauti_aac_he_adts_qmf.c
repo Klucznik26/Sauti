@@ -42,6 +42,13 @@ int sauti_aac_he_adts_qmf_decode_ex(
     const int status=sauti_aac_he_adts_mono_decode_ex(
         frame,frame_bytes,&next.adts,core,&payload,reason);
     if(status!=1)return status;
+    if(payload.has_ps){
+        /* The SBR parser retains PS parameters, but this mono QMF driver
+         * cannot lawfully publish them as HE-AAC v2 PCM before the hybrid
+         * analysis/decorrelation/stereo-matrix stage is implemented. */
+        *reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;
+        return -1;
+    }
 
     SautiAacSbrHfJointConfig hf;
     if(!sauti_aac_sbr_payload_make_hf(&payload,&hf)){

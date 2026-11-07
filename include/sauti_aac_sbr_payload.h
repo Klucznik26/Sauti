@@ -13,13 +13,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* SBR-29: decode a REAL, entropy-coded EXT_SBR_DATA FIL payload (SCE).
- * Input starts at the 4-bit extension_type=13 nibble at the bit offset
+/* SBR-29: decode a REAL, entropy-coded EXT_SBR_DATA / EXT_SBR_DATA_CRC
+ * FIL payload (SCE). Input starts at the 4-bit extension_type=13 or 14
+ * nibble at the bit offset
  * reported by sauti_aac_fill_parse(). The complete FIL extension length
  * in bits is count*8. The input can start at an UNALIGNED bit offset.
  *
  * First supported subset: AAC-LC 1024 PCM / 32 QMF core slots,
- * mono SCE, no CRC, no PS/extended_data, time borders within [0,16].
+ * mono SCE, validated SBR CRC-10 when type 14 is present, no
+ * time borders within [0,16]. The standardized PS SBR extension is decoded
+ * as bounded side data; stereo QMF reconstruction remains a later stage.
  * Standalone demux of the SCE/CPE followed by FIL inside ADTS and
  * HE-AAC PCM conformance validation are STILL outstanding.
  *
@@ -36,6 +39,7 @@ typedef struct {
     uint64_t frames;
     SautiAacSbrHeader header;
     SautiAacSbrQuantState quant_state;
+    SautiAacPsHeaderState ps;
 } SautiAacSbrPayloadState;
 
 typedef struct {
@@ -55,13 +59,18 @@ typedef struct {
     uint32_t bs_smoothing_mode;
     uint32_t limiter_mode;
     uint32_t gain_mode;
+    uint32_t has_ps;
+    SautiAacPsFrame ps;
     uint32_t payload_data_bits; /* bits consumed, excluding pad to byte */
 } SautiAacSbrPayloadFrame;
 
 /* output_rate: SBR output rate (twice the AAC-LC core sample rate).
  * bit_start: bit offset of 4-bit extension_type in caller buffer.
  * payload_bits: 8*FIL payload_bytes including the type nibble.
- * Reject CRC type 14, PS and other extensions explicitly.
+ * Type 14 validates bs_sbr_crc_bits with the normative CRC-10 over the
+ * SBR syntax bits only (never extension_type or bs_fill_bits). The only
+ * supported SBR extension is standardized PS (id 2), returned as side data;
+ * unknown extensions remain rejected explicitly.
  * In case of failure *out and *state remain byte-for-byte unchanged.
  * Returns 1 success, 0 reject/truncated/unsupported.
  */
@@ -105,6 +114,35 @@ int sauti_aac_sbr_payload_sce_parse(
     const uint8_t *bytes,size_t bytes_count,
     size_t bit_start,size_t payload_bits,unsigned output_rate,
     SautiAacSbrPayloadState *state,SautiAacSbrPayloadFrame *out);
+
+/* Classic SBR CPE side data. Coupled quantizers are jointly unmapped to real
+ * left and right energies; uncoupled syntax uses independent channel
+ * quantizers and its distinct envelope/noise interleaving is decoded here.
+ * This API decodes SBR payload syntax only — callers must still connect it
+ * to two AAC-LC CPE/QMF histories before publishing stereo PCM. */
+typedef struct {
+    uint32_t initialized;
+    uint64_t frames;
+    SautiAacSbrHeader header;
+    SautiAacSbrQuantState quant_state[2];
+} SautiAacSbrPayloadCpeState;
+
+typedef struct {
+    uint32_t coupling;
+    SautiAacSbrPayloadFrame channel[2];
+} SautiAacSbrPayloadCpeFrame;
+
+int sauti_aac_sbr_payload_cpe_parse(
+    const uint8_t *bytes,size_t bytes_count,
+    size_t bit_start,size_t payload_bits,unsigned output_rate,
+    SautiAacSbrPayloadCpeState *state,SautiAacSbrPayloadCpeFrame *out);
+
+/* Create one channel's strict 32-slot HF/QMF configuration from CPE data.
+ * channel is 0 or 1. This is deliberately separate from CPE syntax parsing
+ * so a future ADTS bridge can keep AAC core and QMF states atomic together. */
+int sauti_aac_sbr_payload_cpe_make_hf(
+    const SautiAacSbrPayloadCpeFrame *frame,unsigned channel,
+    SautiAacSbrHfJointConfig *out);
 
 /* SBR-47: validated time partition of decoded SBR envelope/noise edges.
  * This is a pure planning step, not a PCM decoder. Time indices in QMF

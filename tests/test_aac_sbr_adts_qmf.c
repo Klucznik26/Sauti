@@ -8,6 +8,8 @@
 
 #include "sauti_aac_he_adts_qmf.h"
 #include "sauti_aac_tables.h"
+#include "sauti_decoder.h"
+#include "sauti_decoder_aac_native.h"
 
 static int full_patch_coverage(const SautiAacSbrTables *tab,
                                const SautiAacSbrPatches *patch){
@@ -100,7 +102,7 @@ static void test_two_real_adts_frames_vs_independent_chain(void){
     for(unsigned frame_no=0;frame_no<2u;frame_no++){
         sbr_bits(&payload,&header,&tab,
                  frame_no==0u?1u:0u,
-                 frame_no==0u?0u:1u);
+                 frame_no==0u?0u:1u,NULL);
         const size_t len=frame_tone(&raw,bytes,&payload);
         assert(sauti_aac_he_adts_qmf_decode_ex(
             bytes,len,&channel,result,&report,&reason)==1);
@@ -133,7 +135,7 @@ static void test_late_failure_rolls_back_every_state(void){
     pick_complete_header(&header,&tab);
     Bits payload,raw;
     uint8_t bytes[1024];
-    sbr_bits(&payload,&header,&tab,1u,0u);
+    sbr_bits(&payload,&header,&tab,1u,0u,NULL);
     size_t size=frame_tone(&raw,bytes,&payload);
     SautiAacHeAdtsQmfState state={0};
     assert(sauti_aac_he_adts_qmf_init(&state));
@@ -194,6 +196,51 @@ static void test_late_failure_rolls_back_every_state(void){
     puts("SBR-46: noise-only startup decoded; malformed ADTS and late QMF failure roll back all histories");
 }
 
+static void test_public_experimental_he_adapter(void){
+    SautiAacSbrHeader header;
+    SautiAacSbrTables tab;
+    pick_complete_header(&header,&tab);
+    uint8_t stream[2048],plain[1024];
+    size_t stream_bytes=0;
+    for(unsigned frame_no=0;frame_no<2u;frame_no++){
+        Bits payload,raw;
+        size_t syntax_bits=0u;
+        sbr_bits(&payload,&header,&tab,frame_no==0u?1u:0u,
+                 frame_no==0u?0u:1u,
+                 frame_no==0u?&syntax_bits:NULL);
+        if(frame_no==0u){
+            Bits checked;
+            sbr_crc_bits(&checked,&payload,syntax_bits);
+            payload=checked;
+        }
+        stream_bytes+=frame_tone(&raw,stream+stream_bytes,&payload);
+    }
+    const SautiDecoderOps *registry[]={&sauti_decoder_aac_he_native_ops};
+    SautiDecoder decoder={0};
+    assert(sauti_decoder_open(&decoder,registry,1u,stream,stream_bytes));
+    assert(decoder.ops==&sauti_decoder_aac_he_native_ops);
+    assert(decoder.info.sample_rate==48000u && decoder.info.channels==1u &&
+           decoder.info.total_frames==4096u);
+    float expected[4096],replayed[777];
+    assert(sauti_decoder_read(&decoder,expected,4096u)==4096u);
+    for(unsigned i=0;i<4096u;i++)assert(isfinite(expected[i]));
+    assert(sauti_decoder_seek(&decoder,1231u));
+    assert(sauti_decoder_read(&decoder,replayed,777u)==777u);
+    assert(memcmp(replayed,expected+1231u,sizeof(replayed))==0);
+    assert(sauti_decoder_seek(&decoder,4096u));
+    assert(sauti_decoder_read(&decoder,replayed,1u)==0u);
+    sauti_decoder_close(&decoder);
+
+    /* Header-only probing is intentionally not enough: an ordinary mono
+     * LC frame must never acquire a false HE sample rate/output label. */
+    Bits raw={0};
+    sce_silence(&raw);put(&raw,3u,7u);pad(&raw);
+    const size_t plain_bytes=adts(plain,&raw,1u);
+    assert(sauti_decoder_aac_he_native_ops.probe(plain,plain_bytes));
+    assert(!sauti_decoder_open(&decoder,registry,1u,plain,plain_bytes));
+    puts("SBR-61: public HE adapter accepts CRC type 14, has exact read/seek replay and rejects non-SBR AAC-LC");
+}
+
 /* Create an ADTS file for SBR-32 CLI I/O smoke testing. This
  * generated file is NOT a third-party HE-AAC conformance fixture:
  * it is the same independently serialized SBR-31 unit-test syntax. */
@@ -208,7 +255,7 @@ static int emit_smoke_adts(const char *path){
         uint8_t bytes[1024];
         sbr_bits(&payload,&header,&tab,
                  frame_no==0u?1u:0u,
-                 frame_no==0u?0u:1u);
+                 frame_no==0u?0u:1u,NULL);
         const size_t length=frame_tone(&raw,bytes,&payload);
         if(fwrite(bytes,1u,length,f)!=length){
             perror(path);
@@ -228,6 +275,7 @@ int main(int argc,char **argv){
     }
     test_two_real_adts_frames_vs_independent_chain();
     test_late_failure_rolls_back_every_state();
+    test_public_experimental_he_adapter();
     puts("PASS HE-AAC SBR-31 actual ADTS SCE+SBR to 2048 f32 QMF samples (experimental full chain)");
     return 0;
 }

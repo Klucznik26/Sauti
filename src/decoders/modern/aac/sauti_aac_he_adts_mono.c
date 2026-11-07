@@ -8,6 +8,7 @@
  * decoder, whose conservative rejection of implicit SBR is preserved.
  */
 #include "sauti_aac_he_adts_mono.h"
+#include "sauti_aac_adts_crc.h"
 #include "sauti_aac_syntax.h"
 #include <math.h>
 #include <string.h>
@@ -59,7 +60,7 @@ static int mono_decode_impl(
        adts.header_bytes>adts.frame_bytes ||
        adts.frame_bytes>frame_size)return 0;
     if(adts.core_aot!=2u || adts.core_channels!=1u ||
-       adts.raw_blocks!=1u || adts.crc_present ||
+       adts.raw_blocks!=1u ||
        state->core.initialized!=1u ||
        state->frames==UINT64_MAX){
         *reason=SAUTI_AAC_REASON_UNSUPPORTED_ADTS;
@@ -78,12 +79,28 @@ static int mono_decode_impl(
     size_t pos=0u;
     /* Existing SCE parser already handles initial harmless EXT_FILL
      * elements and stops exactly at the end of spectral_data(). */
+    const size_t sce_start=pos;
     const int status=sauti_aac_lc_mono_parse(
         raw,raw_length,&pos,rate,&sce);
     if(status!=1){
         *reason=status==-1?SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT:
                            SAUTI_AAC_REASON_INVALID_SCE;
         return status;
+    }
+    /* Single-RDB ADTS CRC excludes FIL/END and id_syn_ele, protects the
+     * 56-bit header plus exactly 192 SCE bits (zero padded if shorter). */
+    if(adts.crc_present){
+        if(pos<sce_start+3u){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
+        uint16_t crc=0xffffu;
+        const size_t available=pos-(sce_start+3u);
+        const size_t covered=available<192u?available:192u;
+        if(!sauti_aac_adts_crc16_update_bits(frame,7u,0u,56u,&crc) ||
+           !sauti_aac_adts_crc16_update_bits(raw,raw_length,sce_start+3u,
+                                              covered,&crc) ||
+           !sauti_aac_adts_crc16_update_zero_bits(192u-covered,&crc) ||
+           crc!=(uint16_t)((uint16_t)frame[7u]<<8u|frame[8u])){
+            *reason=SAUTI_AAC_REASON_INVALID_ADTS;return 0;
+        }
     }
 
     unsigned got_sbr=0u;
@@ -112,7 +129,8 @@ static int mono_decode_impl(
             }
             continue;
         }
-        if(fill.extension_type!=13u || got_sbr){
+        if((fill.extension_type!=13u && fill.extension_type!=14u) ||
+           got_sbr){
             *reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;
             return -1;
         }

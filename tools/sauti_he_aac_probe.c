@@ -172,7 +172,7 @@ static void inspect_fil(const uint8_t *frame,size_t len) {
         if(fill.extension_type==13u)
             puts("FIL diagnostyka: rozpoznano EXT_SBR_DATA (13); odrzucenie dotyczy skladni/ograniczen SBR");
         else if(fill.extension_type==14u)
-            puts("FIL diagnostyka: EXT_SBR_DATA_CRC (14) nie jest obslugiwane");
+            puts("FIL diagnostyka: rozpoznano EXT_SBR_DATA_CRC (14); wymagany poprawny CRC-10 i obslugiwany podzbior SBR");
     }
     puts("FIL diagnostyka: osiagnieto limit 8 elementow");
 }
@@ -2344,7 +2344,7 @@ int main(int argc,char **argv){
            summary.frames,summary.bytes,summary.max_length);
     printf("Kanaly: %zu mono, %zu stereo, %zu pozostale\n",
            summary.mono,summary.stereo,summary.other_channels);
-    printf("CRC: %zu ramek (na razie nieobslugiwane)\n",summary.crc);
+    printf("CRC: %zu ramek (weryfikowane dla jedno-RDB SCE/CPE)\n",summary.crc);
     printf("Naglowek pierwszej ramki: rdzen %u Hz, %u kanal(y)\n",
            summary.first_rate,summary.first_channels);
     if(summary.first_channels!=1u){

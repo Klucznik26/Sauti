@@ -5,6 +5,7 @@
 #include "sauti_aac_spectral_data.h"
 #include "sauti_aac_syntax.h"
 #include "sauti_aac_headers.h"
+#include "sauti_aac_adts_crc.h"
 #include "sauti_aac_bands.h"
 #include <string.h>
 #include <math.h>
@@ -100,7 +101,7 @@ int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
     if(adts.frame_bytes>length || adts.header_bytes>adts.frame_bytes)
         return 0;
     if(adts.core_channels!=1u || adts.core_aot!=2u ||
-       adts.raw_blocks!=1u || adts.crc_present){*reason=SAUTI_AAC_REASON_UNSUPPORTED_ADTS;return -1;}
+       adts.raw_blocks!=1u){*reason=SAUTI_AAC_REASON_UNSUPPORTED_ADTS;return -1;}
     /* ADTS sample-rate index occupies bits 2..5 in header byte 2.
      * 0..12 only; explicit 15 is not valid ADTS sample frequency. */
     unsigned rate=(frame[2]>>2u)&15u;
@@ -108,9 +109,21 @@ int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
     const uint8_t *raw=frame+adts.header_bytes;
     size_t raw_length=adts.frame_bytes-adts.header_bytes;
     size_t pos=0;
+    const size_t sce_start=pos;
     SautiAacLcMonoData parsed;
     int status=mono_parse_ex(raw,raw_length,&pos,rate,&parsed,reason);
     if(status!=1)return status;
+    if(adts.crc_present){
+        if(pos<sce_start+3u){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
+        uint16_t crc=0xffffu;size_t count=pos-(sce_start+3u);
+        if(count>192u)count=192u;
+        if(!sauti_aac_adts_crc16_update_bits(frame,7u,0u,56u,&crc) ||
+           !sauti_aac_adts_crc16_update_bits(raw,raw_length,sce_start+3u,count,&crc) ||
+           !sauti_aac_adts_crc16_update_zero_bits(192u-count,&crc) ||
+           crc!=(uint16_t)((uint16_t)frame[7u]<<8u|frame[8u])){
+            *reason=SAUTI_AAC_REASON_INVALID_ADTS;return 0;
+        }
+    }
     /* The one SCE should be followed by zero or more filler elements,
      * then ID_END and zero byte alignment. Refuse all FIL conservatively
      * until extension contents can be inspected for implicit SBR. */

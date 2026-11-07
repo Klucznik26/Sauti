@@ -1,4 +1,6 @@
 #include "sauti_aac_he_adts_mono.h"
+#include "sauti_aac_adts_crc.h"
+#include "sauti_aac_sbr_crc.h"
 #include "sauti_aac_sbr_master.h"
 #include "sauti_aac_sbr_tables.h"
 #include "sauti_aac_sbr_limits.h"
@@ -51,7 +53,7 @@ static void find_header(SautiAacSbrHeader *h,SautiAacSbrTables *t){
 }
 static void sbr_bits(Bits *b,const SautiAacSbrHeader *h,
                      const SautiAacSbrTables *t,
-                     unsigned header,unsigned deltas){
+                     unsigned header,unsigned deltas,size_t *syntax_bits){
     *b=(Bits){0};
     put(b,4u,13u); /* EXT_SBR_DATA */
     put(b,1u,header);
@@ -81,7 +83,24 @@ static void sbr_bits(Bits *b,const SautiAacSbrHeader *h,
     put(b,1u,1u); /* harmonic flag present */
     for(unsigned i=0;i<t->n_high;i++)put(b,1u,i==0u);
     put(b,1u,0u); /* no extended SBR / PS */
+    if(syntax_bits)*syntax_bits=b->bit;
     pad(b);
+}
+static unsigned payload_bit(const Bits *b,size_t at){
+    return (b->bytes[at/8u]>>(7u-(unsigned)(at&7u)))&1u;
+}
+static void sbr_crc_bits(Bits *out,const Bits *plain,size_t syntax_bits){
+    assert(syntax_bits>=5u && syntax_bits<=plain->bit);
+    *out=(Bits){0};
+    put(out,4u,14u);put(out,10u,0u);
+    for(size_t i=4u;i<syntax_bits;i++)put(out,1u,payload_bit(plain,i));
+    uint16_t crc=0u;
+    assert(sauti_aac_sbr_crc10_bits(out->bytes,sizeof(out->bytes),14u,
+                                    out->bit-14u,&crc));
+    for(unsigned i=0u;i<10u;i++)
+        out->bytes[(4u+i)/8u]|=(uint8_t)(((crc>>(9u-i))&1u)
+                                          <<(7u-((4u+i)&7u)));
+    pad(out);
 }
 static void sce_silence(Bits *b){
     put(b,3u,0u); /* ID_SCE */
@@ -123,6 +142,26 @@ static size_t adts(uint8_t frame[1024],const Bits *raw,unsigned channels){
     memcpy(frame+7u,raw->bytes,raw->bit/8u);
     return length;
 }
+static size_t adts_crc(uint8_t frame[1024],const Bits *raw,
+                       unsigned channels,size_t sce_bits){
+    assert((raw->bit&7u)==0u && sce_bits>=3u && sce_bits<=raw->bit);
+    const unsigned length=9u+(unsigned)(raw->bit/8u);
+    assert(length<1024u);
+    memset(frame,0,1024u);
+    frame[0]=0xffu;frame[1]=0xf0u;
+    frame[2]=(uint8_t)(0x40u|(6u<<2u));
+    frame[3]=(uint8_t)((channels<<6u)|((length>>11u)&3u));
+    frame[4]=(uint8_t)(length>>3u);
+    frame[5]=(uint8_t)(((length&7u)<<5u)|0x1fu);frame[6]=0xfcu;
+    memcpy(frame+9u,raw->bytes,raw->bit/8u);
+    uint16_t crc=0xffffu;
+    assert(sauti_aac_adts_crc16_update_bits(frame,7u,0u,56u,&crc));
+    assert(sauti_aac_adts_crc16_update_bits(frame+9u,raw->bit/8u,3u,
+                                            sce_bits-3u,&crc));
+    assert(sauti_aac_adts_crc16_update_zero_bits(192u-(sce_bits-3u),&crc));
+    frame[7]=(uint8_t)(crc>>8u);frame[8]=(uint8_t)crc;
+    return length;
+}
 static size_t frame(Bits *raw,uint8_t output[1024],
                     const Bits *payload,unsigned extra,unsigned *start){
     *raw=(Bits){0};
@@ -139,7 +178,18 @@ static void test_full_adts_and_header_reuse(void){
     SautiAacSbrHeader h;SautiAacSbrTables tab;
     find_header(&h,&tab);
     Bits p,raw;
-    sbr_bits(&p,&h,&tab,1u,0u);
+    size_t syntax_bits=0u;
+    sbr_bits(&p,&h,&tab,1u,0u,&syntax_bits);
+    Bits crc_payload;
+    sbr_crc_bits(&crc_payload,&p,syntax_bits);
+    p=crc_payload;
+    {
+        SautiAacSbrPayloadState crc_state={0};
+        SautiAacSbrPayloadFrame crc_params;
+        assert(sauti_aac_sbr_payload_sce_parse(
+            p.bytes,sizeof(p.bytes),0u,p.bit,48000u,
+            &crc_state,&crc_params));
+    }
     uint8_t adts_frame[1024];
     unsigned start=0u;
     const size_t n=frame(&raw,adts_frame,&p,1u,&start);
@@ -173,7 +223,7 @@ static void test_full_adts_and_header_reuse(void){
         adts_frame+7u,n-7u,at,p.bit,48000u,&fresh,&direct));
     assert(memcmp(&params,&direct,sizeof(params))==0);
 
-    sbr_bits(&p,&h,&tab,0u,1u); /* no SBR header, time-coded Huffman */
+    sbr_bits(&p,&h,&tab,0u,1u,NULL); /* no SBR header, time-coded Huffman */
     const size_t next_length=frame(&raw,adts_frame,&p,0u,NULL);
     SautiAacSbrPayloadFrame prev=params;
     assert(sauti_aac_he_adts_mono_decode_ex(
@@ -188,7 +238,7 @@ static void test_full_adts_and_header_reuse(void){
 static void test_rollbacks_and_unsupported(void){
     SautiAacSbrHeader h;SautiAacSbrTables t;find_header(&h,&t);
     Bits p,raw;
-    sbr_bits(&p,&h,&t,1u,0u);
+    sbr_bits(&p,&h,&t,1u,0u,NULL);
     uint8_t bytes[1024];
     unsigned extension_start=0u;
     const size_t length=frame(&raw,bytes,&p,0u,&extension_start);
@@ -245,7 +295,7 @@ static void test_fill_data_after_sbr(void){
     SautiAacSbrHeader h;SautiAacSbrTables t;
     find_header(&h,&t);
     Bits payload,raw,fill_data={0};
-    sbr_bits(&payload,&h,&t,1u,0u);
+    sbr_bits(&payload,&h,&t,1u,0u,NULL);
     put(&fill_data,4u,1u); /* EXT_FILL_DATA */
     put(&fill_data,4u,0u); /* mandatory zero nibble */
     put(&fill_data,8u,0xa5u);
@@ -288,7 +338,7 @@ static void test_temporal_core_keeps_strict_parity(void){
     SautiAacSbrHeader h;SautiAacSbrTables tab;
     find_header(&h,&tab);
     Bits p,raw;
-    sbr_bits(&p,&h,&tab,1u,0u);
+    sbr_bits(&p,&h,&tab,1u,0u,NULL);
     uint8_t bytes[1024];
     size_t len=frame(&raw,bytes,&p,0u,NULL);
     SautiAacHeAdtsMonoState strict={0},temporal={0};
@@ -307,7 +357,7 @@ static void test_temporal_core_keeps_strict_parity(void){
     assert(memcmp(&p1,&p2,sizeof(p1))==0);
     assert(memcmp(&strict,&temporal,sizeof(strict))==0);
 
-    sbr_bits(&p,&h,&tab,0u,1u);
+    sbr_bits(&p,&h,&tab,0u,1u,NULL);
     unsigned ext_start=0u;
     len=frame(&raw,bytes,&p,0u,&ext_start);
     assert(sauti_aac_he_adts_mono_decode_ex(
@@ -327,11 +377,36 @@ static void test_temporal_core_keeps_strict_parity(void){
     assert(memcmp(&temporal,&prev,sizeof(prev))==0);
     puts("SBR-44: temporal and strict core output/history parity, invalid rollback PASS");
 }
+static void test_adts_crc_sce(void){
+    SautiAacSbrHeader h;SautiAacSbrTables tab;
+    find_header(&h,&tab);
+    Bits payload,raw;
+    sbr_bits(&payload,&h,&tab,1u,0u,NULL);
+    raw=(Bits){0};sce_silence(&raw);const size_t sce_bits=raw.bit;
+    fil(&raw,&payload,NULL);put(&raw,3u,7u);pad(&raw);
+    uint8_t bytes[1024];const size_t length=adts_crc(bytes,&raw,1u,sce_bits);
+    SautiAacHeAdtsMonoState state={0},before;
+    assert(sauti_aac_he_adts_mono_init(&state));
+    float pcm[1024],saved[1024];SautiAacSbrPayloadFrame params,saved_params;
+    SautiAacReason reason=SAUTI_AAC_REASON_INVALID_ADTS;
+    assert(sauti_aac_he_adts_mono_decode_ex(
+        bytes,length,&state,pcm,&params,&reason)==1);
+    assert(reason==SAUTI_AAC_REASON_OK && state.frames==1u);
+    before=state;memcpy(saved,pcm,sizeof(pcm));saved_params=params;
+    bytes[9u]^=0x10u; /* protected element_instance_tag bit */
+    assert(sauti_aac_he_adts_mono_decode_ex(
+        bytes,length,&state,pcm,&params,&reason)!=1);
+    assert(memcmp(&state,&before,sizeof(state))==0);
+    assert(memcmp(pcm,saved,sizeof(pcm))==0);
+    assert(memcmp(&params,&saved_params,sizeof(params))==0);
+    puts("SBR-65: ADTS CRC-16 SCE accepts covered syntax and rolls back on corruption PASS");
+}
 int main(void){
     test_full_adts_and_header_reuse();
     test_rollbacks_and_unsupported();
     test_fill_data_after_sbr();
     test_temporal_core_keeps_strict_parity();
+    test_adts_crc_sce();
     puts("PASS HE-AAC SBR-30 genuine ADTS mono SCE+FIL -> native LC PCM and decoded SBR side data");
     return 0;
 }

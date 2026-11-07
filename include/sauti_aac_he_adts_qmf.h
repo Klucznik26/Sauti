@@ -15,7 +15,9 @@
  * to naive PCM upsampling or fake high-frequency coefficients.
  *
  * First supported format remains ADTS one-block 1024-sample AAC-LC
- * single-channel with SCE+FIL SBR type 13, no CRC/PS/CPE.
+ * single-channel with SCE+FIL SBR type 13 or validated type 14 CRC,
+ * no ADTS CRC/CPE. A parsed PS extension is deliberately rejected here until
+ * the separate stereo PS/QMF reconstruction stage exists.
  * Output sample rate is twice the ADTS core rate (e.g. 24k -> 48k).
  */
 typedef struct {

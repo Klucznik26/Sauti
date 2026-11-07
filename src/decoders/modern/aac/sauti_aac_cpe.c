@@ -4,6 +4,7 @@
 #include "sauti_aac_cpe.h"
 #include "sauti_aac_bands.h"
 #include "sauti_aac_headers.h"
+#include "sauti_aac_adts_crc.h"
 #include "sauti_aac_spectral_data.h"
 #include "sauti_aac_syntax.h"
 #include "sauti_aac_pns.h"
@@ -85,6 +86,7 @@ int sauti_aac_lc_cpe_parse(const uint8_t *raw,size_t length,
         }
     }
     for(unsigned ch=0;ch<2;ch++){
+        if(ch==1u)parsed.crc_second_ics_bit=pos;
         int status=channel_parse(raw,length,&pos,rate,
                                 common?&shared:NULL,&parsed.channel[ch],
                                 reason,common && ch==1u);
@@ -234,6 +236,84 @@ static int apply_intensity(const SautiAacCpeData *cpe,unsigned rate,
     }
     return group_start==ics->window_count;
 }
+int sauti_aac_lc_cpe_synthesize(const SautiAacCpeData *parsed,
+                                unsigned rate,SautiAacLcSynthesis state[2],
+                                float interleaved[2048],SautiAacReason *reason){
+    if(!reason)return 0;
+    *reason=SAUTI_AAC_REASON_INVALID_ADTS;
+    if(!parsed||!state||!interleaved||rate>=13u)return 0;
+    if(state[0].initialized!=1u||state[1].initialized!=1u){
+        *reason=SAUTI_AAC_REASON_UNSUPPORTED_HISTORY;return -1;
+    }
+    SautiAacLcSynthesis next[2]={state[0],state[1]};
+    float spectral[2][1024],left[1024],right[1024],pcm[2048];
+    /* AAC PNS uses one decoder-wide RNG stream. Consume left bands
+     * before right bands; never independently reseed the channels.
+     * Keep the public two-state API synchronized after success. */
+    uint32_t pns_stream=next[0].pns_seed;
+    for(unsigned ch=0;ch<2;ch++){
+        const SautiAacLcMonoData *data=&parsed->channel[ch];
+        if(!sauti_aac_lc_dequantize(data->quant,rate,
+                    &data->ics,&data->sections,&data->factors,
+                    spectral[ch]) ||
+           !sauti_aac_pns_apply(&data->ics,rate,&data->sections,
+                               &data->factors,&pns_stream,
+                               spectral[ch])){
+            *reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;
+        }
+    }
+    next[0].pns_seed=pns_stream;
+    next[1].pns_seed=pns_stream;
+#ifndef SAUTI_AAC_DIAG_SHORT_NO_MS
+    int ms_status=apply_ms(parsed,rate,spectral[0],spectral[1],reason);
+#else
+    int ms_status=parsed->channel[0].ics.window_sequence==2u ? 1 :
+                  apply_ms(parsed,rate,spectral[0],spectral[1],reason);
+#endif
+    if(ms_status!=1){
+        if(ms_status==0)*reason=SAUTI_AAC_REASON_INVALID_SYNTH;
+        return ms_status;
+    }
+    /* Diagnostic build only: FFmpeg's float AAC decoder does not
+     * correlate NOISE_BT bands in its MS butterfly. Keep the normal
+     * Sauti behavior untouched until the PCM matrix settles this. */
+#ifndef SAUTI_AAC_DIAG_INDEPENDENT_PNS
+    int pns_status=apply_correlated_pns(parsed,rate,
+                                        spectral[0],spectral[1],reason);
+    if(pns_status!=1){
+        if(pns_status==0)*reason=SAUTI_AAC_REASON_INVALID_SYNTH;
+        return pns_status;
+    }
+#endif
+#ifndef SAUTI_AAC_DIAG_SHORT_NO_INTENSITY
+    const int intensity_ok=apply_intensity(parsed,rate,spectral[0],spectral[1]);
+#else
+    const int intensity_ok=parsed->channel[0].ics.window_sequence==2u ? 1 :
+                  apply_intensity(parsed,rate,spectral[0],spectral[1]);
+#endif
+    if(!intensity_ok){
+        *reason=SAUTI_AAC_REASON_INTENSITY;return 0;
+    }
+    for(unsigned ch=0;ch<2;ch++){
+        const SautiAacLcMonoData *data=&parsed->channel[ch];
+        if(!sauti_aac_lc_synthesis_spectral(&next[ch],&data->ics,
+                   data->tns_present?&data->tns:NULL,rate,
+                   spectral[ch],ch==0?left:right)){
+            *reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;
+        }
+    }
+    for(unsigned i=0;i<1024;i++){
+        float l=ldexpf(left[i],-16),r=ldexpf(right[i],-16);
+        if(!isfinite(l)||!isfinite(r)){
+            *reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;
+        }
+        pcm[2*i]=l;pcm[2*i+1]=r;
+    }
+    state[0]=next[0];state[1]=next[1];
+    memcpy(interleaved,pcm,sizeof(pcm));
+    *reason=SAUTI_AAC_REASON_OK;
+    return 1;
+}
 int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
                                       SautiAacLcSynthesis state[2],
                                       float interleaved[2048],
@@ -245,7 +325,7 @@ int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
     if(!sauti_aac_adts_parse_asm(frame,length,&adts) ||
        adts.frame_bytes>length||adts.header_bytes>adts.frame_bytes)return 0;
     if(adts.core_channels!=2u||adts.core_aot!=2u||
-       adts.raw_blocks!=1u||adts.crc_present){
+       adts.raw_blocks!=1u){
         *reason=SAUTI_AAC_REASON_UNSUPPORTED_ADTS;return -1;
     }
     unsigned rate=(frame[2]>>2u)&15u;
@@ -264,10 +344,29 @@ int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
             *reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;return -1;
         }
     }
+    const size_t cpe_start=pos;
     SautiAacCpeData parsed;
-    int status=sauti_aac_lc_cpe_parse(raw,raw_length,&pos,rate,
-                                       &parsed,reason);
+    const int status=sauti_aac_lc_cpe_parse(raw,raw_length,&pos,rate,
+                                             &parsed,reason);
     if(status!=1)return status;
+    if(adts.crc_present){
+        if(pos<cpe_start+3u || parsed.crc_second_ics_bit>pos){
+            *reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;
+        }
+        uint16_t crc=0xffffu;size_t first=pos-(cpe_start+3u);
+        size_t second=pos-parsed.crc_second_ics_bit;
+        if(first>192u)first=192u;
+        if(second>128u)second=128u;
+        if(!sauti_aac_adts_crc16_update_bits(frame,7u,0u,56u,&crc) ||
+           !sauti_aac_adts_crc16_update_bits(raw,raw_length,cpe_start+3u,first,&crc) ||
+           !sauti_aac_adts_crc16_update_zero_bits(192u-first,&crc) ||
+           !sauti_aac_adts_crc16_update_bits(raw,raw_length,
+                                              parsed.crc_second_ics_bit,second,&crc) ||
+           !sauti_aac_adts_crc16_update_zero_bits(128u-second,&crc) ||
+           crc!=(uint16_t)((uint16_t)frame[7u]<<8u|frame[8u])){
+            *reason=SAUTI_AAC_REASON_INVALID_ADTS;return 0;
+        }
+    }
     for(;;){
         uint32_t id=0;
         if(!get(raw,raw_length,&pos,3,&id)){
@@ -287,75 +386,5 @@ int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
     if(pos!=raw_length*8u){
         *reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;
     }
-    if(state[0].initialized!=1u||state[1].initialized!=1u){
-        *reason=SAUTI_AAC_REASON_UNSUPPORTED_HISTORY;return -1;
-    }
-    SautiAacLcSynthesis next[2]={state[0],state[1]};
-    float spectral[2][1024],left[1024],right[1024],pcm[2048];
-    /* AAC PNS uses one decoder-wide RNG stream. Consume left bands
-     * before right bands; never independently reseed the channels.
-     * Keep the public two-state API synchronized after success. */
-    uint32_t pns_stream=next[0].pns_seed;
-    for(unsigned ch=0;ch<2;ch++){
-        SautiAacLcMonoData *data=&parsed.channel[ch];
-        if(!sauti_aac_lc_dequantize(data->quant,rate,
-                    &data->ics,&data->sections,&data->factors,
-                    spectral[ch]) ||
-           !sauti_aac_pns_apply(&data->ics,rate,&data->sections,
-                               &data->factors,&pns_stream,
-                               spectral[ch])){
-            *reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;
-        }
-    }
-    next[0].pns_seed=pns_stream;
-    next[1].pns_seed=pns_stream;
-#ifndef SAUTI_AAC_DIAG_SHORT_NO_MS
-    int ms_status=apply_ms(&parsed,rate,spectral[0],spectral[1],reason);
-#else
-    int ms_status=parsed.channel[0].ics.window_sequence==2u ? 1 :
-                  apply_ms(&parsed,rate,spectral[0],spectral[1],reason);
-#endif
-    if(ms_status!=1){
-        if(ms_status==0)*reason=SAUTI_AAC_REASON_INVALID_SYNTH;
-        return ms_status;
-    }
-    /* Diagnostic build only: FFmpeg's float AAC decoder does not
-     * correlate NOISE_BT bands in its MS butterfly. Keep the normal
-     * Sauti behavior untouched until the PCM matrix settles this. */
-#ifndef SAUTI_AAC_DIAG_INDEPENDENT_PNS
-    int pns_status=apply_correlated_pns(&parsed,rate,
-                                        spectral[0],spectral[1],reason);
-    if(pns_status!=1){
-        if(pns_status==0)*reason=SAUTI_AAC_REASON_INVALID_SYNTH;
-        return pns_status;
-    }
-#endif
-#ifndef SAUTI_AAC_DIAG_SHORT_NO_INTENSITY
-    const int intensity_ok=apply_intensity(&parsed,rate,spectral[0],spectral[1]);
-#else
-    const int intensity_ok=parsed.channel[0].ics.window_sequence==2u ? 1 :
-                  apply_intensity(&parsed,rate,spectral[0],spectral[1]);
-#endif
-    if(!intensity_ok){
-        *reason=SAUTI_AAC_REASON_INTENSITY;return 0;
-    }
-    for(unsigned ch=0;ch<2;ch++){
-        const SautiAacLcMonoData *data=&parsed.channel[ch];
-        if(!sauti_aac_lc_synthesis_spectral(&next[ch],&data->ics,
-                   data->tns_present?&data->tns:NULL,rate,
-                   spectral[ch],ch==0?left:right)){
-            *reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;
-        }
-    }
-    for(unsigned i=0;i<1024;i++){
-        float l=ldexpf(left[i],-16),r=ldexpf(right[i],-16);
-        if(!isfinite(l)||!isfinite(r)){
-            *reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;
-        }
-        pcm[2*i]=l;pcm[2*i+1]=r;
-    }
-    state[0]=next[0];state[1]=next[1];
-    memcpy(interleaved,pcm,sizeof(pcm));
-    *reason=SAUTI_AAC_REASON_OK;
-    return 1;
+    return sauti_aac_lc_cpe_synthesize(&parsed,rate,state,interleaved,reason);
 }

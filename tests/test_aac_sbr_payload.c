@@ -1,4 +1,5 @@
 #include "sauti_aac_sbr_payload.h"
+#include "sauti_aac_sbr_crc.h"
 #include "sauti_aac_headers.h"
 #include <assert.h>
 #include <math.h>
@@ -60,10 +61,10 @@ static void header_bits(Bits *b,const SautiAacSbrHeader *h) {
  * zero-delta codewords from ENV_3_0DB_F / ENV_3_0DB_T and
  * NOISE_3_0DB_T: code 0, length 1 for symbol delta=0.
  */
-static void payload(Bits *b,const SautiAacSbrHeader *hdr,
-                    const SautiAacSbrTables *tab,
-                    unsigned new_header,unsigned time_deltas,
-                    unsigned harmonic) {
+static void payload_impl(Bits *b,const SautiAacSbrHeader *hdr,
+                         const SautiAacSbrTables *tab,
+                         unsigned new_header,unsigned time_deltas,
+                         unsigned harmonic,unsigned with_ps) {
     *b=(Bits){0};
     put(b,4,13u);          /* EXT_SBR_DATA */
     put(b,1,new_header);   /* bs_header_flag */
@@ -87,7 +88,106 @@ static void payload(Bits *b,const SautiAacSbrHeader *hdr,
     if(harmonic)
         for(unsigned j=0;j<tab->n_high;j++)
             put(b,1,j==0u?1u:0u);
-    put(b,1,0u); /* bs_extended_data=0: no PS */
+    put(b,1,with_ps);
+    if(with_ps){
+        put(b,4u,3u);put(b,2u,2u); /* three bytes, EXTENSION_ID_PS */
+        put(b,1u,1u);put(b,1u,1u);put(b,3u,0u);put(b,1u,0u);put(b,1u,0u);
+        put(b,1u,0u);put(b,2u,1u); /* PS header, class 0, one envelope */
+        put(b,1u,0u);for(unsigned i=0u;i<10u;i++)put(b,1u,0u); /* IID df */
+        put(b,1u,0u); /* final SBR extension fill bit */
+    }
+    align_byte(b);
+}
+static void payload(Bits *b,const SautiAacSbrHeader *hdr,
+                    const SautiAacSbrTables *tab,
+                    unsigned new_header,unsigned time_deltas,
+                    unsigned harmonic) {
+    payload_impl(b,hdr,tab,new_header,time_deltas,harmonic,0u);
+}
+/* A complete SBR extended_data range containing extension id 2 and one
+ * baseline PS frame: ten IID bands plus one zero outer fill bit. */
+static void payload_ps(Bits *b,const SautiAacSbrHeader *hdr,
+                       const SautiAacSbrTables *tab){
+    payload_impl(b,hdr,tab,1u,0u,0u,1u);
+}
+static unsigned bit_at(const Bits *b,size_t at){
+    return (b->data[at/8u]>>(7u-(unsigned)(at&7u)))&1u;
+}
+/* Turn a complete type-13 fixture into type-14 without including its
+ * byte-alignment zeros in the CRC coverage. */
+static void crc_payload(Bits *out,const Bits *plain,size_t syntax_bits){
+    assert(syntax_bits>=5u && syntax_bits<=plain->bit);
+    *out=(Bits){0};
+    put(out,4u,14u); /* EXT_SBR_DATA_CRC */
+    put(out,10u,0u); /* bs_sbr_crc_bits, patched below */
+    for(size_t i=4u;i<syntax_bits;i++)put(out,1u,bit_at(plain,i));
+    uint16_t crc=0u;
+    assert(sauti_aac_sbr_crc10_bits(out->data,sizeof(out->data),14u,
+                                    out->bit-14u,&crc));
+    for(unsigned i=0u;i<10u;i++)
+        out->data[(4u+i)/8u]|=(uint8_t)(((crc>>(9u-i))&1u)
+                                         <<(7u-((4u+i)&7u)));
+    align_byte(out);
+}
+static void cpe_grid(Bits *b){
+    put(b,2u,0u);put(b,2u,1u);put(b,1u,1u); /* FIXFIX, 2 high-res */
+}
+static void cpe_quant(Bits *b,const SautiAacSbrTables *tab,
+                      unsigned balanced){
+    for(unsigned e=0u;e<2u;e++){
+        put(b,balanced?5u:6u,balanced?6u:5u);
+        for(unsigned j=1u;j<tab->n_high;j++)put(b,1u,0u);
+    }
+    for(unsigned e=0u;e<2u;e++){
+        put(b,5u,6u);
+        for(unsigned j=1u;j<tab->n_noise;j++)put(b,1u,0u);
+    }
+}
+static void cpe_envelopes(Bits *b,const SautiAacSbrTables *tab,unsigned value){
+    for(unsigned e=0u;e<2u;e++){
+        put(b,6u,value);
+        for(unsigned j=1u;j<tab->n_high;j++)put(b,1u,0u);
+    }
+}
+static void cpe_noises(Bits *b,const SautiAacSbrTables *tab,unsigned value){
+    for(unsigned e=0u;e<2u;e++){
+        put(b,5u,value);
+        for(unsigned j=1u;j<tab->n_noise;j++)put(b,1u,0u);
+    }
+}
+/* Complete classic coupled CPE syntax. The two channels share one grid and
+ * inverse-filtering data; the right quantizer uses balance codebooks. */
+static void cpe_payload(Bits *b,const SautiAacSbrHeader *hdr,
+                        const SautiAacSbrTables *tab){
+    *b=(Bits){0};
+    put(b,4u,13u);put(b,1u,1u);header_bits(b,hdr);
+    put(b,1u,0u); /* bs_data_extra */
+    put(b,1u,1u); /* bs_coupling */
+    cpe_grid(b);
+    /* dtdf(0), dtdf(1), then shared invf(0). */
+    for(unsigned ch=0u;ch<2u;ch++)for(unsigned i=0u;i<4u;i++)put(b,1u,0u);
+    for(unsigned i=0u;i<tab->n_noise;i++)put(b,2u,0u);
+    cpe_quant(b,tab,0u);
+    cpe_quant(b,tab,1u);
+    put(b,1u,0u);put(b,1u,0u); /* no harmonics in both channels */
+    put(b,1u,0u); /* no extended data */
+    align_byte(b);
+}
+/* Uncoupled CPE uses a separate grid/control/invf for each channel, then
+ * serializes both envelope payloads before both noise payloads. */
+static void uncoupled_cpe_payload(Bits *b,const SautiAacSbrHeader *hdr,
+                                  const SautiAacSbrTables *tab){
+    *b=(Bits){0};
+    put(b,4u,13u);put(b,1u,1u);header_bits(b,hdr);
+    put(b,1u,0u);put(b,1u,0u); /* no data_extra, bs_coupling=0 */
+    cpe_grid(b);cpe_grid(b);
+    for(unsigned ch=0u;ch<2u;ch++){
+        for(unsigned i=0u;i<4u;i++)put(b,1u,0u); /* dtdf */
+        for(unsigned i=0u;i<tab->n_noise;i++)put(b,2u,0u); /* invf */
+    }
+    cpe_envelopes(b,tab,5u);cpe_envelopes(b,tab,7u);
+    cpe_noises(b,tab,6u);cpe_noises(b,tab,8u);
+    put(b,1u,0u);put(b,1u,0u);put(b,1u,0u); /* harmonic, harmonic, ext */
     align_byte(b);
 }
 static void put_payload_with_offset(Bits *dst,const Bits *src,unsigned offset){
@@ -195,6 +295,9 @@ static void test_atomic_failure_modes(void) {
         b.data,sizeof(b.data),0u,b.bit,48000u,&warmed,&parsed));
     const size_t ext_bit=parsed.payload_data_bits-1u;
     wrong_extension.data[ext_bit/8u]^=(uint8_t)(1u<<(7u-ext_bit%8u));
+    /* A zero-size extended_data block is valid. Declare one byte instead,
+     * although this FIL has no bytes left for it. */
+    wrong_extension.data[(ext_bit+1u)/8u]|=(uint8_t)(1u<<(7u-(ext_bit+1u)%8u));
     REJECT(wrong_extension.data,sizeof(wrong_extension.data),
            0u,b.bit,48000u);
     /* Incorrect padding, or a FIL count shortened by one byte. */
@@ -223,6 +326,132 @@ static void test_atomic_failure_modes(void) {
         48000u,&state,&out));
     assert(state.frames==2u && state.quant_state.has_env);
     puts("SBR-29: CRC/PS/invalid FIL, unsupported rate, truncated payload and warm rollback PASS");
+}
+static void test_ps_extension_side_data(void){
+    SautiAacSbrHeader header;SautiAacSbrTables tab;
+    choose(&header,&tab);
+    Bits payload_bits,unaligned;
+    payload_ps(&payload_bits,&header,&tab);
+    put_payload_with_offset(&unaligned,&payload_bits,5u);
+    SautiAacSbrPayloadState state={0};
+    SautiAacSbrPayloadFrame frame={0};
+    assert(sauti_aac_sbr_payload_sce_parse(
+        unaligned.data,(unaligned.bit+7u)/8u,5u,payload_bits.bit,
+        48000u,&state,&frame));
+    assert(frame.has_ps && frame.ps.header_present &&
+           frame.ps.header.enable_iid && frame.ps.header.iid_mode==0u &&
+           frame.ps.num_env==1u && frame.ps.iid_count==10u &&
+           frame.ps.iid[0][0]==0 && frame.ps.iid[0][9]==0 &&
+           state.ps.frames==1u && state.ps.initialized==1u);
+
+    /* The nested PS parser and the enclosing SBR entropy/header state commit
+     * together: truncating its declared byte range cannot alter either. */
+    SautiAacSbrPayloadState before=state;
+    SautiAacSbrPayloadFrame saved=frame;
+    assert(!sauti_aac_sbr_payload_sce_parse(
+        unaligned.data,(unaligned.bit+7u)/8u,5u,payload_bits.bit-8u,
+        48000u,&state,&frame));
+    assert(memcmp(&state,&before,sizeof(state))==0 &&
+           memcmp(&frame,&saved,sizeof(frame))==0);
+    puts("SBR-66: bounded EXTENSION_ID_PS side data, unaligned input and atomic rollback PASS");
+}
+static void test_crc_extension(void){
+    const uint8_t known[]={0xa5u};
+    uint16_t crc=99u;
+    /* Independent hand vector for MSB-first G10, zero init. */
+    assert(sauti_aac_sbr_crc10_bits(known,sizeof(known),0u,8u,&crc) &&
+           crc==0x0140u);
+    assert(!sauti_aac_sbr_crc10_bits(known,sizeof(known),9u,0u,&crc));
+
+    SautiAacSbrHeader header;
+    SautiAacSbrTables tab;
+    choose(&header,&tab);
+    Bits plain,checked;
+    payload(&plain,&header,&tab,1u,0u,1u);
+    SautiAacSbrPayloadState inspect={0};
+    SautiAacSbrPayloadFrame parsed;
+    assert(sauti_aac_sbr_payload_sce_parse(
+        plain.data,sizeof(plain.data),0u,plain.bit,48000u,&inspect,&parsed));
+    crc_payload(&checked,&plain,parsed.payload_data_bits);
+
+    SautiAacSbrPayloadState state={0},before;
+    SautiAacSbrPayloadFrame out,saved;
+    assert(sauti_aac_sbr_payload_sce_parse(
+        checked.data,sizeof(checked.data),0u,checked.bit,48000u,
+        &state,&out));
+    assert(state.frames==1u && out.payload_data_bits==
+           parsed.payload_data_bits+10u);
+    before=state;saved=out;
+
+    /* A bit flip in bs_sbr_crc_bits leaves the syntax valid but must fail
+     * before differential SBR state or decoded side data can commit. */
+    checked.data[4u/8u]^=(uint8_t)(1u<<(7u-(4u&7u)));
+    assert(!sauti_aac_sbr_payload_sce_parse(
+        checked.data,sizeof(checked.data),0u,checked.bit,48000u,
+        &state,&out));
+    assert(memcmp(&state,&before,sizeof(state))==0);
+    assert(memcmp(&out,&saved,sizeof(out))==0);
+    puts("SBR-62: EXT_SBR_DATA_CRC CRC-10 vector, syntax coverage and atomic mismatch rejection PASS");
+}
+static void test_coupled_cpe_payload(void){
+    SautiAacSbrHeader header;
+    SautiAacSbrTables tab;
+    choose(&header,&tab);
+    Bits raw,checked;
+    cpe_payload(&raw,&header,&tab);
+    SautiAacSbrPayloadCpeState inspect={0};
+    SautiAacSbrPayloadCpeFrame first;
+    assert(sauti_aac_sbr_payload_cpe_parse(
+        raw.data,sizeof(raw.data),0u,raw.bit,48000u,&inspect,&first));
+    assert(first.coupling==1u && inspect.frames==1u &&
+           first.channel[0].grid.env_count==2u &&
+           first.channel[1].grid.env_count==2u);
+    SautiAacSbrHfJointConfig hf0,hf1;
+    assert(sauti_aac_sbr_payload_cpe_make_hf(&first,0u,&hf0));
+    assert(sauti_aac_sbr_payload_cpe_make_hf(&first,1u,&hf1));
+    assert(hf0.tables==&first.channel[0].tables &&
+           hf1.tables==&first.channel[1].tables &&
+           hf0.energy==&first.channel[0].energy &&
+           hf1.energy==&first.channel[1].energy);
+    assert(first.channel[0].energy.env_energy[0][0]>0.0 &&
+           first.channel[1].energy.env_energy[0][0]>0.0);
+
+    crc_payload(&checked,&raw,first.channel[0].payload_data_bits);
+    SautiAacSbrPayloadCpeState state={0},before;
+    SautiAacSbrPayloadCpeFrame out,saved;
+    assert(sauti_aac_sbr_payload_cpe_parse(
+        checked.data,sizeof(checked.data),0u,checked.bit,48000u,&state,&out));
+    assert(state.frames==1u && out.coupling==1u &&
+           out.channel[0].payload_data_bits==
+           first.channel[0].payload_data_bits+10u);
+    before=state;saved=out;
+    checked.data[4u/8u]^=(uint8_t)(1u<<(7u-(4u&7u)));
+    assert(!sauti_aac_sbr_payload_cpe_parse(
+        checked.data,sizeof(checked.data),0u,checked.bit,48000u,&state,&out));
+    assert(memcmp(&state,&before,sizeof(state))==0);
+    assert(memcmp(&out,&saved,sizeof(out))==0);
+
+    Bits uncoupled;
+    uncoupled_cpe_payload(&uncoupled,&header,&tab);
+    SautiAacSbrPayloadCpeState independent={0},independent_before;
+    SautiAacSbrPayloadCpeFrame independent_out,independent_saved;
+    assert(sauti_aac_sbr_payload_cpe_parse(
+        uncoupled.data,sizeof(uncoupled.data),0u,uncoupled.bit,48000u,
+        &independent,&independent_out));
+    assert(independent_out.coupling==0u && independent.frames==1u &&
+           independent_out.channel[0].quant.env[0][0]==5u &&
+           independent_out.channel[1].quant.env[0][0]==7u &&
+           independent_out.channel[0].quant.noise[0][0]==6u &&
+           independent_out.channel[1].quant.noise[0][0]==8u);
+    assert(sauti_aac_sbr_payload_cpe_make_hf(&independent_out,0u,&hf0));
+    assert(sauti_aac_sbr_payload_cpe_make_hf(&independent_out,1u,&hf1));
+    independent_before=independent;independent_saved=independent_out;
+    assert(!sauti_aac_sbr_payload_cpe_parse(
+        uncoupled.data,sizeof(uncoupled.data),0u,uncoupled.bit-8u,48000u,
+        &independent,&independent_out));
+    assert(memcmp(&independent,&independent_before,sizeof(independent))==0);
+    assert(memcmp(&independent_out,&independent_saved,sizeof(independent_out))==0);
+    puts("SBR-63: coupled/uncoupled CPE type-13/type-14, dual HF configs and atomic rollback PASS");
 }
 /* A legitimate FIXVAR frame may end one SBR time slot after the
  * current AAC frame. Side-data parsing is allowed, but QMF still must
@@ -461,6 +690,9 @@ static void test_temporal_fixvar_17_side_data(void){
 int main(void){
     test_header_grid_entropy_and_harmonics();
     test_atomic_failure_modes();
+    test_ps_extension_side_data();
+    test_crc_extension();
+    test_coupled_cpe_payload();
     test_temporal_fixvar_17_side_data();
     puts("PASS HE-AAC SBR-29 entropy-coded FIL SCE payload to QMF-frame parameters");
     return 0;
