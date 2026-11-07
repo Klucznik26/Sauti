@@ -137,6 +137,16 @@ zespolone współczynniki dla obu kanałów. Przejście 20/34 pasm resetuje tę
 historię, a błąd fazy nie publikuje ani wyniku, ani nowego stanu. Test
 `make test-aac-ps-phase` obejmuje IPD, OPD, brak rozszerzenia i rollback.
 
+`sauti_aac_ps_render_plan_build` scala powyższe cztery kroki w jeden
+atomowy, bezpróbkowy plan dla przyszłego renderera PS: znormalizowane
+parametry, routing 71/91 pasm hybrydowych, rzeczywistą macierz IID/ICC i jej
+zespoloną postać po IPD/OPD. Stan obejmuje wyłącznie historię wygładzania
+fazy; różnicowa historia składni nadal należy do parsera SBR. Przejście
+20→34 pasm oraz błąd dowolnego podetapu nie publikuje częściowego planu ani
+historii. `make test-aac-ps-render` i jego odpowiednik ASan/UBSan sprawdzają
+oba układy pasm, granicę obwiedni i rollback. To jest granica kontrolna,
+nie hybrydowa analiza/dekorrelacja ani PCM HE-AAC v2.
+
 `test-aac-syntax` dekoduje każde z 242 słów wszystkich dziesięciu tabel tym samym
 czytnikiem MSB-first, a także bada dziedziczenie, oba klasy ramek, IID/ICC
 różnicowe w czasie i częstotliwości, reset stanu po wyłączeniu parametrów,
