@@ -147,6 +147,13 @@ historii. `make test-aac-ps-render` i jego odpowiednik ASan/UBSan sprawdzają
 oba układy pasm, granicę obwiedni i rollback. To jest granica kontrolna,
 nie hybrydowa analiza/dekorrelacja ani PCM HE-AAC v2.
 
+Regresja render-planu obejmuje też niezmienniki trwałego stanu: `frames==0`
+nie może współistnieć z gotową historią fazy, dodatni licznik wymaga tej
+historii, `ready` ma tylko wartości boolowskie, a `UINT64_MAX` nie może zostać
+zwiększone. Każdy taki uszkodzony stan jest odrzucany bez zmiany ani stanu,
+ani wcześniej przygotowanego planu. To wzmacnia granicę fail-closed przed
+przyszłymi etapami hybrydowego QMF i dekorrelacji.
+
 `test-aac-syntax` dekoduje każde z 242 słów wszystkich dziesięciu tabel tym samym
 czytnikiem MSB-first, a także bada dziedziczenie, oba klasy ramek, IID/ICC
 różnicowe w czasie i częstotliwości, reset stanu po wyłączeniu parametrów,

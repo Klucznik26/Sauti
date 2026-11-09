@@ -22,9 +22,20 @@ static SautiAacPsFrame frame20(void){
     return frame;
 }
 
+static void assert_rejected_is_atomic(const SautiAacPsFrame *frame,
+                                      SautiAacPsRenderState state,
+                                      const SautiAacPsRenderPlan *plan){
+    SautiAacPsRenderState saved_state=state;
+    SautiAacPsRenderPlan out=*plan,saved_plan=*plan;
+
+    assert(!sauti_aac_ps_render_plan_build(frame,&state,&out));
+    assert(memcmp(&state,&saved_state,sizeof(state))==0);
+    assert(memcmp(&out,&saved_plan,sizeof(out))==0);
+}
+
 int main(void){
-    SautiAacPsRenderState state={0},saved_state;
-    SautiAacPsRenderPlan plan={0},saved_plan;
+    SautiAacPsRenderState state={0},corrupt;
+    SautiAacPsRenderPlan plan={0};
     SautiAacPsFrame frame=frame20();
 
     assert(sauti_aac_ps_render_plan_build(&frame,&state,&plan));
@@ -48,12 +59,28 @@ int main(void){
            plan.mapped.bands==34u && plan.schedule.hybrid_bands==91u &&
            plan.complex_matrix.bands==34u);
 
-    saved_state=state;
-    saved_plan=plan;
     frame.iid_count=1u;
-    assert(!sauti_aac_ps_render_plan_build(&frame,&state,&plan));
-    assert(memcmp(&state,&saved_state,sizeof(state))==0 &&
-           memcmp(&plan,&saved_plan,sizeof(plan))==0);
-    puts("PASS AAC PS render plan: atomic parser-to-DSP integration");
+    assert_rejected_is_atomic(&frame,state,&plan);
+
+    frame=frame20();
+    corrupt=state;
+    corrupt.frames=0u;
+    corrupt.phase.ready=1u;
+    assert_rejected_is_atomic(&frame,corrupt,&plan);
+
+    corrupt=state;
+    corrupt.frames=1u;
+    corrupt.phase.ready=0u;
+    assert_rejected_is_atomic(&frame,corrupt,&plan);
+
+    corrupt=state;
+    corrupt.phase.ready=2u;
+    assert_rejected_is_atomic(&frame,corrupt,&plan);
+
+    corrupt=state;
+    corrupt.frames=UINT64_MAX;
+    assert_rejected_is_atomic(&frame,corrupt,&plan);
+
+    puts("PASS AAC PS render plan: atomic parser-to-DSP integration and state invariants");
     return 0;
 }
