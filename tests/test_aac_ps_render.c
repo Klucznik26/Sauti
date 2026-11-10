@@ -78,6 +78,10 @@ int main(void){
     assert_rejected_is_atomic(&frame,corrupt,&plan);
 
     corrupt=state;
+    corrupt.phase.bands=19u;
+    assert_rejected_is_atomic(&frame,corrupt,&plan);
+
+    corrupt=state;
     corrupt.frames=UINT64_MAX;
     assert_rejected_is_atomic(&frame,corrupt,&plan);
 

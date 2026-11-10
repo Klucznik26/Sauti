@@ -29,7 +29,8 @@ int sauti_aac_ps_phase_apply(const SautiAacPsFrame *frame,
     if(!frame||!mapped||!matrix||!state||!out||!matrix->env_count||
        matrix->env_count!=mapped->env_count||matrix->bands!=mapped->bands||
        (mapped->bands!=20u&&mapped->bands!=34u)||
-       mapped->env_count!=frame->resolved_num_env||state->ready>1u)return 0;
+       mapped->env_count!=frame->resolved_num_env||state->ready>1u||
+       (state->ready&&state->bands!=20u&&state->bands!=34u))return 0;
     SautiAacPsPhaseState next_state=*state;
     if(next_state.ready&&next_state.bands!=mapped->bands){
         next_state=(SautiAacPsPhaseState){0};

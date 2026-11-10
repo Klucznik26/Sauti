@@ -30,6 +30,10 @@ int main(void){
     frame.enable_ipdopd=1u;mapped.ipd[0][0]=8;
     assert(!sauti_aac_ps_phase_apply(&frame,&mapped,&matrix,&state,&out));
     assert(memcmp(&out,&saved,sizeof(out))==0&&memcmp(&state,&saved_state,sizeof(state))==0);
-    puts("PASS AAC PS phase: IPD/OPD smoothing, complex coefficients and rollback");
+    mapped.ipd[0][0]=2;state=saved_state;state.bands=19u;
+    saved=out;saved_state=state;
+    assert(!sauti_aac_ps_phase_apply(&frame,&mapped,&matrix,&state,&out));
+    assert(memcmp(&out,&saved,sizeof(out))==0&&memcmp(&state,&saved_state,sizeof(state))==0);
+    puts("PASS AAC PS phase: IPD/OPD smoothing, valid topology and rollback");
     return 0;
 }
