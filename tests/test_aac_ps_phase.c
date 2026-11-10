@@ -10,7 +10,7 @@ int main(void){
     SautiAacPsFrame frame={0};
     SautiAacPsMappedFrame mapped={0};
     SautiAacPsMatrix matrix={0};
-    SautiAacPsPhaseState state={0},saved_state;
+    SautiAacPsPhaseState state={0},saved_state,valid_state;
     SautiAacPsComplexMatrix out={0},saved;
     frame.resolved_num_env=1u;frame.enable_ipdopd=1u;
     mapped.bands=20u;mapped.env_count=1u;
@@ -26,14 +26,18 @@ int main(void){
     assert(sauti_aac_ps_phase_apply(&frame,&mapped,&matrix,&state,&out));
     assert(!out.has_phase&&near(out.coefficient[0][3].h11.re,1.0f)&&
            near(out.coefficient[0][3].h11.im,0.0f));
-    saved=out;saved_state=state;
+    saved=out;saved_state=state;valid_state=state;
     frame.enable_ipdopd=1u;mapped.ipd[0][0]=8;
     assert(!sauti_aac_ps_phase_apply(&frame,&mapped,&matrix,&state,&out));
     assert(memcmp(&out,&saved,sizeof(out))==0&&memcmp(&state,&saved_state,sizeof(state))==0);
-    mapped.ipd[0][0]=2;state=saved_state;state.bands=19u;
+    mapped.ipd[0][0]=2;state=valid_state;state.bands=19u;
     saved=out;saved_state=state;
     assert(!sauti_aac_ps_phase_apply(&frame,&mapped,&matrix,&state,&out));
     assert(memcmp(&out,&saved,sizeof(out))==0&&memcmp(&state,&saved_state,sizeof(state))==0);
-    puts("PASS AAC PS phase: IPD/OPD smoothing, valid topology and rollback");
+    state=valid_state;state.ipd_history[0]=64u;
+    saved=out;saved_state=state;
+    assert(!sauti_aac_ps_phase_apply(&frame,&mapped,&matrix,&state,&out));
+    assert(memcmp(&out,&saved,sizeof(out))==0&&memcmp(&state,&saved_state,sizeof(state))==0);
+    puts("PASS AAC PS phase: IPD/OPD smoothing, valid state and rollback");
     return 0;
 }

@@ -20,6 +20,16 @@ static int smooth(uint8_t old,uint8_t now,float *re,float *im){
 static SautiAacPsComplexCoefficient multiply(float value,float re,float im){
     SautiAacPsComplexCoefficient out={value*re,value*im};return out;
 }
+static int state_valid(const SautiAacPsPhaseState *state){
+    if(state->ready>1u)return 0;
+    if(!state->ready)return 1;
+    if(state->bands!=20u&&state->bands!=34u)return 0;
+    const unsigned phase_bands=state->bands==34u?17u:11u;
+    for(unsigned b=0u;b<phase_bands;b++){
+        if(state->ipd_history[b]>63u||state->opd_history[b]>63u)return 0;
+    }
+    return 1;
+}
 
 int sauti_aac_ps_phase_apply(const SautiAacPsFrame *frame,
                              const SautiAacPsMappedFrame *mapped,
@@ -29,8 +39,7 @@ int sauti_aac_ps_phase_apply(const SautiAacPsFrame *frame,
     if(!frame||!mapped||!matrix||!state||!out||!matrix->env_count||
        matrix->env_count!=mapped->env_count||matrix->bands!=mapped->bands||
        (mapped->bands!=20u&&mapped->bands!=34u)||
-       mapped->env_count!=frame->resolved_num_env||state->ready>1u||
-       (state->ready&&state->bands!=20u&&state->bands!=34u))return 0;
+       mapped->env_count!=frame->resolved_num_env||!state_valid(state))return 0;
     SautiAacPsPhaseState next_state=*state;
     if(next_state.ready&&next_state.bands!=mapped->bands){
         next_state=(SautiAacPsPhaseState){0};

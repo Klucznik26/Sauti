@@ -150,9 +150,10 @@ nie hybrydowa analiza/dekorrelacja ani PCM HE-AAC v2.
 Regresja render-planu obejmuje też niezmienniki trwałego stanu: `frames==0`
 nie może współistnieć z gotową historią fazy, dodatni licznik wymaga tej
 historii, `ready` ma tylko wartości boolowskie, gotowa historia ma wyłącznie
-topologię 20 albo 34 pasm, a `UINT64_MAX` nie może zostać zwiększone. Każdy
-taki uszkodzony stan jest odrzucany bez zmiany ani stanu, ani wcześniej
-przygotowanego planu. To wzmacnia granicę fail-closed przed
+topologię 20 albo 34 pasm i mieści sześciobitowe symbole IPD/OPD, a
+`UINT64_MAX` nie może zostać zwiększone. Każdy taki uszkodzony stan jest
+odrzucany bez zmiany ani stanu, ani wcześniej przygotowanego planu. To
+wzmacnia granicę fail-closed przed
 przyszłymi etapami hybrydowego QMF i dekorrelacji.
 
 `test-aac-syntax` dekoduje każde z 242 słów wszystkich dziesięciu tabel tym samym
