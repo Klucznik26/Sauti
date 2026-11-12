@@ -124,6 +124,31 @@ nieprawidłowego harmonogramu lub NaN/Inf w czytanych próbkach wyjście nie
 jest modyfikowane. Test `make test-aac-ps-qmf-high` został podłączony
 również do `test-aac-native` i `test-aac-sanitize`.
 
+### AAC-M1 / PS-1c — złożenie banku 71/91 pasm i korekta wyrównania (2026-11-12)
+
+Audyt implementacji względem FFmpeg n6.1 `libavcodec/aacps.c`,
+`aacpsdsp_template.c` i `aacps_tablegen.h` wykazał błąd
+w PS-1a: niepodzielone górne pasma QMF nie są przesuwane o 6 slotów.
+Poprawiono `sauti_aac_ps_qmf_high_extract`: wysokie
+pasmo odpowiada bezpośrednio `L[slot][3+k]` (20 parametrów) lub
+`L[slot][5+k]` (34 parametry). Zmieniono testy sprawdzające
+to założenie — wcześniejsze PASS potwierdzały błędny indeks.
+
+Dodano `sauti_aac_ps_qmf_bank_analyze`: scala niski bank FIR (10/32)
+oraz niesplitowane wysokie QMF (61/59) w 32 sloty po 71 albo 91
+wartości zespolonych. Historia sześciu próbek i wyjście są publikowane
+atomowo. Bufory wyjścia/wejścia/stanu nie mogą się nakładać.
+`make test-aac-ps-qmf-bank` jest podłączony do
+`test-aac-native` i `test-aac-sanitize`.
+
+Krytyczne ograniczenia: numeracja niskich pasm jest sprawdzona wobec
+`hybrid6_cx`, `hybrid2_re` i `hybrid4_8_12_cx` FFmpeg, ale
+zgodność numeryczna DSP z niezależnym PCM oraz poprawność integracji
+w ciągłym strumieniu z SBR nie zostały jeszcze potwierdzone.
+To NIE jest PS stereo PCM. Przed zamknięciem PS-1 trzeba uruchomić
+testy na Fedorze, przeprowadzić regresję i porównanie wyjścia z
+niezależnym bankiem referencyjnym w dwóch trybach.
+
 ### AAC-M1 / PS-1b — analiza 13-tapowa niskich pasm (2026-11-12)
 
 Nowy `sauti_aac_ps_qmf_low_analyze` wykonuje rzeczywistą analizę FIR
