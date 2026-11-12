@@ -1030,6 +1030,10 @@ $(OBJDIR)/sauti_ps5_temporal_audit: tools/sauti_ps5_temporal_audit.c include/sau
 .PHONY: probe-he-ps-temporal
 probe-he-ps-temporal: $(OBJDIR)/sauti_ps5_temporal_audit
 
+.PHONY: test-aac-ps5-temporal
+test-aac-ps5-temporal: $(OBJDIR)/sauti_ps5_temporal_audit $(OBJDIR)/test_aac_he_adts_ps
+	python3 tools/test_sauti_ps5_temporal.py ./$(OBJDIR)/test_aac_he_adts_ps ./$(OBJDIR)/sauti_ps5_temporal_audit
+
 .PHONY: test-aac-ps5-native
 test-aac-ps5-native: $(OBJDIR)/sauti_he_ps_decode $(OBJDIR)/test_aac_he_adts_ps
 	python3 tools/test_sauti_ps5_native.py ./$(OBJDIR)/test_aac_he_adts_ps ./$(OBJDIR)/sauti_he_ps_decode
