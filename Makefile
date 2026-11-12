@@ -1024,8 +1024,9 @@ $(OBJDIR)/sauti_he_ps_decode: tools/sauti_he_ps_decode.c include/sauti_aac_he_ad
 .PHONY: probe-he-ps test-aac-ps5-compare-help
 probe-he-ps: $(OBJDIR)/sauti_he_ps_decode
 
-$(OBJDIR)/sauti_ps5_temporal_audit: tools/sauti_ps5_temporal_audit.c include/sauti_aac_he_adts_mono.h $(AAC_SBR_ADTS_MONO_DEPS) | $(OBJDIR)
-	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_ps5_temporal_audit.c $(AAC_SBR_ADTS_MONO_DEPS) -lm -no-pie
+AAC_PS5_TEMPORAL_LINK := $(sort $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS))
+$(OBJDIR)/sauti_ps5_temporal_audit: tools/sauti_ps5_temporal_audit.c include/sauti_aac_he_adts_mono.h include/sauti_aac_sbr_qmf_frame.h $(AAC_PS5_TEMPORAL_LINK) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_ps5_temporal_audit.c $(AAC_PS5_TEMPORAL_LINK) -lm -no-pie
 
 .PHONY: probe-he-ps-temporal
 probe-he-ps-temporal: $(OBJDIR)/sauti_ps5_temporal_audit
