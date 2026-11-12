@@ -524,14 +524,6 @@ $(OBJDIR)/test_aac_he_ps_delay: include/sauti_aac_he_ps_bridge.h include/sauti_a
 test-aac-he-ps-delay: $(OBJDIR)/test_aac_he_ps_delay
 	./$(OBJDIR)/test_aac_he_ps_delay
 
-AAC_HE_ADTS_PS_LINK = $(sort src/decoders/modern/aac/sauti_aac_he_ps_delay.c src/decoders/modern/aac/sauti_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_ps_render.c src/decoders/modern/aac/sauti_aac_ps_map.c src/decoders/modern/aac/sauti_aac_ps_matrix.c src/decoders/modern/aac/sauti_aac_ps_phase.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) src/decoders/modern/aac/sauti_aac_he_adts_ps.c $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS))
-$(OBJDIR)/test_aac_he_adts_ps: tests/test_aac_he_adts_ps.c tests/test_aac_sbr_adts_mono.c include/sauti_aac_he_adts_ps.h include/sauti_aac_he_ps_delay.h $(AAC_HE_ADTS_PS_LINK) | $(OBJDIR)
-	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_he_adts_ps.c $(AAC_HE_ADTS_PS_LINK) -lm -no-pie
-
-.PHONY: test-aac-he-adts-ps
-test-aac-he-adts-ps: $(OBJDIR)/test_aac_he_adts_ps
-	./$(OBJDIR)/test_aac_he_adts_ps
-
 $(OBJDIR)/test_aac_ps_matrix: tests/test_aac_ps_matrix.c include/sauti_aac_ps_matrix.h $(AAC_PS_MATRIX_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_matrix.c $(AAC_PS_MATRIX_SRC) -lm
 
@@ -1018,6 +1010,14 @@ test-aac-sbr-temporal-envelope-audit: $(OBJDIR)/test_aac_sbr_temporal_envelope_a
 	./$(OBJDIR)/test_aac_sbr_temporal_envelope_audit
 
 AAC_SBR_ADTS_QMF_DEPS := $(sort $(AAC_HE_ADTS_QMF_SRC) $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS))
+AAC_HE_ADTS_PS_LINK = $(sort src/decoders/modern/aac/sauti_aac_he_ps_delay.c src/decoders/modern/aac/sauti_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_ps_render.c src/decoders/modern/aac/sauti_aac_ps_map.c src/decoders/modern/aac/sauti_aac_ps_matrix.c src/decoders/modern/aac/sauti_aac_ps_phase.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) src/decoders/modern/aac/sauti_aac_he_adts_ps.c $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS))
+$(OBJDIR)/test_aac_he_adts_ps: tests/test_aac_he_adts_ps.c tests/test_aac_sbr_adts_mono.c include/sauti_aac_he_adts_ps.h include/sauti_aac_he_ps_delay.h $(AAC_HE_ADTS_PS_LINK) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_he_adts_ps.c $(AAC_HE_ADTS_PS_LINK) -lm -no-pie
+
+.PHONY: test-aac-he-adts-ps
+test-aac-he-adts-ps: $(OBJDIR)/test_aac_he_adts_ps
+	./$(OBJDIR)/test_aac_he_adts_ps
+
 
 AAC_SBR_ADTS_CPE_DEPS := $(sort $(AAC_HE_ADTS_CPE_QMF_SRC) $(AAC_HE_ADTS_CPE_SRC) src/decoders/modern/aac/sauti_aac_cpe.c $(AAC_SBR_ADTS_QMF_DEPS))
 $(OBJDIR)/test_aac_sbr_adts_cpe: tests/test_aac_sbr_adts_cpe.c tests/test_aac_sbr_payload.c include/sauti_aac_he_adts_cpe.h include/sauti_decoder_aac_native.h src/sauti_decoder.c src/decoders/modern/aac/sauti_decoder_aac_native.c $(AAC_SBR_ADTS_CPE_DEPS) | $(OBJDIR)
