@@ -33,10 +33,36 @@ static Bits append_ps(const Bits *base,size_t content_bits){
     pad(&extended);
     return extended;
 }
+static void pick_ps_covered_header(SautiAacSbrHeader *h,
+                                  SautiAacSbrTables *tab){
+    SautiAacSbrHeader z={0};
+    z.amp_res=1u;z.freq_scale=0u;z.alter_scale=1u;
+    z.noise_bands=2u;z.limiter_bands=2u;z.limiter_gains=2u;
+    z.interpol_freq=1u;z.smoothing_mode=0u;
+    z.extra_1=1u;z.extra_2=1u;
+    for(unsigned st=0;st<16u;st++)
+        for(unsigned sp=0;sp<16u;sp++){
+            SautiAacSbrLimits lim;
+            SautiAacSbrMaster master;
+            SautiAacSbrPatches patch;
+            if(!sauti_aac_sbr_limits_compute(48000u,st,sp,&lim) ||
+               !sauti_aac_sbr_master_linear(lim.k0,lim.k2,1u,0u,&master) ||
+               !sauti_aac_sbr_tables_build(&master,2u,tab) ||
+               !sauti_aac_sbr_patch_build(48000u,&master,tab,&patch) ||
+               tab->n_high<3u||tab->n_high>20u||tab->n_noise>4u)
+                continue;
+            unsigned complete=1u;
+            for(unsigned k=tab->kx;k<tab->kx+tab->m;k++)
+                if(patch.source_for_target[k]<0)complete=0u;
+            if(!complete)continue;
+            z.start_freq=st;z.stop_freq=sp;*h=z;return;
+        }
+    assert(!"no SBR patch coverage fixture");
+}
 static void test_positive_adts_ps_stream(void){
     SautiAacSbrHeader h;
     SautiAacSbrTables t;
-    find_header(&h,&t);
+    pick_ps_covered_header(&h,&t);
     /* A syntactically complete PS extension must reach the real SBR
      * parser, the real AAC-LC and HF QMF stages, and then the PS FIFO. */
     SautiAacHeAdtsPsState state={0};
