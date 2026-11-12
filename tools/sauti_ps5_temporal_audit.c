@@ -3,6 +3,8 @@
  * Tests the genuine AAC-LC+SBR bitstream, including FIXVAR borders.
  * Does not pretend that temporal HF rendering is implemented. */
 #include "sauti_aac_he_adts_mono.h"
+#include "sauti_aac_sbr_qmf_frame.h"
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,10 +32,12 @@ int main(int argc,char **argv){
     SautiAacHeAdtsMonoState *decoder=calloc(1u,sizeof(*decoder));
     SautiAacSbrTemporalHistory *history=calloc(1u,sizeof(*history));
     SautiAacSbrPayloadFrame *payload=malloc(sizeof(*payload));
-    if(!decoder||!history||!payload||
+    SautiAacSbrQmfFrameState *qmf_state=calloc(1u,sizeof(*qmf_state));
+    SautiAacSbrComplex *raw_qmf=malloc(32u*64u*sizeof(*raw_qmf));
+    if(!decoder||!history||!payload||!qmf_state||!raw_qmf||
        !sauti_aac_he_adts_mono_init(decoder)){
         fprintf(stderr,"Cannot allocate/init audit state\n");
-        free(decoder);free(history);free(payload);fclose(in);
+        free(decoder);free(history);free(payload);free(qmf_state);free(raw_qmf);fclose(in);
         return 2;
     }
     float pcm[1024u];
@@ -83,6 +87,39 @@ int main(int argc,char **argv){
                     frames,offset);
             goto done;
         }
+        /* First genuine DSP stage: consume the decoded core PCM
+         * through continuous 32-band QMF analysis and SBR-12 transpose.
+         * Keep HF envelope/ROM/noise/sine processing strictly disabled:
+         * temporal-owned HF adjustment still needs implementation. */
+        SautiAacSbrQmfStage qmf_stage=SAUTI_SBR_QMF_STAGE_INPUT;
+        if(!sauti_aac_sbr_qmf_frame_export_raw(
+                &payload->tables,&payload->patches,
+                pcm,1024u,raw_qmf,32u*64u,qmf_state,&qmf_stage)){
+            fprintf(stderr,"FAIL raw QMF frame=%zu offset=%zu stage=%u\n",
+                    frames,offset,(unsigned)qmf_stage);
+            goto done;
+        }
+        /* Check each decoded slot can be paired with its original
+         * owner without applying current-frame target to inherited HF. */
+        for(unsigned t=0;t<32u;t++){
+            const SautiAacSbrTemporalHfSlot *slot=&targets.slot[t];
+            if(slot->source>1u||slot->kx>32u||slot->k2>64u||
+               slot->kx>=slot->k2){
+                fprintf(stderr,"FAIL owned HF geometry frame=%zu slot=%u\n",frames,t);
+                goto done;
+            }
+            for(unsigned k=slot->kx;k<slot->k2;k++){
+                const SautiAacSbrComplex q=raw_qmf[t*64u+k];
+                if(!isfinite(q.re)||!isfinite(q.im)||
+                   !isfinite(slot->energy[k])||
+                   !isfinite(slot->noise_factor[k])||
+                   slot->energy[k]<0.0||slot->noise_factor[k]<0.0){
+                    fprintf(stderr,"FAIL raw QMF / owned HF target frame=%zu slot=%u bin=%u\n",
+                            frames,t,k);
+                    goto done;
+                }
+            }
+        }
         const unsigned tail=history->current_plan.deferred_slots;
         if(tail||handoff.previous_tail_slots){
             fprintf(stderr,
@@ -99,11 +136,11 @@ int main(int argc,char **argv){
         frames++;offset+=len;
     }
     if(ferror(in)||!frames){fprintf(stderr,"FAIL empty/IO\n");goto done;}
-    fprintf(stderr,"PASS PS-5b side-data audit frames=%zu temporal_transitions=%zu pending_tail=%u; NO PCM produced\n",
+    fprintf(stderr,"PASS PS-5b side-data audit frames=%zu temporal_transitions=%zu pending_tail=%u; raw QMF validated; NO PCM produced\n",
             frames,temporal_frames,(unsigned)history->current_plan.deferred_slots);
     exit_code=0;
 done:
-    free(payload);free(history);free(decoder);
+    free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);
     if(fclose(in)!=0)exit_code=1;
     return exit_code;
 }
