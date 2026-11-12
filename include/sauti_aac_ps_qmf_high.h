@@ -11,15 +11,14 @@
  * Low hybrid bands still require the 13-tap analysis filterbank; callers
  * MUST NOT treat the returned high-band samples as a complete PS signal.
  *
- * qmf: 38 time-major slots of [64] complex QMF samples, including six
- * lookahead slots for alignment with the 13-tap low-band filterbank.
+ * qmf: 38 time-major slots of [64] complex QMF samples, of which the first 32 are consumed
+ * directly, WITHOUT a six-slot shift (PS hybrid analysis reference).
  * high: only the upper bands, [32][61] or [32][59], in time-major order.
  * Counts are complex sample entries. The output prefix is atomic, supports
  * source/output overlap, and never changes on failure.
  * This API is NOT stereo PCM reconstruction. */
 #define SAUTI_AAC_PS_HIGH_QMF_INPUT_SLOTS 38u
 #define SAUTI_AAC_PS_HIGH_QMF_BANDS 64u
-#define SAUTI_AAC_PS_HIGH_QMF_LOOKAHEAD 6u
 #define SAUTI_AAC_PS_HIGH_QMF_MAX_BANDS 61u
 
 int sauti_aac_ps_qmf_high_extract(const SautiAacPsHybridSchedule *schedule,
