@@ -277,3 +277,40 @@ must validate and, where appropriate, retain the prior owner's
 HF generation geometry, LPC/chirp, limiter, smoothing history,
 ROM noise index, sine phase and PS delay. A passing temporal
 mean-power audit is **not** proof of these stages or audible PCM.
+
+## PS-5 geometry bridge — first original-owner DSP reconstruction
+
+The original native QMF driver has now gained
+`sauti_aac_sbr_qmf_frame_export_raw_owned`. Unlike the earlier
+metadata-only ownership audit, this function performs **actual
+pre-adjustment HF transposition using the previous frame's SBR patch
+geometry** on the inherited current-frame time slots (the FDK
+FIXVAR->VARFIX handoff is two QMF slots). Remaining current-frame
+slots retain the current patch map. The method preserves every
+low-frequency analysis source bin until both maps have been
+applied; analysis/history updates are transactional and performed
+exactly once per frame. The original raw export API is retained
+as a zero-inheritance wrapper.
+
+The real-stream diagnostic now calls the owned-geometry export,
+rather than applying only the new frame's patch map to its
+inherited time slots. A new synthetic regression uses **two
+different, independently valid SBR maps** and checks each complex
+QMF bin against a separate analysis reference, as well as preserving
+output/state on invalid ownership, a missing previous map and NaNs.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+make test-aac-ps-owned-geometry PKG_CONFIG=/bin/false
+make test-aac-ps5-temporal PKG_CONFIG=/bin/false
+./build/sauti_ps5_temporal_audit ~/Sauti-fixtures/he_v2_real.aac
+make test-aac-he-adts-ps PKG_CONFIG=/bin/false
+```
+
+**Important:** this is a substantial data-path DSP correction,
+not completed HE-AAC v2 PCM. Full SBR HF regeneration still
+requires temporal-owner-aware LPC/chirp, limiter, ROM noise,
+harmonic injection, smoothing, synthesis and PS histories.
+No artificial QMF tail, skipped side data, or FFmpeg dependency
+was introduced. The real FDK test requires a Fedora rerun.
