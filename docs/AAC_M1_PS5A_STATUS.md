@@ -244,3 +244,36 @@ of audio conformance is made.
 Next: actual cross-frame envelope power window (not only its
 current-frame support), normative limiter/noise/sine and output
 QMF integration with independently validated PS history.
+
+## PS-5c4a — genuine adjacent-frame envelope window
+
+The new `sauti_aac_ps5_cross_envelope_analyze` is a **diagnostic**
+real-QMF mean-power calculation for the complete FIXVAR final
+envelope (its support may extend from previous frame into the
+current VARFIX frame). Uses original previous-frame envelope
+start/end, the carried SBR-52/SBR-53a energy/noise ownership,
+and both adjacent raw QMF buffers. The function checks inherited
+slot indices, original target consistency, finite complex QMF,
+and does not change caller output on any invalid input.
+
+For the independent FDK-AAC fixture, frame #3 FIXVAR ends at
+QMF slot 34 and frame #4 VARFIX begins at slot 2: the audit
+should now emit `CROSS frame=4 ... inherited=2 ...`, and a
+PS-5c4a pass summary.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+make test-aac-ps5-cross PKG_CONFIG=/bin/false
+make test-aac-ps5-temporal PKG_CONFIG=/bin/false
+./build/sauti_ps5_temporal_audit ~/Sauti-fixtures/he_v2_real.aac
+make test-aac-he-adts-ps PKG_CONFIG=/bin/false
+```
+
+**Important remaining fidelity gap:** raw high-frequency
+transposition is still generated using the **current** SBR patch
+mapping for the new frame. Full normative cross-frame rendering
+must validate and, where appropriate, retain the prior owner's
+HF generation geometry, LPC/chirp, limiter, smoothing history,
+ROM noise index, sine phase and PS delay. A passing temporal
+mean-power audit is **not** proof of these stages or audible PCM.
