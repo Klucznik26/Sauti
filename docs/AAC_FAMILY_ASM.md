@@ -141,6 +141,13 @@ atomowo. Bufory wyjścia/wejścia/stanu nie mogą się nakładać.
 `make test-aac-ps-qmf-bank` jest podłączony do
 `test-aac-native` i `test-aac-sanitize`.
 
+Dodano też oddzielny test `test-aac-ps-qmf-reference`: liczy
+13-tapową analizę z innej postaci algebraicznej (sumy/pary
+sprzężone), porównuje wszystkie niskie pasma obu trybów PS z
+produkcją i sprawdza dwie kolejne ramki. Jest uruchamiany
+również z ASan/UBSan. **To nie jest jeszcze porównanie PCM
+z dekoderem referencyjnym ani certyfikat zgodności ISO.**
+
 Krytyczne ograniczenia: numeracja niskich pasm jest sprawdzona wobec
 `hybrid6_cx`, `hybrid2_re` i `hybrid4_8_12_cx` FFmpeg, ale
 zgodność numeryczna DSP z niezależnym PCM oraz poprawność integracji
