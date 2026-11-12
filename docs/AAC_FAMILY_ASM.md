@@ -124,6 +124,30 @@ nieprawidłowego harmonogramu lub NaN/Inf w czytanych próbkach wyjście nie
 jest modyfikowane. Test `make test-aac-ps-qmf-high` został podłączony
 również do `test-aac-native` i `test-aac-sanitize`.
 
+### AAC-M1 / PS-1b — analiza 13-tapowa niskich pasm (2026-11-12)
+
+Nowy `sauti_aac_ps_qmf_low_analyze` wykonuje rzeczywistą analizę FIR
+niskich pasm QMF: tryb 20 to rozdział 6+2+2 (10 pasm), tryb 34 to
+12+8+4+4+4 (32 pasma). W obu trybach przetwarza 32 sloty z
+38-slotowego wejścia i zachowuje sześć wartości poprzedzających następną
+ramkę — z próbek wejścia 26..31, **nie** z lookahead 32..37.
+Pierwsza ramka używa zerowej historii. Nieprawidłowy rozmiar, harmonogram
+lub próbki NaN/Inf zatrzymują publikację zarówno stanu, jak i wyjścia.
+Bufory wejścia i wyjścia muszą być rozdzielone.
+
+Dodano `make test-aac-ps-qmf-low` do `test-aac-native`
+oraz `test-aac-sanitize`. Testy pokrywają oba układy, impuls
+w środku filtru, zachowanie historii między ramkami i atomowy rollback.
+
+**Status: implementacja i testy gotowe do uruchomienia na Fedorze;
+niepotwierdzona jeszcze zgodność numeryczna z niezależną referencją**.
+Współczynniki prototypów PS należy objąć przeglądem pochodzenia i
+licencji (źródło kontrolne: FFmpeg `aacps_tablegen.h` oraz `aacps.c`,
+LGPL-2.1+). Testy własne nie zastępują testu bitstream/PCM.
+PS-1b pozostaje otwarty do porównania normatywnego i potwierdzenia
+budowania z sanitizatorami. Nie uruchamiać tej ścieżki w odtwarzaczu
+zamiast FFmpeg.
+
 **To jest tylko PS-1a, nie ukończone PS-1 ani HE-AAC v2.**
 Brakuje jeszcze normatywnych 13-tapowych filtrów rozdzielających niskie
 pasma (10 albo 32 pozycji hybrydowych), ich syntezy odwrotnej,
