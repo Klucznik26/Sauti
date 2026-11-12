@@ -314,3 +314,44 @@ requires temporal-owner-aware LPC/chirp, limiter, ROM noise,
 harmonic injection, smoothing, synthesis and PS histories.
 No artificial QMF tail, skipped side data, or FFmpeg dependency
 was introduced. The real FDK test requires a Fedora rerun.
+
+## Native experimental stereo preview — first full real-stream PCM route
+
+The previously audit-only executable `sauti_ps5_temporal_audit`
+now supports an **explicit opt-in experimental stereo output**:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+make test-aac-ps5-temporal PKG_CONFIG=/bin/false
+./build/sauti_ps5_temporal_audit \
+    ~/Sauti-fixtures/he_v2_real.aac \
+    --experimental-pcm /tmp/sauti_ps_preview.f32le
+```
+
+It reads the *real* stream through the temporal SBR parser,
+constructs owner-aware 32x64 raw QMF, and for each HF slot
+uses the PS-5c3 provisional envelope gain and decoded SBR-53a
+noise target with the native SBR-23 complex noise ROM. It then
+passes the complex QMF into the existing six-slot-lookahead
+**native stereo PS bridge**. No FFmpeg component is called.
+The first input frame is buffered and the final input frame
+remains pending at EOS; on any error the incomplete output
+is removed. The default one-argument mode remains audit-only.
+
+**WARNING: This is a non-conformant listening/diagnostic
+preview, not a finished AAC decoder.** Noise amplitudes are
+not the normative SBR limiter output. This bridge does NOT
+implement full temporal-owner limiter groups, coefficient
+smoothing, SBR harmonic sine injection or LPC/chirp predictor,
+and its provisional gains may be audibly incorrect. **Do not
+ship or substitute it for the strict decoder.** The existing
+`sauti_he_ps_decode` production/strict experiment remains
+unchanged.
+
+Expected output for FDK input of 285 valid ADTS frames:
+284 delayed stereo blocks, each 4096 float32 interleaved values
+(2 channels x 2048 PCM samples), totaling 4,653,056 bytes.
+This is a test expectation, not an observed pass.
+Compare the resulting audio with FFmpeg by inspection and
+numerical quality diagnostics before any promotion.
