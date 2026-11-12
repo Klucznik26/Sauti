@@ -475,6 +475,13 @@ $(OBJDIR)/test_aac_ps_transient: tests/test_aac_ps_transient.c include/sauti_aac
 test-aac-ps-transient: $(OBJDIR)/test_aac_ps_transient
 	./$(OBJDIR)/test_aac_ps_transient
 
+$(OBJDIR)/test_aac_ps_decorrelate: tests/test_aac_ps_decorrelate.c include/sauti_aac_ps_decorrelate.h src/decoders/modern/aac/sauti_aac_ps_decorrelate.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c $(AAC_PS_HYBRID_SRC) -lm
+
+.PHONY: test-aac-ps-decorrelate
+test-aac-ps-decorrelate: $(OBJDIR)/test_aac_ps_decorrelate
+	./$(OBJDIR)/test_aac_ps_decorrelate
+
 $(OBJDIR)/test_aac_ps_matrix: tests/test_aac_ps_matrix.c include/sauti_aac_ps_matrix.h $(AAC_PS_MATRIX_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_matrix.c $(AAC_PS_MATRIX_SRC) -lm
 
@@ -1202,6 +1209,9 @@ $(OBJDIR)/test_aac_ps_qmf_reference_san: tests/test_aac_ps_qmf_reference.c inclu
 $(OBJDIR)/test_aac_ps_transient_san: tests/test_aac_ps_transient.c include/sauti_aac_ps_transient.h src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
 	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_transient.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) -lm
 
+$(OBJDIR)/test_aac_ps_decorrelate_san: tests/test_aac_ps_decorrelate.c include/sauti_aac_ps_decorrelate.h src/decoders/modern/aac/sauti_aac_ps_decorrelate.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c $(AAC_PS_HYBRID_SRC) -lm
+
 $(OBJDIR)/test_aac_ps_matrix_san: tests/test_aac_ps_matrix.c include/sauti_aac_ps_matrix.h $(AAC_PS_MATRIX_SRC) | $(OBJDIR)
 	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_matrix.c $(AAC_PS_MATRIX_SRC) -lm
 
@@ -1218,7 +1228,7 @@ $(OBJDIR)/test_aac_sbr_payload_san: tests/test_aac_sbr_payload.c include/sauti_a
 	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_sbr_payload.c $(AAC_SBR_PAYLOAD_DEPS) -lm -no-pie
 
 .PHONY: test-aac-sanitize
-test-aac-sanitize: $(OBJDIR)/test_aac_cpe_san $(OBJDIR)/test_aac_syntax_san $(OBJDIR)/test_aac_ps_map_san $(OBJDIR)/test_aac_ps_hybrid_san $(OBJDIR)/test_aac_ps_qmf_high_san $(OBJDIR)/test_aac_ps_qmf_low_san $(OBJDIR)/test_aac_ps_qmf_bank_san $(OBJDIR)/test_aac_ps_qmf_reference_san $(OBJDIR)/test_aac_ps_transient_san $(OBJDIR)/test_aac_ps_matrix_san $(OBJDIR)/test_aac_ps_phase_san $(OBJDIR)/test_aac_ps_mix_san $(OBJDIR)/test_aac_ps_render_san $(OBJDIR)/test_aac_sbr_payload_san
+test-aac-sanitize: $(OBJDIR)/test_aac_cpe_san $(OBJDIR)/test_aac_syntax_san $(OBJDIR)/test_aac_ps_map_san $(OBJDIR)/test_aac_ps_hybrid_san $(OBJDIR)/test_aac_ps_qmf_high_san $(OBJDIR)/test_aac_ps_qmf_low_san $(OBJDIR)/test_aac_ps_qmf_bank_san $(OBJDIR)/test_aac_ps_qmf_reference_san $(OBJDIR)/test_aac_ps_transient_san $(OBJDIR)/test_aac_ps_decorrelate_san $(OBJDIR)/test_aac_ps_matrix_san $(OBJDIR)/test_aac_ps_phase_san $(OBJDIR)/test_aac_ps_mix_san $(OBJDIR)/test_aac_ps_render_san $(OBJDIR)/test_aac_sbr_payload_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_cpe_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_syntax_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_map_san
@@ -1228,6 +1238,7 @@ test-aac-sanitize: $(OBJDIR)/test_aac_cpe_san $(OBJDIR)/test_aac_syntax_san $(OB
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_qmf_bank_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_qmf_reference_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_transient_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_decorrelate_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_matrix_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_phase_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_mix_san
@@ -1393,7 +1404,7 @@ test-aac-sbr-hf-stem-audit:
 	python3 tools/sauti_sbr62_hf_stem_audit.py --self-test
 
 .PHONY: test-aac-native
-test-aac-native: test-aac-sbr-ffmpeg-phase-trace test-aac-sbr-hf-timing-control test-aac-sbr-qmf-phase-frames test-aac-sbr-qmf-phase-ab test-aac-sbr-harmonic-phase2-ab test-aac-sbr-tonal-lines-audit test-aac-sbr-tonal-delta-audit test-aac-sbr-tonal-ab-audit test-aac-sbr-hf-peak-audit test-aac-sbr-hf-edge-audit test-aac-sbr-hf-spectral-audit test-aac-sbr-hf-frame-audit test-aac-sbr-hf-stem-audit test-aac-headers test-aac-syntax test-aac-ps-map test-aac-ps-hybrid test-aac-ps-qmf-high test-aac-ps-qmf-low test-aac-ps-qmf-bank test-aac-ps-qmf-reference test-aac-ps-transient test-aac-ps-matrix test-aac-ps-phase test-aac-ps-mix test-aac-ps-render test-aac-adts-crc test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-sbr-adts-cpe test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
+test-aac-native: test-aac-sbr-ffmpeg-phase-trace test-aac-sbr-hf-timing-control test-aac-sbr-qmf-phase-frames test-aac-sbr-qmf-phase-ab test-aac-sbr-harmonic-phase2-ab test-aac-sbr-tonal-lines-audit test-aac-sbr-tonal-delta-audit test-aac-sbr-tonal-ab-audit test-aac-sbr-hf-peak-audit test-aac-sbr-hf-edge-audit test-aac-sbr-hf-spectral-audit test-aac-sbr-hf-frame-audit test-aac-sbr-hf-stem-audit test-aac-headers test-aac-syntax test-aac-ps-map test-aac-ps-hybrid test-aac-ps-qmf-high test-aac-ps-qmf-low test-aac-ps-qmf-bank test-aac-ps-qmf-reference test-aac-ps-transient test-aac-ps-decorrelate test-aac-ps-matrix test-aac-ps-phase test-aac-ps-mix test-aac-ps-render test-aac-adts-crc test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-sbr-adts-cpe test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
 
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm
