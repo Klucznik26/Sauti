@@ -22,24 +22,24 @@ int main(void){
         for(unsigned i=0;i<32u*61u+1u;i++)out[i]=sentinel;
         assert(sauti_aac_ps_qmf_high_extract(&schedule,qmf,38u*64u,out,32u*bands));
         for(unsigned s=0;s<32u;s++)for(unsigned b=0;b<bands;b++){
-            const SautiAacSbrComplex expected=qmf[(s+6u)*64u+first+b];
+            const SautiAacSbrComplex expected=qmf[s*64u+first+b];
             assert(out[s*bands+b].re==expected.re);
             assert(out[s*bands+b].im==expected.im);
         }
         assert(out[32u*bands].re==sentinel.re);
         assert(!sauti_aac_ps_qmf_high_extract(&schedule,qmf,38u*64u-1u,out,32u*bands));
         assert(!sauti_aac_ps_qmf_high_extract(&schedule,qmf,38u*64u,out,32u*bands-1u));
-        assert(out[0].re==qmf[6u*64u+first].re);
-        SautiAacSbrComplex saved=qmf[6u*64u+first];
-        qmf[6u*64u+first].re=NAN;
+        assert(out[0].re==qmf[first].re);
+        SautiAacSbrComplex saved=qmf[first];
+        qmf[first].re=NAN;
         assert(!sauti_aac_ps_qmf_high_extract(&schedule,qmf,38u*64u,out,32u*bands));
-        assert(out[0].re==(float)(6u*100u+first));
-        qmf[6u*64u+first]=saved;
+        assert(out[0].re==(float)first);
+        qmf[first]=saved;
         const uint8_t prev=schedule.slot_to_env[0];
         schedule.slot_to_env[0]=1u;
         assert(!sauti_aac_ps_qmf_high_extract(&schedule,qmf,38u*64u,out,32u*bands));
         schedule.slot_to_env[0]=prev;
     }
-    puts("PASS AAC PS-1a: 20/34 high QMF, delay alignment, failure atomicity");
+    puts("PASS AAC PS-1a: 20/34 high QMF, direct slot alignment, failure atomicity");
     return 0;
 }
