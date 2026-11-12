@@ -75,10 +75,7 @@ int main(int argc,char **argv){
         if(!ps_state||!adjusted){
             fprintf(stderr,"Experimental PCM allocation failed\n");
             free(adjusted);free(ps_state);
-            free(adjusted);free(ps_state);
-    if(preview && fclose(preview)!=0)exit_code=1;
-    if(exit_code && experimental)remove(argv[3]);
-    free(envelope);free(gain_report);free(previous_raw);
+            free(envelope);free(gain_report);free(previous_raw);
             free(raw_qmf);free(qmf_state);free(payload);free(history);
             free(decoder);fclose(in);return 2;
         }
@@ -314,7 +311,13 @@ int main(int argc,char **argv){
     }
     exit_code=0;
 done:
-    free(envelope);free(gain_report);free(previous_raw);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);
+    free(adjusted);
+    free(ps_state);
+    if(preview && fclose(preview)!=0)exit_code=1;
+    if(exit_code&&experimental)remove(argv[3]);
+    free(envelope);free(gain_report);free(previous_raw);
+    free(raw_qmf);free(qmf_state);free(payload);free(history);
+    free(decoder);
     if(fclose(in)!=0)exit_code=1;
     return exit_code;
 }
