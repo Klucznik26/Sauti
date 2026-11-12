@@ -1284,8 +1284,11 @@ $(OBJDIR)/test_aac_ps_render_san: tests/test_aac_ps_render.c include/sauti_aac_p
 $(OBJDIR)/test_aac_sbr_payload_san: tests/test_aac_sbr_payload.c include/sauti_aac_sbr_payload.h $(AAC_SBR_PAYLOAD_DEPS) | $(OBJDIR)
 	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_sbr_payload.c $(AAC_SBR_PAYLOAD_DEPS) -lm -no-pie
 
+$(OBJDIR)/test_aac_sbr_qmf_export_san: tests/test_aac_sbr_qmf_export.c include/sauti_aac_sbr_qmf_frame.h $(AAC_SBR_QMF_FRAME_DEPS) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_sbr_qmf_export.c $(AAC_SBR_QMF_FRAME_DEPS) -lm
+
 .PHONY: test-aac-sanitize
-test-aac-sanitize: $(OBJDIR)/test_aac_cpe_san $(OBJDIR)/test_aac_syntax_san $(OBJDIR)/test_aac_ps_map_san $(OBJDIR)/test_aac_ps_hybrid_san $(OBJDIR)/test_aac_ps_qmf_high_san $(OBJDIR)/test_aac_ps_qmf_low_san $(OBJDIR)/test_aac_ps_qmf_bank_san $(OBJDIR)/test_aac_ps_qmf_reference_san $(OBJDIR)/test_aac_ps_transient_san $(OBJDIR)/test_aac_ps_decorrelate_san $(OBJDIR)/test_aac_ps_decorrelator_san $(OBJDIR)/test_aac_ps_stereo_san $(OBJDIR)/test_aac_ps_hybrid_synth_san $(OBJDIR)/test_aac_ps_pcm_stereo_san $(OBJDIR)/test_aac_he_ps_bridge_san $(OBJDIR)/test_aac_ps_matrix_san $(OBJDIR)/test_aac_ps_phase_san $(OBJDIR)/test_aac_ps_mix_san $(OBJDIR)/test_aac_ps_render_san $(OBJDIR)/test_aac_sbr_payload_san
+test-aac-sanitize: $(OBJDIR)/test_aac_cpe_san $(OBJDIR)/test_aac_syntax_san $(OBJDIR)/test_aac_ps_map_san $(OBJDIR)/test_aac_ps_hybrid_san $(OBJDIR)/test_aac_ps_qmf_high_san $(OBJDIR)/test_aac_ps_qmf_low_san $(OBJDIR)/test_aac_ps_qmf_bank_san $(OBJDIR)/test_aac_ps_qmf_reference_san $(OBJDIR)/test_aac_ps_transient_san $(OBJDIR)/test_aac_ps_decorrelate_san $(OBJDIR)/test_aac_ps_decorrelator_san $(OBJDIR)/test_aac_ps_stereo_san $(OBJDIR)/test_aac_ps_hybrid_synth_san $(OBJDIR)/test_aac_ps_pcm_stereo_san $(OBJDIR)/test_aac_he_ps_bridge_san $(OBJDIR)/test_aac_ps_matrix_san $(OBJDIR)/test_aac_ps_phase_san $(OBJDIR)/test_aac_ps_mix_san $(OBJDIR)/test_aac_ps_render_san $(OBJDIR)/test_aac_sbr_payload_san $(OBJDIR)/test_aac_sbr_qmf_export_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_cpe_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_syntax_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_map_san
@@ -1306,6 +1309,7 @@ test-aac-sanitize: $(OBJDIR)/test_aac_cpe_san $(OBJDIR)/test_aac_syntax_san $(OB
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_mix_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_render_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_sbr_payload_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_sbr_qmf_export_san
 
 .PHONY: test-aac-cpe
 test-aac-cpe: $(OBJDIR)/test_aac_cpe
