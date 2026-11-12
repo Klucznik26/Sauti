@@ -3,6 +3,10 @@
 #include <stdint.h>
 #include <string.h>
 
+static int apart(const void *a,size_t an,const void *b,size_t bn){
+    const uintptr_t x=(uintptr_t)a,y=(uintptr_t)b;
+    return x<=y?y-x>=an:x-y>=bn;
+}
 int sauti_aac_he_adts_ps_init(SautiAacHeAdtsPsState *state){
     if(!state)return 0;
     SautiAacHeAdtsPsState next={0};
@@ -20,7 +24,18 @@ int sauti_aac_he_adts_ps_decode_ex(
     if(!reason)return 0;
     *reason=SAUTI_AAC_REASON_INVALID_ADTS;
     if(!adts||!state||!stereo_pcm||!produced||!report||
-       pcm_count<4096u||state->frames==UINT64_MAX||
+       pcm_count<4096u||adts_bytes==0u||
+       !apart(stereo_pcm,4096u*sizeof(*stereo_pcm),state,sizeof(*state))||
+       !apart(stereo_pcm,4096u*sizeof(*stereo_pcm),adts,adts_bytes)||
+       !apart(report,sizeof(*report),state,sizeof(*state))||
+       !apart(report,sizeof(*report),stereo_pcm,4096u*sizeof(*stereo_pcm))||
+       !apart(produced,sizeof(*produced),state,sizeof(*state))||
+       !apart(produced,sizeof(*produced),stereo_pcm,4096u*sizeof(*stereo_pcm))||
+       !apart(produced,sizeof(*produced),report,sizeof(*report))||
+       !apart(state,sizeof(*state),adts,adts_bytes)||
+       !apart(report,sizeof(*report),adts,adts_bytes)||
+       !apart(produced,sizeof(*produced),adts,adts_bytes)||
+       state->frames==UINT64_MAX||
        state->frames!=state->adts.frames||
        state->frames!=state->qmf.frames||
        state->frames!=state->ps.received_frames||
