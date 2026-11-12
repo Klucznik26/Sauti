@@ -66,6 +66,21 @@ int main(int argc,char **argv){
         if(status!=1){
             fprintf(stderr,"Unsupported/invalid frame=%zu offset=%zu status=%d reason=%d\n",
                     frames,byte_offset,status,(int)reason);
+            if(reason==SAUTI_AAC_REASON_UNSUPPORTED_FIL){
+                SautiAacHeAdtsMonoState diagnostic_state=state->adts;
+                SautiAacSbrPayloadFrame diagnostic_payload;
+                SautiAacSbrPayloadStage stage=SAUTI_SBR_PAYLOAD_INPUT;
+                SautiAacReason diagnostic_reason=SAUTI_AAC_REASON_OK;
+                unsigned parser_entered=0u;
+                float core_pcm[1024u];
+                const int diagnostic=sauti_aac_he_adts_mono_diagnose_ex(
+                    frame,len,&diagnostic_state,core_pcm,
+                    &diagnostic_payload,&diagnostic_reason,
+                    &stage,&parser_entered);
+                fprintf(stderr,
+                    "FIL diagnostic: result=%d reason=%d SBR_parser_entered=%u SBR_stage=%u\\n",
+                    diagnostic,(int)diagnostic_reason,parser_entered,(unsigned)stage);
+            }
             goto done;
         }
         if(ready){
