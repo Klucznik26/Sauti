@@ -25,7 +25,7 @@ int main(void){
         check_zero(out,32u*bands);
         assert(state.initialized==1u);
         /* Out-of-prefix sentinel: no clobber. */
-        assert(memcmp(&out[32u*bands],&(SautiAacSbrComplex){NAN,NAN},0u)==0);
+        assert(out[32u*bands].re!=0.0f); /* sentinel beyond written prefix */
         for(unsigned t=0;t<38u;t++)for(unsigned b=0;b<source;b++){
             input[t*64u+b]=(SautiAacSbrComplex){0,0};
         }
