@@ -206,3 +206,41 @@ test must be investigated; do not extrapolate PCM compliance.
 
 Next: envelope-averaged HF limiter and source-aligned cross-frame
 noise/harmonic state; only then integrate stereo rendering.
+
+## PS-5c3 — envelope-mean and noise budget preflight
+
+A new independent `sauti_aac_ps5_hf_envelope_analyze` groups
+raw complex QMF **by original side-data owner (previous/current),
+original envelope index and QMF bin**. Unlike the former PS-5c2
+per-slot diagnostic, this measures mean raw power over each
+represented envelope group. Two inherited QMF slots therefore
+retain the previous owner's target; they are not reassigned to
+the incoming VARFIX envelope.
+
+It partitions each target energy provisionally into signal
+`E/(1+Q)` and noise `E - E/(1+Q)`, counts harmonic marks and
+zero-source cases, and reports finite bounded provisional gain
+estimates. All data are validated before committing the report.
+This **is not the final normative SBR adjustment**: the complete
+energy support of a cross-frame envelope, spectral band limiter,
+noise ROM, harmonic injection, smoothing and predictor state are
+not yet included. The output is *not* fed into audible stereo
+PCM and must not be treated as decoded samples.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+make test-aac-ps5-hf-envelope PKG_CONFIG=/bin/false
+make test-aac-ps5-temporal PKG_CONFIG=/bin/false
+./build/sauti_ps5_temporal_audit ~/Sauti-fixtures/he_v2_real.aac
+make test-aac-he-adts-ps PKG_CONFIG=/bin/false
+```
+
+Expected on independent FDK input: the existing PS-5b and PS-5c2
+audits continue to pass over 285 frames, followed by a PS-5c3
+budget diagnostic. Results need a Fedora test run; no claim
+of audio conformance is made.
+
+Next: actual cross-frame envelope power window (not only its
+current-frame support), normative limiter/noise/sine and output
+QMF integration with independently validated PS history.
