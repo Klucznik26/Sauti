@@ -221,3 +221,12 @@ int sauti_aac_he_adts_mono_diagnose_ex(
     return mono_decode_impl(frame,frame_size,state,core_pcm,params,
                             reason,0u,stage,payload_seen);
 }
+
+int sauti_aac_he_adts_mono_temporal_diagnose_ex(
+    const uint8_t *frame,size_t frame_size,
+    SautiAacHeAdtsMonoState *state,float core_pcm[1024],
+    SautiAacSbrPayloadFrame *params,SautiAacReason *reason,
+    SautiAacSbrPayloadStage *stage,unsigned *payload_seen){
+    return mono_decode_impl(frame,frame_size,state,core_pcm,params,
+                            reason,1u,stage,payload_seen);
+}
