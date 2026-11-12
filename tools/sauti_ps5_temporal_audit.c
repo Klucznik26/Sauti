@@ -7,6 +7,9 @@
 #include "sauti_aac_ps5_hf_gain.h"
 #include "sauti_aac_ps5_hf_envelope.h"
 #include "sauti_aac_ps5_cross.h"
+#include "sauti_aac_he_ps_delay.h"
+#include "sauti_aac_sbr_noise_rom.h"
+#include <float.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -27,8 +30,16 @@ static int read_frame(FILE *f,uint8_t buf[MAX_ADTS],size_t *count){
     return 1;
 }
 int main(int argc,char **argv){
-    if(argc!=2){
-        fprintf(stderr,"Usage: %s INPUT.aac\n",argv[0]);return 2;
+    if(argc!=2 && argc!=4){
+        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm OUT.f32le]\n",argv[0]);
+        return 2;
+    }
+    const int experimental=argc==4;
+    if(experimental&&
+       (strcmp(argv[2],"--experimental-pcm")!=0||
+        strcmp(argv[1],argv[3])==0)){
+        fprintf(stderr,"Invalid experimental PCM arguments\n");
+        return 2;
     }
     FILE *in=fopen(argv[1],"rb");
     if(!in){perror(argv[1]);return 2;}
@@ -54,6 +65,33 @@ int main(int argc,char **argv){
     double cross_mean_power=0.0;
     size_t missing_sources=0u,inherited=0u;
     double target_power=0.0,raw_power=0.0;
+    FILE *preview=NULL;
+    SautiAacHePsDelayState *ps_state=NULL;
+    SautiAacSbrNoiseRomState noise_state={0};
+    SautiAacSbrComplex *adjusted=NULL;
+    if(experimental){
+        ps_state=calloc(1u,sizeof(*ps_state));
+        adjusted=malloc(32u*64u*sizeof(*adjusted));
+        if(!ps_state||!adjusted){
+            fprintf(stderr,"Experimental PCM allocation failed\n");
+            free(adjusted);free(ps_state);
+            free(adjusted);free(ps_state);
+    if(preview && fclose(preview)!=0)exit_code=1;
+    if(exit_code && experimental)remove(argv[3]);
+    free(envelope);free(gain_report);free(previous_raw);
+            free(raw_qmf);free(qmf_state);free(payload);free(history);
+            free(decoder);fclose(in);return 2;
+        }
+        preview=fopen(argv[3],"wb");
+        if(!preview){
+            perror(argv[3]);free(adjusted);free(ps_state);
+            free(envelope);free(gain_report);free(previous_raw);
+            free(raw_qmf);free(qmf_state);free(payload);free(history);
+            free(decoder);fclose(in);return 2;
+        }
+    }
+    unsigned published_pcm=0u;
+    float stereo_pcm[4096u];
     float pcm[1024u];
     uint8_t data[MAX_ADTS];
     size_t len=0u,offset=0u,frames=0u,temporal_frames=0u;
@@ -202,6 +240,56 @@ int main(int argc,char **argv){
                 (unsigned)resolved.slot[31].source);
             temporal_frames++;
         }
+        if(experimental){
+            /* EXPERIMENTAL OUTPUT ONLY: preliminary envelope mean
+             * gain, unfiltered ROM noise and no harmonic injection.
+             * The QMF geometry comes from the true temporal owner.
+             * DO NOT treat the samples as ISO-conformant HE-AAC v2. */
+            memcpy(adjusted,raw_qmf,32u*64u*sizeof(*raw_qmf));
+            for(unsigned t=0;t<32u;t++){
+                const SautiAacSbrTemporalHfSlot *slot=&targets.slot[t];
+                for(unsigned k=slot->kx;k<slot->k2;k++){
+                    SautiAacSbrComplex rom;
+                    if(!sauti_aac_sbr_noise_rom_next(&noise_state,&rom)){
+                        fprintf(stderr,"FAIL experimental noise ROM frame=%zu\n",frames);
+                        goto done;
+                    }
+                    const double e=slot->energy[k];
+                    const double q=slot->noise_factor[k];
+                    const double signal=envelope->provisional_gain[t][k];
+                    /* This is a diagnostic, unsmoothed noise level,
+                     * not the normative limiter gain or sinusoidal HF. */
+                    const double noise=sqrt(e*(q/(1.0+q)));
+                    const SautiAacSbrComplex x=raw_qmf[t*64u+k];
+                    const double re=(double)x.re*signal+(double)rom.re*noise;
+                    const double im=(double)x.im*signal+(double)rom.im*noise;
+                    if(!isfinite(re)||!isfinite(im)||
+                       fabs(re)>FLT_MAX||fabs(im)>FLT_MAX){
+                        fprintf(stderr,"FAIL experimental HF frame=%zu slot=%u bin=%u\n",
+                                frames,t,k);goto done;
+                    }
+                    adjusted[t*64u+k]=(SautiAacSbrComplex){(float)re,(float)im};
+                }
+            }
+            unsigned pcm_ready=0u;
+            if(!sauti_aac_he_ps_delay_push(
+                    payload,adjusted,32u*64u,ps_state,
+                    stereo_pcm,4096u,&pcm_ready)){
+                fprintf(stderr,"FAIL experimental PS bridge frame=%zu\n",frames);
+                goto done;
+            }
+            if(pcm_ready){
+                for(unsigned i=0;i<4096u;i++)
+                    if(!isfinite(stereo_pcm[i])){
+                        fprintf(stderr,"FAIL nonfinite experimental stereo frame=%zu\n",frames);
+                        goto done;
+                    }
+                if(fwrite(stereo_pcm,sizeof(*stereo_pcm),4096u,preview)!=4096u){
+                    perror("Experimental PCM write");goto done;
+                }
+                published_pcm++;
+            }
+        }
         memcpy(previous_raw,raw_qmf,32u*64u*sizeof(*raw_qmf));
         frames++;offset+=len;
     }
@@ -214,6 +302,16 @@ int main(int argc,char **argv){
             "PASS PS-5c3 envelope audit frames=%zu signal_budget=%.7g noise_budget=%.7g absent_envelope_sources=%zu; NO HF/PCM synthesis\n",
             frames,signal_budget,noise_budget,envelope_missing);
     fprintf(stderr,"PASS PS-5c4a full cross-envelope frames=%u mean_power_sum=%.9g; NO HF/PCM synthesis\n",cross_frames,cross_mean_power);
+    if(experimental){
+        if(published_pcm!=frames-1u||fflush(preview)!=0){
+            fprintf(stderr,"FAIL incomplete experimental stereo preview\n");
+            goto done;
+        }
+        fprintf(stderr,
+            "EXPERIMENTAL PCM frames=%zu published=%u samples_per_channel=%zu "
+            "not normative SBR (no limiter/smoothing/harmonics); last PS frame pending\n",
+            frames,published_pcm,(size_t)published_pcm*2048u);
+    }
     exit_code=0;
 done:
     free(envelope);free(gain_report);free(previous_raw);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);
