@@ -65,3 +65,51 @@ and no standard-compliant EOS drain is claimed.
 4. EOS flush, container integration, and resilience validation.
 
 **No PS-5 quality/compliance PASS until these independent tests succeed.**
+
+## PS-5b — first independent FDK-AAC fixture (Fedora 44, 2026-11-13)
+
+The independent **full** FDK-AAC `fdkaac -p 29 -b 48000 -f 2`
+produced a 12-second 48 kHz stereo ADTS stream from distinct
+440 Hz left / 880 Hz right tones. This fixture is held locally
+at `~/Sauti-fixtures/he_v2_real.aac` (not checked into Git).
+
+The native PS-5a adapter accepted frames #0..2, then rejected
+**frame #3 at byte offset 856**, with
+`status=-1 reason=4 (SAUTI_AAC_REASON_UNSUPPORTED_FIL)`.
+Extended diagnostics establish:
+
+```
+FIL diagnostic: result=-1 reason=4 SBR_parser_entered=1 SBR_stage=5
+Temporal SBR trial: result=1 reason=0 entered=1 stage=12
+SBR grid: class=1 envelopes=4 env_first=0 env_last=17 noise_first=0 noise_last=17
+Temporal SBR plan: deferred_QMF_slots=2 current_env_segments=4 deferred_env_segments=1
+```
+
+**Interpretation:** this is a legal FIXVAR SBR grid that ends one
+SBR time unit past frame boundary (two QMF slots). The strict
+within-frame parser rejects it; the existing temporal SBR parser
+correctly accepts the side data. This is **not** a PCM pass: audio
+generation must honor original envelope/noise ownership across
+neighboring frames. Never clip border 17 to 16 or zero the tail.
+The current native converter appropriately fails closed and
+does not substitute FFmpeg.
+
+### Implementation target PS-5b temporal HF bridge
+
+1. Retain the true decoded SBR payload and AAC core/QMF history
+   across the frame boundary; do not commit partially on rejection.
+2. Use `sauti_aac_sbr_temporal_plan`,
+   `sauti_aac_sbr_temporal_history_push`, and
+   `sauti_aac_sbr_temporal_resolve` to determine original
+   envelope/noise ownership per QMF slot (SBR-47/49/52).
+3. Extend HF adjustment to apply those **owned** parameters
+   before publishing the delayed PS stereo frame; preserve
+   the existing 6-QMF-slot PS lookahead independently.
+4. Verify strict rollback, zero-fill prohibition, boundary
+   transitions, non-identical stereo 440/880 Hz, and quality
+   versus FFmpeg. Re-run native and ASan/UBSan tests.
+5. If the subsequent source grid fails SBR-52 strict ownership,
+   diagnose that separately rather than discarding it.
+
+The independent fixture is now a reproducible **known-failing
+regression**, not a decoder conformance result.
