@@ -1024,6 +1024,12 @@ $(OBJDIR)/sauti_he_ps_decode: tools/sauti_he_ps_decode.c include/sauti_aac_he_ad
 .PHONY: probe-he-ps test-aac-ps5-compare-help
 probe-he-ps: $(OBJDIR)/sauti_he_ps_decode
 
+$(OBJDIR)/sauti_ps5_temporal_audit: tools/sauti_ps5_temporal_audit.c include/sauti_aac_he_adts_mono.h $(AAC_SBR_ADTS_MONO_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_ps5_temporal_audit.c $(AAC_SBR_ADTS_MONO_DEPS) -lm -no-pie
+
+.PHONY: probe-he-ps-temporal
+probe-he-ps-temporal: $(OBJDIR)/sauti_ps5_temporal_audit
+
 .PHONY: test-aac-ps5-native
 test-aac-ps5-native: $(OBJDIR)/sauti_he_ps_decode $(OBJDIR)/test_aac_he_adts_ps
 	python3 tools/test_sauti_ps5_native.py ./$(OBJDIR)/test_aac_he_adts_ps ./$(OBJDIR)/sauti_he_ps_decode
