@@ -102,4 +102,21 @@ int sauti_aac_sbr_qmf_frame_process(
     SautiAacSbrQmfFrameState *state,
     SautiAacSbrLimiterReport *report);
 
+/* PS-5c1: raw pre-adjustment QMF export for temporal SBR rendering.
+ * Consumes exact 1024 native AAC-LC core samples, advances the QMF
+ * analysis state, transposes high bands via the caller's patch map,
+ * and yields 32x64 complex QMF with low bins [0,kx) and raw high
+ * bins [kx,k2). NO HF envelope/limiter/noise/sine or 64-QMF synthesis.
+ * Thus this output MUST NOT be sent directly to PS for audible PCM.
+ * On failure output and state are unchanged. The HF adjustment history
+ * inside the state is intentionally untouched.
+ */
+int sauti_aac_sbr_qmf_frame_export_raw(
+    const SautiAacSbrTables *tables,
+    const SautiAacSbrPatches *patches,
+    const float *core_pcm,size_t core_count,
+    SautiAacSbrComplex *qmf,size_t qmf_count,
+    SautiAacSbrQmfFrameState *state,
+    SautiAacSbrQmfStage *stage);
+
 #endif
