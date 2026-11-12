@@ -22,7 +22,13 @@ static SautiAacPsComplexCoefficient multiply(float value,float re,float im){
 }
 static int state_valid(const SautiAacPsPhaseState *state){
     if(state->ready>1u)return 0;
-    if(!state->ready)return 1;
+    if(!state->ready){
+        if(state->bands)return 0;
+        for(unsigned b=0u;b<SAUTI_AAC_PS_MAX_PHASE_PARAMETERS;b++){
+            if(state->ipd_history[b]||state->opd_history[b])return 0;
+        }
+        return 1;
+    }
     if(state->bands!=20u&&state->bands!=34u)return 0;
     const unsigned phase_bands=state->bands==34u?17u:11u;
     for(unsigned b=0u;b<phase_bands;b++){

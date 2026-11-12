@@ -85,6 +85,10 @@ int main(void){
     corrupt.phase.ipd_history[0]=64u;
     assert_rejected_is_atomic(&frame,corrupt,&plan);
 
+    corrupt=(SautiAacPsRenderState){0};
+    corrupt.phase.opd_history[0]=1u;
+    assert_rejected_is_atomic(&frame,corrupt,&plan);
+
     corrupt=state;
     corrupt.frames=UINT64_MAX;
     assert_rejected_is_atomic(&frame,corrupt,&plan);

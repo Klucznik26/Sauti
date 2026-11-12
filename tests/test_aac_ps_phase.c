@@ -38,6 +38,10 @@ int main(void){
     saved=out;saved_state=state;
     assert(!sauti_aac_ps_phase_apply(&frame,&mapped,&matrix,&state,&out));
     assert(memcmp(&out,&saved,sizeof(out))==0&&memcmp(&state,&saved_state,sizeof(state))==0);
+    state=(SautiAacPsPhaseState){0};state.opd_history[0]=1u;
+    saved=out;saved_state=state;
+    assert(!sauti_aac_ps_phase_apply(&frame,&mapped,&matrix,&state,&out));
+    assert(memcmp(&out,&saved,sizeof(out))==0&&memcmp(&state,&saved_state,sizeof(state))==0);
     puts("PASS AAC PS phase: IPD/OPD smoothing, valid state and rollback");
     return 0;
 }
