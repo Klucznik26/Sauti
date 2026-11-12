@@ -62,4 +62,14 @@ int sauti_aac_he_adts_mono_temporal_decode_ex(
     SautiAacSbrPayloadFrame *params,
     SautiAacReason *reason);
 
+/* Diagnostic-only variant of strict parser. On FIL rejection, stage
+ * identifies the SBR grammar stage; payload_seen=0 means no SBR
+ * parser was entered (e.g. unknown FIL type or duplicate). On failure
+ * the regular decoder state and output remain unchanged. */
+int sauti_aac_he_adts_mono_diagnose_ex(
+    const uint8_t *frame,size_t frame_size,
+    SautiAacHeAdtsMonoState *state,float core_pcm[1024],
+    SautiAacSbrPayloadFrame *params,SautiAacReason *reason,
+    SautiAacSbrPayloadStage *stage,unsigned *payload_seen);
+
 #endif
