@@ -50,6 +50,7 @@ int main(void){
             core[i]=(float)v*0.125f;
         }
         qmf[S*Q]=(SautiAacSbrComplex){91.0f,92.0f};
+        const SautiAacSbrQmfSynthWindowState prior_synthesis=exported.synthesis;
         assert(sauti_aac_sbr_qmf_frame_process(&cfg,core,S*32u,
                                                 pcm,S*Q,&normal,&nr));
         assert(sauti_aac_sbr_qmf_frame_export_qmf_ex(&cfg,core,S*32u,
@@ -63,8 +64,7 @@ int main(void){
         assert(memcmp(normal.low_prior,exported.low_prior,sizeof(normal.low_prior))==0);
         assert(normal.frames==exported.frames&&normal.ready==exported.ready);
         /* The export must not secretly consume the mono synthesis window. */
-        SautiAacSbrQmfSynthWindowState zero={0};
-        assert(memcmp(&exported.synthesis,&zero,sizeof(zero))==0);
+        assert(memcmp(&exported.synthesis,&prior_synthesis,sizeof(prior_synthesis))==0);
         assert(sauti_aac_sbr_qmf_synth_64(qmf,S*Q,S,from_qmf,S*Q,
                                           &exported.synthesis));
         assert(memcmp(pcm,from_qmf,sizeof(pcm))==0);
