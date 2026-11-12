@@ -29,7 +29,7 @@ int sauti_aac_ps_qmf_high_extract(const SautiAacPsHybridSchedule *schedule,
     SautiAacSbrComplex next[SAUTI_AAC_PS_QMF_SLOTS*SAUTI_AAC_PS_HIGH_QMF_MAX_BANDS];
     for(unsigned slot=0;slot<SAUTI_AAC_PS_QMF_SLOTS;slot++){
         for(unsigned k=0;k<high_bands;k++){
-            const SautiAacSbrComplex x=qmf[(slot+SAUTI_AAC_PS_HIGH_QMF_LOOKAHEAD)*64u+first_qmf+k];
+            const SautiAacSbrComplex x=qmf[slot*64u+first_qmf+k];
             if(!isfinite(x.re)||!isfinite(x.im))return 0;
             next[slot*high_bands+k]=x;
         }
