@@ -106,9 +106,13 @@ int main(int argc,char **argv){
          * Keep HF envelope/ROM/noise/sine processing strictly disabled:
          * temporal-owned HF adjustment still needs implementation. */
         SautiAacSbrQmfStage qmf_stage=SAUTI_SBR_QMF_STAGE_INPUT;
-        if(!sauti_aac_sbr_qmf_frame_export_raw(
+        const unsigned inherited_slots=handoff.previous_tail_slots;
+        if(!sauti_aac_sbr_qmf_frame_export_raw_owned(
                 &payload->tables,&payload->patches,
-                pcm,1024u,raw_qmf,32u*64u,qmf_state,&qmf_stage)){
+                inherited_slots?&history->previous.tables:NULL,
+                inherited_slots?&history->previous.patches:NULL,
+                inherited_slots,pcm,1024u,raw_qmf,32u*64u,
+                qmf_state,&qmf_stage)){
             fprintf(stderr,"FAIL raw QMF frame=%zu offset=%zu stage=%u\n",
                     frames,offset,(unsigned)qmf_stage);
             goto done;
@@ -162,6 +166,7 @@ int main(int argc,char **argv){
             goto done;
         }
         if(handoff.previous_tail_slots){
+            fprintf(stderr,"OWNER-GEOMETRY frame=%zu inherited=%u previous_kx=%u current_kx=%u\n",frames,inherited_slots,(unsigned)history->previous.tables.kx,(unsigned)payload->tables.kx);
             SautiAacPs5CrossReport cross;
             if(!frames||!sauti_aac_ps5_cross_envelope_analyze(
                     history,&targets,previous_raw,32u*64u,
