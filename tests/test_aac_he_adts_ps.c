@@ -132,7 +132,34 @@ static void test_positive_adts_ps_stream(void){
     puts("PASS AAC PS-4c3: generated real ADTS SCE+SBR+PS syntax, three frames, delayed stereo PCM");
 }
 
-int main(void){
+/* PS-5a CLI smoke fixture: three complete SCE/SBR/PS ADTS
+ * frames from the independently serialized PS-4c3 bit writer.
+ * This is NOT an external-encoder conformance fixture. */
+static int emit_ps_smoke(const char *path){
+    SautiAacSbrHeader h;
+    SautiAacSbrTables tab;
+    pick_ps_covered_header(&h,&tab);
+    FILE *out=fopen(path,"wb");
+    if(!out){perror(path);return 2;}
+    for(unsigned i=0;i<3u;i++){
+        Bits base,raw;
+        size_t content_bits=0u;
+        sbr_bits(&base,&h,&tab,i==0u,i!=0u,&content_bits);
+        const Bits ps=append_ps(&base,content_bits);
+        uint8_t adts_bytes[1024u];
+        const size_t len=frame(&raw,adts_bytes,&ps,0u,NULL);
+        if(fwrite(adts_bytes,1u,len,out)!=len){
+            perror("write PS smoke");
+            fclose(out);return 2;
+        }
+    }
+    if(fclose(out)!=0){perror(path);return 2;}
+    return 0;
+}
+int main(int argc,char **argv){
+    if(argc==3&&strcmp(argv[1],"--emit-ps-smoke")==0)
+        return emit_ps_smoke(argv[2]);
+    if(argc!=1){fprintf(stderr,"Usage: %s [--emit-ps-smoke output.adts]\\n",argv[0]);return 2;}
     SautiAacSbrHeader header;
     SautiAacSbrTables tables;
     find_header(&header,&tables);
