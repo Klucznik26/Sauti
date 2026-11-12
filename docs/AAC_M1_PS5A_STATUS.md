@@ -113,3 +113,30 @@ does not substitute FFmpeg.
 
 The independent fixture is now a reproducible **known-failing
 regression**, not a decoder conformance result.
+
+## PS-5b continued — streaming side-data ownership audit
+
+New stand-alone command `tools/sauti_ps5_temporal_audit.c` provides
+a **native, continuous** ADTS SCE/SBR/PS metadata audit. It uses
+`sauti_aac_he_adts_mono_temporal_diagnose_ex` (the real SBR parser)
+and existing SBR-47/49/52/53a helpers for per-slot envelope/noise/HF
+target attribution. It never publishes PCM or silently clamps
+borders, and has no FFmpeg decoder fallback.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+make test-aac-ps5-temporal PKG_CONFIG=/bin/false
+make probe-he-ps-temporal PKG_CONFIG=/bin/false
+./build/sauti_ps5_temporal_audit ~/Sauti-fixtures/he_v2_real.aac
+```
+
+The positive/negative smoke test uses generated three-frame ADTS,
+not independently encoded reference material. The *separate*
+full FDK-AAC fixture remains the decisive test. A failed
+`ownership` or `HF target ownership` check is a valuable
+new regression finding, not a signal to remove validation.
+
+This audit is a precursor to, **not** an implementation of,
+temporal HF adjustment, stereo PCM synthesis, or decoder conformance.
+The existing strict audio path remains unchanged.
