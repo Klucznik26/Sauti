@@ -169,3 +169,53 @@ int sauti_aac_sbr_qmf_frame_process(
         state,report,NULL);
 }
 
+
+/* PS-5c1: QMF analysis plus raw SBR-12 transpose, before HF adjustment.
+ * All changes are staged, preserving the original PCM-producing path. */
+int sauti_aac_sbr_qmf_frame_export_raw(
+    const SautiAacSbrTables *tables,
+    const SautiAacSbrPatches *patches,
+    const float *core_pcm,size_t core_count,
+    SautiAacSbrComplex *qmf,size_t qmf_count,
+    SautiAacSbrQmfFrameState *state,
+    SautiAacSbrQmfStage *stage){
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_INPUT;
+    if(!tables||!patches||!core_pcm||!qmf||!state||
+       core_count<1024u||qmf_count<32u*64u||
+       state->ready>1u||state->frames==UINT64_MAX||
+       (!state->ready&&state->frames!=0u)||
+       (state->ready&&(state->frames==0u||
+                        state->analysis.samples_consumed<32u)))return 0;
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_MAP;
+    if(!sauti_aac_sbr_hf_map_valid(patches,tables)||
+       tables->kx>32u||tables->kx+tables->m>64u)return 0;
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_HISTORY;
+    for(unsigned t=0;t<2u;t++)for(unsigned k=0;k<32u;k++){
+        const SautiAacSbrComplex c=state->low_prior[t][k];
+        if(!isfinite(c.re)||!isfinite(c.im)||
+           (!state->ready&&(c.re!=0.0f||c.im!=0.0f)))return 0;
+    }
+    SautiAacSbrQmfFrameState next=*state;
+    SautiAacSbrComplex low[32u*32u];
+    SautiAacSbrComplex high[32u*64u];
+    SautiAacSbrComplex combined[32u*64u];
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_ANALYSIS;
+    if(!sauti_aac_sbr_qmf_analyze_32(core_pcm,core_count,
+                                     32u,32u,low,32u*32u,
+                                     &next.analysis))return 0;
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_TRANSPOSE;
+    if(!sauti_aac_sbr_hf_transpose(patches,tables,low,32u*32u,
+                                  32u,high,32u*64u))return 0;
+    memcpy(combined,high,sizeof(combined));
+    for(unsigned t=0;t<32u;t++)
+        for(unsigned k=0;k<tables->kx;k++)
+            combined[t*64u+k]=low[t*32u+k];
+    memcpy(next.low_prior[0],low+30u*32u,sizeof(next.low_prior[0]));
+    memcpy(next.low_prior[1],low+31u*32u,sizeof(next.low_prior[1]));
+    next.ready=1u;
+    next.frames++;
+    memcpy(qmf,combined,sizeof(combined));
+    *state=next;
+    if(stage)*stage=SAUTI_SBR_QMF_STAGE_OK;
+    return 1;
+}
