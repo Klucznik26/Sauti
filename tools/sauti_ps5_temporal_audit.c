@@ -155,6 +155,8 @@ int main(int argc,char **argv){
         frames++;offset+=len;
     }
     if(ferror(in)||!frames){fprintf(stderr,"FAIL empty/IO\n");goto done;}
+    fprintf(stderr,"PASS PS-5b side-data audit frames=%zu temporal_transitions=%zu pending_tail=%u; raw QMF validated; NO PCM produced\n",
+            frames,temporal_frames,(unsigned)history->current_plan.deferred_slots);
     fprintf(stderr,"PASS PS-5c2 diagnostic frames=%zu transitions=%zu inherited_QMF_slots=%zu missing_raw_sources=%zu target_power=%.7g raw_power=%.7g; NO HF/PCM synthesis\n",
             frames,temporal_frames,inherited,missing_sources,target_power,raw_power);
     exit_code=0;
