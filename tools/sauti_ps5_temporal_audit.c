@@ -5,6 +5,7 @@
 #include "sauti_aac_he_adts_mono.h"
 #include "sauti_aac_sbr_qmf_frame.h"
 #include "sauti_aac_ps5_hf_gain.h"
+#include "sauti_aac_ps5_hf_envelope.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -43,6 +44,10 @@ int main(int argc,char **argv){
     }
     SautiAacPs5HfGainReport *gain_report=malloc(sizeof(*gain_report));
     if(!gain_report){fprintf(stderr,"Allocation failed\n");free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);fclose(in);return 2;}
+    SautiAacPs5HfEnvelopeReport *envelope=malloc(sizeof(*envelope));
+    if(!envelope){fprintf(stderr,"Allocation failed\n");free(gain_report);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);fclose(in);return 2;}
+    double signal_budget=0.0,noise_budget=0.0;
+    size_t envelope_missing=0u;
     size_t missing_sources=0u,inherited=0u;
     double target_power=0.0,raw_power=0.0;
     float pcm[1024u];
@@ -131,6 +136,19 @@ int main(int argc,char **argv){
                     frames,offset);
             goto done;
         }
+        if(!sauti_aac_ps5_hf_envelope_analyze(
+                &targets,raw_qmf,32u*64u,envelope)){
+            fprintf(stderr,"FAIL PS-5c3 owned envelope frame=%zu offset=%zu\n",
+                    frames,offset);
+            goto done;
+        }
+        signal_budget+=envelope->signal_budget;
+        noise_budget+=envelope->noise_budget;
+        envelope_missing+=envelope->missing_source;
+        if(!isfinite(signal_budget)||!isfinite(noise_budget)){
+            fprintf(stderr,"FAIL nonfinite PS-5c3 budget frame=%zu\n",frames);
+            goto done;
+        }
         missing_sources+=gain_report->missing_source;
         inherited+=gain_report->inherited_slots;
         target_power+=gain_report->target_power;
@@ -159,9 +177,12 @@ int main(int argc,char **argv){
             frames,temporal_frames,(unsigned)history->current_plan.deferred_slots);
     fprintf(stderr,"PASS PS-5c2 diagnostic frames=%zu transitions=%zu inherited_QMF_slots=%zu missing_raw_sources=%zu target_power=%.7g raw_power=%.7g; NO HF/PCM synthesis\n",
             frames,temporal_frames,inherited,missing_sources,target_power,raw_power);
+    fprintf(stderr,
+            "PASS PS-5c3 envelope audit frames=%zu signal_budget=%.7g noise_budget=%.7g absent_envelope_sources=%zu; NO HF/PCM synthesis\n",
+            frames,signal_budget,noise_budget,envelope_missing);
     exit_code=0;
 done:
-    free(gain_report);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);
+    free(envelope);free(gain_report);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);
     if(fclose(in)!=0)exit_code=1;
     return exit_code;
 }
