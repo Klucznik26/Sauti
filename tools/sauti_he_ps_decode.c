@@ -80,6 +80,44 @@ int main(int argc,char **argv){
                 fprintf(stderr,
                     "FIL diagnostic: result=%d reason=%d SBR_parser_entered=%u SBR_stage=%u\n",
                     diagnostic,(int)diagnostic_reason,parser_entered,(unsigned)stage);
+                /* Re-run on a disposable copy with ISO-valid temporal
+                 * borders enabled. Never commit this trial to the
+                 * playback state or publish its PCM as SBR output. */
+                SautiAacHeAdtsMonoState temporal_state=state->adts;
+                SautiAacSbrPayloadFrame temporal_payload;
+                SautiAacSbrPayloadStage temporal_stage=SAUTI_SBR_PAYLOAD_INPUT;
+                SautiAacReason temporal_reason=SAUTI_AAC_REASON_OK;
+                unsigned temporal_seen=0u;
+                const int temporal_status=
+                    sauti_aac_he_adts_mono_temporal_diagnose_ex(
+                        frame,len,&temporal_state,core_pcm,
+                        &temporal_payload,&temporal_reason,
+                        &temporal_stage,&temporal_seen);
+                fprintf(stderr,
+                    "Temporal SBR trial: result=%d reason=%d entered=%u stage=%u\n",
+                    temporal_status,(int)temporal_reason,
+                    temporal_seen,(unsigned)temporal_stage);
+                if(temporal_status==1){
+                    const SautiAacSbrGrid *g=&temporal_payload.grid;
+                    fprintf(stderr,
+                        "SBR grid: class=%u envelopes=%u env_first=%u env_last=%u "
+                        "noise_first=%u noise_last=%u (SBR units; nominal [0,16])\n",
+                        (unsigned)g->frame_class,(unsigned)g->env_count,
+                        (unsigned)g->env_border[0],
+                        (unsigned)g->env_border[g->env_count],
+                        (unsigned)g->noise_border[0],
+                        (unsigned)g->noise_border[g->noise_count]);
+                    SautiAacSbrTemporalPlan plan;
+                    if(sauti_aac_sbr_temporal_plan(&temporal_payload,&plan))
+                        fprintf(stderr,
+                            "Temporal SBR plan: deferred_QMF_slots=%u "
+                            "current_env_segments=%u deferred_env_segments=%u\n",
+                            (unsigned)plan.deferred_slots,
+                            (unsigned)plan.env_current_count,
+                            (unsigned)plan.env_deferred_count);
+                    else
+                        fprintf(stderr,"Temporal SBR plan: unsupported\n");
+                }
             }
             goto done;
         }
