@@ -71,6 +71,20 @@ typedef enum {
     SAUTI_SBR_QMF_STAGE_OK
 } SautiAacSbrQmfStage;
 
+/* PS-4b: export the fully assembled HF-adjusted complex QMF [slots][64]
+ * BEFORE any mono synthesis. The same analysis/HF stages and history
+ * are used as in frame_process_ex; synthesis history is not advanced.
+ * Report, caller QMF output and state commit atomically, including for
+ * an unsupported zero-source HF frame. No implicit lookahead: caller
+ * must supply and align the following QMF slots independently. */
+int sauti_aac_sbr_qmf_frame_export_qmf_ex(
+    const SautiAacSbrQmfFrameConfig *config,
+    const float *core_pcm,size_t core_count,
+    SautiAacSbrComplex *qmf,size_t qmf_count,
+    SautiAacSbrQmfFrameState *state,
+    SautiAacSbrLimiterReport *report,
+    SautiAacSbrQmfStage *stage);
+
 int sauti_aac_sbr_qmf_frame_process_ex(
     const SautiAacSbrQmfFrameConfig *config,
     const float *core_pcm,size_t core_count,
