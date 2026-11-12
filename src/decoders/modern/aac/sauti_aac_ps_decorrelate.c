@@ -25,9 +25,6 @@ static SautiAacSbrComplex rotate(SautiAacSbrComplex x,double angle){
         (float)((double)x.re*s+(double)x.im*c)
     };
 }
-static SautiAacSbrComplex mul(SautiAacSbrComplex x,double g){
-    return (SautiAacSbrComplex){(float)(x.re*g),(float)(x.im*g)};
-}
 static int valid(SautiAacSbrComplex x){
     return isfinite(x.re)&&isfinite(x.im);
 }
