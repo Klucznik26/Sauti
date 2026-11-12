@@ -1018,6 +1018,14 @@ $(OBJDIR)/test_aac_he_adts_ps: tests/test_aac_he_adts_ps.c tests/test_aac_sbr_ad
 test-aac-he-adts-ps: $(OBJDIR)/test_aac_he_adts_ps
 	./$(OBJDIR)/test_aac_he_adts_ps
 
+$(OBJDIR)/sauti_he_ps_decode: tools/sauti_he_ps_decode.c include/sauti_aac_he_adts_ps.h $(AAC_HE_ADTS_PS_LINK) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_ps_decode.c $(AAC_HE_ADTS_PS_LINK) -lm -no-pie
+
+.PHONY: probe-he-ps test-aac-ps5-compare-help
+probe-he-ps: $(OBJDIR)/sauti_he_ps_decode
+test-aac-ps5-compare-help: probe-he-ps
+	@echo "Run: python3 tools/sauti_ps5_compare.py INPUT.aac --native ./$(OBJDIR)/sauti_he_ps_decode --rate 48000"
+
 
 AAC_SBR_ADTS_CPE_DEPS := $(sort $(AAC_HE_ADTS_CPE_QMF_SRC) $(AAC_HE_ADTS_CPE_SRC) src/decoders/modern/aac/sauti_aac_cpe.c $(AAC_SBR_ADTS_QMF_DEPS))
 $(OBJDIR)/test_aac_sbr_adts_cpe: tests/test_aac_sbr_adts_cpe.c tests/test_aac_sbr_payload.c include/sauti_aac_he_adts_cpe.h include/sauti_decoder_aac_native.h src/sauti_decoder.c src/decoders/modern/aac/sauti_decoder_aac_native.c $(AAC_SBR_ADTS_CPE_DEPS) | $(OBJDIR)
