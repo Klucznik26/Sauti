@@ -47,7 +47,7 @@ int main(int argc,char **argv){
     SautiAacPs5HfGainReport *gain_report=malloc(sizeof(*gain_report));
     if(!gain_report){fprintf(stderr,"Allocation failed\n");free(previous_raw);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);fclose(in);return 2;}
     SautiAacPs5HfEnvelopeReport *envelope=malloc(sizeof(*envelope));
-    if(!envelope){fprintf(stderr,"Allocation failed\n");free(gain_report);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);fclose(in);return 2;}
+    if(!envelope){fprintf(stderr,"Allocation failed\n");free(gain_report);free(previous_raw);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);fclose(in);return 2;}
     double signal_budget=0.0,noise_budget=0.0;
     size_t envelope_missing=0u;
     unsigned cross_frames=0u;
@@ -211,7 +211,7 @@ int main(int argc,char **argv){
     fprintf(stderr,"PASS PS-5c4a full cross-envelope frames=%u mean_power_sum=%.9g; NO HF/PCM synthesis\n",cross_frames,cross_mean_power);
     exit_code=0;
 done:
-    free(envelope);free(gain_report);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);
+    free(envelope);free(gain_report);free(previous_raw);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);
     if(fclose(in)!=0)exit_code=1;
     return exit_code;
 }
