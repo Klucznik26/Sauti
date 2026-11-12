@@ -78,7 +78,7 @@ int main(int argc,char **argv){
                     &diagnostic_payload,&diagnostic_reason,
                     &stage,&parser_entered);
                 fprintf(stderr,
-                    "FIL diagnostic: result=%d reason=%d SBR_parser_entered=%u SBR_stage=%u\\n",
+                    "FIL diagnostic: result=%d reason=%d SBR_parser_entered=%u SBR_stage=%u\n",
                     diagnostic,(int)diagnostic_reason,parser_entered,(unsigned)stage);
             }
             goto done;
