@@ -98,13 +98,15 @@ int sauti_aac_ps_qmf_low_analyze(const SautiAacPsHybridSchedule *schedule,
             const SautiAacSbrComplex x=state->history[b][h];
             if(!isfinite(x.re)||!isfinite(x.im))return 0;
         }
-    SautiAacPsQmfLowState next=*state;
+    const SautiAacPsQmfLowState empty={0};
+    const SautiAacPsQmfLowState *prev=state->initialized?state:&empty;
+    SautiAacPsQmfLowState next=*prev;
     SautiAacSbrComplex tmp[32u*SAUTI_AAC_PS_LOW_QMF_MAX_BANDS];
     for(unsigned t=0;t<32u;t++){
         SautiAacSbrComplex *dst=&tmp[t*bands];
         if(bands==10u){
             SautiAacSbrComplex eight[8];
-            split_complex(qmf,state,0u,t,8u,p8_0,eight);
+            split_complex(qmf,prev,0u,t,8u,p8_0,eight);
             dst[0]=eight[6];dst[1]=eight[7];
             dst[2]=eight[0];dst[3]=eight[1];
             for(unsigned c=0;c<2u;c++){
@@ -112,13 +114,13 @@ int sauti_aac_ps_qmf_low_analyze(const SautiAacPsHybridSchedule *schedule,
                 dst[4u+c].re=eight[a].re+eight[b].re;
                 dst[4u+c].im=eight[a].im+eight[b].im;
             }
-            split_two(qmf,state,1u,t,1,dst+6u);
-            split_two(qmf,state,2u,t,0,dst+8u);
+            split_two(qmf,prev,1u,t,1,dst+6u);
+            split_two(qmf,prev,2u,t,0,dst+8u);
         }else{
-            split_complex(qmf,state,0u,t,12u,p12_0,dst);
-            split_complex(qmf,state,1u,t,8u,p8_1,dst+12u);
+            split_complex(qmf,prev,0u,t,12u,p12_0,dst);
+            split_complex(qmf,prev,1u,t,8u,p8_1,dst+12u);
             for(unsigned b=2u;b<5u;b++)
-                split_complex(qmf,state,b,t,4u,p4_2,dst+20u+(b-2u)*4u);
+                split_complex(qmf,prev,b,t,4u,p4_2,dst+20u+(b-2u)*4u);
         }
         for(unsigned k=0;k<bands;k++)
             if(!isfinite(dst[k].re)||!isfinite(dst[k].im))return 0;
