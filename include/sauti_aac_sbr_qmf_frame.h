@@ -119,4 +119,24 @@ int sauti_aac_sbr_qmf_frame_export_raw(
     SautiAacSbrQmfFrameState *state,
     SautiAacSbrQmfStage *stage);
 
+/* PS-5 geometry handoff: restore the PREVIOUS SBR patch map for the
+ * first inherited_slots current-frame QMF samples, while using the
+ * CURRENT map for the remainder. Both maps must be individually valid.
+ * The 32-band analysis is run ONCE, on genuine decoded AAC core PCM.
+ * Unlike a post-hoc remapping, this retains all 32 low QMF source bins
+ * even if the current kx would otherwise hide some of them.
+ * 0 inherited slots requires NULL previous geometry. 1..6 slots
+ * requires valid previous tables and patches. All-or-nothing output
+ * and state; NO limiter, ROM noise, sine, or audible PCM is emitted. */
+int sauti_aac_sbr_qmf_frame_export_raw_owned(
+    const SautiAacSbrTables *current_tables,
+    const SautiAacSbrPatches *current_patches,
+    const SautiAacSbrTables *previous_tables,
+    const SautiAacSbrPatches *previous_patches,
+    unsigned inherited_slots,
+    const float *core_pcm,size_t core_count,
+    SautiAacSbrComplex *qmf,size_t qmf_count,
+    SautiAacSbrQmfFrameState *state,
+    SautiAacSbrQmfStage *stage);
+
 #endif
