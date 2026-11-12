@@ -140,3 +140,35 @@ new regression finding, not a signal to remove validation.
 This audit is a precursor to, **not** an implementation of,
 temporal HF adjustment, stereo PCM synthesis, or decoder conformance.
 The existing strict audio path remains unchanged.
+
+## PS-5c1 — first real DSP join (2026-11-13)
+
+`sauti_aac_sbr_qmf_frame_export_raw` is a new **transactional**
+32x64 raw complex QMF export. It consumes exactly 1024 samples of
+genuine native AAC-LC PCM per frame; reuses SBR-27 analysis and
+SBR-12 patch transposition with persistent analysis and low-band
+history, without invoking the SBR-24 HF ROM adjustment. No arbitrary
+clipping of time borders, no synthesized future samples and no PCM
+output. Existing adjusted-QMF/PS APIs are unchanged.
+
+`sauti_ps5_temporal_audit` now executes this raw DSP for **every
+frame** and validates that real raw high-bin complex coefficients
+can be paired with the **original owner's** SBR-53a energy/noise
+targets, including the two inherited slots at FDK frames #3/#4.
+The output is still diagnostic only: the temporal-owned HF limiter,
+smoothing, noise, sine generation, and final stereo synthesis are
+**not implemented** by this interface.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+make test-aac-ps5-temporal PKG_CONFIG=/bin/false
+./build/sauti_ps5_temporal_audit ~/Sauti-fixtures/he_v2_real.aac
+make test-aac-he-adts-ps PKG_CONFIG=/bin/false
+```
+
+This step requires actual Fedora validation. In particular, a failure
+at `raw QMF stage=2` (history) or `stage=4` (transpose) is a
+useful blocker for the next phase, not a reason to bypass validation.
+Next PS-5c2: temporal-owner-aware HF adjustment with independent
+SBR/PS delay and phase continuity and reference PCM measurements.
