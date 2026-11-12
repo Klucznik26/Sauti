@@ -170,11 +170,16 @@ int sauti_aac_sbr_qmf_frame_process(
 }
 
 
-/* PS-5c1: QMF analysis plus raw SBR-12 transpose, before HF adjustment.
- * All changes are staged, preserving the original PCM-producing path. */
-int sauti_aac_sbr_qmf_frame_export_raw(
+/* The native raw-QMF preparation stage retains all 32 low source bins
+ * until both patch maps have been applied. Source bins hidden by the
+ * incoming frame's kx must still be available for inherited slots.
+ * The two forms share exactly one analysis/history commit path. */
+int sauti_aac_sbr_qmf_frame_export_raw_owned(
     const SautiAacSbrTables *tables,
     const SautiAacSbrPatches *patches,
+    const SautiAacSbrTables *previous_tables,
+    const SautiAacSbrPatches *previous_patches,
+    unsigned inherited_slots,
     const float *core_pcm,size_t core_count,
     SautiAacSbrComplex *qmf,size_t qmf_count,
     SautiAacSbrQmfFrameState *state,
@@ -182,13 +187,18 @@ int sauti_aac_sbr_qmf_frame_export_raw(
     if(stage)*stage=SAUTI_SBR_QMF_STAGE_INPUT;
     if(!tables||!patches||!core_pcm||!qmf||!state||
        core_count<1024u||qmf_count<32u*64u||
+       inherited_slots>6u||
+       (inherited_slots?
+          (!previous_tables||!previous_patches||!state->ready):
+          (previous_tables||previous_patches))||
        state->ready>1u||state->frames==UINT64_MAX||
        (!state->ready&&state->frames!=0u)||
        (state->ready&&(state->frames==0u||
                         state->analysis.samples_consumed<32u)))return 0;
     if(stage)*stage=SAUTI_SBR_QMF_STAGE_MAP;
     if(!sauti_aac_sbr_hf_map_valid(patches,tables)||
-       tables->kx>32u||tables->kx+tables->m>64u)return 0;
+       (inherited_slots&&!sauti_aac_sbr_hf_map_valid(
+                              previous_patches,previous_tables)))return 0;
     if(stage)*stage=SAUTI_SBR_QMF_STAGE_HISTORY;
     for(unsigned t=0;t<2u;t++)for(unsigned k=0;k<32u;k++){
         const SautiAacSbrComplex c=state->low_prior[t][k];
@@ -207,9 +217,25 @@ int sauti_aac_sbr_qmf_frame_export_raw(
     if(!sauti_aac_sbr_hf_transpose(patches,tables,low,32u*32u,
                                   32u,high,32u*64u))return 0;
     memcpy(combined,high,sizeof(combined));
-    for(unsigned t=0;t<32u;t++)
-        for(unsigned k=0;k<tables->kx;k++)
+    for(unsigned t=0;t<32u;t++){
+        const SautiAacSbrTables *tab=t<inherited_slots?
+                                       previous_tables:tables;
+        const SautiAacSbrPatches *map=t<inherited_slots?
+                                        previous_patches:patches;
+        const unsigned kx=tab->kx,k2=tab->kx+tab->m;
+        if(t<inherited_slots){
+            /* The current mapping may have different band edges or
+             * sources. Clear its entire high part before rebuilding. */
+            memset(combined+t*64u,0u,64u*sizeof(combined[0]));
+            for(unsigned k=kx;k<k2;k++){
+                const int source=map->source_for_target[k];
+                if(source>=0)
+                    combined[t*64u+k]=low[t*32u+(unsigned)source];
+            }
+        }
+        for(unsigned k=0;k<kx;k++)
             combined[t*64u+k]=low[t*32u+k];
+    }
     memcpy(next.low_prior[0],low+30u*32u,sizeof(next.low_prior[0]));
     memcpy(next.low_prior[1],low+31u*32u,sizeof(next.low_prior[1]));
     next.ready=1u;
@@ -218,4 +244,16 @@ int sauti_aac_sbr_qmf_frame_export_raw(
     *state=next;
     if(stage)*stage=SAUTI_SBR_QMF_STAGE_OK;
     return 1;
+}
+
+int sauti_aac_sbr_qmf_frame_export_raw(
+    const SautiAacSbrTables *tables,
+    const SautiAacSbrPatches *patches,
+    const float *core_pcm,size_t core_count,
+    SautiAacSbrComplex *qmf,size_t qmf_count,
+    SautiAacSbrQmfFrameState *state,
+    SautiAacSbrQmfStage *stage){
+    return sauti_aac_sbr_qmf_frame_export_raw_owned(
+        tables,patches,NULL,NULL,0u,core_pcm,core_count,
+        qmf,qmf_count,state,stage);
 }
