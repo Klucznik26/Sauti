@@ -111,6 +111,27 @@ pasów IPD/OPD). Nie wykonuje filtracji ani miksowania PCM. `make
 test-aac-ps-hybrid` obejmuje oba układy pasm, granice obwiedni i odrzucenie
 niepełnego harmonogramu, zanim stan może zostać opublikowany.
 
+### AAC-M1 / PS-1a — niepodzielone wyższe pasma QMF (2026-11-12)
+
+Rozpoczęto wykonanie rzeczywistej części banku hybrydowego: nowy
+`sauti_aac_ps_qmf_high_extract` przepisuje **wyłącznie** wyższe, niepodzielone
+podpasma QMF z poprawnym sześcioslotowym przesunięciem względem 13-próbkowych
+filtrów dolnych pasm. Obsługuje oba układy: parametry 20 -> 61 wysokich pasm
+QMF (pozycje hybrydowe 10..70), parametry 34 -> 59 wysokich pasm QMF
+(pozycje hybrydowe 32..90). Wejście ma 38 slotów po 64 wartości zespolone;
+wyjście ma 32 sloty po 61 albo 59 wartości zespolonych. Dla błędu rozmiaru,
+nieprawidłowego harmonogramu lub NaN/Inf w czytanych próbkach wyjście nie
+jest modyfikowane. Test `make test-aac-ps-qmf-high` został podłączony
+również do `test-aac-native` i `test-aac-sanitize`.
+
+**To jest tylko PS-1a, nie ukończone PS-1 ani HE-AAC v2.**
+Brakuje jeszcze normatywnych 13-tapowych filtrów rozdzielających niskie
+pasma (10 albo 32 pozycji hybrydowych), ich syntezy odwrotnej,
+dekorrelacji, rzeczywistego miksowania całego banku i stereo PCM.
+Nowej ścieżki nie wolno podłączać do odtwarzania jako kompletnego dekodera.
+Przed oznaczeniem PS-1 jako ukończonego potrzebna jest zgodność DSP z
+referencją, w tym ciągłość stanu między ramkami.
+
 `sauti_aac_ps_matrix_build` dekwantyzuje IID i ICC, a następnie buduje
 rzeczywiste współczynniki macierzy PS A/B dla każdej obwiedni i pasma.
 Obliczenie konfiguracji jest celowo skalarne; przyszła gorąca pętla mnożenia
