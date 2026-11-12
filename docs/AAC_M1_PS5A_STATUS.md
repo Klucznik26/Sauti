@@ -172,3 +172,37 @@ at `raw QMF stage=2` (history) or `stage=4` (transpose) is a
 useful blocker for the next phase, not a reason to bypass validation.
 Next PS-5c2: temporal-owner-aware HF adjustment with independent
 SBR/PS delay and phase continuity and reference PCM measurements.
+
+## PS-5c2 — temporally owned HF gain diagnostics (not PCM)
+
+New `sauti_aac_ps5_hf_gain_analyze` accepts each **original-owner**
+SBR-53a energy/noise/harmonic target and real pre-adjusted raw
+complex QMF. It produces a bounded **diagnostic gain estimate**
+for every HF bin of every 32-slot frame and records missing
+source energy instead of inventing signal. It stages all results
+and does not mutate the raw QMF or output audible PCM.
+
+It intentionally is NOT the normative SBR algorithm: it uses
+**per-slot** measured raw power rather than time-averaged SBR
+envelope powers and does not yet apply frequency limiter groups,
+ROM noise, harmonics, smoothing, chirp or phase management. The
+computed gains are a diagnostic step for testing data flow, **not**
+authorized coefficients to use as decoded PCM.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+make test-aac-ps5-hf-gain PKG_CONFIG=/bin/false
+make test-aac-ps5-temporal PKG_CONFIG=/bin/false
+./build/sauti_ps5_temporal_audit ~/Sauti-fixtures/he_v2_real.aac
+make test-aac-he-adts-ps PKG_CONFIG=/bin/false
+```
+
+The real FDK fixture should still report 285 frames and
+FIXVAR/VARFIX at #3/#4 and now additionally a separate
+`PASS PS-5c2 diagnostic` containing inherited slot count,
+missing raw source count and target/raw power. Any newly failing
+test must be investigated; do not extrapolate PCM compliance.
+
+Next: envelope-averaged HF limiter and source-aligned cross-frame
+noise/harmonic state; only then integrate stereo rendering.
