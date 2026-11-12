@@ -1041,6 +1041,12 @@ $(OBJDIR)/test_aac_ps5_hf_envelope: tests/test_aac_ps5_hf_envelope.c include/sau
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps5_hf_envelope.c $(AAC_PS5_HF_ENVELOPE_SRC) -lm
 $(OBJDIR)/test_aac_ps5_cross: tests/test_aac_ps5_cross.c include/sauti_aac_ps5_cross.h $(AAC_PS5_CROSS_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps5_cross.c $(AAC_PS5_CROSS_SRC) -lm
+$(OBJDIR)/test_aac_ps_owned_geometry: tests/test_aac_ps_owned_geometry.c include/sauti_aac_sbr_qmf_frame.h $(AAC_SBR_QMF_FRAME_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_owned_geometry.c $(AAC_SBR_QMF_FRAME_DEPS) -lm -no-pie
+.PHONY: test-aac-ps-owned-geometry
+test-aac-ps-owned-geometry: $(OBJDIR)/test_aac_ps_owned_geometry
+	./$(OBJDIR)/test_aac_ps_owned_geometry
+
 .PHONY: test-aac-ps5-cross
 test-aac-ps5-cross: $(OBJDIR)/test_aac_ps5_cross
 	./$(OBJDIR)/test_aac_ps5_cross
@@ -1054,7 +1060,7 @@ test-aac-ps5-hf-gain: $(OBJDIR)/test_aac_ps5_hf_gain
 	./$(OBJDIR)/test_aac_ps5_hf_gain
 
 .PHONY: test-aac-ps5-temporal
-test-aac-ps5-temporal: test-aac-ps5-cross test-aac-ps5-hf-envelope test-aac-ps5-hf-gain $(OBJDIR)/sauti_ps5_temporal_audit $(OBJDIR)/test_aac_he_adts_ps
+test-aac-ps5-temporal: test-aac-ps-owned-geometry test-aac-ps5-cross test-aac-ps5-hf-envelope test-aac-ps5-hf-gain $(OBJDIR)/sauti_ps5_temporal_audit $(OBJDIR)/test_aac_he_adts_ps
 	python3 tools/test_sauti_ps5_temporal.py ./$(OBJDIR)/test_aac_he_adts_ps ./$(OBJDIR)/sauti_ps5_temporal_audit
 
 .PHONY: test-aac-ps5-native
