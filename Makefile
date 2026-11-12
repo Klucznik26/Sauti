@@ -1025,7 +1025,8 @@ $(OBJDIR)/sauti_he_ps_decode: tools/sauti_he_ps_decode.c include/sauti_aac_he_ad
 probe-he-ps: $(OBJDIR)/sauti_he_ps_decode
 
 AAC_PS5_HF_GAIN_SRC := src/decoders/modern/aac/sauti_aac_ps5_hf_gain.c
-AAC_PS5_TEMPORAL_LINK := $(sort $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS) $(AAC_PS5_HF_GAIN_SRC))
+AAC_PS5_HF_ENVELOPE_SRC := src/decoders/modern/aac/sauti_aac_ps5_hf_envelope.c
+AAC_PS5_TEMPORAL_LINK := $(sort $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS) $(AAC_PS5_HF_GAIN_SRC) $(AAC_PS5_HF_ENVELOPE_SRC))
 $(OBJDIR)/sauti_ps5_temporal_audit: tools/sauti_ps5_temporal_audit.c include/sauti_aac_he_adts_mono.h include/sauti_aac_sbr_qmf_frame.h $(AAC_PS5_TEMPORAL_LINK) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_ps5_temporal_audit.c $(AAC_PS5_TEMPORAL_LINK) -lm -no-pie
 
@@ -1035,12 +1036,18 @@ probe-he-ps-temporal: $(OBJDIR)/sauti_ps5_temporal_audit
 $(OBJDIR)/test_aac_ps5_hf_gain: tests/test_aac_ps5_hf_gain.c include/sauti_aac_ps5_hf_gain.h $(AAC_PS5_HF_GAIN_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps5_hf_gain.c $(AAC_PS5_HF_GAIN_SRC) -lm
 
+$(OBJDIR)/test_aac_ps5_hf_envelope: tests/test_aac_ps5_hf_envelope.c include/sauti_aac_ps5_hf_envelope.h $(AAC_PS5_HF_ENVELOPE_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps5_hf_envelope.c $(AAC_PS5_HF_ENVELOPE_SRC) -lm
+.PHONY: test-aac-ps5-hf-envelope
+test-aac-ps5-hf-envelope: $(OBJDIR)/test_aac_ps5_hf_envelope
+	./$(OBJDIR)/test_aac_ps5_hf_envelope
+
 .PHONY: test-aac-ps5-hf-gain
 test-aac-ps5-hf-gain: $(OBJDIR)/test_aac_ps5_hf_gain
 	./$(OBJDIR)/test_aac_ps5_hf_gain
 
 .PHONY: test-aac-ps5-temporal
-test-aac-ps5-temporal: test-aac-ps5-hf-gain $(OBJDIR)/sauti_ps5_temporal_audit $(OBJDIR)/test_aac_he_adts_ps
+test-aac-ps5-temporal: test-aac-ps5-hf-envelope test-aac-ps5-hf-gain $(OBJDIR)/sauti_ps5_temporal_audit $(OBJDIR)/test_aac_he_adts_ps
 	python3 tools/test_sauti_ps5_temporal.py ./$(OBJDIR)/test_aac_he_adts_ps ./$(OBJDIR)/sauti_ps5_temporal_audit
 
 .PHONY: test-aac-ps5-native
