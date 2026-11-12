@@ -112,6 +112,23 @@ static void test_positive_adts_ps_stream(void){
         assert(state.ps.received_frames==frame_no+1u);
         assert(state.ps.bridge.frames==frame_no);
     }
+    /* Broken next ADTS must leave all warm histories/outputs intact. */
+    const SautiAacHeAdtsPsState saved=state;
+    const SautiAacSbrLimiterReport saved_stats=report;
+    const unsigned saved_produced=produced;
+    float old_pcm[4097u];
+    memcpy(old_pcm,pcm,sizeof(old_pcm));
+    uint8_t invalid[8u]={0};
+    const int rejected=sauti_aac_he_adts_ps_decode_ex(
+        invalid,sizeof(invalid),&state,pcm,4096u,
+        &produced,&report,&reason);
+    assert(rejected!=1);
+    assert(memcmp(&state,&saved,sizeof(state))==0);
+    assert(memcmp(&report,&saved_stats,sizeof(report))==0);
+    assert(memcmp(pcm,old_pcm,sizeof(old_pcm))==0);
+    assert(produced==saved_produced);
+    assert(state.ps.received_frames==3u &&
+           state.ps.bridge.frames==2u && state.ps.pending==1u);
     puts("PASS AAC PS-4c3: generated real ADTS SCE+SBR+PS syntax, three frames, delayed stereo PCM");
 }
 
