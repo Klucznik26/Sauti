@@ -4,6 +4,7 @@
  * Does not pretend that temporal HF rendering is implemented. */
 #include "sauti_aac_he_adts_mono.h"
 #include "sauti_aac_sbr_qmf_frame.h"
+#include "sauti_aac_ps5_hf_gain.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -40,6 +41,10 @@ int main(int argc,char **argv){
         free(decoder);free(history);free(payload);free(qmf_state);free(raw_qmf);fclose(in);
         return 2;
     }
+    SautiAacPs5HfGainReport *gain_report=malloc(sizeof(*gain_report));
+    if(!gain_report){fprintf(stderr,"Allocation failed\n");free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);fclose(in);return 2;}
+    size_t missing_sources=0u,inherited=0u;
+    double target_power=0.0,raw_power=0.0;
     float pcm[1024u];
     uint8_t data[MAX_ADTS];
     size_t len=0u,offset=0u,frames=0u,temporal_frames=0u;
@@ -120,6 +125,20 @@ int main(int argc,char **argv){
                 }
             }
         }
+        if(!sauti_aac_ps5_hf_gain_analyze(
+                &targets,raw_qmf,32u*64u,gain_report)){
+            fprintf(stderr,"FAIL owned QMF gain frame=%zu offset=%zu\n",
+                    frames,offset);
+            goto done;
+        }
+        missing_sources+=gain_report->missing_source;
+        inherited+=gain_report->inherited_slots;
+        target_power+=gain_report->target_power;
+        raw_power+=gain_report->raw_power;
+        if(!isfinite(target_power)||!isfinite(raw_power)){
+            fprintf(stderr,"FAIL nonfinite power totals frame=%zu\n",frames);
+            goto done;
+        }
         const unsigned tail=history->current_plan.deferred_slots;
         if(tail||handoff.previous_tail_slots){
             fprintf(stderr,
@@ -136,11 +155,11 @@ int main(int argc,char **argv){
         frames++;offset+=len;
     }
     if(ferror(in)||!frames){fprintf(stderr,"FAIL empty/IO\n");goto done;}
-    fprintf(stderr,"PASS PS-5b side-data audit frames=%zu temporal_transitions=%zu pending_tail=%u; raw QMF validated; NO PCM produced\n",
-            frames,temporal_frames,(unsigned)history->current_plan.deferred_slots);
+    fprintf(stderr,"PASS PS-5c2 diagnostic frames=%zu transitions=%zu inherited_QMF_slots=%zu missing_raw_sources=%zu target_power=%.7g raw_power=%.7g; NO HF/PCM synthesis\n",
+            frames,temporal_frames,inherited,missing_sources,target_power,raw_power);
     exit_code=0;
 done:
-    free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);
+    free(gain_report);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);
     if(fclose(in)!=0)exit_code=1;
     return exit_code;
 }
