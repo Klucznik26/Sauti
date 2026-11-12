@@ -26,6 +26,7 @@ int main(void){
     SautiAacSbrComplex qmf[38u*64u],left[32u*91u+1u],right[32u*91u+1u];
     SautiAacSbrComplex low[32u*91u],diffuse[32u*91u];
     SautiAacPsStereoState state={0},independent={0};
+    memset(left,0,sizeof(left));memset(right,0,sizeof(right));
     for(unsigned mode=20u;mode<=34u;mode+=14u){
         const unsigned bands=mode==20u?71u:91u;
         const size_t n=(size_t)32u*bands;
