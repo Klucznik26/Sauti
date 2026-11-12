@@ -15,7 +15,7 @@ from pathlib import Path
 def run(cmd):
     p = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if p.returncode:
-        raise RuntimeError(f"{' '.join(map(str,cmd))}: exit={p.returncode}\\n{p.stderr[-3500:]}")
+        raise RuntimeError(f"{' '.join(map(str,cmd))}: exit={p.returncode}\n{p.stderr[-3500:]}")
     return p
 
 def main():
