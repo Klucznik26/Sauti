@@ -7,18 +7,21 @@
 #include <math.h>
 #include <string.h>
 
-int sauti_aac_sbr_qmf_frame_process_ex(
+static int qmf_frame_process_impl(
     const SautiAacSbrQmfFrameConfig *config,
     const float *core_pcm,
     size_t core_count,
     float *output,
     size_t output_count,
+    SautiAacSbrComplex *qmf_output,size_t qmf_count,
+    unsigned export_qmf,
     SautiAacSbrQmfFrameState *state,
     SautiAacSbrLimiterReport *report,
     SautiAacSbrQmfStage *stage) {
     if(stage)*stage=SAUTI_SBR_QMF_STAGE_INPUT;
     if(!config || !config->hf || !config->hf->tables ||
-       !config->hf->patches || !core_pcm || !output ||
+       !config->hf->patches || !core_pcm ||
+       (!export_qmf&&!output) || (export_qmf&&!qmf_output) ||
        !state || !report || !config->attack ||
        ((config->lpc==NULL)!=(config->chirp==NULL)) ||
        config->bs_smoothing_mode>1u ||
@@ -26,7 +29,8 @@ int sauti_aac_sbr_qmf_frame_process_ex(
        config->hf->slots<1u ||
        config->hf->slots>SAUTI_AAC_SBR_HF_MAX_SLOTS ||
        core_count<(size_t)config->hf->slots*32u ||
-       output_count<(size_t)config->hf->slots*64u)
+       (export_qmf?qmf_count:output_count)<
+           (size_t)config->hf->slots*64u)
         return 0;
     if(stage)*stage=SAUTI_SBR_QMF_STAGE_MAP;
     if(!sauti_aac_sbr_hf_map_valid(
@@ -105,11 +109,13 @@ int sauti_aac_sbr_qmf_frame_process_ex(
             assembled[(size_t)t*64u+k]=adjusted[(size_t)t*64u+k];
     }
 
-    if(stage)*stage=SAUTI_SBR_QMF_STAGE_SYNTHESIS;
-    if(!sauti_aac_sbr_qmf_synth_64(
-           assembled,(size_t)slots*64u,slots,
-           pcm,(size_t)slots*64u,&next.synthesis))
-        return 0;
+    if(!export_qmf){
+        if(stage)*stage=SAUTI_SBR_QMF_STAGE_SYNTHESIS;
+        if(!sauti_aac_sbr_qmf_synth_64(
+               assembled,(size_t)slots*64u,slots,
+               pcm,(size_t)slots*64u,&next.synthesis))
+            return 0;
+    }
 
     /* The previous two low-frequency QMF slots are required by
      * SBR-13, even if this frame used the baseline transpose. */
@@ -120,11 +126,36 @@ int sauti_aac_sbr_qmf_frame_process_ex(
     next.ready=1u;
     next.frames++;
 
-    memcpy(output,pcm,(size_t)slots*64u*sizeof(pcm[0]));
+    if(export_qmf)
+        memcpy(qmf_output,assembled,(size_t)slots*64u*sizeof(*assembled));
+    else
+        memcpy(output,pcm,(size_t)slots*64u*sizeof(pcm[0]));
     *report=diagnostics;
     *state=next;
     if(stage)*stage=SAUTI_SBR_QMF_STAGE_OK;
     return 1;
+}
+
+int sauti_aac_sbr_qmf_frame_process_ex(
+    const SautiAacSbrQmfFrameConfig *config,
+    const float *core_pcm,size_t core_count,
+    float *output,size_t output_count,
+    SautiAacSbrQmfFrameState *state,
+    SautiAacSbrLimiterReport *report,
+    SautiAacSbrQmfStage *stage){
+    return qmf_frame_process_impl(config,core_pcm,core_count,
+               output,output_count,NULL,0u,0u,state,report,stage);
+}
+
+int sauti_aac_sbr_qmf_frame_export_qmf_ex(
+    const SautiAacSbrQmfFrameConfig *config,
+    const float *core_pcm,size_t core_count,
+    SautiAacSbrComplex *qmf,size_t qmf_count,
+    SautiAacSbrQmfFrameState *state,
+    SautiAacSbrLimiterReport *report,
+    SautiAacSbrQmfStage *stage){
+    return qmf_frame_process_impl(config,core_pcm,core_count,
+               NULL,0u,qmf,qmf_count,1u,state,report,stage);
 }
 
 int sauti_aac_sbr_qmf_frame_process(
