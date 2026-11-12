@@ -61,19 +61,21 @@ int main(void){
         }
         assert(lout[32u*64u].re==123.0f&&rout[32u*64u].im==321.0f);
         memcpy(saved_l,lout,sizeof(lout));memcpy(saved_r,rout,sizeof(rout));
+        const float saved_last_right=right[31u*bands+bands-1u].re;
         right[31u*bands+bands-1u].re=NAN;
         assert(!sauti_aac_ps_hybrid_synthesize_stereo(&s,left,32u*bands,
                    right,32u*bands,lout,32u*64u,rout,32u*64u));
         assert(memcmp(saved_l,lout,sizeof(lout))==0);
         assert(memcmp(saved_r,rout,sizeof(rout))==0);
-        right[31u*bands+bands-1u].re=0.0f;
+        right[31u*bands+bands-1u].re=saved_last_right;
         /* Overflow in the low-band sum must be rejected for BOTH outputs. */
+        const float original_l0=left[0].re,original_l1=left[1].re;
         left[0].re=FLT_MAX;left[1].re=FLT_MAX;
         assert(!sauti_aac_ps_hybrid_synthesize_stereo(&s,left,32u*bands,
                    right,32u*bands,lout,32u*64u,rout,32u*64u));
         assert(memcmp(saved_l,lout,sizeof(lout))==0);
         assert(memcmp(saved_r,rout,sizeof(rout))==0);
-        left[0].re=0.0f;left[1].re=0.0f;
+        left[0].re=original_l0;left[1].re=original_l1;
         assert(!sauti_aac_ps_hybrid_synthesize_stereo(&s,left,32u*bands,
                    right,32u*bands,lout,32u*64u-1u,rout,32u*64u));
         assert(!sauti_aac_ps_hybrid_synthesize_stereo(&s,left,32u*bands,
