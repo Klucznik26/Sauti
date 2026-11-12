@@ -6,6 +6,7 @@
 #include "sauti_aac_sbr_qmf_frame.h"
 #include "sauti_aac_ps5_hf_gain.h"
 #include "sauti_aac_ps5_hf_envelope.h"
+#include "sauti_aac_ps5_cross.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -36,18 +37,21 @@ int main(int argc,char **argv){
     SautiAacSbrPayloadFrame *payload=malloc(sizeof(*payload));
     SautiAacSbrQmfFrameState *qmf_state=calloc(1u,sizeof(*qmf_state));
     SautiAacSbrComplex *raw_qmf=malloc(32u*64u*sizeof(*raw_qmf));
-    if(!decoder||!history||!payload||!qmf_state||!raw_qmf||
+    SautiAacSbrComplex *previous_raw=malloc(32u*64u*sizeof(*previous_raw));
+    if(!decoder||!history||!payload||!qmf_state||!raw_qmf||!previous_raw||
        !sauti_aac_he_adts_mono_init(decoder)){
         fprintf(stderr,"Cannot allocate/init audit state\n");
-        free(decoder);free(history);free(payload);free(qmf_state);free(raw_qmf);fclose(in);
+        free(decoder);free(history);free(payload);free(qmf_state);free(raw_qmf);free(previous_raw);fclose(in);
         return 2;
     }
     SautiAacPs5HfGainReport *gain_report=malloc(sizeof(*gain_report));
-    if(!gain_report){fprintf(stderr,"Allocation failed\n");free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);fclose(in);return 2;}
+    if(!gain_report){fprintf(stderr,"Allocation failed\n");free(previous_raw);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);fclose(in);return 2;}
     SautiAacPs5HfEnvelopeReport *envelope=malloc(sizeof(*envelope));
     if(!envelope){fprintf(stderr,"Allocation failed\n");free(gain_report);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);fclose(in);return 2;}
     double signal_budget=0.0,noise_budget=0.0;
     size_t envelope_missing=0u;
+    unsigned cross_frames=0u;
+    double cross_mean_power=0.0;
     size_t missing_sources=0u,inherited=0u;
     double target_power=0.0,raw_power=0.0;
     float pcm[1024u];
@@ -157,6 +161,29 @@ int main(int argc,char **argv){
             fprintf(stderr,"FAIL nonfinite power totals frame=%zu\n",frames);
             goto done;
         }
+        if(handoff.previous_tail_slots){
+            SautiAacPs5CrossReport cross;
+            if(!frames||!sauti_aac_ps5_cross_envelope_analyze(
+                    history,&targets,previous_raw,32u*64u,
+                    raw_qmf,32u*64u,&cross)){
+                fprintf(stderr,"FAIL PS-5c4a cross envelope frame=%zu offset=%zu\n",
+                        frames,offset);
+                goto done;
+            }
+            cross_frames++;
+            for(unsigned k=history->previous.tables.kx;
+                k<history->previous.tables.kx+history->previous.tables.m;k++)
+                cross_mean_power+=cross.mean_source_power[k];
+            if(!isfinite(cross_mean_power)){
+                fprintf(stderr,"FAIL PS-5c4a power overflow\n");
+                goto done;
+            }
+            fprintf(stderr,
+                "CROSS frame=%zu previous_slots=%u inherited=%u full_envelope_slots=%u missing_bins=%u\n",
+                frames,cross.previous_slots_in_envelope,
+                cross.deferred_slots,cross.total_slots_in_envelope,
+                cross.missing_source_bins);
+        }
         const unsigned tail=history->current_plan.deferred_slots;
         if(tail||handoff.previous_tail_slots){
             fprintf(stderr,
@@ -170,6 +197,7 @@ int main(int argc,char **argv){
                 (unsigned)resolved.slot[31].source);
             temporal_frames++;
         }
+        memcpy(previous_raw,raw_qmf,32u*64u*sizeof(*raw_qmf));
         frames++;offset+=len;
     }
     if(ferror(in)||!frames){fprintf(stderr,"FAIL empty/IO\n");goto done;}
@@ -180,6 +208,7 @@ int main(int argc,char **argv){
     fprintf(stderr,
             "PASS PS-5c3 envelope audit frames=%zu signal_budget=%.7g noise_budget=%.7g absent_envelope_sources=%zu; NO HF/PCM synthesis\n",
             frames,signal_budget,noise_budget,envelope_missing);
+    fprintf(stderr,"PASS PS-5c4a full cross-envelope frames=%u mean_power_sum=%.9g; NO HF/PCM synthesis\n",cross_frames,cross_mean_power);
     exit_code=0;
 done:
     free(envelope);free(gain_report);free(raw_qmf);free(qmf_state);free(payload);free(history);free(decoder);
