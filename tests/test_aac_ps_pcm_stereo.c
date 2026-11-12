@@ -53,11 +53,10 @@ static void test_pair(void){
     r[PCM_N-1u].re=0.0f;
     assert(!sauti_aac_ps_pcm_stereo_from_qmf(l,PCM_N,r,PCM_N,
                                               &actual,out,PCM_ST-1u));
-    assert(!sauti_aac_ps_pcm_stereo_from_qmf(l,PCM_N,r,PCM_N,
-                                              &actual,out,(size_t)PCM_ST));
-    /* Previous line is valid: ensure the state and guard are still correct. */
-    assert(out[PCM_ST]==77.0f);
-    ref=actual;
+    assert(!sauti_aac_ps_pcm_stereo_from_qmf(l,PCM_N,l,PCM_N,
+                                              &actual,out,PCM_ST));
+    assert(memcmp(&actual,&old,sizeof(old))==0);
+    assert(memcmp(out,previous,sizeof(previous))==0);
     actual.right.head=10u;
     SautiAacPsPcmStereoState corrupt=actual;
     memcpy(previous,out,sizeof(previous));
@@ -65,7 +64,6 @@ static void test_pair(void){
                                               &actual,out,PCM_ST));
     assert(memcmp(&actual,&corrupt,sizeof(actual))==0);
     assert(memcmp(out,previous,sizeof(previous))==0);
-    (void)ref;
 }
 static void test_full(void){
     SautiAacPsHybridSchedule schedule={0};
