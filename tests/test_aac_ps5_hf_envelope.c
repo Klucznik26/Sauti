@@ -81,6 +81,33 @@ int main(void){
     assert(!sauti_aac_ps5_hf_limit_bands_preview(
         own,raw,32u*64u,r,edges,band_count,gain_mode,limited));
     assert(!memcmp(previous_limited,limited,sizeof(*limited)*32u));
+    /* Energy-balanced path publishes two outputs atomically and retains
+     * decoded noise energy even for an absent raw-HF source. */
+    edges[1][1]=21u;
+    double (*noise)[64u]=calloc(32u,sizeof(*noise));
+    double (*prior_noise)[64u]=malloc(sizeof(*noise)*32u);
+    assert(noise&&prior_noise);
+    assert(sauti_aac_ps5_hf_energy_balance_preview(
+        own,raw,32u*64u,r,edges,band_count,gain_mode,limited,noise));
+    assert(isfinite(limited[2][20]) && noise[2][20]>0.0);
+    assert(isfinite(noise[2][21]) && noise[2][21]>0.0);
+    assert(limited[0][20]!=limited[2][20]);
+    memcpy(previous_limited,limited,sizeof(*limited)*32u);
+    memcpy(prior_noise,noise,sizeof(*noise)*32u);
+    own->slot[3].energy[21]=NAN;
+    assert(!sauti_aac_ps5_hf_energy_balance_preview(
+        own,raw,32u*64u,r,edges,band_count,gain_mode,limited,noise));
+    assert(!memcmp(previous_limited,limited,sizeof(*limited)*32u));
+    assert(!memcmp(prior_noise,noise,sizeof(*noise)*32u));
+    own->slot[3].energy[21]=8.0;
+    /* An absent source cannot gain signal energy; ROM noise remains
+     * available when the decoded noise factor is positive. */
+    for(unsigned t=2;t<32u;t++)raw[t*64u+21u].re=0.0f;
+    assert(sauti_aac_ps5_hf_envelope_analyze(own,raw,32u*64u,r));
+    assert(sauti_aac_ps5_hf_energy_balance_preview(
+        own,raw,32u*64u,r,edges,band_count,gain_mode,limited,noise));
+    assert(limited[2][21]==0.0 && noise[2][21]>0.0);
+    free(prior_noise);free(noise);
     free(previous_limited);free(limited);
     free(r);free(raw);free(own);
     puts("PASS PS-5c3 owned envelope mean-power, signal/noise budgets, deferred slots and rollback");
