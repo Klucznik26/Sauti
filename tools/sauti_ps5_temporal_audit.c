@@ -32,9 +32,16 @@ static int read_frame(FILE *f,uint8_t buf[MAX_ADTS],size_t *count){
     *count=len;
     return 1;
 }
+/* Look up the preceding frame's actual harmonic midpoint. */
+static int previous_tone_at(const SautiAacSbrPayloadFrame *f,unsigned k){
+    for(unsigned b=0;b<f->tables.n_high;b++)
+        if(f->harmonic[b] &&
+           (f->tables.high[b]+f->tables.high[b+1u])/2u==k)return 1;
+    return 0;
+}
 int main(int argc,char **argv){
     if(argc!=2 && argc!=4){
-        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm | --experimental-pcm-no-noise | --experimental-pcm-unscaled | --experimental-pcm-unit-scale | --experimental-pcm-raw-hf | --experimental-pcm-low-only | --experimental-pcm-noise-25 | --experimental-pcm-noise-50 | --experimental-pcm-noise-75 | --experimental-pcm-limited | --experimental-pcm-band-limited | --experimental-pcm-energy-balanced] OUT.f32le\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm | --experimental-pcm-no-noise | --experimental-pcm-unscaled | --experimental-pcm-unit-scale | --experimental-pcm-raw-hf | --experimental-pcm-low-only | --experimental-pcm-noise-25 | --experimental-pcm-noise-50 | --experimental-pcm-noise-75 | --experimental-pcm-limited | --experimental-pcm-band-limited | --experimental-pcm-energy-balanced | --experimental-pcm-tonal] OUT.f32le\n",argv[0]);
         return 2;
     }
     const int experimental=argc==4;
@@ -60,9 +67,11 @@ int main(int argc,char **argv){
         strcmp(argv[2],"--experimental-pcm-band-limited")==0;
     const int energy_balanced=experimental &&
         strcmp(argv[2],"--experimental-pcm-energy-balanced")==0;
+    const int tonal=experimental &&
+        strcmp(argv[2],"--experimental-pcm-tonal")==0;
     const int full=experimental &&
         strcmp(argv[2],"--experimental-pcm")==0;
-    if(experimental&&(!(low_only||raw_hf||no_noise||full||unit_scale||unscaled||noise_25||noise_50||noise_75||limited||band_limited||energy_balanced)||
+    if(experimental&&(!(low_only||raw_hf||no_noise||full||unit_scale||unscaled||noise_25||noise_50||noise_75||limited||band_limited||energy_balanced||tonal)||
         strcmp(argv[1],argv[3])==0)){
         fprintf(stderr,"Invalid experimental PCM arguments\n");
         return 2;
@@ -122,6 +131,8 @@ int main(int argc,char **argv){
     double rom_cross_power=0.0,rom_total_power=0.0;
     double rom_weighted_mean_re=0.0,rom_weighted_mean_im=0.0;
     double hf_peak_gain=0.0;
+    size_t tonal_bins=0u,tonal_frames=0u;
+    double tonal_added_power=0.0;
     size_t hf_bins=0u;
     unsigned published_pcm=0u;
     float stereo_pcm[4096u];
@@ -328,7 +339,7 @@ int main(int argc,char **argv){
                 fprintf(stderr,"FAIL experimental owner-aware HF limiter frame=%zu\n",frames);
                 goto done;
             }
-            if(band_limited||energy_balanced){
+            if(band_limited||energy_balanced||tonal){
                 SautiAacSbrLimiterBands bands[2u];
                 const SautiAacSbrPayloadFrame *owners[2u]={
                     inherited_slots?&history->previous:payload,payload
@@ -347,7 +358,7 @@ int main(int argc,char **argv){
                     gain_modes[src]=owners[src]->gain_mode;
                     memcpy(edges[src],bands[src].edges,count[src]+1u);
                 }
-                if(energy_balanced){
+                if(energy_balanced||tonal){
                     if(!sauti_aac_ps5_hf_energy_balance_preview(
                            &targets,raw_qmf,32u*64u,envelope,edges,count,
                            gain_modes,limited_gains,balanced_noise)){
@@ -361,6 +372,7 @@ int main(int argc,char **argv){
                     goto done;
                 }
             }
+            const size_t tones_before=tonal_bins;
             memcpy(adjusted,raw_qmf,32u*64u*sizeof(*raw_qmf));
             for(unsigned t=0;t<32u;t++){
                 const SautiAacSbrTemporalHfSlot *slot=&targets.slot[t];
@@ -383,25 +395,51 @@ int main(int argc,char **argv){
                      * explicit --experimental-pcm-unscaled control.
                      * This is still not a normative SBR HF limiter. */
                     const double unit=unscaled?1.0:1.0/32768.0;
-                    const double signal=low_only?0.0:raw_hf?1.0:(limited||band_limited||energy_balanced)?
+                    const double signal=low_only?0.0:raw_hf?1.0:(limited||band_limited||energy_balanced||tonal)?
                         limited_gains[t][k]:envelope->provisional_gain[t][k]*unit;
                     /* Three diagnostic controls: all HF, signal HF
                      * without ROM injection, or low-QMF only. No mode
                      * is a normative SBR synthesis implementation. */
                     const double noise_fraction=noise_25?0.25:
                         noise_50?0.50:noise_75?0.75:
-                        (full||unit_scale||unscaled||limited||band_limited||energy_balanced)?1.0:0.0;
-                    const double noise=energy_balanced?
+                        (full||unit_scale||unscaled||limited||band_limited||energy_balanced||tonal)?1.0:0.0;
+                    const double noise=(energy_balanced||tonal)?
                         balanced_noise[t][k]:noise_fraction*
                         sqrt(e*(q/(1.0+q)))*unit;
                     const SautiAacSbrComplex x=raw_qmf[t*64u+k];
-                    const double re=(double)x.re*signal+(double)rom.re*noise;
-                    const double im=(double)x.im*signal+(double)rom.im*noise;
+                    /* Experiment only: SBR-19 four-phase oscillator at
+                     * owner-resolved harmonic midpoints. At active tones
+                     * ROM noise is muted. Joint tonal-energy allocation
+                     * is NOT yet normative. */
+                    const SautiAacSbrPayloadFrame *owner=
+                        slot->source?payload:&history->previous;
+                    const int active_tone=tonal && slot->harmonic[k] &&
+                        (slot->source==0u ||
+                         slot->envelope>=owner->transient_env ||
+                         (history->has_previous &&
+                          previous_tone_at(&history->previous,k)));
+                    const double noise_level=active_tone?0.0:noise;
+                    const double harmonic_amp=active_tone?
+                        sqrt(e/(1.0+q))*unit:0.0;
+                    const unsigned phase=t&3u;
+                    const double sign=(phase==2u ||
+                        (phase==1u && (k&1u)) ||
+                        (phase==3u && !(k&1u)))?-1.0:1.0;
+                    const double re=(double)x.re*signal+
+                        (double)rom.re*noise_level+
+                        ((phase&1u)?0.0:sign*harmonic_amp);
+                    const double im=(double)x.im*signal+
+                        (double)rom.im*noise_level+
+                        ((phase&1u)?sign*harmonic_amp:0.0);
+                    if(active_tone){
+                        tonal_bins++;
+                        tonal_added_power+=harmonic_amp*harmonic_amp;
+                    }
                     const double power=(double)x.re*x.re+(double)x.im*x.im;
                     hf_raw_power+=power;
                     hf_signal_power+=power*signal*signal;
-                    hf_noise_power+=noise*noise*((double)rom.re*rom.re+
-                                                 (double)rom.im*rom.im);
+                    hf_noise_power+=noise_level*noise_level*
+                        ((double)rom.re*rom.re+(double)rom.im*rom.im);
                     if(energy_balanced){
                         const double signal_re=(double)x.re*signal;
                         const double signal_im=(double)x.im*signal;
@@ -441,6 +479,7 @@ int main(int argc,char **argv){
                     adjusted[t*64u+k]=(SautiAacSbrComplex){(float)re,(float)im};
                 }
             }
+            if(tonal && tonal_bins>tones_before)tonal_frames++;
             unsigned pcm_ready=0u;
             if(!sauti_aac_he_ps_delay_push(
                     payload,adjusted,32u*64u,ps_state,
@@ -480,9 +519,12 @@ int main(int argc,char **argv){
         fprintf(stderr,
             "HF-POWER mode=%s bins=%zu raw_power=%.9g signal_power=%.9g "
             "rom_noise_power=%.9g peak_gain=%.9g signal/raw=%.9g\n",
-            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":noise_25?"noise-25":noise_50?"noise-50":noise_75?"noise-75":limited?"limited":band_limited?"band-limited":energy_balanced?"energy-balanced":"full",
+            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":noise_25?"noise-25":noise_50?"noise-50":noise_75?"noise-75":limited?"limited":band_limited?"band-limited":energy_balanced?"energy-balanced":tonal?"tonal":"full",
             hf_bins,hf_raw_power,hf_signal_power,hf_noise_power,hf_peak_gain,
             hf_raw_power>0.0?hf_signal_power/hf_raw_power:0.0);
+        if(tonal)
+            fprintf(stderr,"TONAL-PREVIEW active_bins=%zu frames=%zu sine_power=%.9g (diagnostic)\n",
+                    tonal_bins,tonal_frames,tonal_added_power);
         if(energy_balanced){
             const double measured=rom_real_power+rom_imag_power;
             const double expected_total=hf_signal_power+measured+
