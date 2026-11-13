@@ -43,6 +43,29 @@ int main(void){
     assert(sauti_aac_ps5_hf_envelope_analyze(own,raw,32u*64u,r));
     assert(r->missing_source==2u);
     assert(!sauti_aac_ps5_hf_envelope_analyze(own,raw,2047u,r));
+    /* Preview limiter: a very weak bin must not amplify without bound,
+     * and inherited (previous-owner) slots are independent. */
+    for(unsigned t=0;t<32u;t++){
+        own->slot[t].k2=22u;
+        own->slot[t].energy[21]=8.0;
+        own->slot[t].noise_factor[21]=1.0;
+        raw[t*64u+21u].re=0.001f;
+    }
+    assert(sauti_aac_ps5_hf_envelope_analyze(own,raw,32u*64u,r));
+    double (*limited)[64u]=calloc(32u,sizeof(*limited));
+    assert(limited);
+    assert(sauti_aac_ps5_hf_limit_preview(own,raw,32u*64u,r,limited));
+    assert(isfinite(limited[2][21])&&limited[2][21]>=0.0);
+    assert(limited[2][21] < r->provisional_gain[2][21]/32768.0);
+    assert(limited[0][20]!=limited[2][20]); /* previous/current owners */
+    double (*previous_limited)[64u]=malloc(sizeof(*limited)*32u);
+    assert(previous_limited);
+    memcpy(previous_limited,limited,sizeof(*limited)*32u);
+    own->slot[3].noise_factor[21]=NAN;
+    assert(!sauti_aac_ps5_hf_limit_preview(own,raw,32u*64u,r,limited));
+    assert(!memcmp(previous_limited,limited,sizeof(*limited)*32u));
+    own->slot[3].noise_factor[21]=1.0;
+    free(previous_limited);free(limited);
     free(r);free(raw);free(own);
     puts("PASS PS-5c3 owned envelope mean-power, signal/noise budgets, deferred slots and rollback");
     return 0;
