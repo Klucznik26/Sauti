@@ -33,17 +33,19 @@ static int read_frame(FILE *f,uint8_t buf[MAX_ADTS],size_t *count){
 }
 int main(int argc,char **argv){
     if(argc!=2 && argc!=4){
-        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm | --experimental-pcm-no-noise | --experimental-pcm-low-only] OUT.f32le\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm | --experimental-pcm-no-noise | --experimental-pcm-raw-hf | --experimental-pcm-low-only] OUT.f32le\n",argv[0]);
         return 2;
     }
     const int experimental=argc==4;
     const int low_only=experimental &&
         strcmp(argv[2],"--experimental-pcm-low-only")==0;
+    const int raw_hf=experimental &&
+        strcmp(argv[2],"--experimental-pcm-raw-hf")==0;
     const int no_noise=experimental &&
         strcmp(argv[2],"--experimental-pcm-no-noise")==0;
     const int full=experimental &&
         strcmp(argv[2],"--experimental-pcm")==0;
-    if(experimental&&(!(low_only||no_noise||full)||
+    if(experimental&&(!(low_only||raw_hf||no_noise||full)||
         strcmp(argv[1],argv[3])==0)){
         fprintf(stderr,"Invalid experimental PCM arguments\n");
         return 2;
@@ -94,6 +96,9 @@ int main(int argc,char **argv){
             free(decoder);fclose(in);return 2;
         }
     }
+    double hf_raw_power=0.0,hf_signal_power=0.0,hf_noise_power=0.0;
+    double hf_peak_gain=0.0;
+    size_t hf_bins=0u;
     unsigned published_pcm=0u;
     float stereo_pcm[4096u];
     float pcm[1024u];
@@ -304,7 +309,7 @@ int main(int argc,char **argv){
                     }
                     const double e=slot->energy[k];
                     const double q=slot->noise_factor[k];
-                    const double signal=low_only?0.0:
+                    const double signal=low_only?0.0:raw_hf?1.0:
                         envelope->provisional_gain[t][k];
                     /* Three diagnostic controls: all HF, signal HF
                      * without ROM injection, or low-QMF only. No mode
@@ -313,6 +318,18 @@ int main(int argc,char **argv){
                     const SautiAacSbrComplex x=raw_qmf[t*64u+k];
                     const double re=(double)x.re*signal+(double)rom.re*noise;
                     const double im=(double)x.im*signal+(double)rom.im*noise;
+                    const double power=(double)x.re*x.re+(double)x.im*x.im;
+                    hf_raw_power+=power;
+                    hf_signal_power+=power*signal*signal;
+                    hf_noise_power+=noise*noise*((double)rom.re*rom.re+
+                                                 (double)rom.im*rom.im);
+                    if(signal>hf_peak_gain)hf_peak_gain=signal;
+                    hf_bins++;
+                    if(!isfinite(hf_raw_power)||!isfinite(hf_signal_power)||
+                       !isfinite(hf_noise_power)){
+                        fprintf(stderr,"FAIL experimental HF power overflow frame=%zu\\n",frames);
+                        goto done;
+                    }
                     if(!isfinite(re)||!isfinite(im)||
                        fabs(re)>FLT_MAX||fabs(im)>FLT_MAX){
                         fprintf(stderr,"FAIL experimental HF frame=%zu slot=%u bin=%u\n",
@@ -358,9 +375,15 @@ int main(int argc,char **argv){
             goto done;
         }
         fprintf(stderr,
+            "HF-POWER mode=%s bins=%zu raw_power=%.9g signal_power=%.9g "
+            "rom_noise_power=%.9g peak_gain=%.9g signal/raw=%.9g\\n",
+            low_only?"low-only":raw_hf?"raw-hf":no_noise?"no-noise":"full",
+            hf_bins,hf_raw_power,hf_signal_power,hf_noise_power,hf_peak_gain,
+            hf_raw_power>0.0?hf_signal_power/hf_raw_power:0.0);
+        fprintf(stderr,
             "EXPERIMENTAL PCM mode=%s frames=%zu published=%u samples_per_channel=%zu "
             "not normative SBR (no limiter/smoothing/harmonics); last PS frame pending\n",
-            low_only?"low-only":no_noise?"no-noise":"full",
+            low_only?"low-only":raw_hf?"raw-hf":no_noise?"no-noise":"full",
             frames,published_pcm,(size_t)published_pcm*2048u);
     }
     exit_code=0;
