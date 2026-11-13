@@ -415,7 +415,7 @@ int main(int argc,char **argv){
         fprintf(stderr,
             "EXPERIMENTAL PCM mode=%s frames=%zu published=%u samples_per_channel=%zu "
             "not normative SBR (no limiter/smoothing/harmonics); last PS frame pending\n",
-            low_only?"low-only":raw_hf?"raw-hf":no_noise?"no-noise":"full",
+            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":noise_25?"noise-25":noise_50?"noise-50":noise_75?"noise-75":limited?"limited":"full",
             frames,published_pcm,(size_t)published_pcm*2048u);
     }
     exit_code=0;
