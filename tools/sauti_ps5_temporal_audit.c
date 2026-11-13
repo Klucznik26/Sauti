@@ -315,7 +315,7 @@ int main(int argc,char **argv){
             double limited_gains[32u][64u];
             if(limited && !sauti_aac_ps5_hf_limit_preview(
                    &targets,raw_qmf,32u*64u,envelope,limited_gains)){
-                fprintf(stderr,"FAIL experimental owner-aware HF limiter frame=%zu\\n",frames);
+                fprintf(stderr,"FAIL experimental owner-aware HF limiter frame=%zu\n",frames);
                 goto done;
             }
             if(band_limited){
@@ -329,7 +329,7 @@ int main(int argc,char **argv){
                     if(!sauti_aac_sbr_limiter_bands_build(
                            &owners[src]->tables,&owners[src]->patches,
                            owners[src]->limiter_mode,&bands[src])){
-                        fprintf(stderr,"FAIL owner f_tablelim frame=%zu owner=%u\\n",
+                        fprintf(stderr,"FAIL owner f_tablelim frame=%zu owner=%u\n",
                                 frames,src);
                         goto done;
                     }
@@ -340,7 +340,7 @@ int main(int argc,char **argv){
                 if(!sauti_aac_ps5_hf_limit_bands_preview(
                        &targets,raw_qmf,32u*64u,envelope,edges,
                        count,gain_modes,limited_gains)){
-                    fprintf(stderr,"FAIL owner band limiter frame=%zu\\n",frames);
+                    fprintf(stderr,"FAIL owner band limiter frame=%zu\n",frames);
                     goto done;
                 }
             }
@@ -388,7 +388,7 @@ int main(int argc,char **argv){
                     hf_bins++;
                     if(!isfinite(hf_raw_power)||!isfinite(hf_signal_power)||
                        !isfinite(hf_noise_power)){
-                        fprintf(stderr,"FAIL experimental HF power overflow frame=%zu\\n",frames);
+                        fprintf(stderr,"FAIL experimental HF power overflow frame=%zu\n",frames);
                         goto done;
                     }
                     if(!isfinite(re)||!isfinite(im)||
