@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 BANDS = ((0, 2000), (2000, 6000), (6000, 12000), (12000, 24000))
-MODES = ("full", "limited", "no_noise", "low_only", "noise_25", "noise_50", "noise_75")
+MODES = ("full", "limited", "band_limited", "no_noise", "low_only", "noise_25", "noise_50", "noise_75")
 EPS = 1e-24
 
 
