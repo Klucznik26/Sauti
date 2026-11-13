@@ -27,6 +27,11 @@ def main():
                 capture_output=True,text=True)
             if trial.returncode or not mode_file.exists() or mode_file.stat().st_size!=2*4096*4:
                 raise AssertionError("PCM isolation mode "+mode+" failed: "+trial.stderr)
+        # Full and historical unit-scale are intentionally identical
+        # until normative limiter/smoothing replaces this preview.
+        unit_file=pathlib.Path(td)/"experimental-pcm-unit-scale.f32le"
+        if preview.read_bytes()!=unit_file.read_bytes():
+            raise AssertionError("normalized full differs from unit-scale compatibility")
         bad=pathlib.Path(td)/"truncated.adts"
         bad.write_bytes(fixture.read_bytes()[:-1])
         negative=subprocess.run([sys.argv[2],str(bad)],capture_output=True,text=True)
