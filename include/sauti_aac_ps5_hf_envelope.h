@@ -59,4 +59,19 @@ int sauti_aac_ps5_hf_energy_balance_preview(
     const uint8_t edges[2u][65u],const unsigned edge_count[2u],
     const unsigned gain_mode[2u],
     double signal_gains[32u][64u],double noise_amplitudes[32u][64u]);
+/* Experimental owner-aware tri-component balance. At marked tonal bins,
+ * the decoded noise-share energy is reserved for a four-phase sinusoid
+ * and ROM noise is disabled. One common <=4 dB restoration applies to
+ * the signal, ROM noise and tonal amplitudes. All three outputs commit
+ * only on success. Caller supplies a 0/1 active tone mask and synthesizes
+ * the oscillator. This is not yet normative SBR HF adjustment. */
+int sauti_aac_ps5_hf_tonal_balance_preview(
+    const SautiAacSbrTemporalHfTargets *targets,
+    const SautiAacSbrComplex *raw,size_t raw_count,
+    const SautiAacPs5HfEnvelopeReport *envelope,
+    const uint8_t edges[2u][65u],const unsigned edge_count[2u],
+    const unsigned gain_mode[2u],
+    const uint8_t tone_mask[32u][64u],
+    double signal_gains[32u][64u],double noise_amplitudes[32u][64u],
+    double sine_amplitudes[32u][64u]);
 #endif
