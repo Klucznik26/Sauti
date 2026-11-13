@@ -1059,8 +1059,12 @@ test-aac-ps5-hf-envelope: $(OBJDIR)/test_aac_ps5_hf_envelope
 test-aac-ps5-hf-gain: $(OBJDIR)/test_aac_ps5_hf_gain
 	./$(OBJDIR)/test_aac_ps5_hf_gain
 
+.PHONY: test-aac-ps-tonal-spectrum
+test-aac-ps-tonal-spectrum:
+	python3 tools/sauti_ps_tonal_spectrum.py --self-test
+
 .PHONY: test-aac-ps5-temporal
-test-aac-ps5-temporal: test-aac-ps-owned-geometry test-aac-ps5-cross test-aac-ps5-hf-envelope test-aac-ps5-hf-gain $(OBJDIR)/sauti_ps5_temporal_audit $(OBJDIR)/test_aac_he_adts_ps
+test-aac-ps5-temporal: test-aac-ps-owned-geometry test-aac-ps5-cross test-aac-ps5-hf-envelope test-aac-ps5-hf-gain test-aac-ps-tonal-spectrum $(OBJDIR)/sauti_ps5_temporal_audit $(OBJDIR)/test_aac_he_adts_ps
 	python3 tools/test_sauti_ps5_temporal.py ./$(OBJDIR)/test_aac_he_adts_ps ./$(OBJDIR)/sauti_ps5_temporal_audit
 
 .PHONY: test-aac-ps5-native
