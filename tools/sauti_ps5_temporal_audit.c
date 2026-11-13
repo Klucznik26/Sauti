@@ -118,6 +118,27 @@ int main(int argc,char **argv){
                     frames,offset);
             goto done;
         }
+        /* Diagnose the PS side data before attributing all problems to
+         * SBR. At least one stereo parameter must vary with time on
+         * the independent two-tone source. Print bounded snapshots. */
+        if(frames<5u){
+            const SautiAacPsFrame *ps=&payload->ps;
+            fprintf(stderr,
+                "PS-SIDE frame=%zu header=%u iid_enabled=%u mode=%u count=%u "
+                "icc_enabled=%u mode=%u count=%u env=%u ext=%u "
+                "iid0=%d iid1=%d icc0=%d icc1=%d\n",
+                frames,(unsigned)ps->header_present,
+                (unsigned)ps->header.enable_iid,
+                (unsigned)ps->header.iid_mode,
+                (unsigned)ps->iid_count,
+                (unsigned)ps->header.enable_icc,
+                (unsigned)ps->header.icc_mode,
+                (unsigned)ps->icc_count,
+                (unsigned)ps->resolved_num_env,
+                (unsigned)ps->header.enable_ext,
+                (int)ps->iid[0][0],(int)ps->iid[0][1],
+                (int)ps->icc[0][0],(int)ps->icc[0][1]);
+        }
         SautiAacSbrTemporalHandoff handoff;
         if(!sauti_aac_sbr_temporal_history_push(payload,history,&handoff)){
             fprintf(stderr,
