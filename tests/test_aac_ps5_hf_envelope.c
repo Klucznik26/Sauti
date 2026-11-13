@@ -123,6 +123,31 @@ int main(void){
     assert(sauti_aac_ps5_hf_energy_balance_preview(
         own,raw,32u*64u,r,edges,band_count,gain_mode,limited,noise));
     assert(limited[2][21]==0.0 && noise[2][21]>0.0);
+    /* Tri-component SBR preview transfers the active bin's decoded
+     * noise energy to a sinusoid BEFORE joint limiter restoration.
+     * Unmarked bins retain a zero sinusoid; corrupt masks must never
+     * partially publish any of the three output arrays. */
+    uint8_t tone_mask[32u][64u]={{0}};
+    double (*sines)[64u]=calloc(32u,sizeof(*sines));
+    double (*old_sines)[64u]=malloc(32u*sizeof(*old_sines));
+    assert(sines&&old_sines);
+    tone_mask[2][20]=1u;
+    assert(sauti_aac_ps5_hf_tonal_balance_preview(
+        own,raw,32u*64u,r,edges,band_count,gain_mode,tone_mask,
+        limited,noise,sines));
+    assert(sines[2][20]>0.0 && noise[2][20]==0.0);
+    assert(sines[3][20]==0.0 && noise[3][20]>0.0);
+    memcpy(previous_limited,limited,32u*sizeof(*limited));
+    memcpy(prior_noise,noise,32u*sizeof(*noise));
+    memcpy(old_sines,sines,32u*sizeof(*sines));
+    tone_mask[2][20]=2u;
+    assert(!sauti_aac_ps5_hf_tonal_balance_preview(
+        own,raw,32u*64u,r,edges,band_count,gain_mode,tone_mask,
+        limited,noise,sines));
+    assert(!memcmp(previous_limited,limited,32u*sizeof(*limited)));
+    assert(!memcmp(prior_noise,noise,32u*sizeof(*noise)));
+    assert(!memcmp(old_sines,sines,32u*sizeof(*sines)));
+    free(old_sines);free(sines);
     free(prior_noise);free(noise);
     free(previous_limited);free(limited);
     free(r);free(raw);free(own);
