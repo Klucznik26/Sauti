@@ -33,7 +33,7 @@ static int read_frame(FILE *f,uint8_t buf[MAX_ADTS],size_t *count){
 }
 int main(int argc,char **argv){
     if(argc!=2 && argc!=4){
-        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm | --experimental-pcm-no-noise | --experimental-pcm-unit-scale | --experimental-pcm-raw-hf | --experimental-pcm-low-only] OUT.f32le\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm | --experimental-pcm-no-noise | --experimental-pcm-unscaled | --experimental-pcm-unit-scale | --experimental-pcm-raw-hf | --experimental-pcm-low-only] OUT.f32le\n",argv[0]);
         return 2;
     }
     const int experimental=argc==4;
@@ -41,13 +41,15 @@ int main(int argc,char **argv){
         strcmp(argv[2],"--experimental-pcm-low-only")==0;
     const int unit_scale=experimental &&
         strcmp(argv[2],"--experimental-pcm-unit-scale")==0;
+    const int unscaled=experimental &&
+        strcmp(argv[2],"--experimental-pcm-unscaled")==0;
     const int raw_hf=experimental &&
         strcmp(argv[2],"--experimental-pcm-raw-hf")==0;
     const int no_noise=experimental &&
         strcmp(argv[2],"--experimental-pcm-no-noise")==0;
     const int full=experimental &&
         strcmp(argv[2],"--experimental-pcm")==0;
-    if(experimental&&(!(low_only||raw_hf||no_noise||full||unit_scale)||
+    if(experimental&&(!(low_only||raw_hf||no_noise||full||unit_scale||unscaled)||
         strcmp(argv[1],argv[3])==0)){
         fprintf(stderr,"Invalid experimental PCM arguments\n");
         return 2;
@@ -311,18 +313,20 @@ int main(int argc,char **argv){
                     }
                     const double e=slot->energy[k];
                     const double q=slot->noise_factor[k];
-                    /* The FFmpeg SBR reference uses 16-bit amplitude QMF
-                     * units (32768) whereas this native analysis uses
-                     * normalized float PCM. Unit-scale is an opt-in
-                     * hypothesis test only: no cap/limiter or normative
-                     * SBR adjustment is implied. */
-                    const double unit=unit_scale?1.0/32768.0:1.0;
+                    /* Quantized SBR envelope energy uses an internal 16-bit
+                     * amplitude convention whereas native QMF uses
+                     * normalized PCM. Match amplitude domains before
+                     * multiplying a derived gain or injecting ROM noise.
+                     * The old inconsistent preview is isolated in the
+                     * explicit --experimental-pcm-unscaled control.
+                     * This is still not a normative SBR HF limiter. */
+                    const double unit=unscaled?1.0:1.0/32768.0;
                     const double signal=low_only?0.0:raw_hf?1.0:
                         envelope->provisional_gain[t][k]*unit;
                     /* Three diagnostic controls: all HF, signal HF
                      * without ROM injection, or low-QMF only. No mode
                      * is a normative SBR synthesis implementation. */
-                    const double noise=(full||unit_scale)?
+                    const double noise=(full||unit_scale||unscaled)?
                         sqrt(e*(q/(1.0+q)))*unit:0.0;
                     const SautiAacSbrComplex x=raw_qmf[t*64u+k];
                     const double re=(double)x.re*signal+(double)rom.re*noise;
@@ -386,7 +390,7 @@ int main(int argc,char **argv){
         fprintf(stderr,
             "HF-POWER mode=%s bins=%zu raw_power=%.9g signal_power=%.9g "
             "rom_noise_power=%.9g peak_gain=%.9g signal/raw=%.9g\n",
-            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":"full",
+            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":"full",
             hf_bins,hf_raw_power,hf_signal_power,hf_noise_power,hf_peak_gain,
             hf_raw_power>0.0?hf_signal_power/hf_raw_power:0.0);
         fprintf(stderr,
