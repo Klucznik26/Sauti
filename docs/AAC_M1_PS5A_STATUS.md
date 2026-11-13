@@ -384,3 +384,44 @@ separation are a diagnostic FAIL in sound quality, irrespective
 of successful parser/ROM/QMF/PS smoke tests. Next work should
 locate which stage dominates the noise rather than inflate the
 number of substage PASS markers.
+
+## Audio fault isolation: separate ROM noise, HF amplification and PS
+
+The independently decoded reference is clean in **both** the native
+FFmpeg AAC decoder and Fraunhofer libfdk_aac. The native experimental
+preview is noisy; the existing diagnostic measured RMS ~0.548/0.546
+versus reference ~0.087/0.088, global correlation ~0.039,
+and unexpected 880 Hz right-tone isolation of -46.4 dB.
+These are **fidelity failures**, not syntax failures.
+
+The temporal audit now has three **opt-in PCM isolation modes**:
+- `--experimental-pcm`: previous experimental HF signal gain + ROM noise.
+- `--experimental-pcm-no-noise`: same provisional HF gains, NO ROM
+  contribution. ROM index is still advanced to avoid phase-history
+  differences unrelated to the noise toggle.
+- `--experimental-pcm-low-only`: keep the native lower QMF bands,
+  zero ALL high-band samples; SAME PS stereo bridge and timing.
+
+Run the tests and all three previews with the reference comparison:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+make test-aac-ps5-temporal PKG_CONFIG=/bin/false
+python3 tools/sauti_ps_isolate.py ~/Sauti-fixtures/he_v2_real.aac
+```
+
+Files are saved as `/tmp/sauti_ps_isolation/full.f32le`,
+`no_noise.f32le` and `low_only.f32le` and are compared against
+FFmpeg using tone fractions, channel isolation, peak and RMS.
+The user can listen to any with `ffplay -hide_banner -f f32le
+-ar 48000 -ch_layout stereo /tmp/sauti_ps_isolation/low_only.f32le`.
+
+Interpretation:
+- Low-only is much cleaner than no-noise => HF generated signal
+  gain or transposition already corrupts audio.
+- No-noise much cleaner than full => added SBR ROM noise dominates.
+- Even low-only has wrong 440/880 channel dominance => investigate
+  QMF/PS timing and stereo parameter rendering independent of HF.
+- All modes compared against the same clean FDK fixture; NO mode is
+  ISO-compliant SBR or an audio-fidelity PASS.
