@@ -100,6 +100,22 @@ int main(void){
     assert(!memcmp(previous_limited,limited,sizeof(*limited)*32u));
     assert(!memcmp(prior_noise,noise,sizeof(*noise)*32u));
     own->slot[3].energy[21]=8.0;
+    /* A -3dB limiter should be boosted ONCE after signal+noise
+     * accounting. The historical band-limited path already restores
+     * signal; applying another restoration to it over-amplifies.
+     * With significant ROM noise the corrected joint path must retain
+     * less signal gain, not inherit the first restoration. */
+    const unsigned low_gain_mode[2u]={0u,0u};
+    double (*legacy_band)[64u]=calloc(32u,sizeof(*legacy_band));
+    assert(legacy_band);
+    assert(sauti_aac_ps5_hf_limit_bands_preview(
+        own,raw,32u*64u,r,edges,band_count,low_gain_mode,legacy_band));
+    assert(sauti_aac_ps5_hf_energy_balance_preview(
+        own,raw,32u*64u,r,edges,band_count,low_gain_mode,limited,noise));
+    assert(legacy_band[2][20]>0.0);
+    assert(limited[2][20]>0.0 && limited[2][20]<legacy_band[2][20]);
+    assert(noise[2][20]>0.0);
+    free(legacy_band);
     /* An absent source cannot gain signal energy; ROM noise remains
      * available when the decoded noise factor is positive. */
     for(unsigned t=2;t<32u;t++)raw[t*64u+21u].re=0.0f;
