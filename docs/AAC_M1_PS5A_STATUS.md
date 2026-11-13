@@ -355,3 +355,32 @@ Expected output for FDK input of 285 valid ADTS frames:
 This is a test expectation, not an observed pass.
 Compare the resulting audio with FFmpeg by inspection and
 numerical quality diagnostics before any promotion.
+
+## Listen-test triage: real PCM contains audible noise
+
+The experimental preview successfully emitted 284 stereo blocks,
+but the user's listening test reports **strange noise**, not
+clearly isolated 440 Hz left / 880 Hz right tones. Output presence
+must NOT be confused with audio fidelity.
+
+`tools/sauti_ps5_compare.py` now accepts a pre-existing
+`--pcm` file and calculates two independent kinds of diagnostics:
+(1) reference-aligned RMS, peak, RMSE and channel correlations;
+(2) 440/880 Hz tone fractions and channel isolation for the
+independently generated dual-tone FDK test only.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+python3 tools/sauti_ps5_compare.py \
+  ~/Sauti-fixtures/he_v2_real.aac \
+  --pcm /tmp/sauti_ps_preview.f32le --rate 48000
+```
+
+Requires python3-numpy and a working FFmpeg decoder as **reference
+only**. This command does not alter the native PCM file or
+invoke the native decoder again. Poor correlations or poor tone
+separation are a diagnostic FAIL in sound quality, irrespective
+of successful parser/ROM/QMF/PS smoke tests. Next work should
+locate which stage dominates the noise rather than inflate the
+number of substage PASS markers.
