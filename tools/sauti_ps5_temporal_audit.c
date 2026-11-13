@@ -114,6 +114,13 @@ int main(int argc,char **argv){
         }
     }
     double hf_raw_power=0.0,hf_signal_power=0.0,hf_noise_power=0.0;
+    /* Diagnostic only: expected ROM power assumes E[Re^2+Im^2]=1.
+     * Actual decoded QMF energy additionally includes a signal/noise
+     * cross term; do not equate expected component budgets with the
+     * measured energy of their complex sum. */
+    double rom_target_power=0.0,rom_real_power=0.0,rom_imag_power=0.0;
+    double rom_cross_power=0.0,rom_total_power=0.0;
+    double rom_weighted_mean_re=0.0,rom_weighted_mean_im=0.0;
     double hf_peak_gain=0.0;
     size_t hf_bins=0u;
     unsigned published_pcm=0u;
@@ -395,6 +402,30 @@ int main(int argc,char **argv){
                     hf_signal_power+=power*signal*signal;
                     hf_noise_power+=noise*noise*((double)rom.re*rom.re+
                                                  (double)rom.im*rom.im);
+                    if(energy_balanced){
+                        const double signal_re=(double)x.re*signal;
+                        const double signal_im=(double)x.im*signal;
+                        const double noise_re=(double)rom.re*noise;
+                        const double noise_im=(double)rom.im*noise;
+                        rom_target_power+=noise*noise;
+                        rom_real_power+=noise_re*noise_re;
+                        rom_imag_power+=noise_im*noise_im;
+                        rom_cross_power+=2.0*(signal_re*noise_re+
+                                               signal_im*noise_im);
+                        rom_total_power+=re*re+im*im;
+                        rom_weighted_mean_re+=noise_re;
+                        rom_weighted_mean_im+=noise_im;
+                        if(!isfinite(rom_target_power)||
+                           !isfinite(rom_real_power)||
+                           !isfinite(rom_imag_power)||
+                           !isfinite(rom_cross_power)||
+                           !isfinite(rom_total_power)||
+                           !isfinite(rom_weighted_mean_re)||
+                           !isfinite(rom_weighted_mean_im)){
+                            fprintf(stderr,"FAIL ROM energy audit frame=%zu\n",frames);
+                            goto done;
+                        }
+                    }
                     if(signal>hf_peak_gain)hf_peak_gain=signal;
                     hf_bins++;
                     if(!isfinite(hf_raw_power)||!isfinite(hf_signal_power)||
@@ -452,6 +483,27 @@ int main(int argc,char **argv){
             low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":noise_25?"noise-25":noise_50?"noise-50":noise_75?"noise-75":limited?"limited":band_limited?"band-limited":energy_balanced?"energy-balanced":"full",
             hf_bins,hf_raw_power,hf_signal_power,hf_noise_power,hf_peak_gain,
             hf_raw_power>0.0?hf_signal_power/hf_raw_power:0.0);
+        if(energy_balanced){
+            const double measured=rom_real_power+rom_imag_power;
+            const double expected_total=hf_signal_power+measured+
+                                        rom_cross_power;
+            const double residual=rom_total_power-expected_total;
+            if(!isfinite(residual)||
+               fabs(residual)>1e-7*fmax(1.0,rom_total_power)){
+                fprintf(stderr,"FAIL ROM energy sum identity residual=%.9g\n",residual);
+                goto done;
+            }
+            fprintf(stderr,
+                "ROM-ENERGY samples=%zu expected_noise=%.9g observed_noise=%.9g "
+                "ratio=%.9g real=%.9g imag=%.9g cross=%.9g "
+                "total=%.9g residual=%.9g mean_re=%.9g mean_im=%.9g\n",
+                hf_bins,rom_target_power,measured,
+                rom_target_power>0.0?measured/rom_target_power:0.0,
+                rom_real_power,rom_imag_power,rom_cross_power,
+                rom_total_power,residual,
+                hf_bins?rom_weighted_mean_re/(double)hf_bins:0.0,
+                hf_bins?rom_weighted_mean_im/(double)hf_bins:0.0);
+        }
         fprintf(stderr,
             "EXPERIMENTAL PCM mode=%s frames=%zu published=%u samples_per_channel=%zu "
             "not normative SBR (no complete limiter/smoothing/harmonics); last PS frame pending\n",
