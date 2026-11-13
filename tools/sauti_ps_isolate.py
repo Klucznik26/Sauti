@@ -58,7 +58,7 @@ def main():
             print(f"FAIL: reference comparison for {name}",file=sys.stderr)
             return metrics.returncode
     print("\\nDIAGNOSTIC COMPLETE. Compare RMS, tone fractions and channel "
-          "isolation between the three modes; no audio fidelity PASS implied.")
+          "isolation between the four modes; no audio fidelity PASS implied.")
     return 0
 
 
