@@ -376,7 +376,7 @@ int main(int argc,char **argv){
         }
         fprintf(stderr,
             "HF-POWER mode=%s bins=%zu raw_power=%.9g signal_power=%.9g "
-            "rom_noise_power=%.9g peak_gain=%.9g signal/raw=%.9g\\n",
+            "rom_noise_power=%.9g peak_gain=%.9g signal/raw=%.9g\n",
             low_only?"low-only":raw_hf?"raw-hf":no_noise?"no-noise":"full",
             hf_bins,hf_raw_power,hf_signal_power,hf_noise_power,hf_peak_gain,
             hf_raw_power>0.0?hf_signal_power/hf_raw_power:0.0);
