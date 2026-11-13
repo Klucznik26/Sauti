@@ -21,7 +21,7 @@ def main():
             capture_output=True,text=True)
         if listen.returncode or not preview.exists() or preview.stat().st_size!=2*4096*4:
             raise AssertionError("experimental PCM path failed: "+listen.stderr)
-        for mode in ("--experimental-pcm-no-noise","--experimental-pcm-unscaled","--experimental-pcm-raw-hf","--experimental-pcm-unit-scale","--experimental-pcm-low-only"):
+        for mode in ("--experimental-pcm-no-noise","--experimental-pcm-unscaled","--experimental-pcm-noise-25","--experimental-pcm-noise-50","--experimental-pcm-noise-75","--experimental-pcm-raw-hf","--experimental-pcm-unit-scale","--experimental-pcm-low-only"):
             mode_file=pathlib.Path(td)/(mode[2:]+".f32le")
             trial=subprocess.run([sys.argv[2],str(fixture),mode,str(mode_file)],
                 capture_output=True,text=True)
