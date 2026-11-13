@@ -46,4 +46,17 @@ int sauti_aac_ps5_hf_limit_bands_preview(
     const uint8_t edges[2u][65u],const unsigned edge_count[2u],
     const unsigned gain_mode[2u],
     double gains[32u][64u]);
+/* Experimental energy-balanced HF: reuse owner-aware f_tablelim
+ * gain caps, then jointly balance expected SIGNAL and ROM-NOISE power.
+ * Output signal gains and absolute normalized ROM-noise amplitudes.
+ * Each output is [32 QMF slots][64 bins]. Atomic on rejection.
+ * Assumes unit mean ROM power; does not synthesize harmonic sinusoids,
+ * normative SBR noise smoothing or exact ISO boost equations. */
+int sauti_aac_ps5_hf_energy_balance_preview(
+    const SautiAacSbrTemporalHfTargets *targets,
+    const SautiAacSbrComplex *raw,size_t raw_count,
+    const SautiAacPs5HfEnvelopeReport *envelope,
+    const uint8_t edges[2u][65u],const unsigned edge_count[2u],
+    const unsigned gain_mode[2u],
+    double signal_gains[32u][64u],double noise_amplitudes[32u][64u]);
 #endif
