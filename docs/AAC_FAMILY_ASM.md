@@ -6781,3 +6781,68 @@ phase+2 is a 180° inversion of the steady tone, not a better clock. k42 phase0 
 Sauti frame 0 matches FFmpeg frame 1 exactly up to a positive real scale. Both bands give `|g| = 51933.781`, which is `32768 * 10^(2/10)`. That is Sauti’s documented 1/32768 HF unit times FFmpeg’s +2 dB limiter cap. The shape residual on that frame is ~0. Sauti frame 1 is the first real divergence: Sauti k18 RMS rises about 26× while FFmpeg stays near the frame-0 level, and correlation falls to 0.17. Frames 2–3 are the transient where phase+2 has a higher shape correlation (k18 0.925 vs 0.650) but only after a ~160° rotation, on the same frame whose first ten slots have a Sauti harmonic flag and a zero FFmpeg `s_m`.
 
 **No production change.** The oscillator sign to keep is phase0. The open HF error is amplitude and waveform shape, largest at k18 after the startup frame, not a phase-origin or a slot delay. AAC-LC and the public QMF path were not edited.
+
+### SBR-73 — gain HF and sinusoid are each right, at two different scales (2026-11-14)
+
+Read-only split on the same alignment. FFmpeg logs `Y1` after `hf_g_filt` and before noise/sine (`SAUTI_SBR73_FFMPEG_GAIN`). The probe logs gain-adjusted HF, unsmoothed noise amplitude and the harmonic flag (`SAUTI_SBR73_SAUTI_PARTS`). The tone is `sine_high − gain HF`, which is what the experimental preview adds after removing its own noise. Files: `ffmpeg-gain.csv`, `sauti-parts.csv`, plus the earlier `ffmpeg-qmf.csv` and `sauti-qmf.csv`.
+
+On steady Sauti frames 4–47 (1408 slots, harmonic flag set, FFmpeg still on the noise-plus-sine path):
+
+| Component | Band | Correlation | Scale | Residual / reference |
+| --- | --- | --- | --- | --- |
+| Gain-adjusted HF only | k18 | 1.0000 | 45.2548 = `32*sqrt(2)` | 0.001 |
+| Gain-adjusted HF only | k42 | 0.9941 | 105.8 | 0.108 |
+| Added tone | k18 | 1.0000 | 51933.78 = `32768*10^(2/10)` | ~0 |
+| Added tone | k42 | 0.9996 | 42462 | 0.030 |
+
+Every k18 phase bucket has the same tone scale. Frames 0–1 have no gain HF on either side; their whole subband is noise, and that noise also matches at exactly `32768*10^(2/10)` (64 slots, correlation 1). The earlier “frame 0 matches” result was this noise, not transposed HF.
+
+The two k18 scales differ by `32768*10^(2/10) / (32*sqrt(2))` ≈ 1147.6. FFmpeg adds the tone and the gain HF in one domain, so the tone dominates (RMS 12.68 against gain RMS 0.0175). Sauti adds them as stored, so the tone (RMS 2.44e-4) is the same order as the gain HF (RMS 3.87e-4). One global scale cannot make the sum match. A constant cap is also not enough for k42: its tone scale is 42462, not the +2 dB ceiling.
+
+Startup edge, separate from that scale split: Sauti frame 1 slots 26–31 already contain gain HF at k18 and k42, and the aligned FFmpeg slots are still zero. A lag search over frames 1–3 does not turn that ramp into a single 6-slot shift.
+
+**No production change.** The experimental tone must be scaled into the gain-adjusted QMF domain, including the actual per-band limiter boost, before it is added. Hardcoding `1147.6` would fit only this file’s pegged k18. AAC-LC and the public QMF path were not edited.
+
+### SBR-73 — stored limiter boost is not FFmpeg’s k42 boost (2026-11-14)
+
+Checked the stored boost before multiplying the experimental tone. Same fixture, same alignment. On steady Sauti frames 4–47, FFmpeg `Y_full − Y_gain` is exactly `s_m` on one axis: the orthogonal residual is 0 at both k18 and k42. `hf_apply_noise` adds the noise table only when `s_m` is 0, so that difference is not a noise+sine mixture. The earlier k42 residual of 0.030 was one scale fitted across three real boosts.
+
+`s_m / |Sauti tone| / 32768` is constant inside a frame and is the boost FFmpeg applied:
+
+| Band | Steady frames 4–47 | Boost |
+| --- | --- | --- |
+| k18 | all 44 | `1.584893192` (the +2 dB cap), tone scale `51933.78` |
+| k42 | repeating every frame | `1.347441`, `1.256347`, `1.282795` |
+
+The probe now logs the calculators that already ran, off unless the env var is set. `SAUTI_SBR73_SAUTI_BOOST` writes one row per completed envelope (`sauti-boost.csv`, 57 envelopes). `SAUTI_SBR73_SAUTI_BOOST_BINS` writes the per-bin inputs (`sauti-boost-bins.csv`, 1539 bins). source=1 applies to emitted frame `ingest`; source=0 completes the previous frame’s deferred tail.
+
+SBR-53d `limiter_boost` on those steady frames matches FFmpeg at k18, because both sit on the cap. At k42 it follows the same 3-frame phase but is `1.026`–`1.106`, a factor `1.197`–`1.225` below FFmpeg. The factor is not constant, so a correction on top of SBR-53d would not collapse the tone. SBR-54k `group_boost` at k42 is the cap on these frames, and its post-boost `sine_amplitude` stays in the normalized-energy domain.
+
+The gap is in the inputs, not in the oscillator. SBR-60 divides envelope energy by `2^30` and does not divide the noise floor. SBR-53d then takes `sqrt(E/|X|^2)` and its `after` sum has no `s_m^2`. On this file the k18 limiter group has pre-gain `|X|^2 ≈ 31` on the sine bin, and the cap hides that. The k42 group does not. Replaying FFmpeg `sbr_gain_calc` on the logged bins with `E*2^30`, the noise floor left as stored, and `|X|^2*32768^2` reproduces the k18 cap and comes within 2% on k42 (rms 1.2%, worst steady frame −1.96%). That remaining error keeps the same 3-frame sign, so `32768` is not a constant to build into the tone. No search over a single `|X|` scale removed it.
+
+**No tone scale was applied.** `harmonic_preview`, the `2^-30` normalizer, AAC-LC, and the public QMF path were not edited. phase0 stays. The tone can be multiplied by a limiter boost only after that boost equals FFmpeg’s per band, including k42.
+
+### SBR-73 — k42 boost gap is the quiet low-QMF copies (2026-11-14)
+
+Pre-gain complex samples, same fixture, steady Sauti frames 4–47. Sauti logs `baseline_hf` at ingest (`SAUTI_SBR73_SAUTI_X`, `sauti-x.csv`, 50 frames × 32 slots). FFmpeg logs `X_high` at the start of `sbr_env_estimate` (`SAUTI_SBR73_FFMPEG_X`, `ffmpeg-x.csv`, 51 calls × 40 slots). The unique alignment is Sauti frame N, slot t against FFmpeg call N+1, slot t+2. A lag of ±1 drops k18 from correlation 1.0000 to 0.984. Call N+2 matches the shape only after a −120° rotation and leaves a relative residual of 0.866, so it is the next frame of the same subband oscillator, not a better clock.
+
+At that alignment the loud bins are the same waveform, real scale, angle 0:
+
+| Band | Correlation | Scale | Relative residual | Per-frame RMS scale |
+| --- | --- | --- | --- | --- |
+| k18 | 1.000000 | 32768.154 | 0.00068 | 32764 .. 32776 |
+| k19 | 0.999997 | 32767.991 | 0.0024 | 32766 .. 32773 |
+| k42 | 0.9959 | 32640.9 | 0.091 | 32771 .. 32820 |
+| k35 | 0.9729 | 31927 | 0.235 | 28858 .. 35472 |
+| k36 | 0.9694 | 31802 | 0.255 | 28519 .. 35745 |
+| k41 | 0.9732 | 31911 | 0.231 | 31571 .. 34258 |
+
+k18 and k19 stay on 32768. k35, k36 and k41 are still the same signal (per-frame correlation 0.97–0.99, lag 0), but their magnitude ratio wanders by about ±10% and about a fifth of the energy in the bin is not a single real scale. Conjugation does not improve the fit.
+
+A second disposable trace (`SAUTI_SBR73_FFMPEG_HFGEN`, `ffmpeg-hfgen.csv`, 1377 rows) shows why those bins can disagree without touching the limiter. `bw_array` is 0 on every band of every call, and `X_high` over the generated window is a bit-exact copy of the patched `X_low` (`copy_rel` 0 on all 1377 rows). The LPC coefficients are nonzero (k18 `|alpha0| ≈ 2.17`) and are multiplied by `bw`, so they do not enter `X_high`. Chirp is not this gap.
+
+The patch map is stable. First patch: k18..k32 copy low bands 2..16. Second patch: k33..k44 copy low bands 5..16. The k42 limiter group is that second patch. On call 11 the generator-window power of k33..k44 sums to 435, the same `sumC` the limiter logged. k35 (low 7), k36 (low 8) and k41 (low 13) are about 74% of it. k42 itself (low 14) is about 1.7%. Low band 2 is ~84 dB above low band 7.
+
+So the ~2% k42 boost error is the 32-band analysis disagreeing on those quiet source bands, then being copied verbatim into the second patch and summed by the limiter. The boost formula, the sine clock, and the HF generator are not the remaining bug. Sauti’s experimental analysis accumulates the even prototype taps and the direct cosine/sine modulator in double, then stores float. FFmpeg’s float analysis is the windowed DCT path; this machine’s build uses the SSE QMF shuffles. That difference is the next surface to measure. It is not a measured fix yet.
+
+**No production change.** The tone was not scaled. `32768` was not written into the tone. The `2^-30` normalizer, `harmonic_preview`, AAC-LC, and the public QMF path were not edited. phase0 stays.

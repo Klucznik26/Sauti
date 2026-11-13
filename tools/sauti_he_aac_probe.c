@@ -615,6 +615,322 @@ static int sbr73_trace_qmf(const SautiAacSbrComplex *phase0,
     return fflush(out)==0;
 }
 
+/* SBR-73 optional split of gain-adjusted HF and the unsmoothed noise
+ * amplitude at k18/k42. Enable with SAUTI_SBR73_SAUTI_PARTS=/path.csv.
+ * Unset leaves every buffer untouched. */
+static int sbr73_trace_parts(uint64_t frame,
+                             const SautiAacSbrComplex *gain,
+                             const SautiAacSbrTemporalNoiseFrame *noise,
+                             const SautiAacSbrTemporalHfTargets *targets){
+    const char *path=getenv("SAUTI_SBR73_SAUTI_PARTS");
+    static FILE *out;
+    static int header_done;
+    if(!path)return 1;
+    if(!gain || !noise || !targets)return 0;
+    if(!out){
+        out=fopen(path,"wb");
+        if(!out){
+            perror(path);
+            return 0;
+        }
+    }
+    if(!header_done){
+        if(fprintf(out,
+                   "frame,slot,gre18,gim18,gre42,gim42,namp18,nre18,nim18,namp42,nre42,nim42,h18,h42\n")<0)
+            return 0;
+        header_done=1;
+    }
+    for(unsigned t=0u;t<32u;t++){
+        const size_t i18=(size_t)t*64u+18u;
+        const size_t i42=(size_t)t*64u+42u;
+        const SautiAacSbrComplex g18=gain[i18],g42=gain[i42];
+        const SautiAacSbrComplex v18=noise->vector[i18],v42=noise->vector[i42];
+        const double a18=noise->raw_amplitude[i18];
+        const double a42=noise->raw_amplitude[i42];
+        const unsigned h18=targets->slot[t].harmonic[18u];
+        const unsigned h42=targets->slot[t].harmonic[42u];
+        if(!isfinite(g18.re)||!isfinite(g18.im)||
+           !isfinite(g42.re)||!isfinite(g42.im)||
+           !isfinite(v18.re)||!isfinite(v18.im)||
+           !isfinite(v42.re)||!isfinite(v42.im)||
+           !isfinite(a18)||a18<0.0||!isfinite(a42)||a42<0.0||
+           h18>1u||h42>1u)
+            return 0;
+        if(fprintf(out,
+                   "%llu,%u,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%u,%u\n",
+                   (unsigned long long)frame,t,
+                   (double)g18.re,(double)g18.im,(double)g42.re,(double)g42.im,
+                   a18,(double)v18.re,(double)v18.im,
+                   a42,(double)v42.re,(double)v42.im,h18,h42)<0)
+            return 0;
+    }
+    return fflush(out)==0;
+}
+
+/* SBR-73 optional pre-gain HF at the bins that dominate the open limiter
+ * groups. frame is the ingest index, which source=1 gains apply to.
+ * Enable with SAUTI_SBR73_SAUTI_X=/path.csv. */
+static int sbr73_trace_x(uint64_t frame, const SautiAacSbrComplex *hf){
+    const char *path=getenv("SAUTI_SBR73_SAUTI_X");
+    static FILE *out;
+    static int header_done;
+    static const unsigned ks[7]={18u,19u,35u,36u,40u,41u,42u};
+    if(!path)return 1;
+    if(!hf)return 0;
+    if(!out){
+        out=fopen(path,"wb");
+        if(!out){
+            perror(path);
+            return 0;
+        }
+    }
+    if(!header_done){
+        if(fprintf(out,"frame,slot,k,re,im\n")<0)return 0;
+        header_done=1;
+    }
+    for(unsigned n=0u;n<7u;n++){
+        const unsigned k=ks[n];
+        for(unsigned t=0u;t<32u;t++){
+            const SautiAacSbrComplex x=hf[(size_t)t*64u+k];
+            if(!isfinite(x.re) || !isfinite(x.im))return 0;
+            if(fprintf(out,"%llu,%u,%u,%.9g,%.9g\n",
+                       (unsigned long long)frame,t,k,
+                       (double)x.re,(double)x.im)<0)
+                return 0;
+        }
+    }
+    return fflush(out)==0;
+}
+
+/* Limiter group containing absolute QMF band k, or -1 when k is outside. */
+static int sbr73_limiter_group(const SautiAacSbrLimiterBands *bands,
+                               unsigned k){
+    if(!bands || k>=64u ||
+       bands->count<1u ||
+       bands->count>SAUTI_AAC_SBR_MAX_LIMITER_BANDS)return -1;
+    for(unsigned g=0u;g<bands->count;g++){
+        if(bands->edges[g]>=bands->edges[g+1u])return -1;
+        if(k>=bands->edges[g] && k<bands->edges[g+1u])return (int)g;
+    }
+    return -1;
+}
+
+/* SBR-73 optional per-envelope limiter boost for the bands whose tone
+ * scale is open. SBR-53d and SBR-54k are both recorded. source=1 gains
+ * apply to emitted frame `ingest`; source=0 completes the previous
+ * frame's deferred tail (emitted frame ingest-1). Enable with
+ * SAUTI_SBR73_SAUTI_BOOST=/path.csv. Unset leaves every buffer untouched. */
+static int sbr73_trace_boost(uint64_t ingest,
+                             const SautiAacSbrTemporalHistory *history,
+                             const SautiAacSbrTemporalGainReport *legacy,
+                             const SautiAacSbrTemporalReferenceGainReport *ref){
+    const char *path=getenv("SAUTI_SBR73_SAUTI_BOOST");
+    static FILE *out;
+    static int header_done;
+    if(!path)return 1;
+    if(!history || !legacy || !ref || !history->frames ||
+       legacy->completed_count!=ref->completed_count ||
+       legacy->completed_count>SAUTI_AAC_SBR_MAX_ENV+1u)return 0;
+    if(!out){
+        out=fopen(path,"wb");
+        if(!out){
+            perror(path);
+            return 0;
+        }
+    }
+    if(!header_done){
+        if(fprintf(out,
+                   "ingest,history_frames,applies_to,source,envelope,slots,"
+                   "g18,b53_18,b54_18,s54_18,n54_18,"
+                   "g42,b53_42,b54_42,s54_42,n54_42\n")<0)
+            return 0;
+        header_done=1;
+    }
+    for(unsigned i=0u;i<legacy->completed_count;i++){
+        const SautiAacSbrTemporalGainEnvelope *old=&legacy->completed[i];
+        const SautiAacSbrTemporalReferenceGainEnvelope *neu=&ref->completed[i];
+        if(old->source!=neu->source || old->envelope!=neu->envelope ||
+           old->slots!=neu->slots || old->kx!=neu->kx || old->k2!=neu->k2 ||
+           old->limiter_count!=neu->limiter_count ||
+           old->source>1u ||
+           (old->source==0u && (!history->has_previous || ingest==0u)))
+            return 0;
+        const SautiAacSbrPayloadFrame *frame=
+            old->source==0u?&history->previous:&history->current;
+        SautiAacSbrLimiterBands bands;
+        if(!sauti_aac_sbr_limiter_bands_build(
+               &frame->tables,&frame->patches,frame->limiter_mode,&bands) ||
+           bands.count!=old->limiter_count)return 0;
+        const unsigned ks[2]={18u,42u};
+        int group[2];
+        double b53[2],b54[2],s54[2],n54[2];
+        for(unsigned n=0u;n<2u;n++){
+            const unsigned k=ks[n];
+            group[n]=-1;
+            b53[n]=b54[n]=s54[n]=n54[n]=0.0;
+            if(k<old->kx || k>=old->k2)continue;
+            group[n]=sbr73_limiter_group(&bands,k);
+            if(group[n]<0 || (unsigned)group[n]>=old->limiter_count)return 0;
+            b53[n]=old->limiter_boost[group[n]];
+            b54[n]=neu->limited.group_boost[group[n]];
+            s54[n]=neu->limited.band[k].sine_amplitude;
+            n54[n]=neu->limited.band[k].noise_amplitude;
+            if(!isfinite(b53[n]) || b53[n]<0.0 ||
+               !isfinite(b54[n]) || b54[n]<0.0 ||
+               !isfinite(s54[n]) || s54[n]<0.0 ||
+               !isfinite(n54[n]) || n54[n]<0.0)return 0;
+        }
+        const uint64_t applies=old->source==1u?ingest:ingest-1u;
+        if(fprintf(out,
+                   "%llu,%llu,%llu,%u,%u,%u,"
+                   "%d,%.9g,%.9g,%.9g,%.9g,"
+                   "%d,%.9g,%.9g,%.9g,%.9g\n",
+                   (unsigned long long)ingest,
+                   (unsigned long long)history->frames,
+                   (unsigned long long)applies,
+                   (unsigned)old->source,(unsigned)old->envelope,
+                   (unsigned)old->slots,
+                   group[0],b53[0],b54[0],s54[0],n54[0],
+                   group[1],b53[1],b54[1],s54[1],n54[1])<0)
+            return 0;
+    }
+    return fflush(out)==0;
+}
+
+/* Per-bin limiter inputs for the same envelopes as sbr73_trace_boost.
+ * E and Q are the normalized envelope values the gain calculators saw.
+ * ecurr is the pre-gain mean |X|^2. sine_center is the high-band midpoint;
+ * s_mapped is that flag spread across the envelope frequency band, which
+ * is the split FFmpeg uses between s_m and the gain equation.
+ * Enable with SAUTI_SBR73_SAUTI_BOOST_BINS=/path.csv. */
+static int sbr73_trace_boost_bins(
+    uint64_t ingest,
+    const SautiAacSbrTemporalHistory *history,
+    const SautiAacSbrTemporalPowerReport *power,
+    const SautiAacSbrTemporalGainReport *legacy,
+    const SautiAacSbrTemporalReferenceGainReport *ref){
+    const char *path=getenv("SAUTI_SBR73_SAUTI_BOOST_BINS");
+    static FILE *out;
+    static int header_done;
+    if(!path)return 1;
+    if(!history || !power || !legacy || !ref || !history->frames ||
+       legacy->completed_count!=ref->completed_count ||
+       legacy->completed_count!=power->completed_count ||
+       legacy->completed_count>SAUTI_AAC_SBR_MAX_ENV+1u)return 0;
+    if(!out){
+        out=fopen(path,"wb");
+        if(!out){
+            perror(path);
+            return 0;
+        }
+    }
+    if(!header_done){
+        if(fprintf(out,
+                   "applies_to,source,envelope,delta,transient_env,gain_mode,freq_res,"
+                   "k,group,E,Q,ecurr,sine_center,s_mapped,g53,g54,s54,n54\n")<0)
+            return 0;
+        header_done=1;
+    }
+    for(unsigned i=0u;i<legacy->completed_count;i++){
+        const SautiAacSbrTemporalGainEnvelope *old=&legacy->completed[i];
+        const SautiAacSbrTemporalReferenceGainEnvelope *neu=&ref->completed[i];
+        const SautiAacSbrTemporalPowerEnvelope *pow=&power->completed[i];
+        if(old->source!=neu->source || old->source!=pow->source ||
+           old->envelope!=neu->envelope || old->envelope!=pow->envelope ||
+           old->kx!=neu->kx || old->kx!=pow->kx ||
+           old->k2!=neu->k2 || old->k2!=pow->k2 ||
+           old->source>1u || neu->transient_delta>1u ||
+           (old->source==0u && (!history->has_previous || ingest==0u)))
+            return 0;
+        const SautiAacSbrPayloadFrame *frame=
+            old->source==0u?&history->previous:&history->current;
+        const unsigned env=old->envelope;
+        if(env>=frame->grid.env_count ||
+           frame->energy.freq_res[env]>1u ||
+           frame->gain_mode>3u ||
+           frame->transient_env>frame->grid.env_count)return 0;
+        SautiAacSbrLimiterBands bands;
+        if(!sauti_aac_sbr_limiter_bands_build(
+               &frame->tables,&frame->patches,frame->limiter_mode,&bands) ||
+           bands.count!=old->limiter_count)return 0;
+        const SautiAacSbrTables *tab=&frame->tables;
+        const unsigned fine=frame->energy.freq_res[env];
+        const uint8_t *freq=fine?tab->high:tab->low;
+        const unsigned nband=fine?tab->n_high:tab->n_low;
+        const unsigned kx=old->kx,k2=old->k2;
+        double energy[64]={0},noise[64]={0};
+        uint8_t center[64]={0},mapped[64]={0};
+        for(unsigned b=0u;b<nband;b++){
+            if(freq[b]>=freq[b+1u] || freq[b+1u]>64u)return 0;
+            const double value=frame->energy.env_energy[env][b];
+            if(!isfinite(value) || value<0.0)return 0;
+            for(unsigned k=freq[b];k<freq[b+1u];k++)energy[k]=value;
+        }
+        unsigned noise_index=frame->grid.noise_count;
+        const unsigned start=frame->env_edges[env];
+        const unsigned end=frame->env_edges[env+1u];
+        for(unsigned j=0u;j<frame->grid.noise_count;j++)
+            if(start>=frame->noise_edges[j] &&
+               end<=frame->noise_edges[j+1u]){
+                noise_index=j;break;
+            }
+        if(noise_index>=frame->grid.noise_count ||
+           tab->n_noise>SAUTI_AAC_SBR_MAX_NOISE_BANDS)return 0;
+        for(unsigned b=0u;b<tab->n_noise;b++){
+            if(tab->noise[b]>=tab->noise[b+1u] ||
+               tab->noise[b+1u]>64u)return 0;
+            const double value=frame->energy.noise_factor[noise_index][b];
+            if(!isfinite(value) || value<0.0)return 0;
+            for(unsigned k=tab->noise[b];k<tab->noise[b+1u];k++)
+                noise[k]=value;
+        }
+        if(tab->n_high>SAUTI_AAC_SBR_MAX_MASTER_BANDS)return 0;
+        for(unsigned b=0u;b<tab->n_high;b++){
+            if(frame->harmonic[b]>1u ||
+               tab->high[b]>=tab->high[b+1u])return 0;
+            if(!frame->harmonic[b])continue;
+            const unsigned mid=(tab->high[b]+tab->high[b+1u])/2u;
+            if(mid>=64u)return 0;
+            center[mid]=1u;
+        }
+        for(unsigned b=0u;b<nband;b++){
+            unsigned present=0u;
+            for(unsigned k=freq[b];k<freq[b+1u];k++)
+                if(center[k])present=1u;
+            if(!present)continue;
+            for(unsigned k=freq[b];k<freq[b+1u];k++)mapped[k]=1u;
+        }
+        const uint64_t applies=old->source==1u?ingest:ingest-1u;
+        for(unsigned k=kx;k<k2;k++){
+            const int group=sbr73_limiter_group(&bands,k);
+            if(group<0)return 0;
+            const double ecurr=pow->mean_power[k];
+            const double g53=old->applied_gain[k];
+            const double g54=neu->limited.band[k].hf_gain;
+            const double s54=neu->limited.band[k].sine_amplitude;
+            const double n54=neu->limited.band[k].noise_amplitude;
+            if(!isfinite(ecurr) || ecurr<0.0 ||
+               !isfinite(g53) || g53<0.0 ||
+               !isfinite(g54) || g54<0.0 ||
+               !isfinite(s54) || s54<0.0 ||
+               !isfinite(n54) || n54<0.0)return 0;
+            if(fprintf(out,
+                       "%llu,%u,%u,%u,%u,%u,%u,"
+                       "%u,%d,%.9g,%.9g,%.9g,%u,%u,%.9g,%.9g,%.9g,%.9g\n",
+                       (unsigned long long)applies,
+                       (unsigned)old->source,(unsigned)old->envelope,
+                       (unsigned)neu->transient_delta,
+                       (unsigned)frame->transient_env,
+                       (unsigned)frame->gain_mode,fine,
+                       k,group,energy[k],noise[k],ecurr,
+                       (unsigned)center[k],(unsigned)mapped[k],
+                       g53,g54,s54,n54)<0)
+                return 0;
+        }
+    }
+    return fflush(out)==0;
+}
+
 static void diagnose_core_sequence(const char *path,size_t limit,
                                    const char *export_path,
                                    const char *component_prefix){
@@ -1035,6 +1351,10 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             break;
         }
         qmf_prepared_frames++;
+        if(!sbr73_trace_x(i,baseline_hf)){
+            printf("  ramka %zu: SBR-73 pre-gain X trace odrzucony\n",i);
+            break;
+        }
 
         /* SBR-54s: read-only six-slot SOURCE-QMF lookback W[i-6],
          * independent of SBR's 2/6 FIXVAR original side-data owner.
@@ -1232,6 +1552,13 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         ref_gain_new_power+=reference_gain.new_gain_sq_sum;
         for(unsigned j=0u;j<reference_gain.completed_count;j++)
             ref_gain_carry+=reference_gain.completed[j].source==0u;
+        if(!sbr73_trace_boost(i,&temporal_history,
+                              &gain_report,&reference_gain) ||
+           !sbr73_trace_boost_bins(i,&temporal_history,&power_report,
+                                   &gain_report,&reference_gain)){
+            printf("  ramka %zu: SBR-73 boost trace odrzucony\n",i);
+            break;
+        }
 
         gain_frames++;
         gain_envelopes+=gain_report.completed_count;
@@ -1369,7 +1696,9 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             phase2_qmf_frames++;
             if(!sbr73_trace_phase(&emitted_targets,sine_held_onset,
                                   tone_report.frame_index,sbr73_phase_before) ||
-               !sbr73_trace_qmf(sine_high,phase2_high,tone_report.frame_index)){
+               !sbr73_trace_qmf(sine_high,phase2_high,tone_report.frame_index) ||
+               !sbr73_trace_parts(tone_report.frame_index,adjusted_hf,
+                                  &noise_frame,&emitted_targets)){
                 printf("  ramka %zu: SBR-73 trace odrzucony\n",i);
                 break;
             }
@@ -1698,7 +2027,10 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                                            final_sine_qmf_report.frame_index,
                                            sbr73_final_phase_before) ||
                         !sbr73_trace_qmf(final_sine_hf,final_phase2_hf,
-                                         final_sine_qmf_report.frame_index))){
+                                         final_sine_qmf_report.frame_index) ||
+                        !sbr73_trace_parts(final_sine_qmf_report.frame_index,
+                                           final_hf,&last_noise,
+                                           &temporal_noise.held_targets))){
                         puts("  SBR-73: finalny trace odrzucony");
                         phase2_io_ok=0;
                     }
