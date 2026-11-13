@@ -130,6 +130,37 @@ def main():
                   f"R880_over_L880={sep_r:+.1f} dB")
         tone_audit("native",aa)
         tone_audit("ffmpeg",bb)
+        # One aligned one-second snapshot across the FULL audible spectrum.
+        # Tone purity above intentionally examines only 200..2000 Hz,
+        # so it can remain excellent despite enormous HF energy.
+        # Windowing suppresses artificial leakage of the test sine tones.
+        def band_audit(native_audio, reference_audio):
+            count=min(a.rate,len(native_audio),len(reference_audio))
+            if count<2048:
+                return
+            win=np.hanning(count)[:,None]
+            freq=np.fft.rfftfreq(count,d=1.0/a.rate)
+            spec_native=np.abs(np.fft.rfft(native_audio[:count]*win,axis=0))**2
+            spec_ref=np.abs(np.fft.rfft(reference_audio[:count]*win,axis=0))**2
+            spec_error=np.abs(np.fft.rfft(
+                (native_audio[:count]-reference_audio[:count])*win,axis=0))**2
+            full=spec_native.sum(axis=0)
+            eps=1e-30
+            bands=((0,2000),(2000,6000),(6000,12000),(12000,a.rate/2))
+            for lo,hi in bands:
+                if lo>=hi:continue
+                region=(freq>=lo)&(freq<(hi if hi<a.rate/2 else hi+0.001))
+                powers=[v[region].sum(axis=0) for v in
+                        (spec_native,spec_ref,spec_error)]
+                native_power,reference_power,error_power=powers
+                ratio_db=10*np.log10((native_power+eps)/(reference_power+eps))
+                err_db=10*np.log10((error_power+eps)/(reference_power+eps))
+                fraction=native_power/(full+eps)
+                print(f"SPECTRUM {lo/1000:.0f}-{hi/1000:.0f}kHz: "
+                      f"native_share_L/R={fraction[0]:.5f}/{fraction[1]:.5f} "
+                      f"native_vs_ref_L/R={ratio_db[0]:+.1f}/{ratio_db[1]:+.1f}dB "
+                      f"error_vs_ref_L/R={err_db[0]:+.1f}/{err_db[1]:+.1f}dB")
+        band_audit(aa,bb)
         print("DIAGNOSTIC ONLY — check fidelity and SBR/PS timing; this is not a compliance PASS")
         if decoder is not None:
             print(decoder.stderr.strip())
