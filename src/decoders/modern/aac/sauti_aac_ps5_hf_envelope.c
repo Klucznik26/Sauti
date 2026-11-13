@@ -287,18 +287,23 @@ int sauti_aac_ps5_hf_limit_bands_preview(
  * owner caps, then account for decoded SBR noise budget with exactly
  * one joint restoration of group energy. ROM has assumed unit expected complex magnitude.
  * This is not normative SBR including sine/harmonic restoration. */
-int sauti_aac_ps5_hf_energy_balance_preview(
+static int energy_balance_stage(
     const SautiAacSbrTemporalHfTargets *targets,
     const SautiAacSbrComplex *raw,size_t raw_count,
     const SautiAacPs5HfEnvelopeReport *envelope,
     const uint8_t edges[2u][65u],const unsigned edge_count[2u],
     const unsigned gain_mode[2u],
-    double signal_gains[32u][64u],double noise_amplitudes[32u][64u]){
+    double signal_gains[32u][64u],double noise_amplitudes[32u][64u],
+    const uint8_t (*tone_mask)[64u],double (*sine_amplitudes)[64u]){
     if(!targets||!raw||!envelope||!edges||!edge_count||!gain_mode||
-       !signal_gains||!noise_amplitudes||signal_gains==noise_amplitudes)
+       !signal_gains||!noise_amplitudes||signal_gains==noise_amplitudes||
+       ((tone_mask==NULL)!=(sine_amplitudes==NULL))||
+       (sine_amplitudes && (sine_amplitudes==signal_gains||
+                            sine_amplitudes==noise_amplitudes)))
         return 0;
     double next_signal[32u][64u];
     double next_noise[32u][64u]={{0}};
+    double next_sine[32u][64u]={{0}};
     /* Leave signal gains capped but not boosted. The only restoration
      * below considers signal PLUS noise and is bounded to ~4 dB. */
     if(!limit_bands_preview_stage(
@@ -320,7 +325,10 @@ int sauti_aac_ps5_hf_energy_balance_preview(
             const SautiAacSbrComplex x=raw[(size_t)t*64u+k];
             const double signal=((double)x.re*x.re+(double)x.im*x.im)*g*g;
             if(!isfinite(n)||n<0.0||!isfinite(signal))return 0;
-            next_noise[t][k]=sqrt(n);
+            const int tone=tone_mask && tone_mask[t][k];
+            if(tone_mask && tone_mask[t][k]>1u)return 0;
+            next_noise[t][k]=tone?0.0:sqrt(n);
+            next_sine[t][k]=tone?sqrt(n):0.0;
             desired[src][env][b]+=e*unit*unit;
             available[src][env][b]+=signal+n;
             if(!isfinite(desired[src][env][b])||
@@ -348,11 +356,47 @@ int sauti_aac_ps5_hf_energy_balance_preview(
             const double f=correction[src][env][b];
             next_signal[t][k]*=f;
             next_noise[t][k]*=f;
+            next_sine[t][k]*=f;
             if(!isfinite(next_signal[t][k])||
-               !isfinite(next_noise[t][k]))return 0;
+               !isfinite(next_noise[t][k])||
+               !isfinite(next_sine[t][k]))return 0;
         }
     }
     memcpy(signal_gains,next_signal,sizeof(next_signal));
     memcpy(noise_amplitudes,next_noise,sizeof(next_noise));
+    if(sine_amplitudes)
+        memcpy(sine_amplitudes,next_sine,sizeof(next_sine));
     return 1;
+}
+
+/* Existing noise-only preview remains bit-for-bit compatible. */
+int sauti_aac_ps5_hf_energy_balance_preview(
+    const SautiAacSbrTemporalHfTargets *targets,
+    const SautiAacSbrComplex *raw,size_t raw_count,
+    const SautiAacPs5HfEnvelopeReport *envelope,
+    const uint8_t edges[2u][65u],const unsigned edge_count[2u],
+    const unsigned gain_mode[2u],
+    double signal_gains[32u][64u],double noise_amplitudes[32u][64u]){
+    return energy_balance_stage(targets,raw,raw_count,envelope,
+        edges,edge_count,gain_mode,signal_gains,noise_amplitudes,NULL,NULL);
+}
+
+/* Experimental tri-component balance: when tone_mask[t][k] is active,
+ * transfer that bin's decoded noise-share energy into an SBR sinusoid.
+ * Reserve this energy BEFORE the one joint bounded restoration, rather
+ * than adding an oscillator after full signal+noise compensation.
+ * Tone selection and four-phase oscillator belong to the caller. */
+int sauti_aac_ps5_hf_tonal_balance_preview(
+    const SautiAacSbrTemporalHfTargets *targets,
+    const SautiAacSbrComplex *raw,size_t raw_count,
+    const SautiAacPs5HfEnvelopeReport *envelope,
+    const uint8_t edges[2u][65u],const unsigned edge_count[2u],
+    const unsigned gain_mode[2u],
+    const uint8_t tone_mask[32u][64u],
+    double signal_gains[32u][64u],double noise_amplitudes[32u][64u],
+    double sine_amplitudes[32u][64u]){
+    if(!tone_mask||!sine_amplitudes)return 0;
+    return energy_balance_stage(targets,raw,raw_count,envelope,
+        edges,edge_count,gain_mode,signal_gains,noise_amplitudes,
+        tone_mask,sine_amplitudes);
 }
