@@ -78,12 +78,20 @@ def main():
     parser.add_argument("--out-dir", type=Path,
                         default=Path("/tmp/sauti_ps_broadband"))
     parser.add_argument("--seconds", type=int, default=10)
-    parser.add_argument("--bitrate", default="64k")
+    parser.add_argument("--bitrate", default="32k",
+                        help="FDK HE-AAC v2 stereo at 48kHz: 18k..56k; default 32k")
     parser.add_argument("--generate-only", action="store_true",
                         help="generate WAV and encoded AAC without running comparisons")
     args = parser.parse_args()
     if args.seconds < 3 or args.seconds > 60:
         parser.error("--seconds must be in 3..60")
+    try:
+        rate = args.bitrate.lower().strip()
+        bits = int(rate[:-1]) * 1000 if rate.endswith("k") else int(rate)
+    except ValueError:
+        parser.error("--bitrate must be an integer in bit/s or e.g. 32k")
+    if not 18000 <= bits <= 56000:
+        parser.error("FDK HE-AAC v2 stereo at 48kHz requires bitrate 18k..56k; try 32k")
     if not shutil.which("ffmpeg"):
         parser.error("FFmpeg not found")
     encoders = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
