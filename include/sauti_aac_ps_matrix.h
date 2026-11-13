@@ -4,8 +4,10 @@
 #include "sauti_aac_ps_map.h"
 
 /* Real components of the PS stereo matrix for one parameter band:
- * left = h11 * direct + h12 * decorrelated;
- * right = h21 * direct + h22 * decorrelated.
+ * left = h11 * direct + h21 * decorrelated;
+ * right = h12 * direct + h22 * decorrelated.
+ * CAUTION: coefficients are indexed by input (direct, decorrelated)
+ * and output (left, right), not row-major output-first.
  * IPD/OPD contributes a separate complex rotation in the mixer stage. */
 typedef struct {
     float h11;
