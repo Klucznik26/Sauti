@@ -34,7 +34,7 @@ static int read_frame(FILE *f,uint8_t buf[MAX_ADTS],size_t *count){
 }
 int main(int argc,char **argv){
     if(argc!=2 && argc!=4){
-        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm | --experimental-pcm-no-noise | --experimental-pcm-unscaled | --experimental-pcm-unit-scale | --experimental-pcm-raw-hf | --experimental-pcm-low-only | --experimental-pcm-noise-25 | --experimental-pcm-noise-50 | --experimental-pcm-noise-75 | --experimental-pcm-limited | --experimental-pcm-band-limited] OUT.f32le\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm | --experimental-pcm-no-noise | --experimental-pcm-unscaled | --experimental-pcm-unit-scale | --experimental-pcm-raw-hf | --experimental-pcm-low-only | --experimental-pcm-noise-25 | --experimental-pcm-noise-50 | --experimental-pcm-noise-75 | --experimental-pcm-limited | --experimental-pcm-band-limited | --experimental-pcm-energy-balanced] OUT.f32le\n",argv[0]);
         return 2;
     }
     const int experimental=argc==4;
@@ -58,9 +58,11 @@ int main(int argc,char **argv){
         strcmp(argv[2],"--experimental-pcm-limited")==0;
     const int band_limited=experimental &&
         strcmp(argv[2],"--experimental-pcm-band-limited")==0;
+    const int energy_balanced=experimental &&
+        strcmp(argv[2],"--experimental-pcm-energy-balanced")==0;
     const int full=experimental &&
         strcmp(argv[2],"--experimental-pcm")==0;
-    if(experimental&&(!(low_only||raw_hf||no_noise||full||unit_scale||unscaled||noise_25||noise_50||noise_75||limited||band_limited)||
+    if(experimental&&(!(low_only||raw_hf||no_noise||full||unit_scale||unscaled||noise_25||noise_50||noise_75||limited||band_limited||energy_balanced)||
         strcmp(argv[1],argv[3])==0)){
         fprintf(stderr,"Invalid experimental PCM arguments\n");
         return 2;
@@ -313,12 +315,13 @@ int main(int argc,char **argv){
             /* Preserve current preview; the limiter only changes the
              * explicitly selected experimental mode. */
             double limited_gains[32u][64u];
+            double balanced_noise[32u][64u];
             if(limited && !sauti_aac_ps5_hf_limit_preview(
                    &targets,raw_qmf,32u*64u,envelope,limited_gains)){
                 fprintf(stderr,"FAIL experimental owner-aware HF limiter frame=%zu\n",frames);
                 goto done;
             }
-            if(band_limited){
+            if(band_limited||energy_balanced){
                 SautiAacSbrLimiterBands bands[2u];
                 const SautiAacSbrPayloadFrame *owners[2u]={
                     inherited_slots?&history->previous:payload,payload
@@ -337,9 +340,16 @@ int main(int argc,char **argv){
                     gain_modes[src]=owners[src]->gain_mode;
                     memcpy(edges[src],bands[src].edges,count[src]+1u);
                 }
-                if(!sauti_aac_ps5_hf_limit_bands_preview(
-                       &targets,raw_qmf,32u*64u,envelope,edges,
-                       count,gain_modes,limited_gains)){
+                if(energy_balanced){
+                    if(!sauti_aac_ps5_hf_energy_balance_preview(
+                           &targets,raw_qmf,32u*64u,envelope,edges,count,
+                           gain_modes,limited_gains,balanced_noise)){
+                        fprintf(stderr,"FAIL owner HF energy balance frame=%zu\n",frames);
+                        goto done;
+                    }
+                }else if(!sauti_aac_ps5_hf_limit_bands_preview(
+                          &targets,raw_qmf,32u*64u,envelope,edges,
+                          count,gain_modes,limited_gains)){
                     fprintf(stderr,"FAIL owner band limiter frame=%zu\n",frames);
                     goto done;
                 }
@@ -366,15 +376,16 @@ int main(int argc,char **argv){
                      * explicit --experimental-pcm-unscaled control.
                      * This is still not a normative SBR HF limiter. */
                     const double unit=unscaled?1.0:1.0/32768.0;
-                    const double signal=low_only?0.0:raw_hf?1.0:(limited||band_limited)?
+                    const double signal=low_only?0.0:raw_hf?1.0:(limited||band_limited||energy_balanced)?
                         limited_gains[t][k]:envelope->provisional_gain[t][k]*unit;
                     /* Three diagnostic controls: all HF, signal HF
                      * without ROM injection, or low-QMF only. No mode
                      * is a normative SBR synthesis implementation. */
                     const double noise_fraction=noise_25?0.25:
                         noise_50?0.50:noise_75?0.75:
-                        (full||unit_scale||unscaled||limited||band_limited)?1.0:0.0;
-                    const double noise=noise_fraction*
+                        (full||unit_scale||unscaled||limited||band_limited||energy_balanced)?1.0:0.0;
+                    const double noise=energy_balanced?
+                        balanced_noise[t][k]:noise_fraction*
                         sqrt(e*(q/(1.0+q)))*unit;
                     const SautiAacSbrComplex x=raw_qmf[t*64u+k];
                     const double re=(double)x.re*signal+(double)rom.re*noise;
@@ -438,13 +449,13 @@ int main(int argc,char **argv){
         fprintf(stderr,
             "HF-POWER mode=%s bins=%zu raw_power=%.9g signal_power=%.9g "
             "rom_noise_power=%.9g peak_gain=%.9g signal/raw=%.9g\n",
-            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":noise_25?"noise-25":noise_50?"noise-50":noise_75?"noise-75":limited?"limited":band_limited?"band-limited":"full",
+            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":noise_25?"noise-25":noise_50?"noise-50":noise_75?"noise-75":limited?"limited":band_limited?"band-limited":energy_balanced?"energy-balanced":"full",
             hf_bins,hf_raw_power,hf_signal_power,hf_noise_power,hf_peak_gain,
             hf_raw_power>0.0?hf_signal_power/hf_raw_power:0.0);
         fprintf(stderr,
             "EXPERIMENTAL PCM mode=%s frames=%zu published=%u samples_per_channel=%zu "
             "not normative SBR (no complete limiter/smoothing/harmonics); last PS frame pending\n",
-            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":noise_25?"noise-25":noise_50?"noise-50":noise_75?"noise-75":limited?"limited":band_limited?"band-limited":"full",
+            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":noise_25?"noise-25":noise_50?"noise-50":noise_75?"noise-75":limited?"limited":band_limited?"band-limited":energy_balanced?"energy-balanced":"full",
             frames,published_pcm,(size_t)published_pcm*2048u);
     }
     exit_code=0;
