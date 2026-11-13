@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """PS-5b: real ADTS bitstream temporal SBR side-data audit smoke."""
 import pathlib
+import math
 import subprocess
 import sys
 import tempfile
@@ -27,6 +28,28 @@ def main():
                 capture_output=True,text=True)
             if trial.returncode or not mode_file.exists() or mode_file.stat().st_size!=2*4096*4:
                 raise AssertionError("PCM isolation mode "+mode+" failed: "+trial.stderr)
+            if mode=="--experimental-pcm-energy-balanced":
+                lines=[line for line in trial.stderr.splitlines()
+                       if line.startswith("ROM-ENERGY ")]
+                if len(lines)!=1:
+                    raise AssertionError("missing/duplicated ROM energy audit: "+trial.stderr)
+                stats=dict(item.split("=",1) for item in lines[0].split()[1:])
+                expected=("samples","expected_noise","observed_noise","ratio",
+                          "real","imag","cross","total","residual",
+                          "mean_re","mean_im")
+                if any(name not in stats for name in expected):
+                    raise AssertionError("incomplete ROM energy audit")
+                values={name:float(stats[name]) for name in expected}
+                if not all(math.isfinite(value) for value in values.values()):
+                    raise AssertionError("non-finite ROM energy diagnostic")
+                if values["expected_noise"]<0 or values["observed_noise"]<0:
+                    raise AssertionError("negative ROM energy")
+                if abs(values["observed_noise"]-
+                       values["real"]-values["imag"])>1e-5*max(
+                           1.0,values["observed_noise"]):
+                    raise AssertionError("ROM I/Q energy inconsistency")
+                if abs(values["residual"])>1e-6*max(1.0,values["total"]):
+                    raise AssertionError("ROM mixed-energy conservation failed")
         # Full and historical unit-scale are intentionally identical
         # until normative limiter/smoothing replaces this preview.
         unit_file=pathlib.Path(td)/"experimental-pcm-unit-scale.f32le"
