@@ -552,3 +552,39 @@ test fixture are still required before claiming HE-AAC v2 fidelity.
 References for unit convention / dequant formula:
 - FFmpeg `libavcodec/aacsbr_template.c` (`ff_aac_sbr_ctx_alloc_init` QMF scale)
 - FFmpeg `libavcodec/aacsbr.c` (`sbr_dequant`).
+
+## PS-5d: repair preview PCM amplitude domain (NOT a normative SBR completion)
+
+After the real 285-frame fixture's `unit_scale` preview reproduced
+the low-band baseline and removed the massive experimental HF
+overdrive, the `--experimental-pcm` and `--experimental-pcm-no-noise`
+previews now use `1/32768` on both derived SBR HF amplitude gain
+and ROM-noise amplitude. Unscaled QMF amplitude estimation is still
+done from native normalized PCM; target amplitude needs to be brought
+into the SAME units. SBR dequantized energy values themselves and
+the production decoder are left unchanged. The former broken full
+variant is available as `--experimental-pcm-unscaled`, so it remains
+an explicit regression control instead of the default listening path.
+
+`--experimental-pcm-unit-scale` remains an alias to the normalized
+full preview for comparison, and the smoke test demands the PCM output
+of full and unit_scale match byte for byte. The comparison helper now
+runs six previews: full, no_noise, unscaled, unit_scale, raw_hf,
+low_only.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+make test-aac-ps5-temporal PKG_CONFIG=/bin/false
+python3 tools/sauti_ps_isolate.py ~/Sauti-fixtures/he_v2_real.aac
+ffmpeg -hide_banner -loglevel error -y -f f32le -ar 48000 -ac 2 \
+  -i /tmp/sauti_ps_isolation/full.f32le -c:a pcm_s16le /tmp/sauti_full_fixed.wav
+ffplay -autoexit /tmp/sauti_full_fixed.wav
+```
+
+**Still outstanding**: ISO SBR limiter caps/boost, full
+FIXVAR-to-VARFIX envelope-mean power across frame boundaries,
+SBR coefficient smoothing, sinusoid synthesis, and independent
+HF-rich HE-AAC v2 fixture. A two-tone reference with essentially
+zero legitimate HF content does not prove SBR fidelity. Do not
+enable this preview path as a production HE-AAC v2 decoder yet.
