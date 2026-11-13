@@ -33,4 +33,17 @@ int sauti_aac_ps5_hf_limit_preview(
     const SautiAacSbrComplex *raw,size_t raw_count,
     const SautiAacPs5HfEnvelopeReport *envelope,
     double gains[32u][64u]);
+/* Experimental owner-aware per-limiter-band gain caps.
+ * The two supplied edge arrays describe ORIGINAL previous/current
+ * source frames; edge_count is the number of bands, not edges.
+ * Actual f_tablelim generation is performed by the caller.
+ * Gains and validation are atomic. No ROM noise, smoothing, or sine.
+ * This is diagnostic, not ISO-conformant SBR reconstruction. */
+int sauti_aac_ps5_hf_limit_bands_preview(
+    const SautiAacSbrTemporalHfTargets *targets,
+    const SautiAacSbrComplex *raw,size_t raw_count,
+    const SautiAacPs5HfEnvelopeReport *envelope,
+    const uint8_t edges[2u][65u],const unsigned edge_count[2u],
+    const unsigned gain_mode[2u],
+    double gains[32u][64u]);
 #endif
