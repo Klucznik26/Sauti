@@ -22,12 +22,15 @@ def main():
             capture_output=True,text=True)
         if listen.returncode or not preview.exists() or preview.stat().st_size!=2*4096*4:
             raise AssertionError("experimental PCM path failed: "+listen.stderr)
-        for mode in ("--experimental-pcm-no-noise","--experimental-pcm-limited","--experimental-pcm-band-limited","--experimental-pcm-energy-balanced","--experimental-pcm-unscaled","--experimental-pcm-noise-25","--experimental-pcm-noise-50","--experimental-pcm-noise-75","--experimental-pcm-raw-hf","--experimental-pcm-unit-scale","--experimental-pcm-low-only"):
+        for mode in ("--experimental-pcm-no-noise","--experimental-pcm-limited","--experimental-pcm-band-limited","--experimental-pcm-energy-balanced","--experimental-pcm-tonal","--experimental-pcm-unscaled","--experimental-pcm-noise-25","--experimental-pcm-noise-50","--experimental-pcm-noise-75","--experimental-pcm-raw-hf","--experimental-pcm-unit-scale","--experimental-pcm-low-only"):
             mode_file=pathlib.Path(td)/(mode[2:]+".f32le")
             trial=subprocess.run([sys.argv[2],str(fixture),mode,str(mode_file)],
                 capture_output=True,text=True)
             if trial.returncode or not mode_file.exists() or mode_file.stat().st_size!=2*4096*4:
                 raise AssertionError("PCM isolation mode "+mode+" failed: "+trial.stderr)
+            if mode=="--experimental-pcm-tonal":
+                if trial.stderr.count("TONAL-PREVIEW ")!=1 or "mode=tonal" not in trial.stderr:
+                    raise AssertionError("tonal-mode diagnostic missing: "+trial.stderr)
             if mode=="--experimental-pcm-energy-balanced":
                 lines=[line for line in trial.stderr.splitlines()
                        if line.startswith("ROM-ENERGY ")]
