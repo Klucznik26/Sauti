@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Isolate audible SBR-vs-PS errors on real HE-AAC v2 ADTS audio.
 
-Runs 3 independent native experimental previews through the SAME PS engine:
+Runs 4 independent native experimental previews through the SAME PS engine:
 (1) full provisional HF+ROM noise, (2) provisional signal HF only,
-(3) low QMF only. Compares each with FFmpeg independently. Diagnostic
+(3) raw transposed HF without gain/noise, (4) low QMF only. Compares each with FFmpeg independently. Diagnostic
 only, none of the previews is an ISO compliant HE-AAC reconstruction.
 """
 import argparse
@@ -28,6 +28,7 @@ def main():
     modes = (
         ("full", "--experimental-pcm"),
         ("no_noise", "--experimental-pcm-no-noise"),
+        ("raw_hf", "--experimental-pcm-raw-hf"),
         ("low_only", "--experimental-pcm-low-only"),
     )
     compare = Path(__file__).with_name("sauti_ps5_compare.py")
@@ -47,6 +48,9 @@ def main():
             print(f"FAIL: empty PCM output in {name}",file=sys.stderr)
             return 1
         print("PCM:", output, "size:", output.stat().st_size, "bytes")
+        for line in res.stderr.splitlines():
+            if line.startswith("HF-POWER "):
+                print(line)
         metrics = subprocess.run(
             [sys.executable, str(compare), str(args.source), "--pcm",
              str(output), "--rate", str(args.rate)], check=False)
