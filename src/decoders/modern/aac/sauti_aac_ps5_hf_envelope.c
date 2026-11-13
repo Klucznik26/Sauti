@@ -156,13 +156,13 @@ int sauti_aac_ps5_hf_limit_preview(
  * physical QMF bin. The ROM noise and tonal components are separate.
  * This diagnostic uses target signal energy, not the complete normative
  * noise+harmonic energy-restoration equation. */
-int sauti_aac_ps5_hf_limit_bands_preview(
+static int limit_bands_preview_stage(
     const SautiAacSbrTemporalHfTargets *targets,
     const SautiAacSbrComplex *raw,size_t raw_count,
     const SautiAacPs5HfEnvelopeReport *envelope,
     const uint8_t edges[2u][65u],const unsigned edge_count[2u],
     const unsigned gain_mode[2u],
-    double gains[32u][64u]){
+    double gains[32u][64u],int with_restore){
     if(!targets||!raw||!envelope||!edges||!edge_count||!gain_mode||
        !gains||raw_count<32u*64u||targets->previous_slots>6u)
         return 0;
@@ -261,7 +261,7 @@ int sauti_aac_ps5_hf_limit_bands_preview(
         unsigned b=0u;
         for(unsigned k=slot->kx;k<slot->k2;k++){
             while(b+1u<edge_count[src]&&k>=edges[src][b+1u])b++;
-            next[t][k]*=boost[src][env][b];
+            if(with_restore)next[t][k]*=boost[src][env][b];
             if(!isfinite(next[t][k]))return 0;
         }
     }
@@ -269,9 +269,23 @@ int sauti_aac_ps5_hf_limit_bands_preview(
     return 1;
 }
 
-/* PS experimental energy balancing. Use existing f_tablelim owner
- * caps, then account for decoded SBR noise budget when restoring
- * group energy. ROM has assumed unit expected complex magnitude.
+/* Legacy preview retains its existing 4 dB restoration. The new
+ * energy-aware preview requests pre-restoration gains instead, so
+ * signal and noise share only ONE restoration pass. */
+int sauti_aac_ps5_hf_limit_bands_preview(
+    const SautiAacSbrTemporalHfTargets *targets,
+    const SautiAacSbrComplex *raw,size_t raw_count,
+    const SautiAacPs5HfEnvelopeReport *envelope,
+    const uint8_t edges[2u][65u],const unsigned edge_count[2u],
+    const unsigned gain_mode[2u],
+    double gains[32u][64u]){
+    return limit_bands_preview_stage(targets,raw,raw_count,envelope,
+                                     edges,edge_count,gain_mode,gains,1);
+}
+
+/* PS experimental energy balancing. Use pre-restoration f_tablelim
+ * owner caps, then account for decoded SBR noise budget with exactly
+ * one joint restoration of group energy. ROM has assumed unit expected complex magnitude.
  * This is not normative SBR including sine/harmonic restoration. */
 int sauti_aac_ps5_hf_energy_balance_preview(
     const SautiAacSbrTemporalHfTargets *targets,
@@ -285,9 +299,11 @@ int sauti_aac_ps5_hf_energy_balance_preview(
         return 0;
     double next_signal[32u][64u];
     double next_noise[32u][64u]={{0}};
-    if(!sauti_aac_ps5_hf_limit_bands_preview(
+    /* Leave signal gains capped but not boosted. The only restoration
+     * below considers signal PLUS noise and is bounded to ~4 dB. */
+    if(!limit_bands_preview_stage(
            targets,raw,raw_count,envelope,edges,edge_count,
-           gain_mode,next_signal))return 0;
+           gain_mode,next_signal,0))return 0;
     double desired[2u][SAUTI_AAC_SBR_MAX_ENV][64u]={{{0}}};
     double available[2u][SAUTI_AAC_SBR_MAX_ENV][64u]={{{0}}};
     double correction[2u][SAUTI_AAC_SBR_MAX_ENV][64u]={{{0}}};
