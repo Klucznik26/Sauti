@@ -65,6 +65,22 @@ int main(void){
     assert(!sauti_aac_ps5_hf_limit_preview(own,raw,32u*64u,r,limited));
     assert(!memcmp(previous_limited,limited,sizeof(*limited)*32u));
     own->slot[3].noise_factor[21]=1.0;
+    /* Real-band variant validates owner-specific frequency partitions
+     * and leaves all published gains unchanged on corrupt geometry. */
+    uint8_t edges[2u][65u]={{0}};
+    edges[0][0]=20u;edges[0][1]=21u;edges[0][2]=22u;
+    edges[1][0]=20u;edges[1][1]=21u;edges[1][2]=22u;
+    const unsigned band_count[2u]={2u,2u};
+    const unsigned gain_mode[2u]={2u,2u};
+    assert(sauti_aac_ps5_hf_limit_bands_preview(
+        own,raw,32u*64u,r,edges,band_count,gain_mode,limited));
+    assert(isfinite(limited[2][20])&&isfinite(limited[2][21]));
+    assert(limited[0][20]!=limited[2][20]);
+    memcpy(previous_limited,limited,sizeof(*limited)*32u);
+    edges[1][1]=20u;
+    assert(!sauti_aac_ps5_hf_limit_bands_preview(
+        own,raw,32u*64u,r,edges,band_count,gain_mode,limited));
+    assert(!memcmp(previous_limited,limited,sizeof(*limited)*32u));
     free(previous_limited);free(limited);
     free(r);free(raw);free(own);
     puts("PASS PS-5c3 owned envelope mean-power, signal/noise budgets, deferred slots and rollback");
