@@ -6745,3 +6745,39 @@ Adapter `aac-he-sbr-native-adts-experimental` nie odrzuca już samego
 `protection_absent=0`: skanuje taki sam jednoblokowy transport jak wariant
 bez CRC, a pierwsza i każda kolejna rama przechodzi walidację SCE przed
 zapisem do cache PCM. Nie rozszerza to jeszcze zakresu o CPE ani multi-RDB.
+
+### SBR-73 — measured f_indexsine on he_test.aac (2026-11-13)
+
+Disposable checkout only: `/home/marek/Sauti-tools/ffmpeg-sbr54w` (FFmpeg 8.0.git). `tools/sauti_sbr73_ffmpeg_phase_trace.py --dry-run` matched the float `sbr_hf_assemble` anchors, then the same script patched **only** `libavcodec/aacsbr.c`. Installed `/usr/bin/ffmpeg` was not modified. The pre-existing SBR-54/55/57/58 traces in `aacsbr_template.c` stay env-gated and were left unset. Incremental `make ffmpeg` rebuilt `libavcodec/aacsbr.o` and `ffmpeg`.
+
+Traces, kept outside `/tmp`:
+
+- FFmpeg: `SAUTI_SBR73_FFMPEG_PHASE=/home/marek/Sauti-tools/sbr73-traces/ffmpeg.csv` while decoding `~/Sauti-fixtures/he_test.aac` (ffprobe: HE-AACv2, stereo, 48 kHz). CSV has 1632 slot rows, 51 `sbr_hf_assemble` calls, one channel (`kx=18`, `m_max=27`).
+- Sauti: `SAUTI_SBR73_TRACE=1 ./build/sauti_he_aac_probe ~/Sauti-fixtures/he_test.aac 50 …` wrote 1600 `SBR73_SAUTI` rows (50 emitted frames × 32 slots) to `/home/marek/Sauti-tools/sbr73-traces/sauti.log`. Probe exit status 1 is the existing “pozostałe ramki nie były zastępowane ciszą” limit, not a trace failure. `sauti_sbr73_phase_trace_audit.py` accepted both logs with no offsets.
+
+**Call index is not the Sauti frame index.** Four calls are not 32 slots: call 3 has 34 slots and call 4 continues at slot 2 (34+30=64); call 49 has 38 slots and call 50 continues at slot 6 (38+26=64). `f_indexsine` is one continuous channel clock across those spills. Reassembling each call into 32-slot output frames by carrying the overflow slots forward yields 51 frames and no leftover. That reassembly uses the traced slot index and the 32-slot frame length. It does not search for a phase match.
+
+The envelope string of Sauti emitted frame N is identical to reconstructed FFmpeg frame N+1 on all 50 frames, including the four non-flat borders (Sauti 2, 3, 48, 49). FFmpeg frame 0 is the extra leading assemble and has no Sauti counterpart. At that alignment, 1600/1600 slots have the same envelope and `f_indexsine == Sauti phase0`. `f_indexsine == phase+2` on 0/1600 slots. Every aligned frame starts at phase 0 because the running clock stays a multiple of 4 at each 32-slot boundary, including after the spills.
+
+The only amplitude disagreement on that alignment is Sauti frame 2, slots 0–9: Sauti harmonic flags at k18 and k42 are set, while FFmpeg `s_m` is 0 for both bands. Those ten slots are envelope 0 and `onset=0`. Envelope id and `f_indexsine` still match there. On the other 1590 slots the k18 sine is present exactly when Sauti flag 18 is set. k18 and k42 amplitudes are not equal to each other (1500 FFmpeg slots); presence of the two tones tracked together on this file.
+
+**No production change.** phase+2 stays experimental. This clock measurement rejects “Sauti’s oscillator origin differs from FFmpeg `f_indexsine`” for this fixture. It does not compare complex HF QMF samples or PCM, so it does not explain the earlier k18/k42 spectral residual. AAC-LC and the public QMF path were not edited.
+
+### SBR-73 — complex HF QMF at k18/k42 (2026-11-14)
+
+Same fixture, same 32-slot reassembly, same map Sauti frame N = FFmpeg output frame N+1. The new traces are read-only and off unless the env var is set. FFmpeg logs `Y1` after gain, noise and sine (`SAUTI_SBR73_FFMPEG_QMF`, disposable `aacsbr.c` only). The probe logs the experimental `sine_high` and `phase2_high` buffers (`SAUTI_SBR73_SAUTI_QMF`). Files: `/home/marek/Sauti-tools/sbr73-traces/ffmpeg-qmf.csv` (1632 slots) and `sauti-qmf.csv` (1600 slots). This is pre-synthesis mono HF, not post-PS stereo and not PCM.
+
+On the aligned grid the best slot lag in either band, over steady Sauti frames 4–47, is 0. A 2-slot or 6-slot shift does not raise correlation.
+
+| Band | Path | Slots | Correlation | Best-gain angle | Residual / FFmpeg RMS |
+| --- | --- | --- | --- | --- | --- |
+| k18 | phase0 | 1408 steady | 0.536 | −0.12° | 0.844 |
+| k18 | phase+2 | 1408 steady | 0.531 | −179.87° | 0.847 |
+| k42 | phase0 | 1408 steady | 0.808 | +0.04° | 0.589 |
+| k42 | phase+2 | 1408 steady | 0.806 | +179.96° | 0.592 |
+
+phase+2 is a 180° inversion of the steady tone, not a better clock. k42 phase0 has the same complex direction as FFmpeg on 1408/1408 steady slots; 65% of FFmpeg energy is explained by one complex gain. k18 phase0 explains only 29%. Its direction agrees on 322/352 slots of phase bucket 0 and 235/352 on buckets 1, 2 and 3, so the k18 residual is not one inverted quarter-cycle.
+
+Sauti frame 0 matches FFmpeg frame 1 exactly up to a positive real scale. Both bands give `|g| = 51933.781`, which is `32768 * 10^(2/10)`. That is Sauti’s documented 1/32768 HF unit times FFmpeg’s +2 dB limiter cap. The shape residual on that frame is ~0. Sauti frame 1 is the first real divergence: Sauti k18 RMS rises about 26× while FFmpeg stays near the frame-0 level, and correlation falls to 0.17. Frames 2–3 are the transient where phase+2 has a higher shape correlation (k18 0.925 vs 0.650) but only after a ~160° rotation, on the same frame whose first ten slots have a Sauti harmonic flag and a zero FFmpeg `s_m`.
+
+**No production change.** The oscillator sign to keep is phase0. The open HF error is amplitude and waveform shape, largest at k18 after the startup frame, not a phase-origin or a slot delay. AAC-LC and the public QMF path were not edited.

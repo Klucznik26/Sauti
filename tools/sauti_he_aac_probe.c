@@ -568,6 +568,53 @@ static int sbr73_trace_phase(const SautiAacSbrTemporalHfTargets *targets,
     return fflush(stderr)==0;
 }
 
+/* SBR-73 optional complex HF QMF at k18/k42 for phase0 and phase+2.
+ * The samples are the experimental preview that enters the sine PCM
+ * path. Enable with SAUTI_SBR73_SAUTI_QMF=/path.csv. Unset leaves
+ * every buffer untouched. */
+static int sbr73_trace_qmf(const SautiAacSbrComplex *phase0,
+                           const SautiAacSbrComplex *phase2,
+                           uint64_t frame){
+    const char *path=getenv("SAUTI_SBR73_SAUTI_QMF");
+    static FILE *out;
+    static int header_done;
+    if(!path)return 1;
+    if(!phase0 || !phase2)return 0;
+    if(!out){
+        out=fopen(path,"wb");
+        if(!out){
+            perror(path);
+            return 0;
+        }
+    }
+    if(!header_done){
+        if(fprintf(out,
+                   "frame,slot,re18,im18,re42,im42,p2re18,p2im18,p2re42,p2im42\n")<0)
+            return 0;
+        header_done=1;
+    }
+    for(unsigned t=0u;t<32u;t++){
+        const SautiAacSbrComplex *a18=&phase0[(size_t)t*64u+18u];
+        const SautiAacSbrComplex *a42=&phase0[(size_t)t*64u+42u];
+        const SautiAacSbrComplex *b18=&phase2[(size_t)t*64u+18u];
+        const SautiAacSbrComplex *b42=&phase2[(size_t)t*64u+42u];
+        if(!isfinite(a18->re) || !isfinite(a18->im) ||
+           !isfinite(a42->re) || !isfinite(a42->im) ||
+           !isfinite(b18->re) || !isfinite(b18->im) ||
+           !isfinite(b42->re) || !isfinite(b42->im))
+            return 0;
+        if(fprintf(out,
+                   "%llu,%u,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g\n",
+                   (unsigned long long)frame,t,
+                   (double)a18->re,(double)a18->im,
+                   (double)a42->re,(double)a42->im,
+                   (double)b18->re,(double)b18->im,
+                   (double)b42->re,(double)b42->im)<0)
+            return 0;
+    }
+    return fflush(out)==0;
+}
+
 static void diagnose_core_sequence(const char *path,size_t limit,
                                    const char *export_path,
                                    const char *component_prefix){
@@ -1321,7 +1368,8 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             }
             phase2_qmf_frames++;
             if(!sbr73_trace_phase(&emitted_targets,sine_held_onset,
-                                  tone_report.frame_index,sbr73_phase_before)){
+                                  tone_report.frame_index,sbr73_phase_before) ||
+               !sbr73_trace_qmf(sine_high,phase2_high,tone_report.frame_index)){
                 printf("  ramka %zu: SBR-73 trace odrzucony\n",i);
                 break;
             }
@@ -1645,10 +1693,12 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                         phase2_io_ok=0;
                     }
                     if(final_sine_ok && final_phase2_ok && phase2_io_ok &&
-                       !sbr73_trace_phase(&temporal_noise.held_targets,
-                                          sine_held_onset,
-                                          final_sine_qmf_report.frame_index,
-                                          sbr73_final_phase_before)){
+                       (!sbr73_trace_phase(&temporal_noise.held_targets,
+                                           sine_held_onset,
+                                           final_sine_qmf_report.frame_index,
+                                           sbr73_final_phase_before) ||
+                        !sbr73_trace_qmf(final_sine_hf,final_phase2_hf,
+                                         final_sine_qmf_report.frame_index))){
                         puts("  SBR-73: finalny trace odrzucony");
                         phase2_io_ok=0;
                     }
