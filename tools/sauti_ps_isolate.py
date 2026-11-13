@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Isolate audible SBR-vs-PS errors on real HE-AAC v2 ADTS audio.
 
-Runs 5 independent native experimental previews through the SAME PS engine:
-(1) full provisional HF+ROM noise, (2) provisional signal HF only,
-(3) provisional HF with 16-bit QMF unit matching (hypothesis only),
-(4) raw transposed HF without gain/noise, (5) low QMF only. Compares each with FFmpeg independently. Diagnostic
+Runs 6 independent native experimental previews through the SAME PS engine:
+(1) normalized provisional HF+ROM noise, (2) normalized HF without ROM,
+(3) legacy unscaled (regression control), (4) unit-scale compatibility,
+(5) raw HF, (6) low QMF only. Compares each with FFmpeg independently. Diagnostic
 only, none of the previews is an ISO compliant HE-AAC reconstruction.
 """
 import argparse
@@ -29,6 +29,7 @@ def main():
     modes = (
         ("full", "--experimental-pcm"),
         ("no_noise", "--experimental-pcm-no-noise"),
+        ("unscaled", "--experimental-pcm-unscaled"),
         ("unit_scale", "--experimental-pcm-unit-scale"),
         ("raw_hf", "--experimental-pcm-raw-hf"),
         ("low_only", "--experimental-pcm-low-only"),
@@ -60,7 +61,7 @@ def main():
             print(f"FAIL: reference comparison for {name}",file=sys.stderr)
             return metrics.returncode
     print("\\nDIAGNOSTIC COMPLETE. Compare RMS, tone fractions and channel "
-          "isolation between the five modes; no audio fidelity PASS implied.")
+          "isolation between the six modes; no audio fidelity PASS implied.")
     return 0
 
 
