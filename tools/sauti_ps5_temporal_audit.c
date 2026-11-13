@@ -1,5 +1,5 @@
-/* PS-5b: stream-wide native SBR temporal ownership audit.
- * Pure side-data validation: never publishes PCM, never uses FFmpeg.
+/* Native SBR temporal ownership audit with opt-in PCM isolation previews.
+ * Default is side-data validation without PCM; never uses FFmpeg.
  * Tests the genuine AAC-LC+SBR bitstream, including FIXVAR borders.
  * Does not pretend that temporal HF rendering is implemented. */
 #include "sauti_aac_he_adts_mono.h"
@@ -31,12 +31,17 @@ static int read_frame(FILE *f,uint8_t buf[MAX_ADTS],size_t *count){
 }
 int main(int argc,char **argv){
     if(argc!=2 && argc!=4){
-        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm OUT.f32le]\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm | --experimental-pcm-no-noise | --experimental-pcm-low-only] OUT.f32le\n",argv[0]);
         return 2;
     }
     const int experimental=argc==4;
-    if(experimental&&
-       (strcmp(argv[2],"--experimental-pcm")!=0||
+    const int low_only=experimental &&
+        strcmp(argv[2],"--experimental-pcm-low-only")==0;
+    const int no_noise=experimental &&
+        strcmp(argv[2],"--experimental-pcm-no-noise")==0;
+    const int full=experimental &&
+        strcmp(argv[2],"--experimental-pcm")==0;
+    if(experimental&&(!(low_only||no_noise||full)||
         strcmp(argv[1],argv[3])==0)){
         fprintf(stderr,"Invalid experimental PCM arguments\n");
         return 2;
@@ -246,17 +251,22 @@ int main(int argc,char **argv){
             for(unsigned t=0;t<32u;t++){
                 const SautiAacSbrTemporalHfSlot *slot=&targets.slot[t];
                 for(unsigned k=slot->kx;k<slot->k2;k++){
-                    SautiAacSbrComplex rom;
-                    if(!sauti_aac_sbr_noise_rom_next(&noise_state,&rom)){
+                    /* ROM advances in both full and no-noise modes,
+                     * so the toggle does not shift later phase state. */
+                    SautiAacSbrComplex rom={0};
+                    if(!low_only &&
+                       !sauti_aac_sbr_noise_rom_next(&noise_state,&rom)){
                         fprintf(stderr,"FAIL experimental noise ROM frame=%zu\n",frames);
                         goto done;
                     }
                     const double e=slot->energy[k];
                     const double q=slot->noise_factor[k];
-                    const double signal=envelope->provisional_gain[t][k];
-                    /* This is a diagnostic, unsmoothed noise level,
-                     * not the normative limiter gain or sinusoidal HF. */
-                    const double noise=sqrt(e*(q/(1.0+q)));
+                    const double signal=low_only?0.0:
+                        envelope->provisional_gain[t][k];
+                    /* Three diagnostic controls: all HF, signal HF
+                     * without ROM injection, or low-QMF only. No mode
+                     * is a normative SBR synthesis implementation. */
+                    const double noise=full?sqrt(e*(q/(1.0+q))):0.0;
                     const SautiAacSbrComplex x=raw_qmf[t*64u+k];
                     const double re=(double)x.re*signal+(double)rom.re*noise;
                     const double im=(double)x.im*signal+(double)rom.im*noise;
@@ -305,8 +315,9 @@ int main(int argc,char **argv){
             goto done;
         }
         fprintf(stderr,
-            "EXPERIMENTAL PCM frames=%zu published=%u samples_per_channel=%zu "
+            "EXPERIMENTAL PCM mode=%s frames=%zu published=%u samples_per_channel=%zu "
             "not normative SBR (no limiter/smoothing/harmonics); last PS frame pending\n",
+            low_only?"low-only":no_noise?"no-noise":"full",
             frames,published_pcm,(size_t)published_pcm*2048u);
     }
     exit_code=0;
