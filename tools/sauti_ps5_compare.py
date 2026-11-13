@@ -22,6 +22,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("input",type=Path,help="independently encoded ADTS HE-AAC v2")
     ap.add_argument("--native",default="./build/sauti_he_ps_decode")
+    ap.add_argument("--pcm",type=Path,default=None,
+                    help="compare an existing experimental interleaved stereo f32le file; do not run native decoder")
     ap.add_argument("--rate",type=int,default=48000,
                     help="HE-AAC output sample rate (default: 48000)")
     ap.add_argument("--search",type=int,default=8192,
@@ -30,6 +32,7 @@ def main():
     if a.rate<=0 or a.search<0:ap.error("invalid rate/search")
     if not a.input.is_file():ap.error("input ADTS file missing")
     if not shutil.which("ffmpeg"):ap.error("ffmpeg executable missing")
+    if a.pcm is not None and not a.pcm.is_file():ap.error("existing PCM preview file missing")
     try:
         import numpy as np
     except ImportError:
@@ -38,7 +41,11 @@ def main():
     with tempfile.TemporaryDirectory(prefix="sauti_ps5_") as tmp:
         native=Path(tmp)/"sauti.f32le"
         ref=Path(tmp)/"ffmpeg.f32le"
-        decoder=run([a.native,str(a.input),str(native)])
+        decoder=None
+        if a.pcm is None:
+            decoder=run([a.native,str(a.input),str(native)])
+        else:
+            native=a.pcm
         reference=run(["ffmpeg","-hide_banner","-nostdin","-loglevel","error",
                        "-i",str(a.input),"-map","0:a:0",
                        "-ac","2","-ar",str(a.rate),"-f","f32le",
@@ -94,8 +101,40 @@ def main():
               f"channel_corr_L/R={channel_corr[0]:.6f}/{channel_corr[1]:.6f}")
         print(f"native_pairs={len(x)} ref_pairs={len(y)} "
               f"(native intentionally retains final pending 2048 pairs)")
+        # Tone isolation is a diagnostic for the independent dual-tone
+        # FDK fixture: L=440 Hz, R=880 Hz. Do not interpret as a generic
+        # music-codec quality score; keep one stable 1-second window.
+        def tone_audit(name,audio):
+            n0=min(audio.shape[0],a.rate)
+            if n0<2048:
+                print(f"{name}: insufficient length for tone audit")
+                return
+            w=np.hanning(n0)
+            freqs=np.fft.rfftfreq(n0,1.0/a.rate)
+            spectra=np.abs(np.fft.rfft(audio[:n0]*w[:,None],axis=0))**2
+            audible=(freqs>=200.0)&(freqs<=2000.0)
+            def power(f,channel):
+                near=np.abs(freqs-f)<=max(3.0,2.0*a.rate/n0)
+                return float(spectra[near,channel].sum())
+            vals=[power(440.0,0),power(880.0,0),
+                  power(440.0,1),power(880.0,1)]
+            total=spectra[audible].sum(axis=0)
+            eps=1e-30
+            purity_l=vals[0]/max(float(total[0]),eps)
+            purity_r=vals[3]/max(float(total[1]),eps)
+            sep_l=10*math.log10((vals[0]+eps)/(vals[2]+eps))
+            sep_r=10*math.log10((vals[3]+eps)/(vals[1]+eps))
+            print(f"{name} tones: L_440_fraction={purity_l:.4f} "
+                  f"R_880_fraction={purity_r:.4f}, "
+                  f"L440_over_R440={sep_l:+.1f} dB "
+                  f"R880_over_L880={sep_r:+.1f} dB")
+        tone_audit("native",aa)
+        tone_audit("ffmpeg",bb)
         print("DIAGNOSTIC ONLY — check fidelity and SBR/PS timing; this is not a compliance PASS")
-        print(decoder.stderr.strip())
+        if decoder is not None:
+            print(decoder.stderr.strip())
+        else:
+            print("Native input: existing experimental PCM preview (no decoder invoked)")
     return 0
 
 if __name__=="__main__":
