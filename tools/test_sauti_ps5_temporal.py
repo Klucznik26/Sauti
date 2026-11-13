@@ -21,6 +21,12 @@ def main():
             capture_output=True,text=True)
         if listen.returncode or not preview.exists() or preview.stat().st_size!=2*4096*4:
             raise AssertionError("experimental PCM path failed: "+listen.stderr)
+        for mode in ("--experimental-pcm-no-noise","--experimental-pcm-low-only"):
+            mode_file=pathlib.Path(td)/(mode[2:]+".f32le")
+            trial=subprocess.run([sys.argv[2],str(fixture),mode,str(mode_file)],
+                capture_output=True,text=True)
+            if trial.returncode or not mode_file.exists() or mode_file.stat().st_size!=2*4096*4:
+                raise AssertionError("PCM isolation mode "+mode+" failed: "+trial.stderr)
         bad=pathlib.Path(td)/"truncated.adts"
         bad.write_bytes(fixture.read_bytes()[:-1])
         negative=subprocess.run([sys.argv[2],str(bad)],capture_output=True,text=True)
@@ -32,7 +38,7 @@ def main():
             raise AssertionError("experimental PCM failed atomic cleanup on truncated ADTS")
         if negative.returncode==0:
             raise AssertionError("truncated frame was accepted")
-    print("PASS PS temporal: ADTS parse, experimental 2-frame stereo PCM preview and truncated cleanup")
+    print("PASS PS temporal: ADTS parse, experimental stereo isolation modes and truncated cleanup")
     return 0
 
 if __name__=="__main__":
