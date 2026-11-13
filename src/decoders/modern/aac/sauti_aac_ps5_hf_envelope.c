@@ -150,3 +150,121 @@ int sauti_aac_ps5_hf_limit_preview(
     memcpy(gains,next,sizeof(next));
     return 1;
 }
+
+/* Experimental PS-5 per-owner f_tablelim gain cap.
+ * Owners are never mixed, even when they share an envelope index or
+ * physical QMF bin. The ROM noise and tonal components are separate.
+ * This diagnostic uses target signal energy, not the complete normative
+ * noise+harmonic energy-restoration equation. */
+int sauti_aac_ps5_hf_limit_bands_preview(
+    const SautiAacSbrTemporalHfTargets *targets,
+    const SautiAacSbrComplex *raw,size_t raw_count,
+    const SautiAacPs5HfEnvelopeReport *envelope,
+    const uint8_t edges[2u][65u],const unsigned edge_count[2u],
+    const unsigned gain_mode[2u],
+    double gains[32u][64u]){
+    if(!targets||!raw||!envelope||!edges||!edge_count||!gain_mode||
+       !gains||raw_count<32u*64u||targets->previous_slots>6u)
+        return 0;
+    /* Bounded 2 owner x 5 envelope x 64 limiter-band accumulators. */
+    double desired[2u][SAUTI_AAC_SBR_MAX_ENV][64u]={{{0}}};
+    double measured[2u][SAUTI_AAC_SBR_MAX_ENV][64u]={{{0}}};
+    double restored[2u][SAUTI_AAC_SBR_MAX_ENV][64u]={{{0}}};
+    double cap[2u][SAUTI_AAC_SBR_MAX_ENV][64u]={{{0}}};
+    double boost[2u][SAUTI_AAC_SBR_MAX_ENV][64u]={{{0}}};
+    double next[32u][64u]={{0}};
+    const double unit=1.0/32768.0;
+    static const double lim_gain[4u]={0.70795,1.0,1.41254,100000.0};
+    unsigned active_source[2u]={0u,0u};
+    unsigned seen_kx[2u]={0u,0u},seen_k2[2u]={0u,0u};
+    for(unsigned src=0;src<2u;src++){
+        if(gain_mode[src]>3u||edge_count[src]<1u||edge_count[src]>64u)
+            return 0;
+        for(unsigned b=0;b<edge_count[src];b++)
+            if(edges[src][b]>=edges[src][b+1u]||
+               edges[src][b]<1u||edges[src][b+1u]>64u)
+                return 0;
+    }
+    for(unsigned t=0;t<32u;t++){
+        const SautiAacSbrTemporalHfSlot *slot=&targets->slot[t];
+        const unsigned src=slot->source,env=slot->envelope;
+        if(src>1u||env>=SAUTI_AAC_SBR_MAX_ENV||
+           (t<targets->previous_slots?src!=0u:src!=1u)||
+           slot->kx<1u||slot->kx>32u||slot->k2<=slot->kx||
+           slot->k2>64u)return 0;
+        if(!active_source[src]){
+            seen_kx[src]=slot->kx;seen_k2[src]=slot->k2;
+        }
+        active_source[src]++;
+        if(seen_kx[src]!=slot->kx||seen_k2[src]!=slot->k2)
+            return 0;
+        if(edges[src][0]!=slot->kx||
+           edges[src][edge_count[src]]!=slot->k2)
+            return 0;
+        unsigned band=0u;
+        for(unsigned k=slot->kx;k<slot->k2;k++){
+            while(band+1u<edge_count[src] && k>=edges[src][band+1u])
+                band++;
+            if(k<edges[src][band]||k>=edges[src][band+1u])
+                return 0;
+            const SautiAacSbrComplex x=raw[(size_t)t*64u+k];
+            const double e=slot->energy[k],q=slot->noise_factor[k];
+            const double g=envelope->provisional_gain[t][k];
+            if(!isfinite(x.re)||!isfinite(x.im)||!isfinite(e)||
+               e<0.0||!isfinite(q)||q<0.0||
+               !isfinite(g)||g<0.0)return 0;
+            const double re=x.re,im=x.im;
+            const double p=re*re+im*im;
+            desired[src][env][band]+=e/(1.0+q)*unit*unit;
+            measured[src][env][band]+=p;
+            if(!isfinite(desired[src][env][band])||
+               !isfinite(measured[src][env][band]))return 0;
+        }
+    }
+    for(unsigned src=0;src<2u;src++)
+        for(unsigned env=0;env<SAUTI_AAC_SBR_MAX_ENV;env++)
+            for(unsigned b=0;b<edge_count[src];b++){
+                const double d=desired[src][env][b];
+                const double m=measured[src][env][b];
+                cap[src][env][b]=(d==0.0||m==0.0)?0.0:
+                    fmin(100000.0,lim_gain[gain_mode[src]]*sqrt(d/m));
+                if(!isfinite(cap[src][env][b]))return 0;
+            }
+    for(unsigned t=0;t<32u;t++){
+        const SautiAacSbrTemporalHfSlot *slot=&targets->slot[t];
+        const unsigned src=slot->source,env=slot->envelope;
+        unsigned b=0u;
+        for(unsigned k=slot->kx;k<slot->k2;k++){
+            while(b+1u<edge_count[src]&&k>=edges[src][b+1u])b++;
+            const SautiAacSbrComplex x=raw[(size_t)t*64u+k];
+            const double gain=fmin(envelope->provisional_gain[t][k]*unit,
+                                   cap[src][env][b]);
+            const double power=(double)x.re*x.re+(double)x.im*x.im;
+            if(!isfinite(gain)||gain<0.0)return 0;
+            next[t][k]=gain;
+            restored[src][env][b]+=power*gain*gain;
+            if(!isfinite(restored[src][env][b]))return 0;
+        }
+    }
+    for(unsigned src=0;src<2u;src++)
+        for(unsigned env=0;env<SAUTI_AAC_SBR_MAX_ENV;env++)
+            for(unsigned b=0;b<edge_count[src];b++){
+                const double d=desired[src][env][b];
+                const double m=restored[src][env][b];
+                boost[src][env][b]=(d==0.0||m==0.0)?1.0:
+                    fmin(1.584893192,sqrt(d/m));
+                if(!isfinite(boost[src][env][b]))return 0;
+            }
+    for(unsigned t=0;t<32u;t++){
+        const SautiAacSbrTemporalHfSlot *slot=&targets->slot[t];
+        const unsigned src=slot->source,env=slot->envelope;
+        unsigned b=0u;
+        for(unsigned k=slot->kx;k<slot->k2;k++){
+            while(b+1u<edge_count[src]&&k>=edges[src][b+1u])b++;
+            next[t][k]*=boost[src][env][b];
+            if(!isfinite(next[t][k]))return 0;
+        }
+    }
+    memcpy(gains,next,sizeof(next));
+    return 1;
+}
