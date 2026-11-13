@@ -33,7 +33,7 @@ static int read_frame(FILE *f,uint8_t buf[MAX_ADTS],size_t *count){
 }
 int main(int argc,char **argv){
     if(argc!=2 && argc!=4){
-        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm | --experimental-pcm-no-noise | --experimental-pcm-unscaled | --experimental-pcm-unit-scale | --experimental-pcm-raw-hf | --experimental-pcm-low-only] OUT.f32le\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.aac [--experimental-pcm | --experimental-pcm-no-noise | --experimental-pcm-unscaled | --experimental-pcm-unit-scale | --experimental-pcm-raw-hf | --experimental-pcm-low-only | --experimental-pcm-noise-25 | --experimental-pcm-noise-50 | --experimental-pcm-noise-75] OUT.f32le\n",argv[0]);
         return 2;
     }
     const int experimental=argc==4;
@@ -47,9 +47,15 @@ int main(int argc,char **argv){
         strcmp(argv[2],"--experimental-pcm-raw-hf")==0;
     const int no_noise=experimental &&
         strcmp(argv[2],"--experimental-pcm-no-noise")==0;
+    const int noise_25=experimental &&
+        strcmp(argv[2],"--experimental-pcm-noise-25")==0;
+    const int noise_50=experimental &&
+        strcmp(argv[2],"--experimental-pcm-noise-50")==0;
+    const int noise_75=experimental &&
+        strcmp(argv[2],"--experimental-pcm-noise-75")==0;
     const int full=experimental &&
         strcmp(argv[2],"--experimental-pcm")==0;
-    if(experimental&&(!(low_only||raw_hf||no_noise||full||unit_scale||unscaled)||
+    if(experimental&&(!(low_only||raw_hf||no_noise||full||unit_scale||unscaled||noise_25||noise_50||noise_75)||
         strcmp(argv[1],argv[3])==0)){
         fprintf(stderr,"Invalid experimental PCM arguments\n");
         return 2;
@@ -326,8 +332,11 @@ int main(int argc,char **argv){
                     /* Three diagnostic controls: all HF, signal HF
                      * without ROM injection, or low-QMF only. No mode
                      * is a normative SBR synthesis implementation. */
-                    const double noise=(full||unit_scale||unscaled)?
-                        sqrt(e*(q/(1.0+q)))*unit:0.0;
+                    const double noise_fraction=noise_25?0.25:
+                        noise_50?0.50:noise_75?0.75:
+                        (full||unit_scale||unscaled)?1.0:0.0;
+                    const double noise=noise_fraction*
+                        sqrt(e*(q/(1.0+q)))*unit;
                     const SautiAacSbrComplex x=raw_qmf[t*64u+k];
                     const double re=(double)x.re*signal+(double)rom.re*noise;
                     const double im=(double)x.im*signal+(double)rom.im*noise;
@@ -390,7 +399,7 @@ int main(int argc,char **argv){
         fprintf(stderr,
             "HF-POWER mode=%s bins=%zu raw_power=%.9g signal_power=%.9g "
             "rom_noise_power=%.9g peak_gain=%.9g signal/raw=%.9g\n",
-            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":"full",
+            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":noise_25?"noise-25":noise_50?"noise-50":noise_75?"noise-75":"full",
             hf_bins,hf_raw_power,hf_signal_power,hf_noise_power,hf_peak_gain,
             hf_raw_power>0.0?hf_signal_power/hf_raw_power:0.0);
         fprintf(stderr,
