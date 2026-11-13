@@ -506,3 +506,49 @@ applied gain. Interpret:
 
 This is a fault-isolation tool, NOT a claim that SBR synthesis is
 complete or that these preview modes are standard-compliant.
+
+## SBR output spectrum and QMF-unit hypothesis (real FDK 440/880 fixture)
+
+Fedora spectrum audit after fixing PS:
+- `low_only`: correct LF 440/880; correlation **0.999994**.
+- `raw_hf`: 6–12 kHz excess +66.8/+78.0 dB versus the
+  extremely low reference energy of the pure-tone fixture.
+- `no_noise`: 6–12 kHz +84.1/+86.7 dB; 12–24 kHz +89.6/+89.4 dB.
+- `full`: 12–24 kHz +90.8/+90.8 dB.
+- In provisional `no_noise`, HF signal energy is amplified
+  **74.34x**, with a peak gain of **100000**; ROM is NOT its
+  only cause. Tone percentages previously shown were confined to
+  the 200–2000 Hz window and could not expose this HF failure.
+
+Reference code inspection: FFmpeg's floating-point SBR QMF path
+scales AAC core PCM to an internal 16-bit amplitude convention,
+then scales the synthesized PCM back down. Sauti's floating QMF
+path instead directly consumes normalized PCM. Both projects use
+the `exp2(q*alpha+6)` form for uncoupled envelope dequantization.
+Therefore the 32768 amplitude-domain mismatch is a **testable
+hypothesis**, not a verified complete repair.
+
+The optional `--experimental-pcm-unit-scale` preview scales
+provisional envelope gain and ROM amplitude by 1/32768 during
+QMF synthesis; it does NOT modify normative dequantization,
+production decoder, or existing `low_only` behavior. Its
+5-way comparison includes full / no_noise / unit_scale /
+raw_hf / low_only:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+make test-aac-ps5-temporal PKG_CONFIG=/bin/false
+python3 tools/sauti_ps_isolate.py ~/Sauti-fixtures/he_v2_real.aac
+```
+
+**Interpretation requires caution:** the clean pure-tone reference
+has virtually no legitimate HF content; simply reducing all
+HF will make this fixture look better and does not establish
+correct SBR on speech, music or HF-rich samples. A normative
+limiter/temporal envelope integration and at least one broadband
+test fixture are still required before claiming HE-AAC v2 fidelity.
+
+References for unit convention / dequant formula:
+- FFmpeg `libavcodec/aacsbr_template.c` (`ff_aac_sbr_ctx_alloc_init` QMF scale)
+- FFmpeg `libavcodec/aacsbr.c` (`sbr_dequant`).
