@@ -268,3 +268,75 @@ int sauti_aac_ps5_hf_limit_bands_preview(
     memcpy(gains,next,sizeof(next));
     return 1;
 }
+
+/* PS experimental energy balancing. Use existing f_tablelim owner
+ * caps, then account for decoded SBR noise budget when restoring
+ * group energy. ROM has assumed unit expected complex magnitude.
+ * This is not normative SBR including sine/harmonic restoration. */
+int sauti_aac_ps5_hf_energy_balance_preview(
+    const SautiAacSbrTemporalHfTargets *targets,
+    const SautiAacSbrComplex *raw,size_t raw_count,
+    const SautiAacPs5HfEnvelopeReport *envelope,
+    const uint8_t edges[2u][65u],const unsigned edge_count[2u],
+    const unsigned gain_mode[2u],
+    double signal_gains[32u][64u],double noise_amplitudes[32u][64u]){
+    if(!targets||!raw||!envelope||!edges||!edge_count||!gain_mode||
+       !signal_gains||!noise_amplitudes||signal_gains==noise_amplitudes)
+        return 0;
+    double next_signal[32u][64u];
+    double next_noise[32u][64u]={{0}};
+    if(!sauti_aac_ps5_hf_limit_bands_preview(
+           targets,raw,raw_count,envelope,edges,edge_count,
+           gain_mode,next_signal))return 0;
+    double desired[2u][SAUTI_AAC_SBR_MAX_ENV][64u]={{{0}}};
+    double available[2u][SAUTI_AAC_SBR_MAX_ENV][64u]={{{0}}};
+    double correction[2u][SAUTI_AAC_SBR_MAX_ENV][64u]={{{0}}};
+    const double unit=1.0/32768.0;
+    for(unsigned t=0;t<32u;t++){
+        const SautiAacSbrTemporalHfSlot *slot=&targets->slot[t];
+        const unsigned src=slot->source,env=slot->envelope;
+        unsigned b=0u;
+        for(unsigned k=slot->kx;k<slot->k2;k++){
+            while(b+1u<edge_count[src] && k>=edges[src][b+1u])b++;
+            const double e=slot->energy[k],q=slot->noise_factor[k];
+            const double n=e*(q/(1.0+q))*unit*unit;
+            const double g=next_signal[t][k];
+            const SautiAacSbrComplex x=raw[(size_t)t*64u+k];
+            const double signal=((double)x.re*x.re+(double)x.im*x.im)*g*g;
+            if(!isfinite(n)||n<0.0||!isfinite(signal))return 0;
+            next_noise[t][k]=sqrt(n);
+            desired[src][env][b]+=e*unit*unit;
+            available[src][env][b]+=signal+n;
+            if(!isfinite(desired[src][env][b])||
+               !isfinite(available[src][env][b]))return 0;
+        }
+    }
+    for(unsigned src=0;src<2u;src++)
+        for(unsigned env=0;env<SAUTI_AAC_SBR_MAX_ENV;env++)
+            for(unsigned b=0;b<edge_count[src];b++){
+                const double wanted=desired[src][env][b];
+                const double have=available[src][env][b];
+                /* Never invent energy for a zero-signal, zero-noise group.
+                 * The existing 4 dB ceiling is preserved. */
+                correction[src][env][b]=(wanted==0.0||have==0.0)?1.0:
+                    fmin(1.584893192,sqrt(wanted/have));
+                if(!isfinite(correction[src][env][b])||
+                   correction[src][env][b]<0.0)return 0;
+            }
+    for(unsigned t=0;t<32u;t++){
+        const SautiAacSbrTemporalHfSlot *slot=&targets->slot[t];
+        const unsigned src=slot->source,env=slot->envelope;
+        unsigned b=0u;
+        for(unsigned k=slot->kx;k<slot->k2;k++){
+            while(b+1u<edge_count[src] && k>=edges[src][b+1u])b++;
+            const double f=correction[src][env][b];
+            next_signal[t][k]*=f;
+            next_noise[t][k]*=f;
+            if(!isfinite(next_signal[t][k])||
+               !isfinite(next_noise[t][k]))return 0;
+        }
+    }
+    memcpy(signal_gains,next_signal,sizeof(next_signal));
+    memcpy(noise_amplitudes,next_noise,sizeof(next_noise));
+    return 1;
+}
