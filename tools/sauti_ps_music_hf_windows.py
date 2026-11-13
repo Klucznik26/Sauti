@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 BANDS = ((0, 2000), (2000, 6000), (6000, 12000), (12000, 24000))
-MODES = ("full", "no_noise", "low_only")
+MODES = ("full", "no_noise", "low_only", "noise_25", "noise_50", "noise_75")
 EPS = 1e-24
 
 
@@ -52,6 +52,9 @@ def main():
         for mode in MODES:
             path = args.pcm_dir / (mode + ".f32le")
             if not path.is_file():
+                if mode.startswith("noise_"):
+                    print(f"Skipping optional {mode}: {path} absent")
+                    continue
                 raise RuntimeError(f"Missing {path}; run tools/sauti_ps_isolate.py first")
             native = np.memmap(path, dtype="<f4", mode="r")
             if native.size % 2:
