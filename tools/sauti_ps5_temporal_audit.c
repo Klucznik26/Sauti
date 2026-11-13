@@ -327,7 +327,8 @@ int main(int argc,char **argv){
         }
         if(experimental){
             /* EXPERIMENTAL OUTPUT ONLY: preliminary envelope mean
-             * gain, unfiltered ROM noise and no harmonic injection.
+             * gain and unfiltered ROM noise; harmonic injection is
+             * enabled only for the opt-in tonal preview.
              * The QMF geometry comes from the true temporal owner.
              * DO NOT treat the samples as ISO-conformant HE-AAC v2. */
             /* Preserve current preview; the limiter only changes the
@@ -548,8 +549,8 @@ int main(int argc,char **argv){
         }
         fprintf(stderr,
             "EXPERIMENTAL PCM mode=%s frames=%zu published=%u samples_per_channel=%zu "
-            "not normative SBR (no complete limiter/smoothing/harmonics); last PS frame pending\n",
-            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":noise_25?"noise-25":noise_50?"noise-50":noise_75?"noise-75":limited?"limited":band_limited?"band-limited":energy_balanced?"energy-balanced":"full",
+            "not normative SBR (incomplete HF adjustment and smoothing); last PS frame pending\n",
+            low_only?"low-only":raw_hf?"raw-hf":unit_scale?"unit-scale":no_noise?"no-noise":unscaled?"unscaled":noise_25?"noise-25":noise_50?"noise-50":noise_75?"noise-75":limited?"limited":band_limited?"band-limited":energy_balanced?"energy-balanced":tonal?"tonal":"full",
             frames,published_pcm,(size_t)published_pcm*2048u);
     }
     exit_code=0;
