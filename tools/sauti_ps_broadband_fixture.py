@@ -80,9 +80,13 @@ def main():
     parser.add_argument("--seconds", type=int, default=10)
     parser.add_argument("--bitrate", default="32k",
                         help="FDK HE-AAC v2 stereo at 48kHz: 18k..56k; default 32k")
+    parser.add_argument("--existing-aac", type=Path, default=None,
+                        help="Use a previously encoded HE-AAC v2 ADTS file; skip FDK encoding")
     parser.add_argument("--generate-only", action="store_true",
                         help="generate WAV and encoded AAC without running comparisons")
     args = parser.parse_args()
+    if args.existing_aac is not None and not args.existing_aac.is_file():
+        parser.error("--existing-aac file does not exist")
     if args.seconds < 3 or args.seconds > 60:
         parser.error("--seconds must be in 3..60")
     try:
@@ -96,20 +100,38 @@ def main():
         parser.error("FFmpeg not found")
     encoders = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
                              capture_output=True, text=True, check=False)
-    if encoders.returncode or "libfdk_aac" not in encoders.stdout:
+    if args.existing_aac is None and (encoders.returncode or "libfdk_aac" not in encoders.stdout):
         parser.error("FFmpeg build needs a libfdk_aac ENCODER (decoder alone is insufficient)")
     directory = args.out_dir
     directory.mkdir(parents=True, exist_ok=True)
     wav = directory / "broadband_source.wav"
-    aac = directory / "broadband_he_v2.aac"
-    wav.unlink(missing_ok=True)
-    aac.unlink(missing_ok=True)
-    fixture(wav, args.seconds)
-    run(["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-         "-i", wav, "-c:a", "libfdk_aac", "-profile:a", "aac_he_v2",
-         "-b:a", args.bitrate, "-f", "adts", aac])
+    aac = args.existing_aac if args.existing_aac is not None else (
+        directory / "broadband_he_v2.aac")
+    if args.existing_aac is None:
+        wav.unlink(missing_ok=True)
+        aac.unlink(missing_ok=True)
+        fixture(wav, args.seconds)
+        command = ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
+                   "-y", "-i", str(wav), "-c:a", "libfdk_aac",
+                   "-profile:a", "aac_he_v2", "-b:a", args.bitrate,
+                   "-f", "adts", str(aac)]
+        print("+", " ".join(command), flush=True)
+        result = subprocess.run(command, capture_output=True, text=True,
+                                check=False)
+        if result.returncode:
+            print(result.stderr[-3500:], file=sys.stderr)
+            if "Unable to set the AOT 29" in result.stderr:
+                raise RuntimeError(
+                    "Installed libfdk_aac encoder rejects AOT 29 (HE-AAC v2 / PS). "
+                    "This happens before bitrate/sample-rate configuration, "
+                    "and may mean its PS encoder module is unavailable. "
+                    "Do not substitute AAC-LC or HE-AAC v1. "
+                    "Use --existing-aac PATH with a genuine HE-AAC v2 ADTS "
+                    "fixture from an encoder that supports PS.")
+            raise RuntimeError("FDK HE-AAC v2 encoding failed; inspect FFmpeg stderr")
     print("Fixture:", aac, "bytes:", aac.stat().st_size, flush=True)
-    # Sanity check both the coding format and reference decode.
+    # Sanity check decoding of the encoded file, never silently
+    # treat AAC-LC or HE-AAC v1 as a substitute for PS.
     run(["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
          "-c:a", "libfdk_aac", "-i", aac, "-f", "null", "-"])
     if not args.generate_only:
@@ -122,6 +144,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except (OSError, subprocess.CalledProcessError, RuntimeError) as exc:
         print("FAIL broadband fixture:", exc, file=sys.stderr)
         sys.exit(1)
