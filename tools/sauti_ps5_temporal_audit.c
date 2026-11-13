@@ -8,6 +8,8 @@
 #include "sauti_aac_ps5_hf_envelope.h"
 #include "sauti_aac_ps5_cross.h"
 #include "sauti_aac_he_ps_delay.h"
+#include "sauti_aac_ps_map.h"
+#include "sauti_aac_ps_matrix.h"
 #include "sauti_aac_sbr_noise_rom.h"
 #include <float.h>
 #include <math.h>
@@ -138,6 +140,26 @@ int main(int argc,char **argv){
                 (unsigned)ps->header.enable_ext,
                 (int)ps->iid[0][0],(int)ps->iid[0][1],
                 (int)ps->icc[0][0],(int)ps->icc[0][1]);
+        }
+        if(frames==4u){
+            SautiAacPsMappedFrame mapped;
+            SautiAacPsMatrix coefficients;
+            if(!sauti_aac_ps_map_frame(&payload->ps,&mapped)||
+               !sauti_aac_ps_matrix_build(&payload->ps,&mapped,&coefficients)){
+                fprintf(stderr,"FAIL PS-DETAIL matrix frame=%zu\n",frames);
+                goto done;
+            }
+            for(unsigned b=0;b<mapped.bands;b++){
+                const SautiAacPsMatrixCoefficients c=
+                    coefficients.coefficient[0][b];
+                fprintf(stderr,
+                    "PS-DETAIL frame=%zu band=%u iid=%d icc=%d "
+                    "h11=%.6g h12=%.6g h21=%.6g h22=%.6g\n",
+                    frames,b,(int)mapped.iid[0][b],
+                    (int)mapped.icc[0][b],
+                    (double)c.h11,(double)c.h12,
+                    (double)c.h21,(double)c.h22);
+            }
         }
         SautiAacSbrTemporalHandoff handoff;
         if(!sauti_aac_sbr_temporal_history_push(payload,history,&handoff)){
