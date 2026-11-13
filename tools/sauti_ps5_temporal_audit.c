@@ -335,6 +335,21 @@ int main(int argc,char **argv){
              * explicitly selected experimental mode. */
             double limited_gains[32u][64u];
             double balanced_noise[32u][64u];
+            double tonal_sines[32u][64u];
+            uint8_t tonal_mask[32u][64u]={{0}};
+            if(tonal)
+                for(unsigned t=0;t<32u;t++){
+                    const SautiAacSbrTemporalHfSlot *slot=&targets.slot[t];
+                    const SautiAacSbrPayloadFrame *owner=
+                        slot->source?payload:&history->previous;
+                    for(unsigned k=slot->kx;k<slot->k2;k++)
+                        tonal_mask[t][k]=(uint8_t)(
+                            slot->harmonic[k] &&
+                            (slot->source==0u ||
+                             slot->envelope>=owner->transient_env ||
+                             (history->has_previous &&
+                              previous_tone_at(&history->previous,k))));
+                }
             if(limited && !sauti_aac_ps5_hf_limit_preview(
                    &targets,raw_qmf,32u*64u,envelope,limited_gains)){
                 fprintf(stderr,"FAIL experimental owner-aware HF limiter frame=%zu\n",frames);
@@ -360,9 +375,15 @@ int main(int argc,char **argv){
                     memcpy(edges[src],bands[src].edges,count[src]+1u);
                 }
                 if(energy_balanced||tonal){
-                    if(!sauti_aac_ps5_hf_energy_balance_preview(
-                           &targets,raw_qmf,32u*64u,envelope,edges,count,
-                           gain_modes,limited_gains,balanced_noise)){
+                    const int ok=tonal?
+                        sauti_aac_ps5_hf_tonal_balance_preview(
+                            &targets,raw_qmf,32u*64u,envelope,edges,count,
+                            gain_modes,tonal_mask,limited_gains,
+                            balanced_noise,tonal_sines):
+                        sauti_aac_ps5_hf_energy_balance_preview(
+                            &targets,raw_qmf,32u*64u,envelope,edges,count,
+                            gain_modes,limited_gains,balanced_noise);
+                    if(!ok){
                         fprintf(stderr,"FAIL owner HF energy balance frame=%zu\n",frames);
                         goto done;
                     }
@@ -408,20 +429,14 @@ int main(int argc,char **argv){
                         balanced_noise[t][k]:noise_fraction*
                         sqrt(e*(q/(1.0+q)))*unit;
                     const SautiAacSbrComplex x=raw_qmf[t*64u+k];
-                    /* Experiment only: SBR-19 four-phase oscillator at
-                     * owner-resolved harmonic midpoints. At active tones
-                     * ROM noise is muted. Joint tonal-energy allocation
-                     * is NOT yet normative. */
-                    const SautiAacSbrPayloadFrame *owner=
-                        slot->source?payload:&history->previous;
-                    const int active_tone=tonal && slot->harmonic[k] &&
-                        (slot->source==0u ||
-                         slot->envelope>=owner->transient_env ||
-                         (history->has_previous &&
-                          previous_tone_at(&history->previous,k)));
-                    const double noise_level=active_tone?0.0:noise;
+                    /* Experiment only: SBR four-phase oscillator at
+                     * owner-resolved high-band midpoints. Its amplitude
+                     * and muted ROM energy were reserved jointly before
+                     * limiter-band restoration. Not fully normative. */
+                    const int active_tone=tonal && tonal_mask[t][k];
+                    const double noise_level=noise;
                     const double harmonic_amp=active_tone?
-                        sqrt(e/(1.0+q))*unit:0.0;
+                        tonal_sines[t][k]:0.0;
                     const unsigned phase=t&3u;
                     const double sign=(phase==2u ||
                         (phase==1u && (k&1u)) ||
