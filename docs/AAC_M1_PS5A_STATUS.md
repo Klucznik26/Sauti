@@ -464,3 +464,45 @@ the low-only right-channel RMS rises from ~0.00086 toward the
 reference ~0.088. No claim of passing audio quality until the
 independent Fedora run; full SBR HF generation is still a
 separate unresolved fidelity problem.
+
+## Follow-up after PS wiring correction: separate HF transpose from amplification
+
+Fedora result after correcting PS mixer (`f261468`) on the real
+FDK stereo sine fixture:
+
+- `low_only` reproduces reference with **global correlation 0.999994**
+  and RMSE ~2.1e-5 per channel; 440/880 stereo separation is correct.
+- `no_noise` drops to correlation ~0.118 with RMS ~0.45 per channel.
+- `full` drops further to ~0.076, RMS ~0.54–0.55.
+- This is evidence of an **HF rendering** problem, not an
+  outstanding stereo matrix/channel-routing failure.
+
+Before wiring up the existing SBR limiter, isolate the raw HF
+transpose itself. The production limiter API consumes whole
+in-frame envelope boundaries, whereas the real ADTS FIXVAR
+cross-frame envelope can straddle a frame boundary. Applying
+the limiter on a truncated envelope would be incorrect.
+
+New `raw_hf` mode outputs transposed high-QMF samples without
+any provisional gain or noise. The existing `low_only` mode
+remains the clean baseline, while `no_noise` isolates gain.
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+make test-aac-ps5-temporal PKG_CONFIG=/bin/false
+python3 tools/sauti_ps_isolate.py ~/Sauti-fixtures/he_v2_real.aac
+```
+
+The comparison now prints **four** variants (full/no_noise/raw_hf/low_only)
+and `HF-POWER` raw, signal and ROM-noise QMF powers plus maximum
+applied gain. Interpret:
+- `raw_hf` close to reference but `no_noise` poor => the
+  provisional energy/gain model blows up HF.
+- `raw_hf` poor => transposition, HF geometry/QMF synthesis or
+  implicit frequency scaling needs investigation before limiter.
+- `low_only` remains clean => do not change the fixed PS
+  mixing until new independent evidence justifies it.
+
+This is a fault-isolation tool, NOT a claim that SBR synthesis is
+complete or that these preview modes are standard-compliant.
