@@ -425,3 +425,42 @@ Interpretation:
   QMF/PS timing and stereo parameter rendering independent of HF.
 - All modes compared against the same clean FDK fixture; NO mode is
   ISO-compliant SBR or an audio-fidelity PASS.
+
+## Confirmed PS matrix channel-wiring defect — native ASM mixer repair
+
+The independent FDK frame #4 has both extreme positive IID
+(+15) and extreme negative IID (-15) in different bands.
+Sauti matrix coefficients at negative IID include a large
+`h12` but a very small `h21` (e.g., bin 6 h12 ~= 1.4142,
+h21 ~= 0.00447). The previous NASM PS mixer used the WRONG
+coefficient axis:
+
+- **BUG:** left = h11*direct + h12*decorrelated;
+  right = h21*direct + h22*decorrelated.
+- **FIX:** left = h11*direct + h21*decorrelated;
+  right = h12*direct + h22*decorrelated.
+
+This matches the mixing layout in reference PS implementations;
+both real and complex NASM kernels are corrected. A deliberately
+asymmetric {1,2,3,4} regression now asserts this mapping, because
+a symmetric test matrix could hide the channel swap. The source
+of the near-silent right channel in the former low-only preview
+is now specifically explained by incorrect use of small h21
+instead of large h12 on extreme negative-IID bands.
+
+Run with a clean rebuild to ensure the modified assembly object
+is actually reassembled:
+
+```sh
+cd ~/Sauti
+git pull --ff-only origin feature/aac-m1-ps-qmf
+make test-aac-ps-mix test-aac-he-adts-ps PKG_CONFIG=/bin/false
+make test-aac-ps5-temporal PKG_CONFIG=/bin/false
+python3 tools/sauti_ps_isolate.py ~/Sauti-fixtures/he_v2_real.aac
+```
+
+Check whether right-channel 880 Hz isolation changes SIGN and
+the low-only right-channel RMS rises from ~0.00086 toward the
+reference ~0.088. No claim of passing audio quality until the
+independent Fedora run; full SBR HF generation is still a
+separate unresolved fidelity problem.
