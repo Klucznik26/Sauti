@@ -11,6 +11,7 @@
  * window stage is exactly SBR-25 and retains ten modulation blocks.
  */
 #include "sauti_aac_sbr_qmf_synth_mod.h"
+#include "sauti_aac_qmf_dispatch.h"
 #include <float.h>
 #include <math.h>
 #include <string.h>
@@ -40,22 +41,15 @@ int sauti_aac_sbr_qmf_synth_modulate_64(
 
     float stage[SAUTI_AAC_SBR_QMF_MOD_MAX_SLOTS*
                 SAUTI_AAC_SBR_QMF_MOD_VALUES];
-    /* CPUID + OSXSAVE check is performed by the compiler built-in; the
-     * implementation does not execute AVX instructions before dispatch.
-     * Evaluate once per frame, not for every 64-band time slot.
-     * Compiling with SAUTI_QMF_FORCE_SSE2 selects the reference SIMD path. */
-#if defined(__x86_64__) && defined(__ELF__) && !defined(_WIN32) && \
-    (defined(__GNUC__) || defined(__clang__)) && !defined(SAUTI_QMF_DISABLE_ASM)
-#if defined(SAUTI_QMF_FORCE_SSE2)
-    const int use_avx2=0;
-#else
-    const int use_avx2=__builtin_cpu_supports("avx2")!=0;
-#endif
+    /* Select SIMD once per batch. The pure policy prefers AVX2 on
+     * Intel hybrid P-cores and SSE2 on E-cores; on homogeneous CPUs the
+     * existing AVX2-capability dispatch is preserved. */
+#if SAUTI_AAC_QMF_NATIVE_ASM
+    const int use_avx2=sauti_aac_qmf_use_avx2();
 #endif
     for(unsigned t=0;t<slots;t++){
         float *slot_out=stage+(size_t)t*SAUTI_AAC_SBR_QMF_MOD_VALUES;
-#if defined(__x86_64__) && defined(__ELF__) && !defined(_WIN32) && \
-    (defined(__GNUC__) || defined(__clang__)) && !defined(SAUTI_QMF_DISABLE_ASM)
+#if SAUTI_AAC_QMF_NATIVE_ASM
         const SautiAacSbrComplex *slot_bands=bands+(size_t)t*SAUTI_AAC_SBR_QMF_MOD_BANDS;
         if(use_avx2)
             sauti_aac_sbr_qmf_synth_mod_slot_avx2(slot_out,slot_bands);
