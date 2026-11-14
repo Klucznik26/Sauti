@@ -9,12 +9,16 @@
 - An experimental fully-unrolled AVX2 window was tested and rejected: on GitHub Actions its median was 28.1 ns/slot versus 28.4 ns/slot for the simpler AVX2 loop (about 1% difference, below a credible cross-CPU improvement). The unrolled object was removed rather than expanding the binary without a justified benefit.
 - The two modulator variants share the same precomputed trigonometric tables. AVX2 uses **no FMA**, deliberately keeping multiplication and addition separate to limit rounding differences. Modulation may still differ by a few float ulps because of the reduction tree.
 - The public C wrappers check finite inputs, bounds, output overlap and rollback before/after invoking ASM, as before.
-- Use `__builtin_cpu_supports("avx2")` on GNU/Clang System V x86-64: this checks processor and OS extended register support. Never execute AVX2 before the check. CPUID is evaluated once per call to the frame wrapper, outside the slot loop. On older x86-64 use SSE2.
+- Use `__builtin_cpu_supports("avx2")` on GNU/Clang System V x86-64: this checks processor and OS extended register support. Never execute AVX2 before the check. CPUID is evaluated once per call to the QMF batch wrapper, outside the slot loop. On older x86-64 use SSE2.
+- **Intel hybrid P/E dispatch (experimental):** when CPUID leaf 7 EDX bit 15 indicates a hybrid CPU, query the native core type from CPUID leaf 0x1A, EAX bits 31–24, on the *current logical processor*. On type 0x40 (P-core) choose AVX2; on type 0x20 (E-core), or an unknown hybrid type, choose SSE2. The policy reflects local measurements from an Intel Core i7-12700H: AVX2 was 25.6 vs SSE2 31.6 microseconds per 40-slot QMF frame on CPU 4 (P), but AVX2 was 55.9 vs SSE2 51.1 microseconds on CPU 12 (E). This is **not** a universal performance fact about other Intel hybrid models. On homogeneous or other vendors, retain the previous AVX2-if-available behavior. Linux may migrate a thread after the CPUID check, so the selection is a best-effort **performance decision**, never a safety or correctness assumption.
+- `-DSAUTI_QMF_FORCE_AVX2` bypasses the P/E preference **only when AVX2 is supported**; `-DSAUTI_QMF_FORCE_SSE2` always selects SSE2. Never enable both flags simultaneously.
 - With `-DSAUTI_QMF_FORCE_SSE2`, always choose SSE2 on x86-64. With `-DSAUTI_QMF_DISABLE_ASM`, select the scalar C11 reference code. On Windows x64 the current **System V/ELF NASM kernels are deliberately disabled** in the C wrappers; use the portable C implementation pending a real Windows object/ABI port.
 
 ## Differential and regression tests
 
 ```sh
+make test-aac-qmf-dispatch  # pure P/E policy + live CPU checks
+make probe-aac-qmf  # report selected implementation on this CPU
 make test-aac-qmf-simd
 make test-aac-qmf-variants  # C11 and forced SSE2 public-API tests
 make test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-synth-window
@@ -56,6 +60,27 @@ or PS.
 Run `make bench-aac-qmf-frame` on the target Ryzen 5 7600X before drawing
 conclusions about hardware-specific performance. GitHub Actions numbers are
 only measurements on the runner CPU.
+
+## Verify on the i7-12700H laptop
+
+After `git pull --ff-only` on the PR branch, run these read-only probes on
+specific Linux logical CPUs from the observed topology:
+
+```sh
+taskset -c 4 make probe-aac-qmf
+taskset -c 12 make probe-aac-qmf
+taskset -c 4 make bench-aac-qmf-frame
+taskset -c 12 make bench-aac-qmf-frame
+make test-aac-qmf-dispatch test-aac-qmf-frame-parity
+```
+
+Expected diagnostics on that machine: CPU 4 reports **P-core → AVX2**;
+CPU 12 reports **E-core → SSE2**. If the operating system or hypervisor masks
+the hybrid CPUID data, an unknown type is deliberately treated as SSE2. This
+probe does not pin threads by itself; `taskset` is for the measurement only.
+The normal player does not change thread affinity. Both wrappers recheck the
+current core at each 40-slot batch; migration *during* the batch can affect
+performance but not the semantics of the selected kernel.
 
 ## Acceptance criteria
 
