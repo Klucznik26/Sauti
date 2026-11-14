@@ -1048,6 +1048,7 @@ typedef struct {
     unsigned envs;
     uint8_t band_ok[SAUTI_AAC_SBR_MAX_ENV][64];
     uint8_t sine[SAUTI_AAC_SBR_MAX_ENV][64];
+    uint8_t attack[SAUTI_AAC_SBR_MAX_ENV];
     double boost[SAUTI_AAC_SBR_MAX_ENV][64];
     double hf_gain[SAUTI_AAC_SBR_MAX_ENV][64];
     double noise[SAUTI_AAC_SBR_MAX_ENV][64];
@@ -1059,6 +1060,7 @@ static void sbr73_boost_remember(
     uint64_t frame,unsigned envs,
     const uint8_t band_ok[SAUTI_AAC_SBR_MAX_ENV][64],
     const uint8_t sine[SAUTI_AAC_SBR_MAX_ENV][64],
+    const uint8_t attack[SAUTI_AAC_SBR_MAX_ENV],
     const double boost[SAUTI_AAC_SBR_MAX_ENV][64],
     const double hf_gain[SAUTI_AAC_SBR_MAX_ENV][64],
     const double noise[SAUTI_AAC_SBR_MAX_ENV][64],
@@ -1072,6 +1074,8 @@ static void sbr73_boost_remember(
     saved->envs=envs;
     memcpy(saved->band_ok,band_ok,sizeof(saved->band_ok));
     memcpy(saved->sine,sine,sizeof(saved->sine));
+    if(attack)
+        memcpy(saved->attack,attack,sizeof(saved->attack));
     memcpy(saved->boost,boost,sizeof(saved->boost));
     memcpy(saved->hf_gain,hf_gain,sizeof(saved->hf_gain));
     memcpy(saved->noise,noise,sizeof(saved->noise));
@@ -1260,6 +1264,9 @@ static int sbr73_noise_level(
     if(!saved || slot->envelope>=saved->envs ||
        !saved->band_ok[slot->envelope][k])
         return 1;
+    /* The attack envelope keeps the sine and adds no noise.
+     * Later envelopes of the same frame keep theirs. */
+    if(saved->attack[slot->envelope])return 1;
     const double q=saved->noise[slot->envelope][k];
     if(!isfinite(q) || q<0.0)return 0;
     *amplitude=q;
@@ -1624,7 +1631,8 @@ static int sbr73_trace_limit(
     memcpy(prev,hf,sizeof(prev));
     have_prev=1;
     sbr73_boost_remember(frame,payload->grid.env_count,
-                         band_ok,saved_sine,saved_boost,saved_gain,
+                         band_ok,saved_sine,payload->attack,
+                         saved_boost,saved_gain,
                          saved_noise,hf);
     if(path && fflush(out)!=0)return 0;
     return 1;
@@ -3283,12 +3291,22 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                         int final_ref_tone_ok=0;
                         if(final_ref_ok && final_phase2_ok){
                             double final_tone_boost[32u*64u];
-                            final_ref_tone_ok=sbr73_tone_boost(
+                            SautiAacSbrComplex final_ref_slot[32u*64u];
+                            memcpy(final_ref_slot,final_ref_hf,
+                                   sizeof(final_ref_slot));
+                            /* Slots 0..5 still carry the previous
+                             * envelope. Retarget them to slot s+6,
+                             * the same ratio the in-loop path uses. */
+                            final_ref_tone_ok=sbr73_output_slot_gains(
+                                final_ref_slot,
+                                final_phase2_qmf_report.frame_index,
+                                &temporal_noise.held_targets) &&
+                                sbr73_tone_boost(
                                 final_phase2_qmf_report.frame_index,
                                 &temporal_noise.held_targets,
                                 final_tone_boost) &&
                                 sbr73_ref_plus_phase2(
-                                final_ref_hf,last_preview,final_phase2_hf,
+                                final_ref_slot,last_preview,final_phase2_hf,
                                 &last_noise,final_tone_boost,final_ref_tone);
                             if(final_ref_tone_ok)ref_tone_qmf_frames++;
                             else{
