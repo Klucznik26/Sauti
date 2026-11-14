@@ -759,6 +759,33 @@ $(OBJDIR)/test_aac_qmf_simd: tests/test_aac_qmf_simd.c include/sauti_aac_sbr_qmf
 test-aac-qmf-simd: $(OBJDIR)/test_aac_qmf_simd
 	./$(OBJDIR)/test_aac_qmf_simd
 
+# Pure CPU policy and live CPUID dispatch verification, including forced modes.
+$(OBJDIR)/test_aac_qmf_dispatch: tests/test_aac_qmf_dispatch.c include/sauti_aac_qmf_dispatch.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_qmf_dispatch.c
+
+$(OBJDIR)/test_aac_qmf_dispatch_sse2: tests/test_aac_qmf_dispatch.c include/sauti_aac_qmf_dispatch.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -DSAUTI_QMF_FORCE_SSE2 -Iinclude -o $@ tests/test_aac_qmf_dispatch.c
+
+$(OBJDIR)/test_aac_qmf_dispatch_avx2: tests/test_aac_qmf_dispatch.c include/sauti_aac_qmf_dispatch.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -DSAUTI_QMF_FORCE_AVX2 -Iinclude -o $@ tests/test_aac_qmf_dispatch.c
+
+$(OBJDIR)/test_aac_qmf_dispatch_c11: tests/test_aac_qmf_dispatch.c include/sauti_aac_qmf_dispatch.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -DSAUTI_QMF_DISABLE_ASM -Iinclude -o $@ tests/test_aac_qmf_dispatch.c
+
+.PHONY: test-aac-qmf-dispatch
+test-aac-qmf-dispatch: $(OBJDIR)/test_aac_qmf_dispatch $(OBJDIR)/test_aac_qmf_dispatch_sse2 $(OBJDIR)/test_aac_qmf_dispatch_avx2 $(OBJDIR)/test_aac_qmf_dispatch_c11
+	./$(OBJDIR)/test_aac_qmf_dispatch
+	./$(OBJDIR)/test_aac_qmf_dispatch_sse2
+	./$(OBJDIR)/test_aac_qmf_dispatch_avx2
+	./$(OBJDIR)/test_aac_qmf_dispatch_c11
+
+$(OBJDIR)/sauti_qmf_dispatch_probe: tools/sauti_qmf_dispatch_probe.c include/sauti_aac_qmf_dispatch.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_qmf_dispatch_probe.c
+
+.PHONY: probe-aac-qmf
+probe-aac-qmf: $(OBJDIR)/sauti_qmf_dispatch_probe
+	./$(OBJDIR)/sauti_qmf_dispatch_probe
+
 # Three independently compiled public-API pathways: scalar C11, forced
 # System V SSE2 and automatic AVX2/SSE2. The C11 test deliberately does
 # not link any QMF NASM objects, exercising the Windows-safe fallback.
@@ -1618,7 +1645,7 @@ test-aac-sbr-hf-stem-audit:
 	python3 tools/sauti_sbr62_hf_stem_audit.py --self-test
 
 .PHONY: test-aac-native
-test-aac-native: test-aac-qmf-simd test-aac-qmf-variants test-aac-sbr-ffmpeg-phase-trace test-aac-sbr-hf-timing-control test-aac-sbr-qmf-phase-frames test-aac-sbr-qmf-phase-ab test-aac-sbr-harmonic-phase2-ab test-aac-sbr-tonal-lines-audit test-aac-sbr-tonal-delta-audit test-aac-sbr-tonal-ab-audit test-aac-sbr-hf-peak-audit test-aac-sbr-hf-edge-audit test-aac-sbr-hf-spectral-audit test-aac-sbr-hf-frame-audit test-aac-sbr-hf-stem-audit test-aac-headers test-aac-syntax test-aac-ps-map test-aac-ps-hybrid test-aac-ps-qmf-high test-aac-ps-qmf-low test-aac-ps-qmf-bank test-aac-ps-qmf-reference test-aac-ps-transient test-aac-ps-decorrelate test-aac-ps-decorrelator test-aac-ps-stereo test-aac-ps-hybrid-synth test-aac-ps-pcm-stereo test-aac-he-ps-bridge test-aac-he-ps-delay test-aac-he-adts-ps test-aac-ps5-native test-aac-ps-matrix test-aac-ps-phase test-aac-ps-mix test-aac-ps-render test-aac-adts-crc test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-qmf-hf-export test-aac-sbr-qmf-export test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-sbr-adts-cpe test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
+test-aac-native: test-aac-qmf-dispatch test-aac-qmf-simd test-aac-qmf-variants test-aac-sbr-ffmpeg-phase-trace test-aac-sbr-hf-timing-control test-aac-sbr-qmf-phase-frames test-aac-sbr-qmf-phase-ab test-aac-sbr-harmonic-phase2-ab test-aac-sbr-tonal-lines-audit test-aac-sbr-tonal-delta-audit test-aac-sbr-tonal-ab-audit test-aac-sbr-hf-peak-audit test-aac-sbr-hf-edge-audit test-aac-sbr-hf-spectral-audit test-aac-sbr-hf-frame-audit test-aac-sbr-hf-stem-audit test-aac-headers test-aac-syntax test-aac-ps-map test-aac-ps-hybrid test-aac-ps-qmf-high test-aac-ps-qmf-low test-aac-ps-qmf-bank test-aac-ps-qmf-reference test-aac-ps-transient test-aac-ps-decorrelate test-aac-ps-decorrelator test-aac-ps-stereo test-aac-ps-hybrid-synth test-aac-ps-pcm-stereo test-aac-he-ps-bridge test-aac-he-ps-delay test-aac-he-adts-ps test-aac-ps5-native test-aac-ps-matrix test-aac-ps-phase test-aac-ps-mix test-aac-ps-render test-aac-adts-crc test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-qmf-hf-export test-aac-sbr-qmf-export test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-sbr-adts-cpe test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
 
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm
