@@ -783,6 +783,20 @@ $(OBJDIR)/sauti_qmf_simd_bench: tools/sauti_qmf_simd_bench.c $(AAC_SBR_QMF_SYNTH
 bench-aac-qmf: $(OBJDIR)/sauti_qmf_simd_bench
 	./$(OBJDIR)/sauti_qmf_simd_bench
 
+# Compare 40-slot public-API QMF synthesis with native runtime dispatch
+# against a separately compiled SSE2-only wrapper. No decoder-wide claim.
+AAC_QMF_FRAME_BENCH_SRC := tools/sauti_qmf_frame_bench.c
+$(OBJDIR)/sauti_qmf_frame_bench_auto: $(AAC_QMF_FRAME_BENCH_SRC) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ $(AAC_QMF_FRAME_BENCH_SRC) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+$(OBJDIR)/sauti_qmf_frame_bench_sse2: $(AAC_QMF_FRAME_BENCH_SRC) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -DSAUTI_QMF_FORCE_SSE2 -Iinclude -o $@ $(AAC_QMF_FRAME_BENCH_SRC) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+.PHONY: bench-aac-qmf-frame
+bench-aac-qmf-frame: $(OBJDIR)/sauti_qmf_frame_bench_auto $(OBJDIR)/sauti_qmf_frame_bench_sse2
+	./$(OBJDIR)/sauti_qmf_frame_bench_auto
+	./$(OBJDIR)/sauti_qmf_frame_bench_sse2
+
 $(OBJDIR)/test_aac_sbr_qmf_analysis: tests/test_aac_sbr_qmf_analysis.c include/sauti_aac_sbr_qmf_analysis.h $(AAC_SBR_QMF_ANALYSIS_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_qmf_analysis.c $(AAC_SBR_QMF_ANALYSIS_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
 
