@@ -23,6 +23,10 @@ jobs:
         run: |
           make test-aac-qmf-variants test-aac-qmf-simd
           make bench-aac-qmf
+      - name: Verify Intel hybrid QMF dispatch policy and print CI core type
+        run: |
+          make test-aac-qmf-dispatch
+          make probe-aac-qmf
       - name: Benchmark end-to-end 40-slot QMF synthesis (non-gating performance)
         run: make bench-aac-qmf-frame
       - name: Compare all 40-slot QMF PCM samples between auto dispatch and SSE2
@@ -30,7 +34,7 @@ jobs:
       - name: Cross-check QMF SSE2 AVX2 and C11 with Clang
         run: |
           clang --version
-          make -B test-aac-qmf-variants test-aac-qmf-simd test-aac-qmf-frame-parity CC=clang
+          make -B test-aac-qmf-dispatch test-aac-qmf-variants test-aac-qmf-simd test-aac-qmf-frame-parity CC=clang
       - name: Decode actual AAC, ALAC and WebM fixtures
         run: make test-container-formats
       - name: Sanitizer regression (C harness only; ASM guarded by canaries)
