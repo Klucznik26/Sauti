@@ -30,23 +30,19 @@ sauti_aac_sbr_qmf_synth_window_slot_asm:
     add r9, rsi                                 ; qmf_coeff + j*64
 
     movups xmm4, [rax + rcx]
-    movups xmm5, [r9 + rcx]
-    mulps xmm4, xmm5
+    mulps xmm4, [r9 + rcx]
     addps xmm0, xmm4
 
     movups xmm4, [rax + rcx + 16]
-    movups xmm5, [r9 + rcx + 16]
-    mulps xmm4, xmm5
+    mulps xmm4, [r9 + rcx + 16]
     addps xmm1, xmm4
 
     movups xmm4, [rax + rcx + 32]
-    movups xmm5, [r9 + rcx + 32]
-    mulps xmm4, xmm5
+    mulps xmm4, [r9 + rcx + 32]
     addps xmm2, xmm4
 
     movups xmm4, [rax + rcx + 48]
-    movups xmm5, [r9 + rcx + 48]
-    mulps xmm4, xmm5
+    mulps xmm4, [r9 + rcx + 48]
     addps xmm3, xmm4
 
     inc r8
