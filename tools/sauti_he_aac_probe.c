@@ -531,6 +531,61 @@ static int sbr54c_export(FILE *src,const char *path,size_t expected){
     return 1;
 }
 
+/* SBR-73: the HF generator reads analysis slot t-6, while the
+ * envelope gain belongs to the output slot. The synthesizer stays
+ * unshifted, because the PCM lag already contains those six slots.
+ * Slots 26..31 of the emitted frame are the next frame's output
+ * slots 0..5, so they take that next envelope's gain times the
+ * same analysis sample. Slots 0..25 keep the gain already applied.
+ * A slot whose next envelope is not completed yet is left as it
+ * was. No 32768 and no 1024/sqrt(2). The preview and SBR-53d are
+ * not passed through here. */
+static const SautiAacSbrTemporalGainEnvelope *sbr73_gain_envelope(
+    const SautiAacSbrTemporalGainReport *gain,
+    uint8_t source,uint8_t envelope){
+    if(!gain || source>1u)return NULL;
+    for(unsigned i=0u;i<gain->completed_count;i++){
+        const SautiAacSbrTemporalGainEnvelope *e=&gain->completed[i];
+        if(e->source==source && e->envelope==envelope)return e;
+    }
+    return NULL;
+}
+
+static int sbr73_boundary_reweight(
+    SautiAacSbrComplex *grid,
+    const SautiAacSbrComplex *older,
+    const SautiAacSbrTemporalHistory *history,
+    const SautiAacSbrTemporalGainReport *next_gain){
+    if(!grid || !older || !history || !next_gain)return 0;
+    SautiAacSbrResolvedFrame owners;
+    if(!sauti_aac_sbr_temporal_resolve(history,&owners))return 0;
+    SautiAacSbrComplex staging[32u*64u];
+    memcpy(staging,grid,sizeof(staging));
+    for(unsigned t=0u;t<6u;t++){
+        const SautiAacSbrSlotOwner *slot=&owners.slot[t];
+        const SautiAacSbrTemporalGainEnvelope *env=
+            sbr73_gain_envelope(next_gain,slot->source,slot->envelope);
+        if(!env)continue;
+        if(env->kx>=env->k2 || env->k2>64u)return 0;
+        for(unsigned k=env->kx;k<env->k2;k++){
+            const unsigned ix=(26u+t)*64u+k;
+            const double g=env->applied_gain[k];
+            const SautiAacSbrComplex x=older[ix];
+            if(!isfinite(g) || g<0.0 ||
+               !isfinite((double)x.re) || !isfinite((double)x.im))
+                return 0;
+            const double re=(double)x.re*g;
+            const double im=(double)x.im*g;
+            if(!isfinite(re) || !isfinite(im) ||
+               fabs(re)>FLT_MAX || fabs(im)>FLT_MAX)return 0;
+            staging[ix].re=(float)re;
+            staging[ix].im=(float)im;
+        }
+    }
+    memcpy(grid,staging,sizeof(staging));
+    return 1;
+}
+
 /* SBR-73: reference-gain grid plus the phase+2 tone.
  * phase2 = preview - noise + tone, so a changed bin's tone is
  * phase2 - preview + noise. tone_boost is the limiter group
@@ -981,8 +1036,10 @@ typedef struct {
     uint64_t frame;
     unsigned envs;
     uint8_t band_ok[SAUTI_AAC_SBR_MAX_ENV][64];
+    uint8_t sine[SAUTI_AAC_SBR_MAX_ENV][64];
     double boost[SAUTI_AAC_SBR_MAX_ENV][64];
     double hf_gain[SAUTI_AAC_SBR_MAX_ENV][64];
+    double noise[SAUTI_AAC_SBR_MAX_ENV][64];
     SautiAacSbrComplex baseline[32u*64u];
 } Sbr73BoostSaved;
 static Sbr73BoostSaved sbr73_boost_ring[SBR73_BOOST_RING];
@@ -990,8 +1047,10 @@ static Sbr73BoostSaved sbr73_boost_ring[SBR73_BOOST_RING];
 static void sbr73_boost_remember(
     uint64_t frame,unsigned envs,
     const uint8_t band_ok[SAUTI_AAC_SBR_MAX_ENV][64],
+    const uint8_t sine[SAUTI_AAC_SBR_MAX_ENV][64],
     const double boost[SAUTI_AAC_SBR_MAX_ENV][64],
     const double hf_gain[SAUTI_AAC_SBR_MAX_ENV][64],
+    const double noise[SAUTI_AAC_SBR_MAX_ENV][64],
     const SautiAacSbrComplex *baseline){
     memmove(&sbr73_boost_ring[1],&sbr73_boost_ring[0],
             (SBR73_BOOST_RING-1u)*sizeof(sbr73_boost_ring[0]));
@@ -1001,8 +1060,10 @@ static void sbr73_boost_remember(
     saved->frame=frame;
     saved->envs=envs;
     memcpy(saved->band_ok,band_ok,sizeof(saved->band_ok));
+    memcpy(saved->sine,sine,sizeof(saved->sine));
     memcpy(saved->boost,boost,sizeof(saved->boost));
     memcpy(saved->hf_gain,hf_gain,sizeof(saved->hf_gain));
+    memcpy(saved->noise,noise,sizeof(saved->noise));
     memcpy(saved->baseline,baseline,sizeof(saved->baseline));
 }
 
@@ -1041,6 +1102,142 @@ static int sbr73_tone_boost(
             factor[(size_t)t*64u+k]=b;
         }
     }
+    return 1;
+}
+
+/* Slots 26..31 are the next frame's output slots 0..5. The carrier
+ * already uses that frame's envelope gain. The added tone has to
+ * use that same frame's limiter boost, or a cycling sine (k42) keeps
+ * the previous envelope's amplitude on the boundary. A missing next
+ * frame leaves the emitted boost in place. k18 stays on the cap, so
+ * this is a no-op there. */
+static int sbr73_tone_boundary(
+    uint64_t emitted,
+    double factor[32u*64u],
+    const SautiAacSbrTemporalHistory *history){
+    if(!factor || !history)return 0;
+    SautiAacSbrResolvedFrame owners;
+    if(!sauti_aac_sbr_temporal_resolve(history,&owners))return 0;
+    const Sbr73BoostSaved *next=sbr73_boost_find(emitted+1u);
+    if(!next)return 1;
+    for(unsigned t=0u;t<6u;t++){
+        const SautiAacSbrSlotOwner *slot=&owners.slot[t];
+        if(slot->source!=1u || slot->envelope>=next->envs)continue;
+        for(unsigned k=0u;k<64u;k++){
+            if(!next->band_ok[slot->envelope][k])continue;
+            const double b=next->boost[slot->envelope][k];
+            if(!isfinite(b) || b<0.0)return 0;
+            factor[(26u+t)*64u+k]=b;
+        }
+    }
+    return 1;
+}
+
+/* Limiter q for one source slot. A sine center is reported separately
+ * so the caller leaves the tone in place. A missing envelope adds
+ * nothing. q is the post-boost amplitude from the 2^30 energy lift. */
+static int sbr73_noise_level(
+    uint64_t frame,
+    const SautiAacSbrTemporalHfSlot *slot,
+    unsigned k,
+    double *amplitude,
+    int *sine){
+    if(!slot || !amplitude || !sine || k>=64u)return 0;
+    *amplitude=0.0;
+    *sine=0;
+    if(k<slot->kx || k>=slot->k2)return 1;
+    if(slot->source>1u || slot->envelope>=SAUTI_AAC_SBR_MAX_ENV)return 0;
+    uint64_t owner=frame;
+    if(slot->source==0u){
+        if(frame==0u)return 1;
+        owner=frame-1u;
+    }
+    const Sbr73BoostSaved *saved=sbr73_boost_find(owner);
+    if(!saved || slot->envelope>=saved->envs ||
+       !saved->band_ok[slot->envelope][k])
+        return 1;
+    const double q=saved->noise[slot->envelope][k];
+    if(!isfinite(q) || q<0.0)return 0;
+    *amplitude=q;
+    *sine=saved->sine[slot->envelope][k]?1:0;
+    return 1;
+}
+
+static int sbr73_add_noise_bin(
+    SautiAacSbrComplex *bin,
+    SautiAacSbrComplex vector,
+    double amplitude,
+    int sine){
+    if(!bin || sine || amplitude==0.0)return 1;
+    if(!isfinite((double)vector.re) || !isfinite((double)vector.im) ||
+       !isfinite(amplitude))
+        return 0;
+    /* Square root of the 2^30 lift already applied to E before the
+     * limiter. The carrier grid is normalized QMF, so q comes back
+     * by 2^-15. This is not a PCM gain. */
+    const double scale=ldexp(amplitude,-15);
+    const double re=(double)bin->re+(double)vector.re*scale;
+    const double im=(double)bin->im+(double)vector.im*scale;
+    if(!isfinite(re) || !isfinite(im) ||
+       fabs(re)>FLT_MAX || fabs(im)>FLT_MAX)return 0;
+    bin->re=(float)re;
+    bin->im=(float)im;
+    return 1;
+}
+
+/* Noise is added on the output slot, six QMF slots after the carrier
+ * sample that the unshifted synthesizer already lines up. Synth slot
+ * s therefore takes the ROM entry of slot s+6: this frame's slots
+ * 6..31 for s in 0..25, and the next frame's slots 0..5 for s in
+ * 26..31. The lookahead only reads the ROM; it does not advance it. */
+static int sbr73_add_reference_noise(
+    uint64_t emitted,
+    SautiAacSbrComplex *grid,
+    const SautiAacSbrTemporalNoiseFrame *noise,
+    uint32_t last_rom,
+    const SautiAacSbrTemporalHfTargets *emitted_targets,
+    const SautiAacSbrTemporalHfTargets *next_targets){
+    if(!grid || !noise || !emitted_targets || !next_targets ||
+       last_rom>=SAUTI_AAC_SBR_NOISE_ROM_SIZE)return 0;
+    SautiAacSbrComplex ahead[6u*64u];
+    memset(ahead,0,sizeof(ahead));
+    unsigned index=last_rom;
+    for(unsigned t=0u;t<6u;t++){
+        const SautiAacSbrTemporalHfSlot *slot=&next_targets->slot[t];
+        if(slot->kx<1u || slot->k2<=slot->kx || slot->k2>64u)return 0;
+        for(unsigned k=slot->kx;k<slot->k2;k++){
+            index=(index+1u)&511u;
+            if(!sauti_aac_sbr_noise_rom_lookup(index,&ahead[t*64u+k]))
+                return 0;
+        }
+    }
+    SautiAacSbrComplex staging[32u*64u];
+    memcpy(staging,grid,sizeof(staging));
+    for(unsigned s=0u;s<32u;s++){
+        const int borrow=s>=26u;
+        const unsigned src=borrow?s-26u:s+6u;
+        const SautiAacSbrTemporalHfTargets *targets=
+            borrow?next_targets:emitted_targets;
+        const SautiAacSbrTemporalHfSlot *slot=&targets->slot[src];
+        const uint64_t frame=borrow?emitted+1u:emitted;
+        if(slot->kx<1u || slot->k2<=slot->kx || slot->k2>64u)return 0;
+        for(unsigned k=slot->kx;k<slot->k2;k++){
+            double amplitude=0.0;
+            int sine=0;
+            if(!sbr73_noise_level(frame,slot,k,&amplitude,&sine))return 0;
+            SautiAacSbrComplex vector;
+            if(borrow)vector=ahead[src*64u+k];
+            else{
+                const unsigned ix=src*64u+k;
+                if(!noise->active[ix])continue;
+                vector=noise->vector[ix];
+            }
+            if(!sbr73_add_noise_bin(
+                   &staging[s*64u+k],vector,amplitude,sine))
+                return 0;
+        }
+    }
+    memcpy(grid,staging,sizeof(staging));
     return 1;
 }
 
@@ -1209,8 +1406,10 @@ static int sbr73_trace_limit(
        bands.count<1u || bands.count>64u)
         return 0;
     uint8_t band_ok[SAUTI_AAC_SBR_MAX_ENV][64]={0};
+    uint8_t saved_sine[SAUTI_AAC_SBR_MAX_ENV][64]={0};
     double saved_boost[SAUTI_AAC_SBR_MAX_ENV][64]={0};
     double saved_gain[SAUTI_AAC_SBR_MAX_ENV][64]={0};
+    double saved_noise[SAUTI_AAC_SBR_MAX_ENV][64]={0};
     for(unsigned env=0u;env<payload->grid.env_count;env++){
         const unsigned start=payload->env_edges[env];
         const unsigned end=payload->env_edges[env+1u];
@@ -1292,11 +1491,15 @@ static int sbr73_trace_limit(
             const double boost=limited.group_boost[group];
             const double sm=limited.band[k].sine_amplitude;
             const double g=limited.band[k].hf_gain;
+            const double q=limited.band[k].noise_amplitude;
             if(!isfinite(boost) || boost<0.0 ||
                !isfinite(sm) || sm<0.0 ||
-               !isfinite(g) || g<0.0)return 0;
+               !isfinite(g) || g<0.0 ||
+               !isfinite(q) || q<0.0)return 0;
             saved_boost[env][k]=boost;
             saved_gain[env][k]=g;
+            saved_noise[env][k]=q;
+            saved_sine[env][k]=sm>0.0?1u:0u;
             band_ok[env][k]=1u;
             if(path && fprintf(out,"%llu,%u,%u,%u,%d,%.9g,%.9g,%.9g\n",
                        (unsigned long long)frame,env,delta,k,group,
@@ -1307,7 +1510,8 @@ static int sbr73_trace_limit(
     memcpy(prev,hf,sizeof(prev));
     have_prev=1;
     sbr73_boost_remember(frame,payload->grid.env_count,
-                         band_ok,saved_boost,saved_gain,hf);
+                         band_ok,saved_sine,saved_boost,saved_gain,
+                         saved_noise,hf);
     if(path && fflush(out)!=0)return 0;
     return 1;
 }
@@ -2362,12 +2566,27 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                 break;
             }
             phase2_qmf_frames++;
+            SautiAacSbrComplex ref_boundary_hf[32u*64u];
+            memcpy(ref_boundary_hf,ref_adjusted_hf,sizeof(ref_boundary_hf));
+            if(ref_have_older &&
+               !sbr73_boundary_reweight(
+                   ref_boundary_hf,ref_older_hf,&temporal_history,
+                   &ref_bridge)){
+                printf("  ramka %zu: SBR-73 granica wzmocnienia odrzucona\n",i);
+                break;
+            }
             double ref_tone_boost[32u*64u];
             if(!sbr73_tone_boost(tone_report.frame_index,
                                  &emitted_targets,ref_tone_boost) ||
+               !sbr73_tone_boundary(tone_report.frame_index,
+                                    ref_tone_boost,&temporal_history) ||
                !sbr73_ref_plus_phase2(
-                   ref_adjusted_hf,preview,phase2_high,
-                   &noise_frame,ref_tone_boost,ref_tone_hf)){
+                   ref_boundary_hf,preview,phase2_high,
+                   &noise_frame,ref_tone_boost,ref_tone_hf) ||
+               !sbr73_add_reference_noise(
+                   tone_report.frame_index,ref_tone_hf,
+                   &noise_frame,noise_report.rom_index,
+                   &emitted_targets,&temporal_noise.held_targets)){
                 printf("  ramka %zu: SBR-73 ton na referencyjnym HF odrzucony\n",i);
                 break;
             }
