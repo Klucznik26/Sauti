@@ -25,6 +25,8 @@ jobs:
           make bench-aac-qmf
       - name: Benchmark end-to-end 40-slot QMF synthesis (non-gating performance)
         run: make bench-aac-qmf-frame
+      - name: Compare all 40-slot QMF PCM samples between auto dispatch and SSE2
+        run: make test-aac-qmf-frame-parity
       - name: Decode actual AAC, ALAC and WebM fixtures
         run: make test-container-formats
       - name: Sanitizer regression (C harness only; ASM guarded by canaries)
