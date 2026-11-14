@@ -12,10 +12,11 @@ from pathlib import Path
 
 def read_pcm(path: str) -> tuple[float, ...]:
     raw = Path(path).read_bytes()
-    expected = 40 * 64 * 4
-    if len(raw) != expected:
-        raise ValueError(f"{path}: expected {expected} bytes; got {len(raw)}")
-    return struct.unpack("<2560f", raw)
+    frame_bytes = 40 * 64 * 4
+    if len(raw) < frame_bytes or len(raw) % frame_bytes:
+        raise ValueError(f"{path}: expected a nonempty whole number of "
+                         f"{frame_bytes}-byte frames; got {len(raw)} bytes")
+    return struct.unpack(f"<{len(raw)//4}f", raw)
 
 
 def main() -> int:
@@ -23,8 +24,16 @@ def main() -> int:
         print("usage: sauti_qmf_frame_compare.py auto.f32le sse2.f32le",
               file=sys.stderr)
         return 2
-    auto = read_pcm(sys.argv[1])
-    sse = read_pcm(sys.argv[2])
+    try:
+        auto = read_pcm(sys.argv[1])
+        sse = read_pcm(sys.argv[2])
+    except (ValueError, OSError, struct.error) as exc:
+        print(f"FAIL QMF PCM input: {exc}", file=sys.stderr)
+        return 1
+    if len(auto) != len(sse):
+        print(f"FAIL QMF PCM lengths differ: {len(auto)} vs {len(sse)} samples",
+              file=sys.stderr)
+        return 1
     max_abs = 0.0
     worst = 0
     sum_squared = 0.0
@@ -43,7 +52,8 @@ def main() -> int:
                   file=sys.stderr)
             return 1
     rms = math.sqrt(sum_squared / len(auto))
-    print(f"PASS 40-slot QMF PCM parity: 2560 samples, "
+    print(f"PASS QMF PCM parity: {len(auto)//2560} frames, "
+          f"{len(auto)} samples, "
           f"RMS error {rms:.7g}, max absolute error {max_abs:.7g} "
           f"at sample {worst}")
     return 0
