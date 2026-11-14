@@ -100,12 +100,14 @@ int sauti_aac_tns_apply(const SautiAacTnsData *tns,
              * Signed coefficients are bounded by compressed bit width. */
             const double iqpos=((1<<(f->resolution-1))-0.5)/(pi/2.0);
             const double iqneg=((1<<(f->resolution-1))+0.5)/(pi/2.0);
-            double lpc[SAUTI_AAC_TNS_MAX_ORDER]={0};
-            double temp[SAUTI_AAC_TNS_MAX_ORDER]={0};
+            /* Step-up and the all-pole stay in float32. A double filter
+             * disagrees once a second, high-gain filter is present. */
+            float lpc[SAUTI_AAC_TNS_MAX_ORDER]={0};
+            float temp[SAUTI_AAC_TNS_MAX_ORDER]={0};
             for(unsigned k=0;k<f->order;k++){
                 const int q=f->coefficients[k];
                 if(q< -half || q>=half)return 0;
-                const double reflection=sin((double)q/(q>=0?iqpos:iqneg));
+                const float reflection=(float)sin((double)q/(q>=0?iqpos:iqneg));
                 for(unsigned i=0;i<k;i++)
                     temp[i]=lpc[i]+reflection*lpc[k-1u-i];
                 temp[k]=reflection;
@@ -121,13 +123,12 @@ int sauti_aac_tns_apply(const SautiAacTnsData *tns,
             const int direction=f->direction?-1:1;
             int index=(int)(base+(direction<0?stop-1u:start));
             for(unsigned m=0;m<stop-start;m++,index+=direction){
-                double value=next[index];
+                float value=next[index];
                 const unsigned past=m<f->order?m:f->order;
                 for(unsigned k=1;k<=past;k++)
                     value-=lpc[k-1u]*next[index-(int)k*direction];
-                if(!isfinite(value) || fabs(value)>3.402823466e38)
-                    return 0;
-                next[index]=(float)value;
+                if(!isfinite(value))return 0;
+                next[index]=value;
             }
         }
     }
