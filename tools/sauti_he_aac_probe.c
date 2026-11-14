@@ -41,6 +41,7 @@
 #include "sauti_aac_headers.h"
 #include "sauti_aac_syntax.h"
 #include <errno.h>
+#include <float.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -530,6 +531,52 @@ static int sbr54c_export(FILE *src,const char *path,size_t expected){
     return 1;
 }
 
+/* SBR-73: reference-gain grid plus the phase+2 tone.
+ * phase2 = preview - noise + tone, so a changed bin's tone is
+ * phase2 - preview + noise. tone_boost is the limiter group
+ * boost of that slot (about 1..1.5849). It is not 1024/sqrt(2)
+ * and it is not a hardcoded average. A missing window passes 1.
+ * The oscillator and the preview grid stay unchanged. */
+static int sbr73_ref_plus_phase2(
+    const SautiAacSbrComplex *ref,
+    const SautiAacSbrComplex *preview,
+    const SautiAacSbrComplex *phase2,
+    const SautiAacSbrTemporalNoiseFrame *noise,
+    const double tone_boost[32u*64u],
+    SautiAacSbrComplex *out){
+    if(!ref || !preview || !phase2 || !noise || !tone_boost || !out)return 0;
+    SautiAacSbrComplex staging[32u*64u];
+    for(unsigned ix=0u;ix<32u*64u;ix++){
+        const SautiAacSbrComplex r=ref[ix],p=preview[ix],s=phase2[ix];
+        const double amp=noise->raw_amplitude[ix];
+        const double boost=tone_boost[ix];
+        if(!isfinite((double)r.re) || !isfinite((double)r.im) ||
+           !isfinite((double)p.re) || !isfinite((double)p.im) ||
+           !isfinite((double)s.re) || !isfinite((double)s.im) ||
+           !isfinite(amp) || amp<0.0 ||
+           !isfinite(boost) || boost<0.0 ||
+           !isfinite((double)noise->vector[ix].re) ||
+           !isfinite((double)noise->vector[ix].im))
+            return 0;
+        double tre=(double)s.re-(double)p.re;
+        double tim=(double)s.im-(double)p.im;
+        if(s.re!=p.re || s.im!=p.im){
+            tre+=(double)noise->vector[ix].re*amp;
+            tim+=(double)noise->vector[ix].im*amp;
+            tre*=boost;
+            tim*=boost;
+        }
+        const double re=(double)r.re+tre;
+        const double im=(double)r.im+tim;
+        if(!isfinite(re) || !isfinite(im) ||
+           fabs(re)>FLT_MAX || fabs(im)>FLT_MAX)return 0;
+        staging[ix].re=(float)re;
+        staging[ix].im=(float)im;
+    }
+    memcpy(out,staging,sizeof(staging));
+    return 1;
+}
+
 static void sbr54e_accumulate(SautiAacSbrTemporalEnergyAudit *total,
                               const SautiAacSbrTemporalEnergyAudit *value){
     total->active_bins+=value->active_bins;
@@ -965,6 +1012,36 @@ static const Sbr73BoostSaved *sbr73_boost_find(uint64_t frame){
            sbr73_boost_ring[i].frame==frame)
             return &sbr73_boost_ring[i];
     return NULL;
+}
+
+/* Limiter group boost for each emitted slot, used only to scale
+ * the added phase+2 tone. Unsaved envelopes stay at 1. */
+static int sbr73_tone_boost(
+    uint64_t frame,
+    const SautiAacSbrTemporalHfTargets *targets,
+    double factor[32u*64u]){
+    if(!targets || !factor)return 0;
+    for(unsigned ix=0u;ix<32u*64u;ix++)factor[ix]=1.0;
+    for(unsigned t=0u;t<32u;t++){
+        const SautiAacSbrTemporalHfSlot *slot=&targets->slot[t];
+        if(slot->source>1u || slot->envelope>=SAUTI_AAC_SBR_MAX_ENV ||
+           slot->k2<slot->kx || slot->k2>64u)
+            return 0;
+        uint64_t owner=frame;
+        if(slot->source==0u){
+            if(frame==0u)continue;
+            owner=frame-1u;
+        }
+        const Sbr73BoostSaved *saved=sbr73_boost_find(owner);
+        if(!saved || slot->envelope>=saved->envs)continue;
+        for(unsigned k=slot->kx;k<slot->k2;k++){
+            if(!saved->band_ok[slot->envelope][k])continue;
+            const double b=saved->boost[slot->envelope][k];
+            if(!isfinite(b) || b<0.0)return 0;
+            factor[(size_t)t*64u+k]=b;
+        }
+    }
+    return 1;
 }
 
 /* Scale the emitted tone by the boost of the envelope that owns
@@ -1642,6 +1719,31 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             }
         }
     }
+    /* SBR-73: reference gain plus the phase+2 tone, scaled by the
+     * per-slot limiter boost. Own synthesis state. Preview and
+     * phase+2 files stay as they are. */
+    FILE *ref_tone_spool=NULL;
+    char ref_tone_path[1024]={0};
+    int ref_tone_io_ok=1;
+    if(export_path){
+        const int n=snprintf(ref_tone_path,sizeof(ref_tone_path),
+                             "%s.reftone.f32le",export_path);
+        if(n<0 || (size_t)n>=sizeof(ref_tone_path) ||
+           !strcmp(ref_tone_path,path) ||
+           !strcmp(ref_tone_path,export_path) ||
+           !strcmp(ref_tone_path,phase2_path) ||
+           !strcmp(ref_tone_path,ref_hf_path)){
+            fputs("SBR-73: niedozwolona sciezka PCM reftone\n",stderr);
+            ref_tone_io_ok=0;
+        }else{
+            ref_tone_spool=tmpfile();
+            if(!ref_tone_spool){
+                fprintf(stderr,"SBR-73: brak bufora reftone PCM: %s\n",
+                        strerror(errno));
+                ref_tone_io_ok=0;
+            }
+        }
+    }
     printf("Diagnostyka ciaglosci rdzenia AAC-LC + temporal SBR (%zu ramek, bez HE-AAC PCM):\n",limit);
     size_t decoded=0,first_nonzero=SIZE_MAX;
     SautiAacSbrTemporalHistory temporal_history={0};
@@ -1699,6 +1801,8 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     SautiAacSbrTemporalApplyState ref_hf_apply_state={0};
     size_t ref_hf_frames=0u,ref_hf_qmf_frames=0u;
     double ref_hf_pcm_power=0.0,ref_hf_pcm_peak=0.0;
+    SautiAacSbrTemporalPcmPreviewState ref_tone_pcm_state={0};
+    size_t ref_tone_qmf_frames=0u,ref_tone_pcm_frames=0u;
     size_t units_qmf_frames=0u,units_pcm_frames=0u;
     double units_pcm_power=0.0,units_pcm_peak=0.0;
     SautiAacSbrTemporalHarmonicPreviewState sine_qmf_state={0};
@@ -1729,6 +1833,9 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     size_t invf_active_frames=0u,invf_total_bands=0u;
     double lpc_delta_power=0.0;
     SautiAacSbrTemporalPowerState temporal_power={0};
+    SautiAacSbrComplex ref_prev_hf[32u*64u]={0};
+    SautiAacSbrComplex ref_older_hf[32u*64u]={0};
+    int ref_have_prev=0,ref_have_older=0;
     for(size_t i=0;i<limit;i++){
         uint8_t frame[MAX_ADTS_FRAME];
         size_t len=0;
@@ -2078,10 +2185,17 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         }
         /* SBR-54l: compare the tested 54j+54k gain model
          * against SBR-53d on the SAME completed original envelopes.
-         * Only counters change; no PCM/QMF gain is replaced yet. */
+         * e_curr is the HF-generator window. SBR-53d keeps the
+         * unshifted mean. Two saved frames cover a source=0 owner. */
         SautiAacSbrTemporalReferenceGainReport reference_gain;
         if(!sauti_aac_sbr_temporal_reference_gain_calculate(
-               &temporal_history,&power_report,&reference_gain) ||
+               &temporal_history,&power_report,
+               baseline_hf,32u*64u,
+               ref_have_prev?ref_prev_hf:NULL,
+               ref_have_prev?32u*64u:0u,
+               ref_have_older?ref_older_hf:NULL,
+               ref_have_older?32u*64u:0u,
+               &reference_gain) ||
            reference_gain.completed_count!=gain_report.completed_count){
             printf("  ramka %zu: SBR-54l referencyjny limiter obwiedni odrzucony (bez PCM)\n",i);
             break;
@@ -2097,6 +2211,10 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         ref_gain_new_power+=reference_gain.new_gain_sq_sum;
         for(unsigned j=0u;j<reference_gain.completed_count;j++)
             ref_gain_carry+=reference_gain.completed[j].source==0u;
+        memcpy(ref_older_hf,ref_prev_hf,sizeof(ref_older_hf));
+        memcpy(ref_prev_hf,baseline_hf,sizeof(ref_prev_hf));
+        ref_have_older=ref_have_prev;
+        ref_have_prev=1;
         if(!sbr73_trace_boost(i,&temporal_history,
                               &gain_report,&reference_gain) ||
            !sbr73_trace_boost_bins(i,&temporal_history,&power_report,
@@ -2169,6 +2287,8 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         SautiAacSbrComplex summed_hf[32u*64u];
         const SautiAacSbrComplex *sine_pcm_qmf=NULL;
         SautiAacSbrComplex phase2_high[32u*64u];
+        SautiAacSbrComplex ref_tone_hf[32u*64u];
+        int ref_tone_ready=0;
         SautiAacSbrComplex units_high[32u*64u];
         SautiAacSbrTemporalMixReport mix_report={0};
         if(noise_report.emitted){
@@ -2242,6 +2362,17 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                 break;
             }
             phase2_qmf_frames++;
+            double ref_tone_boost[32u*64u];
+            if(!sbr73_tone_boost(tone_report.frame_index,
+                                 &emitted_targets,ref_tone_boost) ||
+               !sbr73_ref_plus_phase2(
+                   ref_adjusted_hf,preview,phase2_high,
+                   &noise_frame,ref_tone_boost,ref_tone_hf)){
+                printf("  ramka %zu: SBR-73 ton na referencyjnym HF odrzucony\n",i);
+                break;
+            }
+            ref_tone_ready=1;
+            ref_tone_qmf_frames++;
             if(!sbr73_trace_phase(&emitted_targets,sine_held_onset,
                                   tone_report.frame_index,sbr73_phase_before) ||
                !sbr73_trace_qmf(sine_high,phase2_high,tone_report.frame_index) ||
@@ -2423,6 +2554,30 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                fwrite(phase2_pcm,sizeof(float),2048u,
                       phase2_spool)!=2048u)
                 phase2_io_ok=0;
+        }
+        float ref_tone_pcm[2048u];
+        SautiAacSbrTemporalPcmPreviewReport ref_tone_pcm_report;
+        if(!sauti_aac_sbr_temporal_pcm_preview_push(
+               low_qmf,32u*32u,
+               ref_tone_ready?ref_tone_hf:NULL,
+               ref_tone_ready?32u*64u:0u,
+               noise_report.emitted?&noise_frame:NULL,
+               &ref_apply_report,
+               noise_report.emitted?&mix_report:NULL,
+               &ref_tone_pcm_state,ref_tone_pcm,2048u,
+               &ref_tone_pcm_report) ||
+           ref_tone_pcm_report.emitted!=pcm_report.emitted ||
+           (pcm_report.emitted &&
+            ref_tone_pcm_report.frame_index!=pcm_report.frame_index)){
+            printf("  ramka %zu: SBR-73 synteza reftone odrzucona\n",i);
+            break;
+        }
+        if(ref_tone_pcm_report.emitted){
+            ref_tone_pcm_frames++;
+            if(ref_tone_spool &&
+               fwrite(ref_tone_pcm,sizeof(float),2048u,
+                      ref_tone_spool)!=2048u)
+                ref_tone_io_ok=0;
         }
         float units_pcm[2048u];
         SautiAacSbrTemporalPcmPreviewReport units_pcm_report;
@@ -2774,6 +2929,45 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                                 sine_io_ok=0;
                             }
                         }
+                        SautiAacSbrComplex final_ref_tone[32u*64u];
+                        int final_ref_tone_ok=0;
+                        if(final_ref_ok && final_phase2_ok){
+                            double final_tone_boost[32u*64u];
+                            final_ref_tone_ok=sbr73_tone_boost(
+                                final_phase2_qmf_report.frame_index,
+                                &temporal_noise.held_targets,
+                                final_tone_boost) &&
+                                sbr73_ref_plus_phase2(
+                                final_ref_hf,last_preview,final_phase2_hf,
+                                &last_noise,final_tone_boost,final_ref_tone);
+                            if(final_ref_tone_ok)ref_tone_qmf_frames++;
+                            else{
+                                puts("  SBR-73: finalny QMF reftone odrzucony");
+                                ref_tone_io_ok=0;
+                            }
+                        }else ref_tone_io_ok=0;
+                        if(final_ref_tone_ok && ref_tone_io_ok){
+                            float final_ref_tone_pcm[2048u];
+                            SautiAacSbrTemporalPcmPreviewReport
+                                final_ref_tone_report;
+                            if(sauti_aac_sbr_temporal_pcm_preview_flush(
+                                   final_ref_tone,32u*64u,&last_noise,
+                                   &final_ref_report,&last_mix,
+                                   &ref_tone_pcm_state,final_ref_tone_pcm,
+                                   2048u,&final_ref_tone_report) &&
+                               final_ref_tone_report.emitted &&
+                               final_ref_tone_report.frame_index==
+                                   final_pcm_report.frame_index){
+                                ref_tone_pcm_frames++;
+                                if(ref_tone_spool &&
+                                   fwrite(final_ref_tone_pcm,sizeof(float),
+                                          2048u,ref_tone_spool)!=2048u)
+                                    ref_tone_io_ok=0;
+                            }else{
+                                puts("  SBR-73: finalny PCM reftone odrzucony");
+                                ref_tone_io_ok=0;
+                            }
+                        }
                         if(final_phase2_ok && phase2_io_ok){
                             float final_phase2_pcm[2048u];
                             SautiAacSbrTemporalPcmPreviewReport
@@ -3065,6 +3259,8 @@ static void diagnose_core_sequence(const char *path,size_t limit,
            ref_hf_frames?sqrt(ref_hf_pcm_power/
                              ((double)ref_hf_frames*2048.0)):0.0,
            ref_hf_pcm_peak);
+    printf("  SBR-73: refhf+phase2 tone QMF=%zu, PCM=%zu (ton razy boost limitera, bez podmiany podgladu)\n",
+           ref_tone_qmf_frames,ref_tone_pcm_frames);
     printf("  Rdzen: udane=%zu, pierwsza niezerowa=",decoded);
     if(first_nonzero==SIZE_MAX)puts("brak w przebadanym zakresie");
     else printf("%zu\n",first_nonzero);
@@ -3178,6 +3374,25 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             fprintf(stderr,"SBR-70: blad eksportu phase2 PCM: %s\n",
                     phase2_path);
         fclose(phase2_spool);
+    }
+    if(ref_tone_spool){
+        const int complete=ref_tone_io_ok && decoded==limit &&
+            preview_frames==limit && ref_hf_frames==limit &&
+            ref_tone_qmf_frames==limit && ref_tone_pcm_frames==limit &&
+            ref_tone_pcm_state.closed==1u &&
+            ref_tone_pcm_state.emitted_frames==limit;
+        if(!complete)
+            fprintf(stderr,
+                    "SBR-73: POMINIETY niepelny reftone PCM (%zu/%zu ramek)\n",
+                    ref_tone_pcm_frames,limit);
+        else if(sbr54c_export(ref_tone_spool,ref_tone_path,
+                              limit*2048u*sizeof(float)))
+            printf("  SBR-73: zapisano refhf+phase2 PCM f32le: %s, ramki=%zu, probki=%zu (NIE normatywny HE-AAC)\n",
+                   ref_tone_path,ref_tone_pcm_frames,limit*2048u);
+        else
+            fprintf(stderr,"SBR-73: blad eksportu reftone PCM: %s\n",
+                    ref_tone_path);
+        fclose(ref_tone_spool);
     }
     if(spool){
         const int complete=export_io_ok && decoded==limit &&

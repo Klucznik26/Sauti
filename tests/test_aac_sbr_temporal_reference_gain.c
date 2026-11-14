@@ -64,7 +64,7 @@ static void run(unsigned tail){
     SautiAacSbrTemporalPowerState state={0};
     SautiAacSbrTemporalPowerReport power={0};
     SautiAacSbrTemporalReferenceGainReport comparison={0};
-    SautiAacSbrComplex x[COUNT];
+    SautiAacSbrComplex x[COUNT],previous_x[COUNT];
     assert(sauti_aac_sbr_temporal_history_push(
            &before,&history,&handoff));
     hf(x,&before,32u,2.0f,2.0f);
@@ -72,9 +72,10 @@ static void run(unsigned tail){
         &history,x,COUNT,&state,&power));
     assert(power.completed_count==0u);
     assert(sauti_aac_sbr_temporal_reference_gain_calculate(
-        &history,&power,&comparison));
+        &history,&power,x,COUNT,NULL,0u,NULL,0u,&comparison));
     assert(comparison.completed_count==0u);
 
+    memcpy(previous_x,x,sizeof(previous_x));
     assert(sauti_aac_sbr_temporal_history_push(
            &now,&history,&handoff));
     hf(x,&now,tail,10.0f,3.0f);
@@ -82,7 +83,7 @@ static void run(unsigned tail){
         &history,x,COUNT,&state,&power));
     assert(power.completed_count==2u);
     assert(sauti_aac_sbr_temporal_reference_gain_calculate(
-        &history,&power,&comparison));
+        &history,&power,x,COUNT,previous_x,COUNT,NULL,0u,&comparison));
     assert(comparison.completed_count==2u);
     assert(comparison.completed[0].source==0u &&
            comparison.completed[0].slots==32u+tail &&
@@ -110,6 +111,45 @@ static void run(unsigned tail){
     assert(prev->band[k].noise_amplitude>0.0);
     assert(prev->band[k].sine_amplitude>=0.0);
     assert(comparison.completed[0].harmonic_bins==1u);
+    if(tail==6u){
+        /* Envelope [6,32) is flat amplitude 3. The HF-generator
+         * window [0,26) also includes the six leading 10s, so its
+         * mean is 30 and the limiter must follow that, not 9. */
+        const unsigned kx=now.tables.kx;
+        const unsigned k2=kx+now.tables.m;
+        double window[64]={0},energy_b[64]={0},noise_b[64]={0};
+        double raw_e[64]={0},raw_c[64]={0},raw_mean[64]={0};
+        uint8_t sine[64]={0},mapped[64]={0};
+        assert(sauti_aac_sbr_temporal_power_hfgen_window(
+            x,COUNT,NULL,0u,6u,32u,kx,k2,window));
+        assert(fabs(window[kx]-30.0)<1e-9);
+        assert(fabs(power.completed[1].mean_power[kx]-9.0)<1e-9);
+        SautiAacSbrLimiterBands bands;
+        assert(sauti_aac_sbr_limiter_bands_build(
+            &now.tables,&now.patches,now.limiter_mode,&bands));
+        for(unsigned b=0;b<now.tables.n_high;b++)
+            for(unsigned k=now.tables.high[b];k<now.tables.high[b+1u];k++)
+                energy_b[k]=ldexp(144.0,-30);
+        for(unsigned b=0;b<now.tables.n_noise;b++)
+            for(unsigned k=now.tables.noise[b];k<now.tables.noise[b+1u];k++)
+                noise_b[k]=0.25;
+        for(unsigned k=kx;k<k2;k++){
+            raw_e[k]=ldexp(energy_b[k],30);
+            raw_c[k]=ldexp(window[k],30);
+            raw_mean[k]=ldexp(power.completed[1].mean_power[k],30);
+        }
+        SautiAacSbrGainLimitedFrame from_window,from_mean;
+        assert(sauti_aac_sbr_gain_limit_partition_flags(
+            raw_e,raw_c,noise_b,sine,mapped,bands.edges,bands.count,
+            now.gain_mode,0u,&from_window));
+        assert(sauti_aac_sbr_gain_limit_partition_flags(
+            raw_e,raw_mean,noise_b,sine,mapped,bands.edges,bands.count,
+            now.gain_mode,0u,&from_mean));
+        const double got=comparison.completed[1].limited.band[kx].hf_gain;
+        const double other=from_mean.band[kx].hf_gain;
+        assert(fabs(got-from_window.band[kx].hf_gain)<1e-9);
+        assert(fabs(got-other)>1e-3*fmax(got,other));
+    }
 
     /* A bad late original-owner energy must reject the entire
      * calculation without changing any prior diagnostic report. */
@@ -117,22 +157,22 @@ static void run(unsigned tail){
     SautiAacSbrTemporalHistory broken=history;
     broken.current.energy.env_energy[0][0]=NAN;
     assert(!sauti_aac_sbr_temporal_reference_gain_calculate(
-        &broken,&power,&comparison));
+        &broken,&power,x,COUNT,previous_x,COUNT,NULL,0u,&comparison));
     assert(memcmp(&saved,&comparison,sizeof(saved))==0);
     broken=history;
     broken.previous.energy.noise_factor[0][0]=-1.0;
     assert(!sauti_aac_sbr_temporal_reference_gain_calculate(
-        &broken,&power,&comparison));
+        &broken,&power,x,COUNT,previous_x,COUNT,NULL,0u,&comparison));
     assert(memcmp(&saved,&comparison,sizeof(saved))==0);
     SautiAacSbrTemporalPowerReport damaged=power;
     damaged.completed[0].slots--;
     assert(!sauti_aac_sbr_temporal_reference_gain_calculate(
-        &history,&damaged,&comparison));
+        &history,&damaged,x,COUNT,previous_x,COUNT,NULL,0u,&comparison));
     assert(memcmp(&saved,&comparison,sizeof(saved))==0);
     damaged=power;
     damaged.completed[1].mean_power[63u]=NAN;
     assert(!sauti_aac_sbr_temporal_reference_gain_calculate(
-        &history,&damaged,&comparison));
+        &history,&damaged,x,COUNT,previous_x,COUNT,NULL,0u,&comparison));
     assert(memcmp(&saved,&comparison,sizeof(saved))==0);
 
     printf("SBR-54l: %u-slot FIXVAR, source=previous/current, tonal/attack and rollback PASS\n",tail);

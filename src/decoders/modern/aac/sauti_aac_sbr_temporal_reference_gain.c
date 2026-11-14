@@ -2,11 +2,14 @@
  * verified 54j/54k gain/noise/sine limiter on REAL HF power.
  *
  * NO audible PCM is modified, including for FIXVAR carry-over.
- * Envelope energy and mean power arrive already divided by 2^30.
+ * Envelope energy and the current arrive already divided by 2^30.
  * This call lifts only those two arrays back to the raw domain
- * the limiter's additive 1 expects. Q is not scaled. The high-band
- * midpoint and the envelope-band spread are separate sine maps.
- * Cross-frame e_a remains pending. SBR-53d is not retargeted. */
+ * the limiter's additive 1 expects. The current is the HF-generator
+ * window when the owner frame is available, otherwise the unshifted
+ * mean. Q is not scaled. Square sums stay on that unshifted mean.
+ * The high-band midpoint and the envelope-band spread are separate
+ * sine maps. Cross-frame e_a remains pending. SBR-53d is not
+ * retargeted. */
 #include "sauti_aac_sbr_temporal_reference_gain.h"
 #include <math.h>
 #include <string.h>
@@ -16,6 +19,8 @@ static int build_one(
     const SautiAacSbrTemporalPowerEnvelope *power,
     const SautiAacSbrTemporalGainEnvelope *legacy,
     unsigned source,
+    const SautiAacSbrComplex *grid,size_t grid_count,
+    const SautiAacSbrComplex *older,size_t older_count,
     SautiAacSbrTemporalReferenceGainEnvelope *out){
     if(!f || !power || !legacy || !out ||
        power->source!=source || legacy->source!=source ||
@@ -89,12 +94,26 @@ static int build_one(
         for(unsigned k=freq[b];k<freq[b+1u];k++)
             sine_mapped[k]=1u;
     }
+    double mean_curr[64]={0};
     for(unsigned k=kx;k<k2;k++){
         const double v=power->mean_power[k];
         if(!isfinite(v) || v<0.0 ||
            !isfinite(legacy->applied_gain[k]) ||
            legacy->applied_gain[k]<0.0)return 0;
+        mean_curr[k]=v;
         curr[k]=v;
+    }
+    /* Slots before the owner frame need the frame before it.
+     * Startup leaves those envelopes on the unshifted mean. */
+    if(grid && !((int)lo-6<0 && !older)){
+        double window[64];
+        if(!sauti_aac_sbr_temporal_power_hfgen_window(
+               grid,grid_count,older,older_count,
+               lo,hi,kx,k2,window))return 0;
+        for(unsigned k=kx;k<k2;k++){
+            if(!isfinite(window[k]) || window[k]<0.0)return 0;
+            curr[k]=window[k];
+        }
     }
     /* delta=0 marks the locally signaled transient envelope.
      * FFmpeg's cross-frame e_a history is not yet represented.
@@ -123,8 +142,8 @@ static int build_one(
     for(unsigned k=kx;k<k2;k++){
         const double old=legacy->applied_gain[k];
         const double new_gain=limited.band[k].hf_gain;
-        value.old_gain_sq_sum+=old*old*curr[k];
-        value.new_gain_sq_sum+=new_gain*new_gain*curr[k];
+        value.old_gain_sq_sum+=old*old*mean_curr[k];
+        value.new_gain_sq_sum+=new_gain*new_gain*mean_curr[k];
         value.harmonic_bins+=active_sine[k];
     }
     if(!isfinite(value.old_gain_sq_sum) ||
@@ -136,6 +155,9 @@ static int build_one(
 int sauti_aac_sbr_temporal_reference_gain_calculate(
     const SautiAacSbrTemporalHistory *history,
     const SautiAacSbrTemporalPowerReport *power,
+    const SautiAacSbrComplex *current_hf,size_t current_count,
+    const SautiAacSbrComplex *previous_hf,size_t previous_count,
+    const SautiAacSbrComplex *older_hf,size_t older_count,
     SautiAacSbrTemporalReferenceGainReport *out){
     if(!history || !power || !out ||
        !history->ready ||
@@ -154,7 +176,16 @@ int sauti_aac_sbr_temporal_reference_gain_calculate(
             p->source==0u?&history->previous:&history->current;
         SautiAacSbrTemporalReferenceGainEnvelope *row=
             &next.completed[i];
-        if(!build_one(f,p,&baseline.completed[i],p->source,row))
+        const SautiAacSbrComplex *grid=
+            p->source==0u?previous_hf:current_hf;
+        const size_t grid_count=
+            p->source==0u?previous_count:current_count;
+        const SautiAacSbrComplex *older=
+            p->source==0u?older_hf:previous_hf;
+        const size_t older_n=
+            p->source==0u?older_count:previous_count;
+        if(!build_one(f,p,&baseline.completed[i],p->source,
+                      grid,grid_count,older,older_n,row))
             return 0;
         next.group_count+=row->limited.groups;
         next.noise_capped_bins+=row->limited.noise_capped_bins;

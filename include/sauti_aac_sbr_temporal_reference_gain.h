@@ -12,11 +12,15 @@
  * belongs to history.current. No output for pending envelopes.
  * The currently parsed harmonic center flags and transient_env
  * are used as diagnostic control inputs. Envelope energy and the
- * mean-power current are lifted by 2^30 at the limiter call.
- * Noise is not. The sine midpoint and the envelope-band map are
- * passed separately. FFmpeg's delayed e_a, active sine gating and
- * synthesis time shift are not yet used: this is a reference-MATH
- * comparison, NOT conformant HE-AAC.
+ * current are lifted by 2^30 at the limiter call. Noise is not.
+ * The current is the HF-generator window [start-6, end-6) of the
+ * owner frame. current_hf is that owner when source is 1, and
+ * previous_hf is that owner when source is 0. A missing frame
+ * keeps the unshifted SBR-53c mean for that envelope. Square sums
+ * stay on the unshifted mean. The sine midpoint and the
+ * envelope-band map are passed separately. FFmpeg's delayed e_a,
+ * active sine gating and synthesis time shift are not yet used:
+ * this is a reference-MATH comparison, NOT conformant HE-AAC.
  *
  * Legacy SBR-53d, 54a, and decoder states are unmodified.
  * If any envelope fails validation, *out remains bitwise unchanged.
@@ -41,6 +45,9 @@ typedef struct {
 int sauti_aac_sbr_temporal_reference_gain_calculate(
     const SautiAacSbrTemporalHistory *history,
     const SautiAacSbrTemporalPowerReport *power,
+    const SautiAacSbrComplex *current_hf,size_t current_count,
+    const SautiAacSbrComplex *previous_hf,size_t previous_count,
+    const SautiAacSbrComplex *older_hf,size_t older_count,
     SautiAacSbrTemporalReferenceGainReport *out);
 
 #endif
