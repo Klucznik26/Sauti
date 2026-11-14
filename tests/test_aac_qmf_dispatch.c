@@ -43,8 +43,9 @@ static void test_live_dispatch(void) {
 #endif
     /* Migration makes an unpinned E-core sample non-authoritative.
      * The test's synthetic policy checks E/SSE2 deterministically. */
-    printf("PASS QMF actual dispatch: AVX2=%d core_type=0x%02x path=%s\n",
-           has_avx2,type_after,selected?"AVX2":"SSE2");
+    printf("PASS QMF actual dispatch: AVX2=%d core_type_before=0x%02x "
+           "core_type_after=0x%02x path=%s\n",
+           has_avx2,type_before,type_after,selected?"AVX2":"SSE2");
 #else
     puts("PASS QMF non-native: C11 fallback");
 #endif
