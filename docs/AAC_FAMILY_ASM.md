@@ -111,6 +111,83 @@ pasów IPD/OPD). Nie wykonuje filtracji ani miksowania PCM. `make
 test-aac-ps-hybrid` obejmuje oba układy pasm, granice obwiedni i odrzucenie
 niepełnego harmonogramu, zanim stan może zostać opublikowany.
 
+### AAC-M1 / PS-1a — niepodzielone wyższe pasma QMF (2026-11-12)
+
+Rozpoczęto wykonanie rzeczywistej części banku hybrydowego: nowy
+`sauti_aac_ps_qmf_high_extract` przepisuje **wyłącznie** wyższe, niepodzielone
+podpasma QMF z poprawnym sześcioslotowym przesunięciem względem 13-próbkowych
+filtrów dolnych pasm. Obsługuje oba układy: parametry 20 -> 61 wysokich pasm
+QMF (pozycje hybrydowe 10..70), parametry 34 -> 59 wysokich pasm QMF
+(pozycje hybrydowe 32..90). Wejście ma 38 slotów po 64 wartości zespolone;
+wyjście ma 32 sloty po 61 albo 59 wartości zespolonych. Dla błędu rozmiaru,
+nieprawidłowego harmonogramu lub NaN/Inf w czytanych próbkach wyjście nie
+jest modyfikowane. Test `make test-aac-ps-qmf-high` został podłączony
+również do `test-aac-native` i `test-aac-sanitize`.
+
+### AAC-M1 / PS-1c — złożenie banku 71/91 pasm i korekta wyrównania (2026-11-12)
+
+Audyt implementacji względem FFmpeg n6.1 `libavcodec/aacps.c`,
+`aacpsdsp_template.c` i `aacps_tablegen.h` wykazał błąd
+w PS-1a: niepodzielone górne pasma QMF nie są przesuwane o 6 slotów.
+Poprawiono `sauti_aac_ps_qmf_high_extract`: wysokie
+pasmo odpowiada bezpośrednio `L[slot][3+k]` (20 parametrów) lub
+`L[slot][5+k]` (34 parametry). Zmieniono testy sprawdzające
+to założenie — wcześniejsze PASS potwierdzały błędny indeks.
+
+Dodano `sauti_aac_ps_qmf_bank_analyze`: scala niski bank FIR (10/32)
+oraz niesplitowane wysokie QMF (61/59) w 32 sloty po 71 albo 91
+wartości zespolonych. Historia sześciu próbek i wyjście są publikowane
+atomowo. Bufory wyjścia/wejścia/stanu nie mogą się nakładać.
+`make test-aac-ps-qmf-bank` jest podłączony do
+`test-aac-native` i `test-aac-sanitize`.
+
+Dodano też oddzielny test `test-aac-ps-qmf-reference`: liczy
+13-tapową analizę z innej postaci algebraicznej (sumy/pary
+sprzężone), porównuje wszystkie niskie pasma obu trybów PS z
+produkcją i sprawdza dwie kolejne ramki. Jest uruchamiany
+również z ASan/UBSan. **To nie jest jeszcze porównanie PCM
+z dekoderem referencyjnym ani certyfikat zgodności ISO.**
+
+Krytyczne ograniczenia: numeracja niskich pasm jest sprawdzona wobec
+`hybrid6_cx`, `hybrid2_re` i `hybrid4_8_12_cx` FFmpeg, ale
+zgodność numeryczna DSP z niezależnym PCM oraz poprawność integracji
+w ciągłym strumieniu z SBR nie zostały jeszcze potwierdzone.
+To NIE jest PS stereo PCM. Przed zamknięciem PS-1 trzeba uruchomić
+testy na Fedorze, przeprowadzić regresję i porównanie wyjścia z
+niezależnym bankiem referencyjnym w dwóch trybach.
+
+### AAC-M1 / PS-1b — analiza 13-tapowa niskich pasm (2026-11-12)
+
+Nowy `sauti_aac_ps_qmf_low_analyze` wykonuje rzeczywistą analizę FIR
+niskich pasm QMF: tryb 20 to rozdział 6+2+2 (10 pasm), tryb 34 to
+12+8+4+4+4 (32 pasma). W obu trybach przetwarza 32 sloty z
+38-slotowego wejścia i zachowuje sześć wartości poprzedzających następną
+ramkę — z próbek wejścia 26..31, **nie** z lookahead 32..37.
+Pierwsza ramka używa zerowej historii. Nieprawidłowy rozmiar, harmonogram
+lub próbki NaN/Inf zatrzymują publikację zarówno stanu, jak i wyjścia.
+Bufory wejścia i wyjścia muszą być rozdzielone.
+
+Dodano `make test-aac-ps-qmf-low` do `test-aac-native`
+oraz `test-aac-sanitize`. Testy pokrywają oba układy, impuls
+w środku filtru, zachowanie historii między ramkami i atomowy rollback.
+
+**Status: implementacja i testy gotowe do uruchomienia na Fedorze;
+niepotwierdzona jeszcze zgodność numeryczna z niezależną referencją**.
+Współczynniki prototypów PS należy objąć przeglądem pochodzenia i
+licencji (źródło kontrolne: FFmpeg `aacps_tablegen.h` oraz `aacps.c`,
+LGPL-2.1+). Testy własne nie zastępują testu bitstream/PCM.
+PS-1b pozostaje otwarty do porównania normatywnego i potwierdzenia
+budowania z sanitizatorami. Nie uruchamiać tej ścieżki w odtwarzaczu
+zamiast FFmpeg.
+
+**To jest tylko PS-1a, nie ukończone PS-1 ani HE-AAC v2.**
+Brakuje jeszcze normatywnych 13-tapowych filtrów rozdzielających niskie
+pasma (10 albo 32 pozycji hybrydowych), ich syntezy odwrotnej,
+dekorrelacji, rzeczywistego miksowania całego banku i stereo PCM.
+Nowej ścieżki nie wolno podłączać do odtwarzania jako kompletnego dekodera.
+Przed oznaczeniem PS-1 jako ukończonego potrzebna jest zgodność DSP z
+referencją, w tym ciągłość stanu między ramkami.
+
 `sauti_aac_ps_matrix_build` dekwantyzuje IID i ICC, a następnie buduje
 rzeczywiste współczynniki macierzy PS A/B dla każdej obwiedni i pasma.
 Obliczenie konfiguracji jest celowo skalarne; przyszła gorąca pętla mnożenia

@@ -71,6 +71,20 @@ typedef enum {
     SAUTI_SBR_QMF_STAGE_OK
 } SautiAacSbrQmfStage;
 
+/* PS-4b: export the fully assembled HF-adjusted complex QMF [slots][64]
+ * BEFORE any mono synthesis. The same analysis/HF stages and history
+ * are used as in frame_process_ex; synthesis history is not advanced.
+ * Report, caller QMF output and state commit atomically, including for
+ * an unsupported zero-source HF frame. No implicit lookahead: caller
+ * must supply and align the following QMF slots independently. */
+int sauti_aac_sbr_qmf_frame_export_qmf_ex(
+    const SautiAacSbrQmfFrameConfig *config,
+    const float *core_pcm,size_t core_count,
+    SautiAacSbrComplex *qmf,size_t qmf_count,
+    SautiAacSbrQmfFrameState *state,
+    SautiAacSbrLimiterReport *report,
+    SautiAacSbrQmfStage *stage);
+
 int sauti_aac_sbr_qmf_frame_process_ex(
     const SautiAacSbrQmfFrameConfig *config,
     const float *core_pcm,size_t core_count,
@@ -87,5 +101,42 @@ int sauti_aac_sbr_qmf_frame_process(
     size_t output_count,
     SautiAacSbrQmfFrameState *state,
     SautiAacSbrLimiterReport *report);
+
+/* PS-5c1: raw pre-adjustment QMF export for temporal SBR rendering.
+ * Consumes exact 1024 native AAC-LC core samples, advances the QMF
+ * analysis state, transposes high bands via the caller's patch map,
+ * and yields 32x64 complex QMF with low bins [0,kx) and raw high
+ * bins [kx,k2). NO HF envelope/limiter/noise/sine or 64-QMF synthesis.
+ * Thus this output MUST NOT be sent directly to PS for audible PCM.
+ * On failure output and state are unchanged. The HF adjustment history
+ * inside the state is intentionally untouched.
+ */
+int sauti_aac_sbr_qmf_frame_export_raw(
+    const SautiAacSbrTables *tables,
+    const SautiAacSbrPatches *patches,
+    const float *core_pcm,size_t core_count,
+    SautiAacSbrComplex *qmf,size_t qmf_count,
+    SautiAacSbrQmfFrameState *state,
+    SautiAacSbrQmfStage *stage);
+
+/* PS-5 geometry handoff: restore the PREVIOUS SBR patch map for the
+ * first inherited_slots current-frame QMF samples, while using the
+ * CURRENT map for the remainder. Both maps must be individually valid.
+ * The 32-band analysis is run ONCE, on genuine decoded AAC core PCM.
+ * Unlike a post-hoc remapping, this retains all 32 low QMF source bins
+ * even if the current kx would otherwise hide some of them.
+ * 0 inherited slots requires NULL previous geometry. 1..6 slots
+ * requires valid previous tables and patches. All-or-nothing output
+ * and state; NO limiter, ROM noise, sine, or audible PCM is emitted. */
+int sauti_aac_sbr_qmf_frame_export_raw_owned(
+    const SautiAacSbrTables *current_tables,
+    const SautiAacSbrPatches *current_patches,
+    const SautiAacSbrTables *previous_tables,
+    const SautiAacSbrPatches *previous_patches,
+    unsigned inherited_slots,
+    const float *core_pcm,size_t core_count,
+    SautiAacSbrComplex *qmf,size_t qmf_count,
+    SautiAacSbrQmfFrameState *state,
+    SautiAacSbrQmfStage *stage);
 
 #endif

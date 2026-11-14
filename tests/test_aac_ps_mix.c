@@ -37,8 +37,8 @@ int main(void){
     assert(near(left[0].re,direct[0].re)&&near(left[0].im,direct[0].im)&&
            near(right[0].re,decorrelated[0].re)&&near(right[0].im,decorrelated[0].im));
     const unsigned ix=20u*71u+3u;
-    assert(near(left[ix].re,direct[ix].re+1.0f)&&near(left[ix].im,direct[ix].im-0.5f)&&
-           near(right[ix].re,3.0f*direct[ix].re+2.0f)&&near(right[ix].im,3.0f*direct[ix].im-1.0f));
+    assert(near(left[ix].re,direct[ix].re+1.5f)&&near(left[ix].im,direct[ix].im-0.75f)&&
+           near(right[ix].re,2.0f*direct[ix].re+2.0f)&&near(right[ix].im,2.0f*direct[ix].im-1.0f));
     memcpy(saved,left,sizeof(saved));
     direct[N-1u].re=NAN;
     assert(!sauti_aac_ps_mix_real_apply(&schedule,&matrix,direct,N,decorrelated,N,left,N,right,N));
@@ -60,6 +60,16 @@ int main(void){
     assert(sauti_aac_ps_mix_complex_apply(&schedule,&complex_matrix,direct,N,decorrelated,N,left,N,right,N));
     assert(near(left[2].re,0.0f)&&near(left[2].im,2.0f)&&
            near(right[2].re,0.0f)&&near(right[2].im,0.0f));
+    /* The ISO matrix is column-major from the downmix point of view:
+     * left = h11*direct + h21*decorrelated;
+     * right = h12*direct + h22*decorrelated.
+     * Use ASYMMETRIC coefficients to catch accidental h12/h21 swap. */
+    complex_matrix.coefficient[0][3]=(SautiAacPsComplexMatrixCoefficients){
+        {1.0f,0.0f},{2.0f,0.0f},{3.0f,0.0f},{4.0f,0.0f}};
+    assert(sauti_aac_ps_mix_complex_apply(&schedule,&complex_matrix,
+                                           direct,N,decorrelated,N,left,N,right,N));
+    assert(near(left[3].re,1.0f)&&near(left[3].im,3.0f)&&
+           near(right[3].re,2.0f)&&near(right[3].im,4.0f));
     /* k=0 negates imaginary coefficients before the complex multiply. */
     complex_matrix.coefficient[0][0]=(SautiAacPsComplexMatrixCoefficients){
         {0.0f,1.0f},{0.0f,0.0f},{0.0f,0.0f},{1.0f,0.0f}};

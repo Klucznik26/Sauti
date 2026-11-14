@@ -440,6 +440,90 @@ $(OBJDIR)/test_aac_ps_hybrid: tests/test_aac_ps_hybrid.c include/sauti_aac_ps_hy
 test-aac-ps-hybrid: $(OBJDIR)/test_aac_ps_hybrid
 	./$(OBJDIR)/test_aac_ps_hybrid
 
+$(OBJDIR)/test_aac_ps_qmf_high: tests/test_aac_ps_qmf_high.c include/sauti_aac_ps_qmf_high.h src/decoders/modern/aac/sauti_aac_ps_qmf_high.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c $(AAC_PS_HYBRID_SRC) -lm
+
+.PHONY: test-aac-ps-qmf-high
+test-aac-ps-qmf-high: $(OBJDIR)/test_aac_ps_qmf_high
+	./$(OBJDIR)/test_aac_ps_qmf_high
+
+$(OBJDIR)/test_aac_ps_qmf_low: tests/test_aac_ps_qmf_low.c include/sauti_aac_ps_qmf_low.h src/decoders/modern/aac/sauti_aac_ps_qmf_low.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c $(AAC_PS_HYBRID_SRC) -lm
+
+.PHONY: test-aac-ps-qmf-low
+test-aac-ps-qmf-low: $(OBJDIR)/test_aac_ps_qmf_low
+	./$(OBJDIR)/test_aac_ps_qmf_low
+
+$(OBJDIR)/test_aac_ps_qmf_bank: tests/test_aac_ps_qmf_bank.c include/sauti_aac_ps_qmf_bank.h src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c $(AAC_PS_HYBRID_SRC) -lm
+
+.PHONY: test-aac-ps-qmf-bank
+test-aac-ps-qmf-bank: $(OBJDIR)/test_aac_ps_qmf_bank
+	./$(OBJDIR)/test_aac_ps_qmf_bank
+
+$(OBJDIR)/test_aac_ps_qmf_reference: tests/test_aac_ps_qmf_reference.c include/sauti_aac_ps_qmf_low.h src/decoders/modern/aac/sauti_aac_ps_qmf_low.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_qmf_reference.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c $(AAC_PS_HYBRID_SRC) -lm
+
+.PHONY: test-aac-ps-qmf-reference
+test-aac-ps-qmf-reference: $(OBJDIR)/test_aac_ps_qmf_reference
+	./$(OBJDIR)/test_aac_ps_qmf_reference
+
+$(OBJDIR)/test_aac_ps_transient: tests/test_aac_ps_transient.c include/sauti_aac_ps_transient.h src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_transient.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) -lm
+
+.PHONY: test-aac-ps-transient
+test-aac-ps-transient: $(OBJDIR)/test_aac_ps_transient
+	./$(OBJDIR)/test_aac_ps_transient
+
+$(OBJDIR)/test_aac_ps_decorrelate: tests/test_aac_ps_decorrelate.c include/sauti_aac_ps_decorrelate.h src/decoders/modern/aac/sauti_aac_ps_decorrelate.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c $(AAC_PS_HYBRID_SRC) -lm
+
+.PHONY: test-aac-ps-decorrelate
+test-aac-ps-decorrelate: $(OBJDIR)/test_aac_ps_decorrelate
+	./$(OBJDIR)/test_aac_ps_decorrelate
+
+$(OBJDIR)/test_aac_ps_decorrelator: tests/test_aac_ps_decorrelator.c include/sauti_aac_ps_decorrelator.h src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) -lm
+
+.PHONY: test-aac-ps-decorrelator
+test-aac-ps-decorrelator: $(OBJDIR)/test_aac_ps_decorrelator
+	./$(OBJDIR)/test_aac_ps_decorrelator
+
+$(OBJDIR)/test_aac_ps_stereo: tests/test_aac_ps_stereo.c include/sauti_aac_ps_stereo.h src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) -lm -no-pie
+
+.PHONY: test-aac-ps-stereo
+test-aac-ps-stereo: $(OBJDIR)/test_aac_ps_stereo
+	./$(OBJDIR)/test_aac_ps_stereo
+
+$(OBJDIR)/test_aac_ps_hybrid_synth: tests/test_aac_ps_hybrid_synth.c include/sauti_aac_ps_hybrid_synth.h src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c $(AAC_PS_HYBRID_SRC) -lm
+
+.PHONY: test-aac-ps-hybrid-synth
+test-aac-ps-hybrid-synth: $(OBJDIR)/test_aac_ps_hybrid_synth
+	./$(OBJDIR)/test_aac_ps_hybrid_synth
+
+$(OBJDIR)/test_aac_ps_pcm_stereo: include/sauti_aac_ps_pcm_stereo.h include/sauti_aac_ps_stereo.h include/sauti_aac_ps_hybrid_synth.h include/sauti_aac_sbr_qmf_synth_mod.h tests/test_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm -no-pie
+
+.PHONY: test-aac-ps-pcm-stereo
+test-aac-ps-pcm-stereo: $(OBJDIR)/test_aac_ps_pcm_stereo
+	./$(OBJDIR)/test_aac_ps_pcm_stereo
+
+$(OBJDIR)/test_aac_he_ps_bridge: include/sauti_aac_he_ps_bridge.h include/sauti_aac_ps_render.h include/sauti_aac_ps_pcm_stereo.h tests/test_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_ps_render.c src/decoders/modern/aac/sauti_aac_ps_map.c src/decoders/modern/aac/sauti_aac_ps_matrix.c src/decoders/modern/aac/sauti_aac_ps_phase.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_ps_render.c src/decoders/modern/aac/sauti_aac_ps_map.c src/decoders/modern/aac/sauti_aac_ps_matrix.c src/decoders/modern/aac/sauti_aac_ps_phase.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm -no-pie
+
+.PHONY: test-aac-he-ps-bridge
+test-aac-he-ps-bridge: $(OBJDIR)/test_aac_he_ps_bridge
+	./$(OBJDIR)/test_aac_he_ps_bridge
+
+$(OBJDIR)/test_aac_he_ps_delay: include/sauti_aac_he_ps_bridge.h include/sauti_aac_ps_render.h include/sauti_aac_ps_pcm_stereo.h tests/test_aac_he_ps_delay.c include/sauti_aac_he_ps_delay.h src/decoders/modern/aac/sauti_aac_he_ps_delay.c src/decoders/modern/aac/sauti_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_ps_render.c src/decoders/modern/aac/sauti_aac_ps_map.c src/decoders/modern/aac/sauti_aac_ps_matrix.c src/decoders/modern/aac/sauti_aac_ps_phase.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_he_ps_delay.c src/decoders/modern/aac/sauti_aac_he_ps_delay.c src/decoders/modern/aac/sauti_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_ps_render.c src/decoders/modern/aac/sauti_aac_ps_map.c src/decoders/modern/aac/sauti_aac_ps_matrix.c src/decoders/modern/aac/sauti_aac_ps_phase.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm -no-pie
+
+.PHONY: test-aac-he-ps-delay
+test-aac-he-ps-delay: $(OBJDIR)/test_aac_he_ps_delay
+	./$(OBJDIR)/test_aac_he_ps_delay
+
 $(OBJDIR)/test_aac_ps_matrix: tests/test_aac_ps_matrix.c include/sauti_aac_ps_matrix.h $(AAC_PS_MATRIX_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_matrix.c $(AAC_PS_MATRIX_SRC) -lm
 
@@ -665,6 +749,13 @@ $(OBJDIR)/test_aac_sbr_qmf_frame: tests/test_aac_sbr_qmf_frame.c include/sauti_a
 .PHONY: test-aac-sbr-qmf-frame
 test-aac-sbr-qmf-frame: $(OBJDIR)/test_aac_sbr_qmf_frame
 	./$(OBJDIR)/test_aac_sbr_qmf_frame
+
+$(OBJDIR)/test_aac_sbr_qmf_export: tests/test_aac_sbr_qmf_export.c include/sauti_aac_sbr_qmf_frame.h $(AAC_SBR_QMF_FRAME_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_qmf_export.c $(AAC_SBR_QMF_FRAME_DEPS) -lm
+
+.PHONY: test-aac-sbr-qmf-hf-export
+test-aac-sbr-qmf-hf-export: $(OBJDIR)/test_aac_sbr_qmf_export
+	./$(OBJDIR)/test_aac_sbr_qmf_export
 
 AAC_SBR_PAYLOAD_DEPS := $(AAC_SBR_PAYLOAD_SRC) $(AAC_SBR_CRC_SRC) $(AAC_SYNTAX_SRC) $(AAC_SBR_GRID_SRC) $(AAC_SBR_CONTROL_SRC) $(AAC_SBR_QUANT_SRC) $(AAC_SBR_HUFFMAN_SRC) $(AAC_SBR_ENERGY_SRC) $(AAC_SBR_LIMITS_SRC) $(AAC_SBR_MASTER_SRC) $(AAC_SBR_MASTER_LOG_SRC) $(AAC_SBR_FREQ_TABLES_SRC) $(AAC_SBR_PATCH_SRC) $(AAC_HEADERS_ASM)
 
@@ -919,6 +1010,69 @@ test-aac-sbr-temporal-envelope-audit: $(OBJDIR)/test_aac_sbr_temporal_envelope_a
 	./$(OBJDIR)/test_aac_sbr_temporal_envelope_audit
 
 AAC_SBR_ADTS_QMF_DEPS := $(sort $(AAC_HE_ADTS_QMF_SRC) $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS))
+AAC_HE_ADTS_PS_LINK = $(sort src/decoders/modern/aac/sauti_aac_he_ps_delay.c src/decoders/modern/aac/sauti_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_ps_render.c src/decoders/modern/aac/sauti_aac_ps_map.c src/decoders/modern/aac/sauti_aac_ps_matrix.c src/decoders/modern/aac/sauti_aac_ps_phase.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) src/decoders/modern/aac/sauti_aac_he_adts_ps.c $(AAC_SBR_ADTS_MONO_DEPS) $(AAC_SBR_QMF_FRAME_DEPS))
+$(OBJDIR)/test_aac_he_adts_ps: tests/test_aac_he_adts_ps.c tests/test_aac_sbr_adts_mono.c include/sauti_aac_he_adts_ps.h include/sauti_aac_he_ps_delay.h $(AAC_HE_ADTS_PS_LINK) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_he_adts_ps.c $(AAC_HE_ADTS_PS_LINK) -lm -no-pie
+
+.PHONY: test-aac-he-adts-ps
+test-aac-he-adts-ps: $(OBJDIR)/test_aac_he_adts_ps
+	./$(OBJDIR)/test_aac_he_adts_ps
+
+$(OBJDIR)/sauti_he_ps_decode: tools/sauti_he_ps_decode.c include/sauti_aac_he_adts_ps.h $(AAC_HE_ADTS_PS_LINK) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_ps_decode.c $(AAC_HE_ADTS_PS_LINK) -lm -no-pie
+
+.PHONY: probe-he-ps test-aac-ps5-compare-help
+probe-he-ps: $(OBJDIR)/sauti_he_ps_decode
+
+AAC_PS5_HF_GAIN_SRC := src/decoders/modern/aac/sauti_aac_ps5_hf_gain.c
+AAC_PS5_HF_ENVELOPE_SRC := src/decoders/modern/aac/sauti_aac_ps5_hf_envelope.c
+AAC_PS5_CROSS_SRC := src/decoders/modern/aac/sauti_aac_ps5_cross.c
+AAC_PS5_TEMPORAL_LINK := $(sort $(AAC_HE_ADTS_PS_LINK) $(AAC_PS5_HF_GAIN_SRC) $(AAC_PS5_HF_ENVELOPE_SRC) $(AAC_PS5_CROSS_SRC) $(AAC_SBR_LIMITER_BANDS_SRC) $(AAC_SBR_HF_LIMITER_SRC))
+$(OBJDIR)/sauti_ps5_temporal_audit: tools/sauti_ps5_temporal_audit.c include/sauti_aac_he_adts_mono.h include/sauti_aac_sbr_qmf_frame.h $(AAC_PS5_TEMPORAL_LINK) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_ps5_temporal_audit.c $(AAC_PS5_TEMPORAL_LINK) -lm -no-pie
+
+.PHONY: probe-he-ps-temporal
+probe-he-ps-temporal: $(OBJDIR)/sauti_ps5_temporal_audit
+
+$(OBJDIR)/test_aac_ps5_hf_gain: tests/test_aac_ps5_hf_gain.c include/sauti_aac_ps5_hf_gain.h $(AAC_PS5_HF_GAIN_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps5_hf_gain.c $(AAC_PS5_HF_GAIN_SRC) -lm
+
+$(OBJDIR)/test_aac_ps5_hf_envelope: tests/test_aac_ps5_hf_envelope.c include/sauti_aac_ps5_hf_envelope.h $(AAC_PS5_HF_ENVELOPE_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps5_hf_envelope.c $(AAC_PS5_HF_ENVELOPE_SRC) -lm
+$(OBJDIR)/test_aac_ps5_cross: tests/test_aac_ps5_cross.c include/sauti_aac_ps5_cross.h $(AAC_PS5_CROSS_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps5_cross.c $(AAC_PS5_CROSS_SRC) -lm
+$(OBJDIR)/test_aac_ps_owned_geometry: tests/test_aac_ps_owned_geometry.c include/sauti_aac_sbr_qmf_frame.h $(AAC_SBR_QMF_FRAME_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_ps_owned_geometry.c $(AAC_SBR_QMF_FRAME_DEPS) -lm -no-pie
+.PHONY: test-aac-ps-owned-geometry
+test-aac-ps-owned-geometry: $(OBJDIR)/test_aac_ps_owned_geometry
+	./$(OBJDIR)/test_aac_ps_owned_geometry
+
+.PHONY: test-aac-ps5-cross
+test-aac-ps5-cross: $(OBJDIR)/test_aac_ps5_cross
+	./$(OBJDIR)/test_aac_ps5_cross
+
+.PHONY: test-aac-ps5-hf-envelope
+test-aac-ps5-hf-envelope: $(OBJDIR)/test_aac_ps5_hf_envelope
+	./$(OBJDIR)/test_aac_ps5_hf_envelope
+
+.PHONY: test-aac-ps5-hf-gain
+test-aac-ps5-hf-gain: $(OBJDIR)/test_aac_ps5_hf_gain
+	./$(OBJDIR)/test_aac_ps5_hf_gain
+
+.PHONY: test-aac-ps-tonal-spectrum
+test-aac-ps-tonal-spectrum:
+	python3 tools/sauti_ps_tonal_spectrum.py --self-test
+
+.PHONY: test-aac-ps5-temporal
+test-aac-ps5-temporal: test-aac-ps-owned-geometry test-aac-ps5-cross test-aac-ps5-hf-envelope test-aac-ps5-hf-gain test-aac-ps-tonal-spectrum $(OBJDIR)/sauti_ps5_temporal_audit $(OBJDIR)/test_aac_he_adts_ps
+	python3 tools/test_sauti_ps5_temporal.py ./$(OBJDIR)/test_aac_he_adts_ps ./$(OBJDIR)/sauti_ps5_temporal_audit
+
+.PHONY: test-aac-ps5-native
+test-aac-ps5-native: $(OBJDIR)/sauti_he_ps_decode $(OBJDIR)/test_aac_he_adts_ps
+	python3 tools/test_sauti_ps5_native.py ./$(OBJDIR)/test_aac_he_adts_ps ./$(OBJDIR)/sauti_he_ps_decode
+test-aac-ps5-compare-help: probe-he-ps
+	@echo "Run: python3 tools/sauti_ps5_compare.py INPUT.aac --native ./$(OBJDIR)/sauti_he_ps_decode --rate 48000"
+
 
 AAC_SBR_ADTS_CPE_DEPS := $(sort $(AAC_HE_ADTS_CPE_QMF_SRC) $(AAC_HE_ADTS_CPE_SRC) src/decoders/modern/aac/sauti_aac_cpe.c $(AAC_SBR_ADTS_QMF_DEPS))
 $(OBJDIR)/test_aac_sbr_adts_cpe: tests/test_aac_sbr_adts_cpe.c tests/test_aac_sbr_payload.c include/sauti_aac_he_adts_cpe.h include/sauti_decoder_aac_native.h src/sauti_decoder.c src/decoders/modern/aac/sauti_decoder_aac_native.c $(AAC_SBR_ADTS_CPE_DEPS) | $(OBJDIR)
@@ -1152,6 +1306,45 @@ $(OBJDIR)/test_aac_ps_map_san: tests/test_aac_ps_map.c include/sauti_aac_ps_map.
 $(OBJDIR)/test_aac_ps_hybrid_san: tests/test_aac_ps_hybrid.c include/sauti_aac_ps_hybrid.h $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
 	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_hybrid.c $(AAC_PS_HYBRID_SRC)
 
+$(OBJDIR)/test_aac_ps_qmf_high_san: tests/test_aac_ps_qmf_high.c include/sauti_aac_ps_qmf_high.h src/decoders/modern/aac/sauti_aac_ps_qmf_high.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c $(AAC_PS_HYBRID_SRC) -lm
+
+$(OBJDIR)/test_aac_ps_qmf_low_san: tests/test_aac_ps_qmf_low.c include/sauti_aac_ps_qmf_low.h src/decoders/modern/aac/sauti_aac_ps_qmf_low.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c $(AAC_PS_HYBRID_SRC) -lm
+
+$(OBJDIR)/test_aac_ps_qmf_bank_san: tests/test_aac_ps_qmf_bank.c include/sauti_aac_ps_qmf_bank.h src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c $(AAC_PS_HYBRID_SRC) -lm
+
+$(OBJDIR)/test_aac_ps_qmf_reference_san: tests/test_aac_ps_qmf_reference.c include/sauti_aac_ps_qmf_low.h src/decoders/modern/aac/sauti_aac_ps_qmf_low.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_qmf_reference.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c $(AAC_PS_HYBRID_SRC) -lm
+
+$(OBJDIR)/test_aac_ps_transient_san: tests/test_aac_ps_transient.c include/sauti_aac_ps_transient.h src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_transient.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) -lm
+
+$(OBJDIR)/test_aac_ps_decorrelate_san: tests/test_aac_ps_decorrelate.c include/sauti_aac_ps_decorrelate.h src/decoders/modern/aac/sauti_aac_ps_decorrelate.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c $(AAC_PS_HYBRID_SRC) -lm
+
+$(OBJDIR)/test_aac_ps_decorrelator_san: tests/test_aac_ps_decorrelator.c include/sauti_aac_ps_decorrelator.h src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) -lm
+
+$(OBJDIR)/test_aac_ps_stereo_san: tests/test_aac_ps_stereo.c include/sauti_aac_ps_stereo.h src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) -lm -no-pie
+
+$(OBJDIR)/test_aac_ps_hybrid_synth_san: tests/test_aac_ps_hybrid_synth.c include/sauti_aac_ps_hybrid_synth.h src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c $(AAC_PS_HYBRID_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c $(AAC_PS_HYBRID_SRC) -lm
+
+$(OBJDIR)/test_aac_ps_pcm_stereo_san: include/sauti_aac_ps_pcm_stereo.h include/sauti_aac_ps_stereo.h include/sauti_aac_ps_hybrid_synth.h include/sauti_aac_sbr_qmf_synth_mod.h tests/test_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm -no-pie
+
+$(OBJDIR)/test_aac_he_ps_bridge_san: include/sauti_aac_he_ps_bridge.h include/sauti_aac_ps_render.h include/sauti_aac_ps_pcm_stereo.h tests/test_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_ps_render.c src/decoders/modern/aac/sauti_aac_ps_map.c src/decoders/modern/aac/sauti_aac_ps_matrix.c src/decoders/modern/aac/sauti_aac_ps_phase.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_ps_render.c src/decoders/modern/aac/sauti_aac_ps_map.c src/decoders/modern/aac/sauti_aac_ps_matrix.c src/decoders/modern/aac/sauti_aac_ps_phase.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm -no-pie
+$(OBJDIR)/test_aac_he_ps_delay_san: include/sauti_aac_he_ps_bridge.h include/sauti_aac_ps_render.h include/sauti_aac_ps_pcm_stereo.h tests/test_aac_he_ps_delay.c include/sauti_aac_he_ps_delay.h src/decoders/modern/aac/sauti_aac_he_ps_delay.c src/decoders/modern/aac/sauti_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_ps_render.c src/decoders/modern/aac/sauti_aac_ps_map.c src/decoders/modern/aac/sauti_aac_ps_matrix.c src/decoders/modern/aac/sauti_aac_ps_phase.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_he_ps_delay.c src/decoders/modern/aac/sauti_aac_he_ps_delay.c src/decoders/modern/aac/sauti_aac_he_ps_bridge.c src/decoders/modern/aac/sauti_aac_ps_render.c src/decoders/modern/aac/sauti_aac_ps_map.c src/decoders/modern/aac/sauti_aac_ps_matrix.c src/decoders/modern/aac/sauti_aac_ps_phase.c src/decoders/modern/aac/sauti_aac_ps_pcm_stereo.c src/decoders/modern/aac/sauti_aac_ps_stereo.c src/decoders/modern/aac/sauti_aac_ps_hybrid_synth.c src/decoders/modern/aac/sauti_aac_ps_qmf_bank.c src/decoders/modern/aac/sauti_aac_ps_qmf_low.c src/decoders/modern/aac/sauti_aac_ps_qmf_high.c src/decoders/modern/aac/sauti_aac_ps_decorrelator.c src/decoders/modern/aac/sauti_aac_ps_decorrelate.c src/decoders/modern/aac/sauti_aac_ps_transient.c $(AAC_PS_HYBRID_SRC) $(AAC_PS_MIX_SRC) $(AAC_PS_MIX_ASM) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm -no-pie
+$(OBJDIR)/test_aac_he_adts_ps_san: tests/test_aac_he_adts_ps.c tests/test_aac_sbr_adts_mono.c include/sauti_aac_he_adts_ps.h include/sauti_aac_he_ps_delay.h $(AAC_HE_ADTS_PS_LINK) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_he_adts_ps.c $(AAC_HE_ADTS_PS_LINK) -lm -no-pie
+
+
+
 $(OBJDIR)/test_aac_ps_matrix_san: tests/test_aac_ps_matrix.c include/sauti_aac_ps_matrix.h $(AAC_PS_MATRIX_SRC) | $(OBJDIR)
 	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_ps_matrix.c $(AAC_PS_MATRIX_SRC) -lm
 
@@ -1167,17 +1360,34 @@ $(OBJDIR)/test_aac_ps_render_san: tests/test_aac_ps_render.c include/sauti_aac_p
 $(OBJDIR)/test_aac_sbr_payload_san: tests/test_aac_sbr_payload.c include/sauti_aac_sbr_payload.h $(AAC_SBR_PAYLOAD_DEPS) | $(OBJDIR)
 	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_sbr_payload.c $(AAC_SBR_PAYLOAD_DEPS) -lm -no-pie
 
+$(OBJDIR)/test_aac_sbr_qmf_export_san: tests/test_aac_sbr_qmf_export.c include/sauti_aac_sbr_qmf_frame.h $(AAC_SBR_QMF_FRAME_DEPS) | $(OBJDIR)
+	$(CC) $(AAC_SAN_FLAGS) -Iinclude -o $@ tests/test_aac_sbr_qmf_export.c $(AAC_SBR_QMF_FRAME_DEPS) -lm
+
 .PHONY: test-aac-sanitize
-test-aac-sanitize: $(OBJDIR)/test_aac_cpe_san $(OBJDIR)/test_aac_syntax_san $(OBJDIR)/test_aac_ps_map_san $(OBJDIR)/test_aac_ps_hybrid_san $(OBJDIR)/test_aac_ps_matrix_san $(OBJDIR)/test_aac_ps_phase_san $(OBJDIR)/test_aac_ps_mix_san $(OBJDIR)/test_aac_ps_render_san $(OBJDIR)/test_aac_sbr_payload_san
+test-aac-sanitize: $(OBJDIR)/test_aac_cpe_san $(OBJDIR)/test_aac_syntax_san $(OBJDIR)/test_aac_ps_map_san $(OBJDIR)/test_aac_ps_hybrid_san $(OBJDIR)/test_aac_ps_qmf_high_san $(OBJDIR)/test_aac_ps_qmf_low_san $(OBJDIR)/test_aac_ps_qmf_bank_san $(OBJDIR)/test_aac_ps_qmf_reference_san $(OBJDIR)/test_aac_ps_transient_san $(OBJDIR)/test_aac_ps_decorrelate_san $(OBJDIR)/test_aac_ps_decorrelator_san $(OBJDIR)/test_aac_ps_stereo_san $(OBJDIR)/test_aac_ps_hybrid_synth_san $(OBJDIR)/test_aac_ps_pcm_stereo_san $(OBJDIR)/test_aac_he_ps_bridge_san $(OBJDIR)/test_aac_he_ps_delay_san $(OBJDIR)/test_aac_he_adts_ps_san $(OBJDIR)/test_aac_ps_matrix_san $(OBJDIR)/test_aac_ps_phase_san $(OBJDIR)/test_aac_ps_mix_san $(OBJDIR)/test_aac_ps_render_san $(OBJDIR)/test_aac_sbr_payload_san $(OBJDIR)/test_aac_sbr_qmf_export_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_cpe_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_syntax_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_map_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_hybrid_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_qmf_high_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_qmf_low_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_qmf_bank_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_qmf_reference_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_transient_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_decorrelate_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_decorrelator_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_stereo_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_hybrid_synth_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_pcm_stereo_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_he_ps_bridge_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_he_ps_delay_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_he_adts_ps_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_matrix_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_phase_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_mix_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_ps_render_san
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_sbr_payload_san
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./$(OBJDIR)/test_aac_sbr_qmf_export_san
 
 .PHONY: test-aac-cpe
 test-aac-cpe: $(OBJDIR)/test_aac_cpe
@@ -1338,7 +1548,7 @@ test-aac-sbr-hf-stem-audit:
 	python3 tools/sauti_sbr62_hf_stem_audit.py --self-test
 
 .PHONY: test-aac-native
-test-aac-native: test-aac-sbr-ffmpeg-phase-trace test-aac-sbr-hf-timing-control test-aac-sbr-qmf-phase-frames test-aac-sbr-qmf-phase-ab test-aac-sbr-harmonic-phase2-ab test-aac-sbr-tonal-lines-audit test-aac-sbr-tonal-delta-audit test-aac-sbr-tonal-ab-audit test-aac-sbr-hf-peak-audit test-aac-sbr-hf-edge-audit test-aac-sbr-hf-spectral-audit test-aac-sbr-hf-frame-audit test-aac-sbr-hf-stem-audit test-aac-headers test-aac-syntax test-aac-ps-map test-aac-ps-hybrid test-aac-ps-matrix test-aac-ps-phase test-aac-ps-mix test-aac-ps-render test-aac-adts-crc test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-sbr-adts-cpe test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
+test-aac-native: test-aac-sbr-ffmpeg-phase-trace test-aac-sbr-hf-timing-control test-aac-sbr-qmf-phase-frames test-aac-sbr-qmf-phase-ab test-aac-sbr-harmonic-phase2-ab test-aac-sbr-tonal-lines-audit test-aac-sbr-tonal-delta-audit test-aac-sbr-tonal-ab-audit test-aac-sbr-hf-peak-audit test-aac-sbr-hf-edge-audit test-aac-sbr-hf-spectral-audit test-aac-sbr-hf-frame-audit test-aac-sbr-hf-stem-audit test-aac-headers test-aac-syntax test-aac-ps-map test-aac-ps-hybrid test-aac-ps-qmf-high test-aac-ps-qmf-low test-aac-ps-qmf-bank test-aac-ps-qmf-reference test-aac-ps-transient test-aac-ps-decorrelate test-aac-ps-decorrelator test-aac-ps-stereo test-aac-ps-hybrid-synth test-aac-ps-pcm-stereo test-aac-he-ps-bridge test-aac-he-ps-delay test-aac-he-adts-ps test-aac-ps5-native test-aac-ps-matrix test-aac-ps-phase test-aac-ps-mix test-aac-ps-render test-aac-adts-crc test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-qmf-hf-export test-aac-sbr-qmf-export test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-sbr-adts-cpe test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
 
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm

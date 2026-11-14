@@ -23,11 +23,11 @@ sauti_aac_ps_mix_strided_asm:
     movaps xmm6,xmm4
     mulps xmm6,xmm0
     movaps xmm7,xmm5
-    mulps xmm7,xmm1
+    mulps xmm7,xmm2
     addps xmm6,xmm7
     movq [rdx],xmm6
     movaps xmm6,xmm4
-    mulps xmm6,xmm2
+    mulps xmm6,xmm1
     movaps xmm7,xmm5
     mulps xmm7,xmm3
     addps xmm6,xmm7
@@ -67,13 +67,13 @@ sauti_aac_ps_mix_complex_strided_asm:
     test r9,r9
     jz .complex_done
 .complex_loop:
-    ; left = h11 * direct + h12 * decorrelated
+    ; left = h11 * direct + h21 * decorrelated
     CMUL xmm4,xmm5,xmm6,rdi,0
-    CMUL xmm7,xmm8,xmm9,rsi,8
+    CMUL xmm7,xmm8,xmm9,rsi,16
     addps xmm4,xmm7
     movq [rdx],xmm4
-    ; right = h21 * direct + h22 * decorrelated
-    CMUL xmm4,xmm5,xmm6,rdi,16
+    ; right = h12 * direct + h22 * decorrelated
+    CMUL xmm4,xmm5,xmm6,rdi,8
     CMUL xmm7,xmm8,xmm9,rsi,24
     addps xmm4,xmm7
     movq [rcx],xmm4
