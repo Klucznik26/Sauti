@@ -102,9 +102,10 @@ AAC_SBR_HF_JOINT_ROM_SRC := src/decoders/modern/aac/sauti_aac_sbr_hf_joint_rom.c
 AAC_SBR_QMF_SYNTH_WINDOW_ASM := $(OBJDIR)/sauti_aac_sbr_qmf_synth_window_asm.o
 AAC_SBR_QMF_SYNTH_MOD_ASM := $(OBJDIR)/sauti_aac_sbr_qmf_synth_mod_asm.o
 AAC_SBR_QMF_SYNTH_WINDOW_AVX2 := $(OBJDIR)/sauti_aac_sbr_qmf_synth_window_avx2.o
+AAC_SBR_QMF_SYNTH_WINDOW_AVX2_UNROLLED := $(OBJDIR)/sauti_aac_sbr_qmf_synth_window_avx2_unrolled.o
 AAC_SBR_QMF_SYNTH_MOD_AVX2 := $(OBJDIR)/sauti_aac_sbr_qmf_synth_mod_avx2.o
 # Keep the original SSE2 kernels; AVX2 is dispatched only after CPUID/OSXSAVE.
-AAC_SBR_QMF_SYNTH_WINDOW_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window.c $(AAC_SBR_QMF_SYNTH_WINDOW_ASM) $(AAC_SBR_QMF_SYNTH_WINDOW_AVX2)
+AAC_SBR_QMF_SYNTH_WINDOW_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window.c $(AAC_SBR_QMF_SYNTH_WINDOW_ASM) $(AAC_SBR_QMF_SYNTH_WINDOW_AVX2) $(AAC_SBR_QMF_SYNTH_WINDOW_AVX2_UNROLLED)
 AAC_SBR_QMF_SYNTH_MOD_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod.c $(AAC_SBR_QMF_SYNTH_MOD_ASM) $(AAC_SBR_QMF_SYNTH_MOD_AVX2)
 AAC_SBR_QMF_ANALYSIS_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_analysis.c
 AAC_SBR_QMF_FRAME_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_frame.c
@@ -431,6 +432,9 @@ $(AAC_SBR_QMF_SYNTH_MOD_ASM): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mo
 	$(NASM) -f elf64 -o $@ $<
 
 $(AAC_SBR_QMF_SYNTH_WINDOW_AVX2): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window_avx2.asm | $(OBJDIR)
+	$(NASM) -f elf64 -o $@ $<
+
+$(AAC_SBR_QMF_SYNTH_WINDOW_AVX2_UNROLLED): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window_avx2_unrolled.asm | $(OBJDIR)
 	$(NASM) -f elf64 -o $@ $<
 
 $(AAC_SBR_QMF_SYNTH_MOD_AVX2): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod_avx2.asm | $(OBJDIR)
