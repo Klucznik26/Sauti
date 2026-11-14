@@ -688,9 +688,9 @@ static int sbr73_trace_gainhf(uint64_t frame,
     return fflush(out)==0;
 }
 
-/* SBR-73 optional sum of the shifted gain HF and the already scaled
- * tone. Bins whose sine sample is still the raw mix stay on the
- * scaled buffer. Enable with SAUTI_SBR73_SAUTI_SUM=/path.csv. */
+/* SBR-73 optional sum of the shifted gain HF and the scaled tone
+ * or the noise that the old mix added. Enable with
+ * SAUTI_SBR73_SAUTI_SUM=/path.csv. */
 static int sbr73_trace_sum(uint64_t frame,
                            const SautiAacSbrComplex *sum){
     const char *path=getenv("SAUTI_SBR73_SAUTI_SUM");
@@ -723,6 +723,40 @@ static int sbr73_trace_sum(uint64_t frame,
             return 0;
     }
     return fflush(out)==0;
+}
+
+/* SBR-73 optional full HF grid for the experimental sum, the shifted
+ * gain HF, and the unshifted SBR-53d gain. Off unless
+ * SAUTI_SBR73_SAUTI_GRID=/path.f32le. Each record is the frame index
+ * and three 32*64 complex planes, slot-major. */
+static int sbr73_trace_grid(uint64_t frame,
+                            const SautiAacSbrComplex *sum,
+                            const SautiAacSbrComplex *shifted,
+                            const SautiAacSbrComplex *adjusted){
+    const char *path=getenv("SAUTI_SBR73_SAUTI_GRID");
+    static FILE *out;
+    static int header_done;
+    if(!path)return 1;
+    if(!sum || !shifted || !adjusted)return 0;
+    if(!out){
+        out=fopen(path,"wb");
+        if(!out){
+            perror(path);
+            return 0;
+        }
+    }
+    if(!header_done){
+        if(fwrite("SBG1",1,4,out)!=4)return 0;
+        header_done=1;
+    }
+    const uint32_t index=(uint32_t)frame;
+    if(fwrite(&index,sizeof(index),1,out)!=1 ||
+       fwrite(sum,sizeof(SautiAacSbrComplex),32u*64u,out)!=32u*64u ||
+       fwrite(shifted,sizeof(SautiAacSbrComplex),32u*64u,out)!=32u*64u ||
+       fwrite(adjusted,sizeof(SautiAacSbrComplex),32u*64u,out)!=32u*64u ||
+       fflush(out)!=0)
+        return 0;
+    return 1;
 }
 
 /* SBR-73 optional split of gain-adjusted HF and the unsmoothed noise
@@ -1017,9 +1051,11 @@ static int sbr73_shift_emitted_gain(
         gain,apply,shifted,32u*64u);
 }
 
-/* Tone bins: shifted gain HF plus the scaled tone already removed
- * from the old SBR-53d bin. Other bins stay on the scaled buffer,
- * whose remainder is noise rather than a second gain. */
+/* Every HF bin: shifted gain, plus whatever the scaled mix added
+ * on top of the unshifted SBR-53d bin. On a tone bin that addition
+ * is the scaled sinusoid. On any other bin it is the noise already
+ * in the old mix, or zero. A missing limiter window leaves shifted
+ * equal to adjusted, so the bin stays on the scaled mix. */
 static int sbr73_assemble_shifted_tone(
     const SautiAacSbrComplex *shifted,
     const SautiAacSbrComplex *adjusted,
@@ -1038,10 +1074,6 @@ static int sbr73_assemble_shifted_tone(
            !isfinite(shifted[ix].re) || !isfinite(shifted[ix].im) ||
            !isfinite(adjusted[ix].re) || !isfinite(adjusted[ix].im))
             return 0;
-        if(s.re==r.re && s.im==r.im){
-            staging[ix]=scaled[ix];
-            continue;
-        }
         const double re=(double)shifted[ix].re
             +((double)scaled[ix].re-(double)adjusted[ix].re);
         const double im=(double)shifted[ix].im
@@ -2233,7 +2265,9 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                !sbr73_assemble_shifted_tone(
                    shifted_hf,adjusted_hf,preview,sine_high,scaled_sine,
                    summed_hf) ||
-               !sbr73_trace_sum(tone_report.frame_index,summed_hf)){
+               !sbr73_trace_sum(tone_report.frame_index,summed_hf) ||
+               !sbr73_trace_grid(tone_report.frame_index,summed_hf,
+                                 shifted_hf,adjusted_hf)){
                 printf("  ramka %zu: SBR-73 przesuniete HF odrzucone\n",i);
                 break;
             }
@@ -2605,7 +2639,10 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                                final_summed_hf) &&
                            sbr73_trace_sum(
                                final_sine_qmf_report.frame_index,
-                               final_summed_hf))
+                               final_summed_hf) &&
+                           sbr73_trace_grid(
+                               final_sine_qmf_report.frame_index,
+                               final_summed_hf,final_shifted_hf,final_hf))
                             final_sine_pcm_qmf=final_summed_hf;
                         else{
                             puts("  SBR-73: finalne przesuniete HF odrzucone");

@@ -6957,3 +6957,15 @@ That sample is low band 14 copied into k42. Sauti frame N, analysis slot `t`, ti
 The window sum `u[64]` already matches the FFmpeg dump to relative `3.24e-7` (absolute RMS `2.0e-8`). A float accumulation of the same five taps is not closer. Running Sauti's direct modulator on FFmpeg's own `u` still leaves relative `8.2e-4` on low band 14 (absolute RMS `0.0022`) and `7.2e-8` on low band 2. The rest of the band-14 error is that `u` difference after the `32768` modulation (absolute RMS `0.0036`). Both pieces are the float MDCT rounding of a small projection, not a wrong slot, a missing smooth, or a bad gain formula.
 
 **No production change.** The analysis, the modulator, SBR-53d, and the experimental shift stay as they are. `32768` was not written into the QMF. AAC-LC and the public QMF path were not edited.
+
+### SBR-73 — experimental sum uses the shifted gain on every HF bin (2026-11-14)
+
+The sum used to replace a bin only when a tone had been added. Every other bin stayed on the unshifted SBR-53d mix. On `he_test.aac`, steady frames 4–47, call = frame+1, same slot, after multiplying by `32*sqrt(2)`, bands k18..k44 (38016 bins):
+
+- The shifted gain against `Y` after `g_filt` is relative `9.39e-4`. k18 is `1.31e-7` and k42 is `1.61e-3`. The unshifted SBR-53d gain against that same `Y` is relative `0.999`.
+- The old sum against full `Y` was relative `0.910`. Only k18 (`8.69e-8`) and k42 (`5.24e-5`) matched.
+- The assemble now adds, on every bin, the shifted gain plus whatever the scaled mix had added on top of SBR-53d. A tone bin still contributes the scaled sinusoid. Any other bin contributes the noise already in the old mix, or zero. A missing limiter window still leaves that bin on the scaled mix.
+- That sum against full `Y` is relative `2.25e-3`, best scale `0.999998`. k18 and k42 are unchanged at `8.69e-8` and `5.24e-5`.
+- k40, k41, k43 and k44 stay near relative `0.71`. Their gain matches to about `1e-3`. The added component does not. Those four bands are `2.0e-6` of the steady HF energy.
+
+The experimental sine PCM uses this sum. The SBR-54a preview PCM is still the old mix. SBR-53d, the unscaled oscillator, phase+2, the units path, AAC-LC, the public QMF path, and `hf_sine_mix` are unchanged. `SAUTI_SBR73_SAUTI_GRID` writes the three planes. The disposable FFmpeg writes the reference when `SAUTI_SBR73_FFMPEG_Y` is set. The probe still exits 1 after the complete 50-frame dump.
