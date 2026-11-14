@@ -44,7 +44,7 @@ int sauti_aac_sbr_qmf_synth_modulate_64(
      * implementation does not execute AVX instructions before dispatch.
      * Evaluate once per frame, not for every 64-band time slot.
      * Compiling with SAUTI_QMF_FORCE_SSE2 selects the reference SIMD path. */
-#if defined(__x86_64__) && !defined(_WIN32) && \
+#if defined(__x86_64__) && defined(__ELF__) && !defined(_WIN32) && \
     (defined(__GNUC__) || defined(__clang__)) && !defined(SAUTI_QMF_DISABLE_ASM)
 #if defined(SAUTI_QMF_FORCE_SSE2)
     const int use_avx2=0;
@@ -54,7 +54,7 @@ int sauti_aac_sbr_qmf_synth_modulate_64(
 #endif
     for(unsigned t=0;t<slots;t++){
         float *slot_out=stage+(size_t)t*SAUTI_AAC_SBR_QMF_MOD_VALUES;
-#if defined(__x86_64__) && !defined(_WIN32) && \
+#if defined(__x86_64__) && defined(__ELF__) && !defined(_WIN32) && \
     (defined(__GNUC__) || defined(__clang__)) && !defined(SAUTI_QMF_DISABLE_ASM)
         const SautiAacSbrComplex *slot_bands=bands+(size_t)t*SAUTI_AAC_SBR_QMF_MOD_BANDS;
         if(use_avx2)
