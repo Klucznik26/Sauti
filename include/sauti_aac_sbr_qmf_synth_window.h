@@ -74,11 +74,6 @@ void sauti_aac_sbr_qmf_synth_window_slot_avx2(
     float *output64,
     const float *qmf_coeff640,
     const float * const history_ptrs[10]);
-/* Experimental unrolled AVX2 window, NOT selected by the public dispatcher. */
-void sauti_aac_sbr_qmf_synth_window_slot_avx2_unrolled(
-    float *output64,
-    const float *qmf_coeff640,
-    const float * const history_ptrs[10]);
 #endif
 
 #endif
