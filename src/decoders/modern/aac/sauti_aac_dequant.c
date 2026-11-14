@@ -64,7 +64,10 @@ int sauti_aac_lc_dequantize(const int32_t quant[1024],
                 for(unsigned line=base;line<base+end-start;line++){
                     int32_t q=quant[line];
                     if(q < -8191 || q > 8191)return 0;
-                    mag[line]=powf((float)(q<0?-q:q),4.0f/3.0f);
+                    /* |q|^(4/3) = |q| * cbrt(|q|). libm powf sits
+                     * systematically high of this power. */
+                    int32_t aq=q<0?-q:q;
+                    mag[line]=(float)((double)aq*cbrt((double)aq));
                 }
                 if(!sauti_aac_dequant_scale_asm(quant+base,mag+base,&gain,
                                                 next+base,end-start))return 0;
