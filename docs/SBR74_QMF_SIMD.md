@@ -1,0 +1,36 @@
+# SBR-74: guarded QMF SSE2 / AVX2 optimization
+
+**Branch:** `feature/sbr74-qmf-avx2-dispatch`. This is an experimental performance branch, not a new AAC/HE-AAC correctness milestone.
+
+## Changes
+
+- Retain the working x86-64 System V SSE2 synthesis kernels; fold table loads into memory operands of `mulps` without changing arithmetic order.
+- Add a 256-bit AVX2 implementation of the 640-tap polyphase synthesis window (32 output samples per chunk, ten taps) and complex modulation (eight floats per vector; mirrored outputs).
+- The two modulator variants share the same precomputed trigonometric tables. AVX2 uses **no FMA**, deliberately keeping multiplication and addition separate to limit rounding differences. Modulation may still differ by a few float ulps because of the reduction tree.
+- The public C wrappers check finite inputs, bounds, output overlap and rollback before/after invoking ASM, as before.
+- Use `__builtin_cpu_supports("avx2")` on GNU/Clang System V x86-64: this checks processor and OS extended register support. Never execute AVX2 before the check. CPUID is evaluated once per call to the frame wrapper, outside the slot loop. On older x86-64 use SSE2.
+- With `-DSAUTI_QMF_FORCE_SSE2`, always choose SSE2 on x86-64. With `-DSAUTI_QMF_DISABLE_ASM`, select the scalar C11 reference code. On Windows x64 the current **System V/ELF NASM kernels are deliberately disabled** in the C wrappers; use the portable C implementation pending a real Windows object/ABI port.
+
+## Differential and regression tests
+
+```sh
+make test-aac-qmf-simd
+make test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-synth-window
+make test-aac-ps-pcm-stereo test-aac-he-ps-bridge
+make test-aac-native
+```
+
+`test-aac-qmf-simd` runs real native SSE2 and AVX2 kernels with input variation and output canaries. The 640-tap window should be bit-identical; modulation is compared with an explicit rounding tolerance. On hosts without AVX2 the differential target prints SKIP; the SSE2 public tests still run. Existing public tests cover the C wrapper's transactional behavior and mathematical reference.
+
+Run a **fresh rebuild** to force SSE2 before comparing output or measuring the per-frame cost:
+
+```sh
+make -B test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-synth-window \
+  CFLAGS='-O2 -std=c11 -Wall -Wextra -Werror -DSAUTI_QMF_FORCE_SSE2'
+```
+
+For standalone C11 reference checks on a non-ELF platform, compile the two `.c` files without NASM and define `SAUTI_QMF_DISABLE_ASM`. The repository-wide Makefile still builds other NASM x86-64 codec modules and is not a general Windows build system.
+
+## Acceptance criteria
+
+Do **not** claim a speedup from source inspection alone. Collect median and tail times per 40-slot frame on the actual CPU (plus full HE-AAC playback under load), verify the intended CPU branch is used, compare pre-PS PCM on real fixtures, and run sanitizer tests. FMA or a DCT/FFT rewrite would be a separate, numerically revalidated change. This branch does not change the SBR envelope/noise/PS reconstruction.
