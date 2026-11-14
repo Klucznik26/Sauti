@@ -8,8 +8,9 @@
  * window when the owner frame is available, otherwise the unshifted
  * mean. Q is not scaled. Square sums stay on that unshifted mean.
  * The high-band midpoint and the envelope-band spread are separate
- * sine maps. Cross-frame e_a remains pending. SBR-53d is not
- * retargeted. */
+ * sine maps. The sine starts at the signaled attack envelope.
+ * A sine carried in from the previous frame remains pending.
+ * SBR-53d is not retargeted. */
 #include "sauti_aac_sbr_temporal_reference_gain.h"
 #include <math.h>
 #include <string.h>
@@ -74,12 +75,23 @@ static int build_one(
         for(unsigned k=tab->noise[b];k<tab->noise[b+1u];k++)
             q[k]=v;
     }
+    /* attack[] stays clear when no onset was signaled, so a frame
+     * without one keeps the sine. An earlier attack envelope is
+     * noise until that envelope. */
+    int sine_open=1;
+    for(unsigned e=0u;e<f->grid.env_count;e++){
+        if(f->attack[e]>1u)return 0;
+        if(f->attack[e]){
+            sine_open=(int)env>=(int)e;
+            break;
+        }
+    }
     for(unsigned b=0;b<tab->n_high;b++){
         if(f->harmonic[b]>1u ||
            tab->high[b]<kx ||
            tab->high[b+1u]>k2 ||
            tab->high[b]>=tab->high[b+1u])return 0;
-        if(f->harmonic[b]){
+        if(f->harmonic[b] && sine_open){
             const unsigned center=(tab->high[b]+tab->high[b+1u])/2u;
             active_sine[center]=1u;
         }

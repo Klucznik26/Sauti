@@ -1557,10 +1557,20 @@ static int sbr73_trace_limit(
             for(unsigned k=tab->noise[b];k<tab->noise[b+1u];k++)
                 noise[k]=value;
         }
+        /* Same attack rule as the reference-gain carrier. The
+         * output-slot ratio divides by this gain, so the two have
+         * to agree. No signaled attack keeps the sine. */
+        int sine_open=1;
+        for(unsigned e=0u;e<payload->grid.env_count;e++){
+            if(payload->attack[e]){
+                sine_open=(int)env>=(int)e;
+                break;
+            }
+        }
         for(unsigned b=0u;b<tab->n_high;b++){
             if(payload->harmonic[b]>1u ||
                tab->high[b]>=tab->high[b+1u])return 0;
-            if(!payload->harmonic[b])continue;
+            if(!payload->harmonic[b] || !sine_open)continue;
             const unsigned mid=(tab->high[b]+tab->high[b+1u])/2u;
             if(mid>=64u)return 0;
             center[mid]=1u;
