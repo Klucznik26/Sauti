@@ -586,6 +586,17 @@ static int sbr73_boundary_reweight(
     return 1;
 }
 
+/* source 0 still belongs to the frame before the emitted one. */
+static int sbr73_owner_frame(uint64_t emitted,uint8_t source,
+                             uint64_t *owner){
+    if(!owner || source>1u)return 0;
+    if(source==0u){
+        if(emitted==0u)return 0;
+        *owner=emitted-1u;
+    }else *owner=emitted;
+    return 1;
+}
+
 /* SBR-73: reference-gain grid plus the phase+2 tone.
  * phase2 = preview - noise + tone, so a changed bin's tone is
  * phase2 - preview + noise. tone_boost is the limiter group
@@ -1075,6 +1086,65 @@ static const Sbr73BoostSaved *sbr73_boost_find(uint64_t frame){
     return NULL;
 }
 
+/* Grid slot s is heard at output slot s+6. Slots 26..31 already
+ * take the next frame's envelope. Inside the frame the carrier
+ * still has slot s's own envelope, so the six slots after an
+ * envelope change keep the previous gain. Those slots take the
+ * gain of slot s+6 instead. The sample was already multiplied by
+ * the old gain, so the correction is the ratio of the two limiter
+ * gains. Sine and noise are added later and are not scaled here. */
+static int sbr73_output_slot_gains(
+    SautiAacSbrComplex *grid,
+    uint64_t emitted,
+    const SautiAacSbrTemporalHfTargets *targets){
+    if(!grid || !targets)return 0;
+    SautiAacSbrComplex staging[32u*64u];
+    memcpy(staging,grid,sizeof(staging));
+    for(unsigned s=0u;s<26u;s++){
+        const SautiAacSbrTemporalHfSlot *cur=&targets->slot[s];
+        const SautiAacSbrTemporalHfSlot *out=&targets->slot[s+6u];
+        if(cur->source>1u || out->source>1u ||
+           cur->envelope>=SAUTI_AAC_SBR_MAX_ENV ||
+           out->envelope>=SAUTI_AAC_SBR_MAX_ENV ||
+           cur->k2<=cur->kx || cur->k2>64u ||
+           out->k2<=out->kx || out->k2>64u)return 0;
+        if(cur->source==out->source && cur->envelope==out->envelope)
+            continue;
+        uint64_t cur_frame=0u,out_frame=0u;
+        if(!sbr73_owner_frame(emitted,cur->source,&cur_frame) ||
+           !sbr73_owner_frame(emitted,out->source,&out_frame))
+            return 0;
+        const Sbr73BoostSaved *old=sbr73_boost_find(cur_frame);
+        const Sbr73BoostSaved *neu=sbr73_boost_find(out_frame);
+        if(!old || !neu ||
+           cur->envelope>=old->envs || out->envelope>=neu->envs)
+            return 0;
+        const unsigned k0=cur->kx>out->kx?cur->kx:out->kx;
+        const unsigned k1=cur->k2<out->k2?cur->k2:out->k2;
+        for(unsigned k=k0;k<k1;k++){
+            if(!old->band_ok[cur->envelope][k] ||
+               !neu->band_ok[out->envelope][k])continue;
+            const double go=old->hf_gain[cur->envelope][k];
+            const double gn=neu->hf_gain[out->envelope][k];
+            if(!isfinite(go) || !isfinite(gn) || go<0.0 || gn<0.0)
+                return 0;
+            if(go==0.0){
+                if(gn==0.0)continue;
+                return 0;
+            }
+            const unsigned ix=s*64u+k;
+            const double re=(double)staging[ix].re*(gn/go);
+            const double im=(double)staging[ix].im*(gn/go);
+            if(!isfinite(re) || !isfinite(im) ||
+               fabs(re)>FLT_MAX || fabs(im)>FLT_MAX)return 0;
+            staging[ix].re=(float)re;
+            staging[ix].im=(float)im;
+        }
+    }
+    memcpy(grid,staging,sizeof(staging));
+    return 1;
+}
+
 /* Limiter group boost for each emitted slot, used only to scale
  * the added phase+2 tone. Unsaved envelopes stay at 1. */
 static int sbr73_tone_boost(
@@ -1130,6 +1200,40 @@ static int sbr73_tone_boundary(
             factor[(26u+t)*64u+k]=b;
         }
     }
+    return 1;
+}
+
+/* Grid slot s is heard at output slot s+6. own_grid carries the
+ * phase+2 tone of slot s, so a sine envelope keeps that amplitude
+ * for six output slots. Slots 0..25 take the tone of slot s+6.
+ * Six steps of the quarter-turn clock is a sign flip, which is the
+ * phase heard at slot s. Slots 26..31 stay on edge_grid, where the
+ * next frame's limiter boost is already applied. Noise is added
+ * later and is not moved. */
+static int sbr73_tone_follow_output(
+    const SautiAacSbrComplex *boundary,
+    const SautiAacSbrComplex *own_grid,
+    SautiAacSbrComplex *edge_grid){
+    if(!boundary || !own_grid || !edge_grid)return 0;
+    SautiAacSbrComplex staging[32u*64u];
+    memcpy(staging,edge_grid,sizeof(staging));
+    for(unsigned s=0u;s<26u;s++){
+        for(unsigned k=0u;k<64u;k++){
+            const unsigned dst=s*64u+k;
+            const unsigned src=(s+6u)*64u+k;
+            const double re=(double)boundary[dst].re
+                -(double)own_grid[src].re
+                +(double)boundary[src].re;
+            const double im=(double)boundary[dst].im
+                -(double)own_grid[src].im
+                +(double)boundary[src].im;
+            if(!isfinite(re) || !isfinite(im) ||
+               fabs(re)>FLT_MAX || fabs(im)>FLT_MAX)return 0;
+            staging[dst].re=(float)re;
+            staging[dst].im=(float)im;
+        }
+    }
+    memcpy(edge_grid,staging,sizeof(staging));
     return 1;
 }
 
@@ -2575,14 +2679,31 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                 printf("  ramka %zu: SBR-73 granica wzmocnienia odrzucona\n",i);
                 break;
             }
+            if(!sbr73_output_slot_gains(
+                   ref_boundary_hf,tone_report.frame_index,
+                   &emitted_targets)){
+                printf("  ramka %zu: SBR-73 wzmocnienie slotu wyjsciowego odrzucone\n",i);
+                break;
+            }
+            double ref_tone_own_boost[32u*64u];
             double ref_tone_boost[32u*64u];
+            SautiAacSbrComplex ref_tone_own_hf[32u*64u];
             if(!sbr73_tone_boost(tone_report.frame_index,
-                                 &emitted_targets,ref_tone_boost) ||
-               !sbr73_tone_boundary(tone_report.frame_index,
+                                 &emitted_targets,ref_tone_own_boost)){
+                printf("  ramka %zu: SBR-73 ton na referencyjnym HF odrzucony\n",i);
+                break;
+            }
+            memcpy(ref_tone_boost,ref_tone_own_boost,sizeof(ref_tone_boost));
+            if(!sbr73_tone_boundary(tone_report.frame_index,
                                     ref_tone_boost,&temporal_history) ||
                !sbr73_ref_plus_phase2(
                    ref_boundary_hf,preview,phase2_high,
+                   &noise_frame,ref_tone_own_boost,ref_tone_own_hf) ||
+               !sbr73_ref_plus_phase2(
+                   ref_boundary_hf,preview,phase2_high,
                    &noise_frame,ref_tone_boost,ref_tone_hf) ||
+               !sbr73_tone_follow_output(
+                   ref_boundary_hf,ref_tone_own_hf,ref_tone_hf) ||
                !sbr73_add_reference_noise(
                    tone_report.frame_index,ref_tone_hf,
                    &noise_frame,noise_report.rom_index,
