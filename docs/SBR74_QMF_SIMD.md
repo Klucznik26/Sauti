@@ -21,6 +21,8 @@ make test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-synth-window
 make test-aac-ps-pcm-stereo test-aac-he-ps-bridge
 make test-aac-native
 make bench-aac-qmf  # optional per-slot median microbenchmark
+make bench-aac-qmf-frame  # 40-slot full synthesis incl. validation/history
+make test-aac-qmf-frame-parity  # 2560 PCM values auto vs forced SSE2
 ```
 
 `test-aac-qmf-simd` runs real native SSE2 and AVX2 window with input variation, deliberately offset/unaligned input and output buffers, and output canaries. The 640-tap window should be bit-identical; modulation is compared with an explicit rounding tolerance. On hosts without AVX2 the differential target prints SKIP; the SSE2 public tests still run. Existing public tests cover the C wrapper's transactional behavior and mathematical reference.
@@ -33,6 +35,27 @@ make -B test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-synth-window \
 ```
 
 For standalone C11 reference checks on a non-ELF platform, compile the two `.c` files without NASM and define `SAUTI_QMF_DISABLE_ASM`. The repository-wide Makefile still builds other NASM x86-64 codec modules and is not a general Windows build system.
+
+## Frame-level validation (PR #6)
+
+The new `tools/sauti_qmf_frame_bench.c` runs the public
+`sauti_aac_sbr_qmf_synth_64()` function in two separately built executables:
+the normal runtime-dispatched build and the build with
+`SAUTI_QMF_FORCE_SSE2`. Each renders 40 QMF slots (2560 real PCM samples).
+Seven batches of 300 frames are timed after a 32-frame warmup; the median and
+maximum batch-normalized frame times are printed. This includes finite checks,
+output staging, the 10-slot history ring, and two kernel calls per slot.
+
+The parity target dumps raw float32 PCM from each executable and compares all
+2560 samples with a per-sample bound of `3e-6 * max(1, abs(auto), abs(sse))`.
+It rejects nonfinite results and reports RMS/max absolute differences. This is
+a **regression tolerance**, not proof of bit-identical output or correctness
+against FFmpeg. It also does not measure demuxing, AAC-LC, SBR parameter decode
+or PS.
+
+Run `make bench-aac-qmf-frame` on the target Ryzen 5 7600X before drawing
+conclusions about hardware-specific performance. GitHub Actions numbers are
+only measurements on the runner CPU.
 
 ## Acceptance criteria
 
