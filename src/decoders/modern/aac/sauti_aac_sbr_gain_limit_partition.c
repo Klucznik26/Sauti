@@ -8,12 +8,13 @@
 
 #define QMF_BANDS 64u
 
-int sauti_aac_sbr_gain_limit_partition(
+int sauti_aac_sbr_gain_limit_partition_flags(
     const double e[64],const double ec[64],const double q[64],
-    const uint8_t sine[64],const uint8_t edges[65],
+    const uint8_t sine_index[64],const uint8_t sine_mapped[64],
+    const uint8_t edges[65],
     unsigned group_count,unsigned gain_mode,unsigned delta,
     SautiAacSbrGainLimitedFrame *out){
-    if(!e || !ec || !q || !sine || !edges || !out ||
+    if(!e || !ec || !q || !sine_index || !sine_mapped || !edges || !out ||
        group_count<1u || group_count>QMF_BANDS ||
        gain_mode>3u || delta>1u ||
        edges[0]<1u || edges[group_count]>QMF_BANDS)
@@ -34,9 +35,10 @@ int sauti_aac_sbr_gain_limit_partition(
             if(!isfinite(e[k]) || !isfinite(ec[k]) ||
                !isfinite(q[k]) || e[k]<0.0 ||
                ec[k]<0.0 || q[k]<0.0 ||
-               sine[k]>1u ||
-               !sauti_aac_sbr_gain_partition(
-                   e[k],ec[k],q[k],sine[k],delta,
+               sine_index[k]>1u || sine_mapped[k]>1u ||
+               !sauti_aac_sbr_gain_partition_flags(
+                   e[k],ec[k],q[k],
+                   sine_index[k],sine_mapped[k],delta,
                    &staged.band[k]))
                 return 0;
             sum_e+=e[k];
@@ -71,7 +73,7 @@ int sauti_aac_sbr_gain_limit_partition(
                 p->hf_gain=cap;
                 staged.gain_capped_bins++;
             }
-            if(sine[k])staged.sine_bins++;
+            if(sine_index[k])staged.sine_bins++;
         }
 
         double after=0.0;
@@ -103,4 +105,13 @@ int sauti_aac_sbr_gain_limit_partition(
     }
     *out=staged;
     return 1;
+}
+
+int sauti_aac_sbr_gain_limit_partition(
+    const double e[64],const double ec[64],const double q[64],
+    const uint8_t sine[64],const uint8_t edges[65],
+    unsigned group_count,unsigned gain_mode,unsigned delta,
+    SautiAacSbrGainLimitedFrame *out){
+    return sauti_aac_sbr_gain_limit_partition_flags(
+        e,ec,q,sine,sine,edges,group_count,gain_mode,delta,out);
 }

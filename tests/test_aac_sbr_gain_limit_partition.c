@@ -97,6 +97,24 @@ int main(void){
         e,ec,q,sine,edges,1u,0u,1u,&result));
     assert(memcmp(&old,&result,sizeof(old))==0);
     puts("SBR-54k: NaN, invalid edge, mode, Q and sine rollback PASS");
+
+    /* Mapped neighbor: tonal gain, no added sine, so its noise
+     * stays in the boost budget. */
+    {
+        uint8_t index[64]={0},mapped[64]={0};
+        edges[0]=17u;edges[1]=18u;
+        e[17]=100.0;ec[17]=24.0;q[17]=3.0;
+        mapped[17]=1u;
+        assert(sauti_aac_sbr_gain_limit_partition_flags(
+            e,ec,q,index,mapped,edges,1u,1u,1u,&result));
+        const double split_boost=sqrt((100.0+0x1p-23)/(147.0+0x1p-23));
+        eq(result.group_boost[0],split_boost);
+        eq(result.band[17].hf_gain,sqrt(3.0)*split_boost);
+        eq(result.band[17].sine_amplitude,0.0);
+        eq(result.band[17].noise_amplitude,sqrt(75.0)*split_boost);
+        assert(result.sine_bins==0u);
+    }
+    puts("SBR-54k: mapped sine without an index sine PASS");
     puts("PASS SBR-54k reference HF/noise/sine limiter math (no PCM)");
     return 0;
 }

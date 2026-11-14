@@ -6882,3 +6882,33 @@ Replaying float `sbr_gain_calc` on the k42 group (k33..k44, 12 bands, 44 steady 
 Call 11 (Sauti frame 10) is the loud cycle: logged boost `1.347441`, delayed `1.347328`, current-32 `1.321295`. `sumC` is 434.92, 434.97 and 399.73. The move is low bands 7 and 8 (k35 `120.1 → 102.5`, k36 `130.3 → 109.5`). The previously reported ~2% is this window, not a limiter-formula error and not a bad cosine.
 
 **No production change.** The tone was not scaled. `32768` was not written into the tone, the window, or the modulator. The `2^-30` normalizer, `harmonic_preview`, AAC-LC, and the public QMF path were not edited. phase0 stays. `sauti_aac_sbr_temporal_power_measure` still averages the envelope’s own slots; its tests define that unshifted mean, and a split envelope is not the same 6-slot borrow. The next experimental change is that energy window only: for grid borders `t_env`, average `X[2*t_env+2 : 2*t_env_next+2]`, which is analysis slot `i-6`, borrowing the previous frame when the index goes negative. Do it beside the tested mean, then replay k42 before any tone scale.
+
+### SBR-73 — live HF-generator window matches FFmpeg e_curr (2026-11-14)
+
+`sauti_aac_sbr_temporal_power_hfgen_window` averages analysis slots `[start-6, end-6)` of one envelope. A negative slot comes from the previous frame. The tested unshifted mean is unchanged. SBR-53d and SBR-54l still average the envelope's own slots. The probe writes this power only when `SAUTI_SBR73_SAUTI_HFGEN_POWER` is set.
+
+On `he_test.aac` the live QMF, times `2^30`, matches FFmpeg `e_curr` for every steady bin in frames 4–47 (1188 bins). Worst relative error is `8.4e-7` at k18 and `9.1e-4` at the quietest bin. Replaying `sbr_gain_calc` with that live power recovers all 56 logged k42 groups that Sauti can form. The worst boost error is `1.12e-4` (call 4, boost `1.342937` vs `1.342786`). The three-cycle values stay `1.346013`, `1.256347`, `1.282795`, and `1.347441`. FFmpeg calls 0 and 1 have no Sauti window: call 0 is before the first frame, and frame 0 has no previous QMF yet.
+
+The stored SBR-53d and SBR-54l boosts still ignore this window. The next section is an opt-in limiter that reads it. `harmonic_preview`, AAC-LC, and the public QMF path still do not.
+
+### SBR-73 — opt-in limiter on the 6-slot window (2026-11-14)
+
+`sauti_aac_sbr_gain_partition_flags` and `sauti_aac_sbr_gain_limit_partition_flags` keep the two sinusoid maps apart. The index flag adds `S_M` on the band midpoint only. The mapped flag selects the tonal HF-gain equation for every bin of that envelope band. The old one-flag functions pass the same flag twice, so SBR-54l and its tests stay on the unshifted normalized path.
+
+The probe calls the split limiter only when `SAUTI_SBR73_SAUTI_LIMIT` is set. Each current-frame envelope uses `e_curr = ldexp(window, 30)`, `E = ldexp(normalized envelope energy, 30)`, the stored unscaled `Q`, the center and mapped sine flags, and `delta = attack[env] ? 0 : 1`. The `2^30` factor stays in the probe. No applied gain and no tone is changed.
+
+On `he_test.aac` the trace has 1512 rows, Sauti frames 1–49. FFmpeg calls 0 and 1 still have no window. The limiter group matches `lim` on every row. Apart from the two envelopes below, the worst boost relative error is `1.12e-4` (frame 3, k42 group, `1.342786` vs `1.342937`). Steady frames 4–47, all 1188 bins, worst boost relative error is `7.88e-5`. The k42 cycle is `1.347335` vs `1.347441`, `1.256376` vs `1.256347`, `1.282750` vs `1.282795`. Frame 47 is `1.258883` vs `1.258873`. k18 stays on the cap `1.58489319` (relative `2.5e-8`).
+
+FFmpeg's boost CSV logs `s_m` and `g` before the boost multiply. This limiter logs them after. Dividing by the logged boost matches the pre-boost sine to `2e-9` on steady k18 and k42, and the pre-boost gain to `4.4e-4` at the worst steady bin.
+
+Two envelopes are not this window:
+- Frame 2, envelope 0. Sauti sets the k18 and k42 sine, and FFmpeg `s_indexmapped` is 0. The k42 boost relative error is `5.6%`.
+- Frame 49, envelope 0. Sauti `delta` is 1 and FFmpeg `delta` is 0 on all 27 bins, so the k42 boost relative error is `4.0%`. `attack_env` is unchanged. An onset that lands on envelope 0 still cannot be told apart from no onset.
+
+The tone was compared offline and was not written into `harmonic_preview`. The per-frame boost from this limiter, times `1024/sqrt(2)`, is the gain-adjusted QMF factor. In FFmpeg's raw domain that is `tone * 32768 * boost`. Steady frames 4–47, call = frame+1, same slot:
+- k18 tone correlation is 1 and the relative residual is `7.1e-8`. The old single scale `51933.78` is this cap case.
+- k42 tone correlation is 1 and the relative residual is `5.2e-5`. One global scale `42462` still leaves relative residual `0.030`.
+- The k18 sum of the unchanged SBR-53d gain HF and that scaled tone matches FFmpeg `Y` to relative `9.4e-7`.
+- The k42 sum relative residual is `0.0011`. The sine matches. What remains is the old gain HF: its best scale is still `105.8` rather than `32*sqrt(2)`, and that shape residual is `0.108`. SBR-53d is unchanged.
+
+`harmonic_preview`, AAC-LC, the public QMF path, and `hf_sine_mix` do not use this boost. The gain-partition, gain-limit, and temporal-reference-gain tests pass. The probe still exits 1 on this fixture after a complete trace. That exit is the existing public-parser limit.

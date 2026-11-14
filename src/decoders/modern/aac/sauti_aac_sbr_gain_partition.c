@@ -6,12 +6,13 @@
 #include "sauti_aac_sbr_gain_partition.h"
 #include <math.h>
 
-int sauti_aac_sbr_gain_partition(
+int sauti_aac_sbr_gain_partition_flags(
     double e,double ec,double q,
-    unsigned harmonic,unsigned delta,
+    unsigned sine_index,unsigned sine_mapped,unsigned delta,
     SautiAacSbrGainPartition *out){
     if(!out || !isfinite(e) || !isfinite(ec) || !isfinite(q) ||
-       e<0.0 || ec<0.0 || q<0.0 || harmonic>1u || delta>1u)
+       e<0.0 || ec<0.0 || q<0.0 ||
+       sine_index>1u || sine_mapped>1u || delta>1u)
         return 0;
     const double denominator=1.0+q;
     const double ec_denom=1.0+ec;
@@ -24,8 +25,8 @@ int sauti_aac_sbr_gain_partition(
      * the product E*Q may overflow although final gain is valid. */
     const double noise_share=q/denominator;
     const double n2=e*noise_share;
-    const double s2=harmonic?(e/denominator):0.0;
-    const double g2=harmonic?
+    const double s2=sine_index?(e/denominator):0.0;
+    const double g2=sine_mapped?
         (e/ec_denom)*noise_share:
         (e/ec_denom)/delta_denom;
     if(!isfinite(n2)||!isfinite(s2)||!isfinite(g2)||
@@ -39,4 +40,12 @@ int sauti_aac_sbr_gain_partition(
         return 0;
     *out=value;
     return 1;
+}
+
+int sauti_aac_sbr_gain_partition(
+    double e,double ec,double q,
+    unsigned harmonic,unsigned delta,
+    SautiAacSbrGainPartition *out){
+    return sauti_aac_sbr_gain_partition_flags(
+        e,ec,q,harmonic,harmonic,delta,out);
 }

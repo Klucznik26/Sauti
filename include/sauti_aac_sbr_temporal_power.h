@@ -54,4 +54,23 @@ int sauti_aac_sbr_temporal_power_measure(
     SautiAacSbrTemporalPowerState *state,
     SautiAacSbrTemporalPowerReport *report);
 
+/* SBR-73: FFmpeg e_curr sample window. Not used by the measure
+ * above, whose tests keep the unshifted envelope mean.
+ *
+ * An envelope owns QMF slots [start, end), and end may reach 38
+ * when the border crosses into the next AAC frame. FFmpeg averages
+ * analysis slots [start-6, end-6): t_HFGen 8 minus the envelope
+ * offset 2. A negative slot is taken from the previous frame.
+ * That range stays inside previous+current for every accepted
+ * border, so the next frame is not read.
+ *
+ * mean_power is unchanged on failure. Bands outside [kx, k2) are 0.
+ * previous may be NULL when start >= 6. */
+int sauti_aac_sbr_temporal_power_hfgen_window(
+    const SautiAacSbrComplex *current,size_t current_count,
+    const SautiAacSbrComplex *previous,size_t previous_count,
+    unsigned start,unsigned end,
+    unsigned kx,unsigned k2,
+    double mean_power[64]);
+
 #endif

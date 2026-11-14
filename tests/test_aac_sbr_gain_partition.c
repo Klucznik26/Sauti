@@ -47,6 +47,20 @@ int main(void){
     }
     puts("SBR-54j: tonal harmonic gain and sine before limiter PASS");
 
+    /* FFmpeg spreads the tonal gain across the envelope band and
+     * keeps the added sinusoid on the midpoint alone. */
+    assert(sauti_aac_sbr_gain_partition_flags(
+        100.0,24.0,3.0,0u,1u,1u,&out));
+    eq(out.hf_gain,sqrt(3.0));
+    eq(out.noise_amplitude,noise);
+    eq(out.sine_amplitude,0.0);
+    assert(sauti_aac_sbr_gain_partition_flags(
+        100.0,24.0,3.0,1u,0u,1u,&out));
+    eq(out.hf_gain,1.0);
+    eq(out.noise_amplitude,noise);
+    eq(out.sine_amplitude,5.0);
+    puts("SBR-54j: split sine index and mapped gain PASS");
+
     assert(sauti_aac_sbr_gain_partition(
         100.0,0.0,0.0,0u,1u,&out));
     eq(out.hf_gain,10.0);

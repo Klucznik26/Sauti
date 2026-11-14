@@ -45,4 +45,19 @@ int sauti_aac_sbr_gain_limit_partition(
     unsigned delta,
     SautiAacSbrGainLimitedFrame *out);
 
+/* sine_index is FFmpeg s_indexmapped (midpoint only). sine_mapped
+ * is 1 across the envelope-resolution band that contains a sine.
+ * The single-map function passes the same array for both. */
+int sauti_aac_sbr_gain_limit_partition_flags(
+    const double envelope_energy[64],
+    const double current_hf_power[64],
+    const double noise_factor[64],
+    const uint8_t sine_index[64],
+    const uint8_t sine_mapped[64],
+    const uint8_t edges[65],
+    unsigned group_count,
+    unsigned gain_mode,
+    unsigned delta,
+    SautiAacSbrGainLimitedFrame *out);
+
 #endif

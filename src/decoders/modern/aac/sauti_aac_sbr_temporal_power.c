@@ -156,3 +156,41 @@ int sauti_aac_sbr_temporal_power_measure(
     *report=result;
     return 1;
 }
+
+int sauti_aac_sbr_temporal_power_hfgen_window(
+    const SautiAacSbrComplex *current,size_t current_count,
+    const SautiAacSbrComplex *previous,size_t previous_count,
+    unsigned start,unsigned end,
+    unsigned kx,unsigned k2,
+    double mean_power[64]){
+    if(!current || !mean_power ||
+       current_count<32u*64u ||
+       end<=start || end>38u || start>32u ||
+       kx<1u || k2<=kx || k2>64u)
+        return 0;
+    const int first=(int)start-6;
+    const int last=(int)end-6;
+    if(last>32 || (first<0 &&
+                   (!previous || previous_count<32u*64u)))
+        return 0;
+    double sum[64]={0};
+    const unsigned count=end-start;
+    for(int s=first;s<last;s++){
+        const unsigned slot=s<0?(unsigned)(s+32):(unsigned)s;
+        const SautiAacSbrComplex *frame=s<0?previous:current;
+        for(unsigned k=kx;k<k2;k++){
+            const SautiAacSbrComplex z=frame[(size_t)slot*64u+k];
+            if(!isfinite(z.re) || !isfinite(z.im))return 0;
+            const double re=z.re,im=z.im;
+            sum[k]+=re*re+im*im;
+            if(!isfinite(sum[k]))return 0;
+        }
+    }
+    double out[64]={0};
+    for(unsigned k=kx;k<k2;k++){
+        out[k]=sum[k]/(double)count;
+        if(!isfinite(out[k]) || out[k]<0.0)return 0;
+    }
+    memcpy(mean_power,out,sizeof(out));
+    return 1;
+}

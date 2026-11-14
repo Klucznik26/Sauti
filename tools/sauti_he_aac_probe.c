@@ -723,6 +723,201 @@ static int sbr73_trace_x(uint64_t frame, const SautiAacSbrComplex *hf){
     return fflush(out)==0;
 }
 
+/* SBR-73 optional e_curr of the 6-slot HF-generator window.
+ * One row per HF bin of each current-frame envelope. This does not
+ * replace the unshifted SBR-53c mean and does not change a gain.
+ * Enable with SAUTI_SBR73_SAUTI_HFGEN_POWER=/path.csv. */
+static int sbr73_trace_hfgen_power(
+    uint64_t frame,
+    const SautiAacSbrTemporalHistory *history,
+    const SautiAacSbrComplex *hf){
+    const char *path=getenv("SAUTI_SBR73_SAUTI_HFGEN_POWER");
+    static FILE *out;
+    static int header_done;
+    static int have_prev;
+    static SautiAacSbrComplex prev[32u*64u];
+    if(!path)return 1;
+    if(!history || !hf || !history->ready)return 0;
+    if(!out){
+        out=fopen(path,"wb");
+        if(!out){
+            perror(path);
+            return 0;
+        }
+    }
+    if(!header_done){
+        if(fprintf(out,"frame,envelope,k,ecurr\n")<0)return 0;
+        header_done=1;
+    }
+    const SautiAacSbrPayloadFrame *payload=&history->current;
+    const unsigned kx=payload->tables.kx;
+    const unsigned k2=kx+payload->tables.m;
+    if(payload->grid.env_count<1u ||
+       payload->grid.env_count>SAUTI_AAC_SBR_MAX_ENV ||
+       kx<1u || k2<=kx || k2>64u)
+        return 0;
+    for(unsigned env=0u;env<payload->grid.env_count;env++){
+        const unsigned start=payload->env_edges[env];
+        const unsigned end=payload->env_edges[env+1u];
+        if(end<=start || end>38u || start>32u)return 0;
+        if((int)start-6<0 && !have_prev)continue;
+        double mean[64];
+        if(!sauti_aac_sbr_temporal_power_hfgen_window(
+               hf,32u*64u,
+               have_prev?prev:NULL,have_prev?32u*64u:0u,
+               start,end,kx,k2,mean))
+            return 0;
+        for(unsigned k=kx;k<k2;k++){
+            if(!isfinite(mean[k]) || mean[k]<0.0)return 0;
+            if(fprintf(out,"%llu,%u,%u,%.9g\n",
+                       (unsigned long long)frame,env,k,mean[k])<0)
+                return 0;
+        }
+    }
+    memcpy(prev,hf,sizeof(prev));
+    have_prev=1;
+    return fflush(out)==0;
+}
+
+/* SBR-73 optional limiter fed by the HF-generator window.
+ * Envelope energy and window power are raised by 2^30, which is
+ * the analysis-domain factor removed by SBR-60. Q is already in
+ * that domain. The tone and every applied gain stay untouched.
+ * Enable with SAUTI_SBR73_SAUTI_LIMIT=/path.csv. */
+static int sbr73_trace_limit(
+    uint64_t frame,
+    const SautiAacSbrTemporalHistory *history,
+    const SautiAacSbrComplex *hf){
+    const char *path=getenv("SAUTI_SBR73_SAUTI_LIMIT");
+    static FILE *out;
+    static int header_done;
+    static int have_prev;
+    static SautiAacSbrComplex prev[32u*64u];
+    if(!path)return 1;
+    if(!history || !hf || !history->ready)return 0;
+    if(!out){
+        out=fopen(path,"wb");
+        if(!out){
+            perror(path);
+            return 0;
+        }
+    }
+    if(!header_done){
+        if(fprintf(out,"frame,envelope,delta,k,group,boost,sm,g\n")<0)
+            return 0;
+        header_done=1;
+    }
+    const SautiAacSbrPayloadFrame *payload=&history->current;
+    const SautiAacSbrTables *tab=&payload->tables;
+    const unsigned kx=tab->kx;
+    const unsigned k2=kx+tab->m;
+    if(payload->grid.env_count<1u ||
+       payload->grid.env_count>SAUTI_AAC_SBR_MAX_ENV ||
+       payload->gain_mode>3u ||
+       kx<1u || k2<=kx || k2>64u ||
+       tab->n_noise>SAUTI_AAC_SBR_MAX_NOISE_BANDS ||
+       tab->n_high>SAUTI_AAC_SBR_MAX_MASTER_BANDS)
+        return 0;
+    SautiAacSbrLimiterBands bands;
+    if(!sauti_aac_sbr_limiter_bands_build(
+           tab,&payload->patches,payload->limiter_mode,&bands) ||
+       bands.count<1u || bands.count>64u)
+        return 0;
+    for(unsigned env=0u;env<payload->grid.env_count;env++){
+        const unsigned start=payload->env_edges[env];
+        const unsigned end=payload->env_edges[env+1u];
+        if(end<=start || end>38u || start>32u ||
+           env>=payload->grid.env_count ||
+           payload->energy.freq_res[env]>1u ||
+           payload->attack[env]>1u)
+            return 0;
+        if((int)start-6<0 && !have_prev)continue;
+        double window[64];
+        if(!sauti_aac_sbr_temporal_power_hfgen_window(
+               hf,32u*64u,
+               have_prev?prev:NULL,have_prev?32u*64u:0u,
+               start,end,kx,k2,window))
+            return 0;
+        const unsigned fine=payload->energy.freq_res[env];
+        const uint8_t *freq=fine?tab->high:tab->low;
+        const unsigned nband=fine?tab->n_high:tab->n_low;
+        double energy[64]={0},noise[64]={0},ec[64]={0};
+        uint8_t center[64]={0},mapped[64]={0};
+        for(unsigned b=0u;b<nband;b++){
+            if(freq[b]>=freq[b+1u] || freq[b+1u]>64u)return 0;
+            const double value=payload->energy.env_energy[env][b];
+            if(!isfinite(value) || value<0.0)return 0;
+            const double scaled=ldexp(value,30);
+            if(!isfinite(scaled))return 0;
+            for(unsigned k=freq[b];k<freq[b+1u];k++)energy[k]=scaled;
+        }
+        unsigned noise_index=payload->grid.noise_count;
+        for(unsigned j=0u;j<payload->grid.noise_count;j++)
+            if(start>=payload->noise_edges[j] &&
+               end<=payload->noise_edges[j+1u]){
+                noise_index=j;break;
+            }
+        if(noise_index>=payload->grid.noise_count)return 0;
+        for(unsigned b=0u;b<tab->n_noise;b++){
+            if(tab->noise[b]>=tab->noise[b+1u] ||
+               tab->noise[b+1u]>64u)return 0;
+            const double value=payload->energy.noise_factor[noise_index][b];
+            if(!isfinite(value) || value<0.0)return 0;
+            for(unsigned k=tab->noise[b];k<tab->noise[b+1u];k++)
+                noise[k]=value;
+        }
+        for(unsigned b=0u;b<tab->n_high;b++){
+            if(payload->harmonic[b]>1u ||
+               tab->high[b]>=tab->high[b+1u])return 0;
+            if(!payload->harmonic[b])continue;
+            const unsigned mid=(tab->high[b]+tab->high[b+1u])/2u;
+            if(mid>=64u)return 0;
+            center[mid]=1u;
+        }
+        for(unsigned b=0u;b<nband;b++){
+            unsigned present=0u;
+            for(unsigned k=freq[b];k<freq[b+1u];k++)
+                if(center[k])present=1u;
+            if(!present)continue;
+            for(unsigned k=freq[b];k<freq[b+1u];k++)mapped[k]=1u;
+        }
+        for(unsigned k=kx;k<k2;k++){
+            ec[k]=ldexp(window[k],30);
+            if(!isfinite(ec[k]) || ec[k]<0.0)return 0;
+        }
+        /* attack[0] stays clear when no onset was signaled, so a
+         * one-envelope frame keeps delta=1. A real pointer sets
+         * attack on that envelope only. */
+        const unsigned delta=payload->attack[env]?0u:1u;
+        SautiAacSbrGainLimitedFrame limited;
+        if(!sauti_aac_sbr_gain_limit_partition_flags(
+               energy,ec,noise,center,mapped,bands.edges,
+               bands.count,payload->gain_mode,delta,&limited))
+            return 0;
+        for(unsigned k=kx;k<k2;k++){
+            int group=-1;
+            for(unsigned g=0u;g<bands.count;g++)
+                if(k>=bands.edges[g] && k<bands.edges[g+1u]){
+                    group=(int)g;break;
+                }
+            if(group<0)return 0;
+            const double boost=limited.group_boost[group];
+            const double sm=limited.band[k].sine_amplitude;
+            const double g=limited.band[k].hf_gain;
+            if(!isfinite(boost) || boost<0.0 ||
+               !isfinite(sm) || sm<0.0 ||
+               !isfinite(g) || g<0.0)return 0;
+            if(fprintf(out,"%llu,%u,%u,%u,%d,%.9g,%.9g,%.9g\n",
+                       (unsigned long long)frame,env,delta,k,group,
+                       boost,sm,g)<0)
+                return 0;
+        }
+    }
+    memcpy(prev,hf,sizeof(prev));
+    have_prev=1;
+    return fflush(out)==0;
+}
+
 /* Limiter group containing absolute QMF band k, or -1 when k is outside. */
 static int sbr73_limiter_group(const SautiAacSbrLimiterBands *bands,
                                unsigned k){
@@ -1378,6 +1573,14 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         qmf_prepared_frames++;
         if(!sbr73_trace_x(i,baseline_hf)){
             printf("  ramka %zu: SBR-73 pre-gain X trace odrzucony\n",i);
+            break;
+        }
+        if(!sbr73_trace_hfgen_power(i,&temporal_history,baseline_hf)){
+            printf("  ramka %zu: SBR-73 okno energii HF odrzucone\n",i);
+            break;
+        }
+        if(!sbr73_trace_limit(i,&temporal_history,baseline_hf)){
+            printf("  ramka %zu: SBR-73 limiter okna HF odrzucony\n",i);
             break;
         }
 

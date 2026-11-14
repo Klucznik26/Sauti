@@ -38,4 +38,18 @@ int sauti_aac_sbr_gain_partition(
     unsigned delta,
     SautiAacSbrGainPartition *out);
 
+/* Same equations, with FFmpeg's two sinusoid maps kept apart.
+ * sine_index adds S_M on the band midpoint only. sine_mapped
+ * selects the tonal HF-gain equation for every bin of that
+ * envelope band. Passing the same flag twice is the function
+ * above. On failure, *out is unchanged. */
+int sauti_aac_sbr_gain_partition_flags(
+    double envelope_energy,
+    double current_hf_power,
+    double noise_factor,
+    unsigned sine_index,
+    unsigned sine_mapped,
+    unsigned delta,
+    SautiAacSbrGainPartition *out);
+
 #endif

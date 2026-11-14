@@ -120,9 +120,51 @@ static void boundary_test(unsigned tail){
     assert(memcmp(&report,&saved_report,sizeof(report))==0);
     printf("SBR-53c: %u-slot tail counted in full HF envelope mean, atomic state PASS\n",tail);
 }
+static void put_real(SautiAacSbrComplex *hf,unsigned slot,unsigned k,float re){
+    hf[(size_t)slot*64u+k].re=re;
+    hf[(size_t)slot*64u+k].im=0.0f;
+}
+static void hfgen_window_test(void){
+    SautiAacSbrComplex current[32u*64u],previous[32u*64u];
+    double mean[64];
+    const unsigned k=18u;
+    memset(current,0,sizeof(current));
+    memset(previous,0,sizeof(previous));
+    for(unsigned t=0u;t<32u;t++)put_real(current,t,k,1.0f);
+    for(unsigned t=26u;t<32u;t++)put_real(previous,t,k,2.0f);
+    memset(mean,0,sizeof(mean));
+    assert(sauti_aac_sbr_temporal_power_hfgen_window(
+        current,32u*64u,previous,32u*64u,0u,32u,k,k+1u,mean));
+    /* Six previous samples at |2|^2 and twenty-six current at |1|^2. */
+    assert(fabs(mean[k]-(6.0*4.0+26.0)/32.0)<1e-12);
+    assert(mean[k+1u]==0.0);
+
+    for(unsigned t=0u;t<32u;t++)
+        put_real(current,t,k,(t>=10u && t<26u)?3.0f:9.0f);
+    assert(sauti_aac_sbr_temporal_power_hfgen_window(
+        current,32u*64u,NULL,0u,16u,32u,k,k+1u,mean));
+    assert(fabs(mean[k]-9.0)<1e-12);
+
+    for(unsigned t=0u;t<32u;t++)
+        put_real(current,t,k,t>=22u?4.0f:1.0f);
+    assert(sauti_aac_sbr_temporal_power_hfgen_window(
+        current,32u*64u,NULL,0u,28u,38u,k,k+1u,mean));
+    assert(fabs(mean[k]-16.0)<1e-12);
+
+    mean[k]=42.0;
+    assert(!sauti_aac_sbr_temporal_power_hfgen_window(
+        current,32u*64u,NULL,0u,0u,32u,k,k+1u,mean));
+    assert(mean[k]==42.0);
+    put_real(current,10u,k,NAN);
+    assert(!sauti_aac_sbr_temporal_power_hfgen_window(
+        current,32u*64u,NULL,0u,16u,32u,k,k+1u,mean));
+    assert(mean[k]==42.0);
+    puts("SBR-73: 6-slot HF generator energy window PASS");
+}
 int main(void){
     boundary_test(2u);
     boundary_test(6u);
+    hfgen_window_test();
     puts("PASS SBR-53c envelope power continuity (no HE-AAC PCM)");
     return 0;
 }
