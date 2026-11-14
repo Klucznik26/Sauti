@@ -5,11 +5,45 @@
 #include "sauti_aac_sbr_qmf_synth_window.h"
 #include <assert.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
 #if defined(__x86_64__) && !defined(_WIN32) && \
     (defined(__GNUC__) || defined(__clang__))
+/* Legacy SSE MULPS with a memory source faults on 16-byte-misaligned
+ * addresses. Always run this check, even on machines without AVX2. */
+static void test_sse2_unaligned(void) {
+    _Alignas(16) float coeff_storage[641];
+    _Alignas(16) float history[10][68];
+    _Alignas(16) float result_storage[68];
+    const float *ptrs[10];
+    float *out=result_storage+1;
+    for(unsigned ix=0;ix<640;ix++)
+        assert(sauti_aac_sbr_qmf_synth_window_coefficient(ix,&coeff_storage[ix+1]));
+    for(unsigned j=0;j<10;j++) {
+        ptrs[j]=history[j]+1;
+        for(unsigned n=0;n<64;n++)
+            history[j][n+1]=(float)((int)((j*7u+n*9u)%43u)-21)*0.125f;
+    }
+    /* Each pointer is float-aligned but NOT 16-byte-aligned. */
+    assert(((uintptr_t)(coeff_storage+1)&15u)!=0);
+    assert(((uintptr_t)ptrs[0]&15u)!=0);
+    assert(((uintptr_t)out&15u)!=0);
+    out[-1]=7171.0f;
+    out[64]=8181.0f;
+    sauti_aac_sbr_qmf_synth_window_slot_asm(out,coeff_storage+1,ptrs);
+    assert(out[-1]==7171.0f && out[64]==8181.0f);
+    for(unsigned n=0;n<64;n++) {
+        double ref=0.0;
+        for(unsigned j=0;j<10;j++)
+            ref+=(double)coeff_storage[j*64u+n+1]*(double)ptrs[j][n];
+        assert(isfinite(out[n]));
+        assert(fabs((double)out[n]-ref)<=3e-6*fmax(1.0,fabs(ref)));
+    }
+    puts("PASS QMF SSE2 with intentionally unaligned coefficients/history/output");
+}
+
 static void test_modulation(void) {
     SautiAacSbrComplex bands[64];
     float baseline[130], optimized[130];
@@ -85,6 +119,7 @@ static void test_polyphase(void) {
 int main(void) {
 #if defined(__x86_64__) && !defined(_WIN32) && \
     (defined(__GNUC__) || defined(__clang__))
+    test_sse2_unaligned();
     if (!__builtin_cpu_supports("avx2")) {
         puts("SKIP QMF AVX2: processor/OS does not support AVX2");
         return 0;
