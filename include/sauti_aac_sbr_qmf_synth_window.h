@@ -65,7 +65,7 @@ int sauti_aac_sbr_qmf_synth_window_64(
 
 /* Internal System V x86-64 NASM kernels; AVX2 requires runtime CPUID/OSXSAVE
  * dispatch. Windows x64 uses the portable C implementation (different ABI). */
-#if defined(__x86_64__) && !defined(_WIN32)
+#if defined(__x86_64__) && defined(__ELF__) && !defined(_WIN32)
 void sauti_aac_sbr_qmf_synth_window_slot_asm(
     float *output64,
     const float *qmf_coeff640,
