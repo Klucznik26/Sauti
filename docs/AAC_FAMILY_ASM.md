@@ -6969,3 +6969,11 @@ The sum used to replace a bin only when a tone had been added. Every other bin s
 - k40, k41, k43 and k44 stay near relative `0.71`. Their gain matches to about `1e-3`. The added component does not. Those four bands are `2.0e-6` of the steady HF energy.
 
 The experimental sine PCM uses this sum. The SBR-54a preview PCM is still the old mix. SBR-53d, the unscaled oscillator, phase+2, the units path, AAC-LC, the public QMF path, and `hf_sine_mix` are unchanged. `SAUTI_SBR73_SAUTI_GRID` writes the three planes. The disposable FFmpeg writes the reference when `SAUTI_SBR73_FFMPEG_Y` is set. The probe still exits 1 after the complete 50-frame dump.
+
+### SBR-73 — pre-PS PCM already matches the unscaled preview (2026-11-14)
+
+The disposable FFmpeg skips parametric stereo only when `SAUTI_SBR73_FFMPEG_SKIP_PS` is set, and the existing SBR-57 synthesis trace then writes the mono time signal. On `he_test.aac` that is 51 frames. The probe's 50-frame SBR-54a preview, with no scaled tone, matches it at lag `-2432` samples. That lag is one frame plus 384 samples, the same six QMF slots as before. The best scale is `0.99999957`. The whole overlap is relative `4.30e-4`. After the first two 2048-sample blocks the steady residual is `1.35e-4`.
+
+The same lag makes the domain-scaled sine PCM relative `0.221` at scale `0.951`. The unscaled phase+2 PCM stays at `4.40e-4` and scale `1`. The `1024/sqrt(2)` factor matches FFmpeg's internal `Y`. It is not the scale of this synthesizer. Feeding it into the sine PCM makes the waveform worse.
+
+Of the steady residual, bin 296 (6937.5 Hz) holds 26% and bin 680 (15937.5 Hz) holds 17%. Each of those signal bins is off by about `0.05` and `0.08`, and each is about `1e-5` of the waveform energy. No analysis, modulator, gain, or oscillator constant was changed. AAC-LC and the public QMF path were not edited. The public player is still the FFmpeg adapter, and this comparison is mono SBR before PS.
