@@ -43,28 +43,36 @@ static void test_modulation(void) {
 }
 
 static void test_polyphase(void) {
-    float coeff[640], history[10][64], sse[66], avx[66];
+    /* Prefix offsets exercise unaligned (but float-aligned) buffers and
+     * guard samples. The assembly must use VMOVUPS, never VMOVAPS here. */
+    float coeff_storage[641], history[10][65];
+    float sse_storage[67], avx_storage[67], unrolled_storage[67];
+    float *sse=sse_storage+1, *avx=avx_storage+1;
+    float *unrolled=unrolled_storage+1;
     const float *ptrs[10];
     for (unsigned ix=0;ix<640;ix++)
-        assert(sauti_aac_sbr_qmf_synth_window_coefficient(ix,&coeff[ix]));
-    for (unsigned j=0;j<10;j++) ptrs[j]=history[j];
-    for (unsigned iteration=0;iteration<48;iteration++) {
+        assert(sauti_aac_sbr_qmf_synth_window_coefficient(ix,&coeff_storage[ix+1]));
+    for (unsigned j=0;j<10;j++) ptrs[j]=history[j]+1;
+    for (unsigned iteration=0;iteration<256;iteration++) {
         for (unsigned j=0;j<10;j++)
             for (unsigned n=0;n<64;n++) {
                 int q=(int)((iteration*23U+j*17U+n*5U)%83U)-41;
-                history[j][n]=(float)q*0.0625f;
+                history[j][n+1]=(float)q*0.0625f;
             }
-        sse[64]=avx[64]=12345.0f;
-        sse[65]=avx[65]=-23456.0f;
-        sauti_aac_sbr_qmf_synth_window_slot_asm(sse,coeff,ptrs);
-        sauti_aac_sbr_qmf_synth_window_slot_avx2(avx,coeff,ptrs);
-        /* Each lane sees the same ten multiplications in the same order,
-         * without FMA, so bit identity is expected here. */
+        sse[-1]=avx[-1]=unrolled[-1]=6789.0f;
+        sse[64]=avx[64]=unrolled[64]=12345.0f;
+        sse[65]=avx[65]=unrolled[65]=-23456.0f;
+        sauti_aac_sbr_qmf_synth_window_slot_asm(sse,coeff_storage+1,ptrs);
+        sauti_aac_sbr_qmf_synth_window_slot_avx2(avx,coeff_storage+1,ptrs);
+        sauti_aac_sbr_qmf_synth_window_slot_avx2_unrolled(unrolled,coeff_storage+1,ptrs);
+        /* Identical floating-point operation order; no FMA in any path. */
         assert(memcmp(sse,avx,64*sizeof(float))==0);
-        assert(sse[64]==12345.0f && sse[65]==-23456.0f);
-        assert(avx[64]==12345.0f && avx[65]==-23456.0f);
+        assert(memcmp(sse,unrolled,64*sizeof(float))==0);
+        assert(sse[-1]==6789.0f && sse[64]==12345.0f && sse[65]==-23456.0f);
+        assert(avx[-1]==6789.0f && avx[64]==12345.0f && avx[65]==-23456.0f);
+        assert(unrolled[-1]==6789.0f && unrolled[64]==12345.0f && unrolled[65]==-23456.0f);
     }
-    puts("PASS QMF AVX2 polyphase vs SSE2 (48 sets, bit-identical)");
+    puts("PASS QMF AVX2 loop and unrolled polyphase vs SSE2 (256 unaligned sets, bit-identical)");
 }
 #endif
 
