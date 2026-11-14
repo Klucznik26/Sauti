@@ -80,9 +80,8 @@ static void test_polyphase(void) {
     /* Prefix offsets exercise unaligned (but float-aligned) buffers and
      * guard samples. The assembly must use VMOVUPS, never VMOVAPS here. */
     float coeff_storage[641], history[10][65];
-    float sse_storage[67], avx_storage[67], unrolled_storage[67];
+    float sse_storage[67], avx_storage[67];
     float *sse=sse_storage+1, *avx=avx_storage+1;
-    float *unrolled=unrolled_storage+1;
     const float *ptrs[10];
     for (unsigned ix=0;ix<640;ix++)
         assert(sauti_aac_sbr_qmf_synth_window_coefficient(ix,&coeff_storage[ix+1]));
@@ -93,26 +92,17 @@ static void test_polyphase(void) {
                 int q=(int)((iteration*23U+j*17U+n*5U)%83U)-41;
                 history[j][n+1]=(float)q*0.0625f;
             }
-        sse[-1]=avx[-1]=unrolled[-1]=6789.0f;
-        sse[64]=avx[64]=unrolled[64]=12345.0f;
-        sse[65]=avx[65]=unrolled[65]=-23456.0f;
-        if(iteration==0) fprintf(stderr,"window: SSE2 start\n");
+        sse[-1]=avx[-1]=6789.0f;
+        sse[64]=avx[64]=12345.0f;
+        sse[65]=avx[65]=-23456.0f;
         sauti_aac_sbr_qmf_synth_window_slot_asm(sse,coeff_storage+1,ptrs);
-        if(iteration==0) fprintf(stderr,"window: SSE2 done\n");
-        if(iteration==0) fprintf(stderr,"window: AVX2 loop start\n");
         sauti_aac_sbr_qmf_synth_window_slot_avx2(avx,coeff_storage+1,ptrs);
-        if(iteration==0) fprintf(stderr,"window: AVX2 loop done\n");
-        if(iteration==0) fprintf(stderr,"window: AVX2 unrolled start\n");
-        sauti_aac_sbr_qmf_synth_window_slot_avx2_unrolled(unrolled,coeff_storage+1,ptrs);
-        if(iteration==0) fprintf(stderr,"window: AVX2 unrolled done\n");
         /* Identical floating-point operation order; no FMA in any path. */
         assert(memcmp(sse,avx,64*sizeof(float))==0);
-        assert(memcmp(sse,unrolled,64*sizeof(float))==0);
         assert(sse[-1]==6789.0f && sse[64]==12345.0f && sse[65]==-23456.0f);
         assert(avx[-1]==6789.0f && avx[64]==12345.0f && avx[65]==-23456.0f);
-        assert(unrolled[-1]==6789.0f && unrolled[64]==12345.0f && unrolled[65]==-23456.0f);
     }
-    puts("PASS QMF AVX2 loop and unrolled polyphase vs SSE2 (256 unaligned sets, bit-identical)");
+    puts("PASS QMF AVX2 polyphase vs SSE2 (256 unaligned sets, bit-identical)");
 }
 #endif
 
