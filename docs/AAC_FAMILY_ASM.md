@@ -6846,3 +6846,39 @@ The patch map is stable. First patch: k18..k32 copy low bands 2..16. Second patc
 So the ~2% k42 boost error is the 32-band analysis disagreeing on those quiet source bands, then being copied verbatim into the second patch and summed by the limiter. The boost formula, the sine clock, and the HF generator are not the remaining bug. Sauti’s experimental analysis accumulates the even prototype taps and the direct cosine/sine modulator in double, then stores float. FFmpeg’s float analysis is the windowed DCT path; this machine’s build uses the SSE QMF shuffles. That difference is the next surface to measure. It is not a measured fix yet.
 
 **No production change.** The tone was not scaled. `32768` was not written into the tone. The `2^-30` normalizer, `harmonic_preview`, AAC-LC, and the public QMF path were not edited. phase0 stays.
+
+### SBR-73 — the quiet-bin gap is a 6-slot energy window (2026-11-14)
+
+The sentence above is superseded. The 32-band analysis matches. The slot `t+2` alignment that made k18 look exact is a 6-slot shift, and band 2 hides it.
+
+Core PCM first, so the scale is not in the samples. `ffmpeg-core.f32le` (51 calls) against `sauti-core.f32le` (50 frames), steady frames 4–47, call = frame+1, lag 0: relative residual `3.2e-7`, max abs `7.5e-8`, scale `1.000`. Offsets 0 and +2 are residual ~1.73. Multiplying the core by 32768 is the wrong model. The 32768 on the QMF bins is FFmpeg’s analysis MDCT scale (`mdct_ana` is an inverse float MDCT of length 64, scale `-2*32768`).
+
+`sbr_lf_gen` uses `t_HFGen = 8`. `X_low[i] = current W[i-8]` for `i` in `[8, 40)`, and `X_low[i] = previous W[i+24]` for `i` in `[0, 8)`. With `bw = 0`, `hf_gen` copies that into `X_high` only on absolute slots `[2, 34)` (`ENVELOPE_ADJUSTMENT_OFFSET` plus a full 32-slot envelope). A full-frame `e_curr` therefore averages previous `W[26:32]` and current `W[0:26]`. Slots `X[34:40]` are outside that copy. A flat “slot + 8” over all 32 Sauti slots pairs those stale samples with current `W[26:32]` and cannot match.
+
+Pointwise, steady frames 4–47, expecting `X = Sauti * 32768`:
+
+| Mapping | k18 | k35 (low 7) | k42 (low 14) |
+| --- | --- | --- | --- |
+| `X[8:34]` = current `W[0:26]` | `3.6e-7` | `3.9e-4` | `1.6e-3` |
+| `X[2:8]` = previous `W[26:32]` | `3.6e-7` | `3.9e-4` | `1.8e-3` |
+| `e_curr` window, both pieces | `3.6e-7` | `3.9e-4` | `1.6e-3` |
+| old flat slot + 2 | `6.8e-4` | 0.237 | 0.091 |
+| old flat slot + 8 | 0.532 | 0.458 | 0.551 |
+
+The check sample holds: frame 10, low band 7, Sauti slot 0 × 32768 against `X` call 11 slot 8, relative `2.2e-4`; previous slot 26 against `X` slot 2, relative `1.7e-4`. Replaying Sauti’s analyzer from `sauti-core.f32le` matches the probe’s k18 trace to `9e-9`. Quiet-band absolute error stays under `4e-8`; the larger relative figure is the small amplitude.
+
+Band 2 advances `+120.000°` per slot (`-0.5 + 0.866j`, 1364 steps, magnitude 1). Six slots is `+0.002°`, two full turns, so a 6-slot shift still fits a positive real scale. That is why k18 at slot `t+2` had residual 0.00068 while k35 at the same index had 0.237. The quiet bands do not have that constant step.
+
+Power of the delayed window against traced `X[2:34] / 32768^2` has median ratio 1.00000–1.0005 on k18, k35, k36, k41 and k42. The same trace against Sauti’s own 32 slots stays at 1.000 on k18 (range 0.9997–1.0005) and wanders on the quiet sources (k35 median 1.004, range 0.776–1.172).
+
+Replaying float `sbr_gain_calc` on the k42 group (k33..k44, 12 bands, 44 steady calls) closes the boost:
+
+| `e_curr` source | Worst relative error vs logged boost |
+| --- | --- |
+| logged FFmpeg `e_curr` | `3.9e-9` |
+| delayed window, previous 6 + current 26, times `32768^2` | `8.4e-5` |
+| Sauti’s current 32 slots, times `32768^2` | 0.0194 |
+
+Call 11 (Sauti frame 10) is the loud cycle: logged boost `1.347441`, delayed `1.347328`, current-32 `1.321295`. `sumC` is 434.92, 434.97 and 399.73. The move is low bands 7 and 8 (k35 `120.1 → 102.5`, k36 `130.3 → 109.5`). The previously reported ~2% is this window, not a limiter-formula error and not a bad cosine.
+
+**No production change.** The tone was not scaled. `32768` was not written into the tone, the window, or the modulator. The `2^-30` normalizer, `harmonic_preview`, AAC-LC, and the public QMF path were not edited. phase0 stays. `sauti_aac_sbr_temporal_power_measure` still averages the envelope’s own slots; its tests define that unshifted mean, and a split envelope is not the same 6-slot borrow. The next experimental change is that energy window only: for grid borders `t_env`, average `X[2*t_env+2 : 2*t_env_next+2]`, which is analysis slot `i-6`, borrowing the previous frame when the index goes negative. Do it beside the tested mean, then replay k42 before any tone scale.

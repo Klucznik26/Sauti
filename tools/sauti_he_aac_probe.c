@@ -667,6 +667,27 @@ static int sbr73_trace_parts(uint64_t frame,
     return fflush(out)==0;
 }
 
+/* SBR-73 optional AAC core PCM that the temporal QMF analyzes.
+ * 1024 native floats per successfully decoded frame, ingest order.
+ * Enable with SAUTI_SBR73_SAUTI_CORE=/path.f32le. */
+static int sbr73_trace_core(const float *core){
+    const char *path=getenv("SAUTI_SBR73_SAUTI_CORE");
+    static FILE *out;
+    if(!path)return 1;
+    if(!core)return 0;
+    for(unsigned i=0u;i<1024u;i++)
+        if(!isfinite(core[i]))return 0;
+    if(!out){
+        out=fopen(path,"wb");
+        if(!out){
+            perror(path);
+            return 0;
+        }
+    }
+    if(fwrite(core,sizeof(float),1024u,out)!=1024u)return 0;
+    return fflush(out)==0;
+}
+
 /* SBR-73 optional pre-gain HF at the bins that dominate the open limiter
  * groups. frame is the ingest index, which source=1 gains apply to.
  * Enable with SAUTI_SBR73_SAUTI_X=/path.csv. */
@@ -1237,6 +1258,10 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             sum+=v*v;
             if(fabs(v)>max_value)max_value=fabs(v);
             if(v!=0.0)nonzero++;
+        }
+        if(!sbr73_trace_core(core)){
+            printf("  ramka %zu: SBR-73 core PCM trace odrzucony\n",i);
+            break;
         }
         SautiAacSbrTemporalPlan plan;
         if(!sauti_aac_sbr_temporal_plan(&payload,&plan)){
