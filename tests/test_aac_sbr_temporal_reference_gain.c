@@ -26,8 +26,10 @@ static void make_frame(SautiAacSbrPayloadFrame *f,double energy){
     f->limiter_mode=0u;f->gain_mode=3u;
     f->transient_env=1u; /* no transient in this one-env frame */
     f->harmonic[0]=1u;
+    /* build_one lifts envelope energy by 2^30. Store the normalized
+     * value the probe passes after SBR-60, not the raw quantizer. */
     for(unsigned b=0;b<f->tables.n_high;b++)
-        f->energy.env_energy[0][b]=energy;
+        f->energy.env_energy[0][b]=ldexp(energy,-30);
     for(unsigned b=0;b<f->tables.n_noise;b++)
         f->energy.noise_factor[0][b]=0.25;
 }

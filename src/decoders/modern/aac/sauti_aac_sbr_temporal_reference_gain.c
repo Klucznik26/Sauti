@@ -2,8 +2,11 @@
  * verified 54j/54k gain/noise/sine limiter on REAL HF power.
  *
  * NO audible PCM is modified, including for FIXVAR carry-over.
- * Tonal flags and transient_env are diagnostic indications only;
- * proper active_sine history and cross-frame e_a remain pending. */
+ * Envelope energy and mean power arrive already divided by 2^30.
+ * This call lifts only those two arrays back to the raw domain
+ * the limiter's additive 1 expects. Q is not scaled. The high-band
+ * midpoint and the envelope-band spread are separate sine maps.
+ * Cross-frame e_a remains pending. SBR-53d is not retargeted. */
 #include "sauti_aac_sbr_temporal_reference_gain.h"
 #include <math.h>
 #include <string.h>
@@ -45,7 +48,7 @@ static int build_one(
         }
     if(noise_idx>=f->grid.noise_count)return 0;
     double e[64]={0},q[64]={0},curr[64]={0};
-    uint8_t active_sine[64]={0};
+    uint8_t active_sine[64]={0},sine_mapped[64]={0};
     const unsigned fine=f->energy.freq_res[env];
     const uint8_t *freq=fine?tab->high:tab->low;
     const unsigned n=fine?tab->n_high:tab->n_low;
@@ -76,6 +79,16 @@ static int build_one(
             active_sine[center]=1u;
         }
     }
+    /* Spread each midpoint across its envelope-resolution band.
+     * That is FFmpeg s_mapped. The midpoint itself stays s_index. */
+    for(unsigned b=0;b<n;b++){
+        unsigned present=0u;
+        for(unsigned k=freq[b];k<freq[b+1u];k++)
+            if(active_sine[k])present=1u;
+        if(!present)continue;
+        for(unsigned k=freq[b];k<freq[b+1u];k++)
+            sine_mapped[k]=1u;
+    }
     for(unsigned k=kx;k<k2;k++){
         const double v=power->mean_power[k];
         if(!isfinite(v) || v<0.0 ||
@@ -84,11 +97,20 @@ static int build_one(
         curr[k]=v;
     }
     /* delta=0 marks the locally signaled transient envelope.
-     * FFmpeg's cross-frame e_a history is not yet represented. */
+     * FFmpeg's cross-frame e_a history is not yet represented.
+     * Square sums below stay on the unscaled mean power. */
+    double raw_e[64]={0},raw_c[64]={0};
+    for(unsigned k=kx;k<k2;k++){
+        raw_e[k]=ldexp(e[k],30);
+        raw_c[k]=ldexp(curr[k],30);
+        if(!isfinite(raw_e[k]) || raw_e[k]<0.0 ||
+           !isfinite(raw_c[k]) || raw_c[k]<0.0)return 0;
+    }
     const unsigned delta=env==f->transient_env?0u:1u;
     SautiAacSbrGainLimitedFrame limited;
-    if(!sauti_aac_sbr_gain_limit_partition(
-           e,curr,q,active_sine,bands.edges,bands.count,
+    if(!sauti_aac_sbr_gain_limit_partition_flags(
+           raw_e,raw_c,q,active_sine,sine_mapped,
+           bands.edges,bands.count,
            f->gain_mode,delta,&limited))return 0;
     SautiAacSbrTemporalReferenceGainEnvelope value={0};
     value.source=(uint8_t)source;

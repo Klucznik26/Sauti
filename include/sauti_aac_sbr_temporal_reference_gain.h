@@ -11,9 +11,12 @@
  * For FIXVAR, source=0 belongs to history.previous; source=1
  * belongs to history.current. No output for pending envelopes.
  * The currently parsed harmonic center flags and transient_env
- * are used as diagnostic control inputs. FFmpeg's delayed e_a,
- * active sine gating and synthesis time shift are not yet used:
- * this is a reference-MATH comparison, NOT conformant HE-AAC.
+ * are used as diagnostic control inputs. Envelope energy and the
+ * mean-power current are lifted by 2^30 at the limiter call.
+ * Noise is not. The sine midpoint and the envelope-band map are
+ * passed separately. FFmpeg's delayed e_a, active sine gating and
+ * synthesis time shift are not yet used: this is a reference-MATH
+ * comparison, NOT conformant HE-AAC.
  *
  * Legacy SBR-53d, 54a, and decoder states are unmodified.
  * If any envelope fails validation, *out remains bitwise unchanged.
