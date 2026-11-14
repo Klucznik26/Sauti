@@ -25,24 +25,26 @@ static void test_pure_policy(void) {
 static void test_live_dispatch(void) {
 #if SAUTI_AAC_QMF_NATIVE_ASM
     const int has_avx2=__builtin_cpu_supports("avx2")!=0;
-    const unsigned type=sauti_aac_qmf_current_core_type();
+    const unsigned type_before=sauti_aac_qmf_current_core_type();
     const int selected=sauti_aac_qmf_use_avx2();
+    const unsigned type_after=sauti_aac_qmf_current_core_type();
     assert(!selected || has_avx2);
 #if defined(SAUTI_QMF_FORCE_SSE2)
     assert(!selected);
 #elif defined(SAUTI_QMF_FORCE_AVX2)
     assert(selected==has_avx2);
 #else
-    assert(selected==sauti_aac_qmf_avx2_policy(has_avx2,type!=0u,type));
+    /* On hybrid CPUs Linux can migrate the thread between CPUID calls.
+     * Only assert when both observations agree. Use taskset for an
+     * intentionally pinned, deterministic hardware check. */
+    if(type_before==type_after)
+        assert(selected==sauti_aac_qmf_avx2_policy(
+            has_avx2,type_before!=0u,type_before));
 #endif
-    if(type==SAUTI_AAC_QMF_INTEL_E_CORE)
-#if defined(SAUTI_QMF_FORCE_AVX2)
-        assert(selected==has_avx2);
-#else
-        assert(!selected);
-#endif
+    /* Migration makes an unpinned E-core sample non-authoritative.
+     * The test's synthetic policy checks E/SSE2 deterministically. */
     printf("PASS QMF actual dispatch: AVX2=%d core_type=0x%02x path=%s\n",
-           has_avx2,type,selected?"AVX2":"SSE2");
+           has_avx2,type_after,selected?"AVX2":"SSE2");
 #else
     puts("PASS QMF non-native: C11 fallback");
 #endif
