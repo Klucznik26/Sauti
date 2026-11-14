@@ -92,5 +92,49 @@ int main(void){
     assert(memcmp(&old,&st,sizeof(st))==0 &&
            memcmp(saved,out,sizeof(saved))==0);
     puts("PASS SBR-54h delayed temporal harmonic/noise-gate (no normative HE-AAC)");
+
+    /* The unscaled oscillator above stays at sqrt(E/(1+Q)). This
+     * sibling only multiplies an already-added tone by the caller
+     * boost times 1024/sqrt(2). */
+    {
+        SautiAacSbrComplex gain[N],raw[N],sine[N],scaled[N];
+        double tone_boost[N];
+        uint8_t apply[N];
+        memset(gain,0,sizeof(gain));
+        memset(raw,0,sizeof(raw));
+        memset(sine,0,sizeof(sine));
+        memset(tone_boost,0,sizeof(tone_boost));
+        memset(apply,0,sizeof(apply));
+        const unsigned tonal=17u,held=18u,untouched=19u;
+        gain[tonal]=(SautiAacSbrComplex){1.f,2.f};
+        raw[tonal]=(SautiAacSbrComplex){1.5f,2.25f};
+        sine[tonal]=(SautiAacSbrComplex){1.5f,2.75f};
+        tone_boost[tonal]=1.25;
+        apply[tonal]=1u;
+        gain[held]=raw[held]=sine[held]=(SautiAacSbrComplex){3.f,-4.f};
+        tone_boost[held]=9.0;
+        apply[held]=1u;
+        gain[untouched]=(SautiAacSbrComplex){5.f,6.f};
+        raw[untouched]=(SautiAacSbrComplex){5.f,6.f};
+        sine[untouched]=(SautiAacSbrComplex){7.f,8.f};
+        tone_boost[untouched]=4.0;
+        scaled[0]=(SautiAacSbrComplex){42.f,-42.f};
+        assert(sauti_aac_sbr_temporal_harmonic_scale(
+            gain,N,raw,N,sine,N,tone_boost,apply,scaled,N));
+        const double factor=1.25*(1024.0/sqrt(2.0));
+        close_to(scaled[tonal].re,1.0+(1.5-1.0)*factor);
+        close_to(scaled[tonal].im,2.0+(2.75-2.0)*factor);
+        close_to(scaled[held].re,3.0);
+        close_to(scaled[held].im,-4.0);
+        close_to(scaled[untouched].re,7.0);
+        close_to(scaled[untouched].im,8.0);
+        tone_boost[tonal]=NAN;
+        scaled[0]=(SautiAacSbrComplex){42.f,-42.f};
+        assert(!sauti_aac_sbr_temporal_harmonic_scale(
+            gain,N,raw,N,sine,N,tone_boost,apply,scaled,N));
+        close_to(scaled[0].re,42.0);
+        close_to(scaled[0].im,-42.0);
+        puts("SBR-73: per-band tone scale leaves the unscaled oscillator PASS");
+    }
     return 0;
 }

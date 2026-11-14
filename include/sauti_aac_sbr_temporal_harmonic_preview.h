@@ -63,4 +63,19 @@ int sauti_aac_sbr_temporal_harmonic_preview_phase2(
     SautiAacSbrTemporalHarmonicPreviewState *state,
     SautiAacSbrTemporalHarmonicPreviewReport *report);
 
+/* Put an already-built unscaled tone into the gain-adjusted QMF
+ * domain. boost[i] is the limiter boost for that slot and band.
+ * apply[i] is 1 only where that boost is known. A bin whose sine
+ * sample is still the raw mix had no tone added, so it is copied.
+ * Elsewhere output = gain + (sine-gain) * boost * 1024/sqrt(2).
+ * The unscaled preview above is not modified. On failure *output
+ * is unchanged. */
+int sauti_aac_sbr_temporal_harmonic_scale(
+    const SautiAacSbrComplex *gain,size_t gain_count,
+    const SautiAacSbrComplex *raw,size_t raw_count,
+    const SautiAacSbrComplex *sine,size_t sine_count,
+    const double boost[32u*64u],
+    const uint8_t apply[32u*64u],
+    SautiAacSbrComplex *output,size_t output_count);
+
 #endif

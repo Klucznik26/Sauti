@@ -615,6 +615,116 @@ static int sbr73_trace_qmf(const SautiAacSbrComplex *phase0,
     return fflush(out)==0;
 }
 
+/* SBR-73 optional gain-adjusted QMF after the per-band tone scale.
+ * Enable with SAUTI_SBR73_SAUTI_SCALED=/path.csv. */
+static int sbr73_trace_scaled(uint64_t frame,
+                              const SautiAacSbrComplex *scaled){
+    const char *path=getenv("SAUTI_SBR73_SAUTI_SCALED");
+    static FILE *out;
+    static int header_done;
+    if(!path)return 1;
+    if(!scaled)return 0;
+    if(!out){
+        out=fopen(path,"wb");
+        if(!out){
+            perror(path);
+            return 0;
+        }
+    }
+    if(!header_done){
+        if(fprintf(out,"frame,slot,re18,im18,re42,im42\n")<0)
+            return 0;
+        header_done=1;
+    }
+    for(unsigned t=0u;t<32u;t++){
+        const SautiAacSbrComplex a18=scaled[(size_t)t*64u+18u];
+        const SautiAacSbrComplex a42=scaled[(size_t)t*64u+42u];
+        if(!isfinite(a18.re) || !isfinite(a18.im) ||
+           !isfinite(a42.re) || !isfinite(a42.im))
+            return 0;
+        if(fprintf(out,"%llu,%u,%.9g,%.9g,%.9g,%.9g\n",
+                   (unsigned long long)frame,t,
+                   (double)a18.re,(double)a18.im,
+                   (double)a42.re,(double)a42.im)<0)
+            return 0;
+    }
+    return fflush(out)==0;
+}
+
+/* SBR-73 optional gain-only HF: analysis slot t-6 times the limiter
+ * hf_gain times 1024/sqrt(2). SBR-53d adjusted_hf is not rewritten.
+ * Enable with SAUTI_SBR73_SAUTI_GAINHF=/path.csv. */
+static int sbr73_trace_gainhf(uint64_t frame,
+                              const SautiAacSbrComplex *shifted){
+    const char *path=getenv("SAUTI_SBR73_SAUTI_GAINHF");
+    static FILE *out;
+    static int header_done;
+    if(!path)return 1;
+    if(!shifted)return 0;
+    if(!out){
+        out=fopen(path,"wb");
+        if(!out){
+            perror(path);
+            return 0;
+        }
+    }
+    if(!header_done){
+        if(fprintf(out,"frame,slot,re18,im18,re42,im42\n")<0)
+            return 0;
+        header_done=1;
+    }
+    for(unsigned t=0u;t<32u;t++){
+        const SautiAacSbrComplex a18=shifted[(size_t)t*64u+18u];
+        const SautiAacSbrComplex a42=shifted[(size_t)t*64u+42u];
+        if(!isfinite(a18.re) || !isfinite(a18.im) ||
+           !isfinite(a42.re) || !isfinite(a42.im))
+            return 0;
+        if(fprintf(out,"%llu,%u,%.9g,%.9g,%.9g,%.9g\n",
+                   (unsigned long long)frame,t,
+                   (double)a18.re,(double)a18.im,
+                   (double)a42.re,(double)a42.im)<0)
+            return 0;
+    }
+    return fflush(out)==0;
+}
+
+/* SBR-73 optional sum of the shifted gain HF and the already scaled
+ * tone. Bins whose sine sample is still the raw mix stay on the
+ * scaled buffer. Enable with SAUTI_SBR73_SAUTI_SUM=/path.csv. */
+static int sbr73_trace_sum(uint64_t frame,
+                           const SautiAacSbrComplex *sum){
+    const char *path=getenv("SAUTI_SBR73_SAUTI_SUM");
+    static FILE *out;
+    static int header_done;
+    if(!path)return 1;
+    if(!sum)return 0;
+    if(!out){
+        out=fopen(path,"wb");
+        if(!out){
+            perror(path);
+            return 0;
+        }
+    }
+    if(!header_done){
+        if(fprintf(out,"frame,slot,re18,im18,re42,im42\n")<0)
+            return 0;
+        header_done=1;
+    }
+    for(unsigned t=0u;t<32u;t++){
+        const SautiAacSbrComplex a18=sum[(size_t)t*64u+18u];
+        const SautiAacSbrComplex a42=sum[(size_t)t*64u+42u];
+        if(!isfinite(a18.re) || !isfinite(a18.im) ||
+           !isfinite(a42.re) || !isfinite(a42.im))
+            return 0;
+        if(fprintf(out,"%llu,%u,%.9g,%.9g,%.9g,%.9g\n",
+                   (unsigned long long)frame,t,
+                   (double)a18.re,(double)a18.im,
+                   (double)a42.re,(double)a42.im)<0)
+            return 0;
+    }
+    return fflush(out)==0;
+}
+
 /* SBR-73 optional split of gain-adjusted HF and the unsmoothed noise
  * amplitude at k18/k42. Enable with SAUTI_SBR73_SAUTI_PARTS=/path.csv.
  * Unset leaves every buffer untouched. */
@@ -779,11 +889,178 @@ static int sbr73_trace_hfgen_power(
     return fflush(out)==0;
 }
 
+/* Limiter boosts, post-boost hf_gain, and the pre-gain HF for the
+ * last few ingest frames. The sine is emitted one loop later, and a
+ * source=0 slot still belongs to the frame before that. The shifted
+ * gain reads analysis slot t-6, which also borrows one frame back,
+ * so three saved frames are the minimum. */
+#define SBR73_BOOST_RING 4u
+typedef struct {
+    int valid;
+    uint64_t frame;
+    unsigned envs;
+    uint8_t band_ok[SAUTI_AAC_SBR_MAX_ENV][64];
+    double boost[SAUTI_AAC_SBR_MAX_ENV][64];
+    double hf_gain[SAUTI_AAC_SBR_MAX_ENV][64];
+    SautiAacSbrComplex baseline[32u*64u];
+} Sbr73BoostSaved;
+static Sbr73BoostSaved sbr73_boost_ring[SBR73_BOOST_RING];
+
+static void sbr73_boost_remember(
+    uint64_t frame,unsigned envs,
+    const uint8_t band_ok[SAUTI_AAC_SBR_MAX_ENV][64],
+    const double boost[SAUTI_AAC_SBR_MAX_ENV][64],
+    const double hf_gain[SAUTI_AAC_SBR_MAX_ENV][64],
+    const SautiAacSbrComplex *baseline){
+    memmove(&sbr73_boost_ring[1],&sbr73_boost_ring[0],
+            (SBR73_BOOST_RING-1u)*sizeof(sbr73_boost_ring[0]));
+    Sbr73BoostSaved *saved=&sbr73_boost_ring[0];
+    memset(saved,0,sizeof(*saved));
+    saved->valid=1;
+    saved->frame=frame;
+    saved->envs=envs;
+    memcpy(saved->band_ok,band_ok,sizeof(saved->band_ok));
+    memcpy(saved->boost,boost,sizeof(saved->boost));
+    memcpy(saved->hf_gain,hf_gain,sizeof(saved->hf_gain));
+    memcpy(saved->baseline,baseline,sizeof(saved->baseline));
+}
+
+static const Sbr73BoostSaved *sbr73_boost_find(uint64_t frame){
+    for(unsigned i=0u;i<SBR73_BOOST_RING;i++)
+        if(sbr73_boost_ring[i].valid &&
+           sbr73_boost_ring[i].frame==frame)
+            return &sbr73_boost_ring[i];
+    return NULL;
+}
+
+/* Scale the emitted tone by the boost of the envelope that owns
+ * each slot. A missing window leaves that bin at the unscaled
+ * preview. phase+2 is not scaled. */
+static int sbr73_scale_emitted_tone(
+    uint64_t frame,
+    const SautiAacSbrTemporalHfTargets *targets,
+    const SautiAacSbrComplex *gain,
+    const SautiAacSbrComplex *raw,
+    const SautiAacSbrComplex *sine,
+    SautiAacSbrComplex *scaled){
+    if(!targets || !gain || !raw || !sine || !scaled)return 0;
+    double boost[32u*64u]={0};
+    uint8_t apply[32u*64u]={0};
+    for(unsigned t=0u;t<32u;t++){
+        const SautiAacSbrTemporalHfSlot *slot=&targets->slot[t];
+        if(slot->source>1u || slot->envelope>=SAUTI_AAC_SBR_MAX_ENV ||
+           slot->k2<slot->kx || slot->k2>64u)
+            return 0;
+        uint64_t owner=frame;
+        if(slot->source==0u){
+            if(frame==0u)continue;
+            owner=frame-1u;
+        }
+        const Sbr73BoostSaved *saved=sbr73_boost_find(owner);
+        if(!saved || slot->envelope>=saved->envs)continue;
+        for(unsigned k=slot->kx;k<slot->k2;k++){
+            if(!saved->band_ok[slot->envelope][k])continue;
+            const unsigned ix=t*64u+k;
+            apply[ix]=1u;
+            boost[ix]=saved->boost[slot->envelope][k];
+        }
+    }
+    return sauti_aac_sbr_temporal_harmonic_scale(
+        gain,32u*64u,raw,32u*64u,sine,32u*64u,
+        boost,apply,scaled,32u*64u);
+}
+
+/* Gain-only HF for the emitted frame. Slot t reads the saved
+ * baseline at t-6 (previous frame, slot t+26, when t<6) and the
+ * limiter hf_gain of the envelope that owns the slot. The product
+ * uses 1024/sqrt(2). Bins without a saved window stay on fallback,
+ * which is the unshifted SBR-53d HF. */
+static int sbr73_shift_emitted_gain(
+    uint64_t frame,
+    const SautiAacSbrTemporalHfTargets *targets,
+    const SautiAacSbrComplex *fallback,
+    SautiAacSbrComplex *shifted){
+    if(!targets || !fallback || !shifted)return 0;
+    memcpy(shifted,fallback,32u*64u*sizeof(*shifted));
+    const Sbr73BoostSaved *cur=sbr73_boost_find(frame);
+    if(!cur)return 1;
+    const Sbr73BoostSaved *prev=frame?sbr73_boost_find(frame-1u):NULL;
+    double gain[32u*64u]={0};
+    uint8_t apply[32u*64u]={0};
+    const double domain=1024.0/sqrt(2.0);
+    for(unsigned t=0u;t<32u;t++){
+        const SautiAacSbrTemporalHfSlot *slot=&targets->slot[t];
+        if(slot->source>1u || slot->envelope>=SAUTI_AAC_SBR_MAX_ENV ||
+           slot->k2<slot->kx || slot->k2>64u)
+            return 0;
+        uint64_t owner=frame;
+        if(slot->source==0u){
+            if(frame==0u)continue;
+            owner=frame-1u;
+        }
+        const Sbr73BoostSaved *saved=sbr73_boost_find(owner);
+        if(!saved || slot->envelope>=saved->envs)continue;
+        for(unsigned k=slot->kx;k<slot->k2;k++){
+            if(!saved->band_ok[slot->envelope][k])continue;
+            const unsigned ix=t*64u+k;
+            const double g=saved->hf_gain[slot->envelope][k];
+            if(!isfinite(g) || g<0.0)return 0;
+            const double scaled_g=g*domain;
+            if(!isfinite(scaled_g))return 0;
+            apply[ix]=1u;
+            gain[ix]=scaled_g;
+        }
+    }
+    return sauti_aac_sbr_temporal_hf_shift_gain(
+        cur->baseline,32u*64u,
+        prev?prev->baseline:NULL,prev?32u*64u:0u,
+        gain,apply,shifted,32u*64u);
+}
+
+/* Tone bins: shifted gain HF plus the scaled tone already removed
+ * from the old SBR-53d bin. Other bins stay on the scaled buffer,
+ * whose remainder is noise rather than a second gain. */
+static int sbr73_assemble_shifted_tone(
+    const SautiAacSbrComplex *shifted,
+    const SautiAacSbrComplex *adjusted,
+    const SautiAacSbrComplex *raw,
+    const SautiAacSbrComplex *sine,
+    const SautiAacSbrComplex *scaled,
+    SautiAacSbrComplex *sum){
+    if(!shifted || !adjusted || !raw || !sine || !scaled || !sum)
+        return 0;
+    SautiAacSbrComplex staging[32u*64u];
+    for(unsigned ix=0u;ix<32u*64u;ix++){
+        const SautiAacSbrComplex s=sine[ix],r=raw[ix];
+        if(!isfinite(s.re) || !isfinite(s.im) ||
+           !isfinite(r.re) || !isfinite(r.im) ||
+           !isfinite(scaled[ix].re) || !isfinite(scaled[ix].im) ||
+           !isfinite(shifted[ix].re) || !isfinite(shifted[ix].im) ||
+           !isfinite(adjusted[ix].re) || !isfinite(adjusted[ix].im))
+            return 0;
+        if(s.re==r.re && s.im==r.im){
+            staging[ix]=scaled[ix];
+            continue;
+        }
+        const double re=(double)shifted[ix].re
+            +((double)scaled[ix].re-(double)adjusted[ix].re);
+        const double im=(double)shifted[ix].im
+            +((double)scaled[ix].im-(double)adjusted[ix].im);
+        if(!isfinite(re) || !isfinite(im))return 0;
+        staging[ix].re=(float)re;
+        staging[ix].im=(float)im;
+    }
+    memcpy(sum,staging,sizeof(staging));
+    return 1;
+}
+
 /* SBR-73 optional limiter fed by the HF-generator window.
  * Envelope energy and window power are raised by 2^30, which is
  * the analysis-domain factor removed by SBR-60. Q is already in
- * that domain. The tone and every applied gain stay untouched.
- * Enable with SAUTI_SBR73_SAUTI_LIMIT=/path.csv. */
+ * that domain. Applied SBR-53d gain stays untouched. The boost
+ * table, the post-boost hf_gain, and this frame's pre-gain HF are
+ * always kept for the experimental tone scale and the shifted gain.
+ * The CSV is written only when SAUTI_SBR73_SAUTI_LIMIT=/path.csv. */
 static int sbr73_trace_limit(
     uint64_t frame,
     const SautiAacSbrTemporalHistory *history,
@@ -793,16 +1070,15 @@ static int sbr73_trace_limit(
     static int header_done;
     static int have_prev;
     static SautiAacSbrComplex prev[32u*64u];
-    if(!path)return 1;
     if(!history || !hf || !history->ready)return 0;
-    if(!out){
+    if(path && !out){
         out=fopen(path,"wb");
         if(!out){
             perror(path);
             return 0;
         }
     }
-    if(!header_done){
+    if(path && !header_done){
         if(fprintf(out,"frame,envelope,delta,k,group,boost,sm,g\n")<0)
             return 0;
         header_done=1;
@@ -823,6 +1099,9 @@ static int sbr73_trace_limit(
            tab,&payload->patches,payload->limiter_mode,&bands) ||
        bands.count<1u || bands.count>64u)
         return 0;
+    uint8_t band_ok[SAUTI_AAC_SBR_MAX_ENV][64]={0};
+    double saved_boost[SAUTI_AAC_SBR_MAX_ENV][64]={0};
+    double saved_gain[SAUTI_AAC_SBR_MAX_ENV][64]={0};
     for(unsigned env=0u;env<payload->grid.env_count;env++){
         const unsigned start=payload->env_edges[env];
         const unsigned end=payload->env_edges[env+1u];
@@ -907,7 +1186,10 @@ static int sbr73_trace_limit(
             if(!isfinite(boost) || boost<0.0 ||
                !isfinite(sm) || sm<0.0 ||
                !isfinite(g) || g<0.0)return 0;
-            if(fprintf(out,"%llu,%u,%u,%u,%d,%.9g,%.9g,%.9g\n",
+            saved_boost[env][k]=boost;
+            saved_gain[env][k]=g;
+            band_ok[env][k]=1u;
+            if(path && fprintf(out,"%llu,%u,%u,%u,%d,%.9g,%.9g,%.9g\n",
                        (unsigned long long)frame,env,delta,k,group,
                        boost,sm,g)<0)
                 return 0;
@@ -915,7 +1197,10 @@ static int sbr73_trace_limit(
     }
     memcpy(prev,hf,sizeof(prev));
     have_prev=1;
-    return fflush(out)==0;
+    sbr73_boost_remember(frame,payload->grid.env_count,
+                         band_ok,saved_boost,saved_gain,hf);
+    if(path && fflush(out)!=0)return 0;
+    return 1;
 }
 
 /* Limiter group containing absolute QMF band k, or -1 when k is outside. */
@@ -1848,6 +2133,9 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         }
         SautiAacSbrComplex preview[32u*64u];
         SautiAacSbrComplex sine_high[32u*64u];
+        SautiAacSbrComplex scaled_sine[32u*64u];
+        SautiAacSbrComplex summed_hf[32u*64u];
+        const SautiAacSbrComplex *sine_pcm_qmf=NULL;
         SautiAacSbrComplex phase2_high[32u*64u];
         SautiAacSbrComplex units_high[32u*64u];
         SautiAacSbrTemporalMixReport mix_report={0};
@@ -1930,6 +2218,28 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                 printf("  ramka %zu: SBR-73 trace odrzucony\n",i);
                 break;
             }
+            SautiAacSbrComplex shifted_hf[32u*64u];
+            if(!sbr73_scale_emitted_tone(
+                   tone_report.frame_index,&emitted_targets,
+                   adjusted_hf,preview,sine_high,scaled_sine) ||
+               !sbr73_trace_scaled(tone_report.frame_index,scaled_sine)){
+                printf("  ramka %zu: SBR-73 skala tonu odrzucona\n",i);
+                break;
+            }
+            if(!sbr73_shift_emitted_gain(
+                   tone_report.frame_index,&emitted_targets,
+                   adjusted_hf,shifted_hf) ||
+               !sbr73_trace_gainhf(tone_report.frame_index,shifted_hf) ||
+               !sbr73_assemble_shifted_tone(
+                   shifted_hf,adjusted_hf,preview,sine_high,scaled_sine,
+                   summed_hf) ||
+               !sbr73_trace_sum(tone_report.frame_index,summed_hf)){
+                printf("  ramka %zu: SBR-73 przesuniete HF odrzucone\n",i);
+                break;
+            }
+            /* Listening PCM is the shifted gain plus the scaled tone.
+             * The units path stays on the unscaled sine. */
+            sine_pcm_qmf=summed_hf;
             if(!sauti_aac_sbr_temporal_hf_units_float(
                    sine_high,32u*64u,&noise_frame,
                    units_high,32u*64u)){
@@ -2033,7 +2343,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         SautiAacSbrTemporalPcmPreviewReport sine_pcm_report;
         if(!sauti_aac_sbr_temporal_pcm_preview_push(
                low_qmf,32u*32u,
-               noise_report.emitted?sine_high:NULL,
+               noise_report.emitted?sine_pcm_qmf:NULL,
                noise_report.emitted?32u*64u:0u,
                noise_report.emitted?&noise_frame:NULL,
                &apply_report,
@@ -2213,6 +2523,8 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                     }else
                         puts("  SBR-54e: finalny bilans energii odrzucony (bez zmiany PCM)");
                     SautiAacSbrComplex final_sine_hf[32u*64u];
+                    SautiAacSbrComplex final_scaled_sine[32u*64u];
+                    const SautiAacSbrComplex *final_sine_pcm_qmf=NULL;
                     SautiAacSbrTemporalHarmonicPreviewReport
                         final_sine_qmf_report;
                     const unsigned sbr73_final_phase_before=sine_qmf_state.phase;
@@ -2261,6 +2573,44 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                                            &temporal_noise.held_targets))){
                         puts("  SBR-73: finalny trace odrzucony");
                         phase2_io_ok=0;
+                    }
+                    SautiAacSbrComplex final_shifted_hf[32u*64u];
+                    SautiAacSbrComplex final_summed_hf[32u*64u];
+                    if(final_sine_ok &&
+                       sbr73_scale_emitted_tone(
+                           final_sine_qmf_report.frame_index,
+                           &temporal_noise.held_targets,
+                           final_hf,last_preview,final_sine_hf,
+                           final_scaled_sine) &&
+                       sbr73_trace_scaled(
+                           final_sine_qmf_report.frame_index,
+                           final_scaled_sine))
+                        final_sine_pcm_qmf=final_scaled_sine;
+                    else if(final_sine_ok){
+                        puts("  SBR-73: finalna skala tonu odrzucona");
+                        sine_io_ok=0;
+                        final_sine_pcm_qmf=final_sine_hf;
+                    }
+                    if(final_sine_pcm_qmf==final_scaled_sine){
+                        if(sbr73_shift_emitted_gain(
+                               final_sine_qmf_report.frame_index,
+                               &temporal_noise.held_targets,
+                               final_hf,final_shifted_hf) &&
+                           sbr73_trace_gainhf(
+                               final_sine_qmf_report.frame_index,
+                               final_shifted_hf) &&
+                           sbr73_assemble_shifted_tone(
+                               final_shifted_hf,final_hf,last_preview,
+                               final_sine_hf,final_scaled_sine,
+                               final_summed_hf) &&
+                           sbr73_trace_sum(
+                               final_sine_qmf_report.frame_index,
+                               final_summed_hf))
+                            final_sine_pcm_qmf=final_summed_hf;
+                        else{
+                            puts("  SBR-73: finalne przesuniete HF odrzucone");
+                            sine_io_ok=0;
+                        }
                     }
                     SautiAacSbrComplex final_units_high[32u*64u];
                     const int final_units_ok=final_sine_ok &&
@@ -2360,7 +2710,9 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                             SautiAacSbrTemporalPcmPreviewReport
                                 final_sine_pcm_report;
                             if(sauti_aac_sbr_temporal_pcm_preview_flush(
-                                   final_sine_hf,32u*64u,&last_noise,
+                                   final_sine_pcm_qmf?final_sine_pcm_qmf:
+                                       final_sine_hf,
+                                   32u*64u,&last_noise,
                                    &final_report,&last_mix,
                                    &sine_pcm_state,final_sine_pcm,2048u,
                                    &final_sine_pcm_report) &&

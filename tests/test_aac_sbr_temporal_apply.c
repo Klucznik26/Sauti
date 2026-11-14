@@ -196,10 +196,64 @@ static void test_no_tail(void){
     assert(fabs(out[k].re-8.0f)<1e-5);
     puts("SBR-53e: single final frame and finite-float overflow rollback PASS");
 }
+static void shift_gain_test(void){
+    SautiAacSbrComplex current[32u*64u],previous[32u*64u],output[32u*64u];
+    SautiAacSbrComplex saved[32u*64u];
+    double gain[32u*64u];
+    uint8_t apply[32u*64u];
+    memset(current,0,sizeof(current));
+    memset(previous,0,sizeof(previous));
+    memset(gain,0,sizeof(gain));
+    memset(apply,0,sizeof(apply));
+    for(unsigned ix=0u;ix<32u*64u;ix++){
+        output[ix].re=42.0f;
+        output[ix].im=-7.0f;
+    }
+    /* Slot 7 reads current slot 1. Slot 2 reads previous slot 28.
+     * The neighbor is apply=0, so its NaN gain must stay unread. */
+    current[1u*64u+18u].re=3.0f;
+    current[1u*64u+18u].im=4.0f;
+    previous[28u*64u+18u].re=8.0f;
+    previous[28u*64u+18u].im=-2.0f;
+    apply[7u*64u+18u]=1u;
+    apply[2u*64u+18u]=1u;
+    gain[7u*64u+18u]=2.0;
+    gain[2u*64u+18u]=0.5;
+    gain[7u*64u+19u]=NAN;
+    assert(sauti_aac_sbr_temporal_hf_shift_gain(
+        current,32u*64u,previous,32u*64u,gain,apply,output,32u*64u));
+    assert(output[7u*64u+18u].re==6.0f && output[7u*64u+18u].im==8.0f);
+    assert(output[2u*64u+18u].re==4.0f && output[2u*64u+18u].im==-1.0f);
+    assert(output[7u*64u+19u].re==42.0f && output[7u*64u+19u].im==-7.0f);
+    for(unsigned ix=0u;ix<32u*64u;ix++){
+        output[ix].re=42.0f;
+        output[ix].im=-7.0f;
+    }
+    assert(sauti_aac_sbr_temporal_hf_shift_gain(
+        current,32u*64u,NULL,0u,gain,apply,output,32u*64u));
+    assert(output[7u*64u+18u].re==6.0f && output[7u*64u+18u].im==8.0f);
+    assert(output[2u*64u+18u].re==42.0f && output[2u*64u+18u].im==-7.0f);
+    for(unsigned ix=0u;ix<32u*64u;ix++){
+        output[ix].re=42.0f;
+        output[ix].im=-42.0f;
+    }
+    memcpy(saved,output,sizeof(saved));
+    gain[7u*64u+18u]=NAN;
+    assert(!sauti_aac_sbr_temporal_hf_shift_gain(
+        current,32u*64u,previous,32u*64u,gain,apply,output,32u*64u));
+    assert(memcmp(output,saved,sizeof(saved))==0);
+    gain[7u*64u+18u]=2.0;
+    current[1u*64u+18u].re=NAN;
+    assert(!sauti_aac_sbr_temporal_hf_shift_gain(
+        current,32u*64u,previous,32u*64u,gain,apply,output,32u*64u));
+    assert(memcmp(output,saved,sizeof(saved))==0);
+    puts("SBR-73: 6-slot HF source times caller gain PASS");
+}
 int main(void){
     test_handoff(2u);
     test_handoff(6u);
     test_no_tail();
+    shift_gain_test();
     puts("PASS SBR-53e buffered HF gain adjustment (no HE-AAC PCM)");
     return 0;
 }

@@ -127,6 +127,48 @@ int sauti_aac_sbr_temporal_harmonic_preview(
         raw,raw_count,output,output_count,state,report,0u);
 }
 
+/* SBR-73: scale only the sinusoid that the unscaled preview added.
+ * 1024/sqrt(2) is 32768/(32*sqrt(2)): post-boost s_m divided into
+ * the gain-adjusted QMF domain. No constant boost is baked in. */
+int sauti_aac_sbr_temporal_harmonic_scale(
+    const SautiAacSbrComplex *gain,size_t gain_count,
+    const SautiAacSbrComplex *raw,size_t raw_count,
+    const SautiAacSbrComplex *sine,size_t sine_count,
+    const double boost[N],
+    const uint8_t apply[N],
+    SautiAacSbrComplex *output,size_t output_count){
+    if(!gain || !raw || !sine || !boost || !apply || !output ||
+       gain_count<N || raw_count<N || sine_count<N || output_count<N)
+        return 0;
+    SautiAacSbrComplex staging[N];
+    const double domain=1024.0/sqrt(2.0);
+    for(unsigned ix=0u;ix<N;ix++){
+        const unsigned use=apply[ix];
+        const SautiAacSbrComplex g=gain[ix],r=raw[ix],s=sine[ix];
+        if(use>1u ||
+           !isfinite(g.re) || !isfinite(g.im) ||
+           !isfinite(r.re) || !isfinite(r.im) ||
+           !isfinite(s.re) || !isfinite(s.im))
+            return 0;
+        if(!use || (s.re==r.re && s.im==r.im)){
+            staging[ix]=s;
+            continue;
+        }
+        const double b=boost[ix];
+        if(!isfinite(b) || b<0.0)return 0;
+        const double factor=b*domain;
+        const double re=(double)g.re+((double)s.re-(double)g.re)*factor;
+        const double im=(double)g.im+((double)s.im-(double)g.im)*factor;
+        if(!isfinite(re) || !isfinite(im) ||
+           fabs(re)>FLT_MAX || fabs(im)>FLT_MAX)
+            return 0;
+        staging[ix].re=(float)re;
+        staging[ix].im=(float)im;
+    }
+    memcpy(output,staging,sizeof(staging));
+    return 1;
+}
+
 /* SBR-69 hypothesis only: +2 four-slot oscillator phases, same ROM noise. */
 int sauti_aac_sbr_temporal_harmonic_preview_phase2(
     const SautiAacSbrTemporalHfTargets *targets,

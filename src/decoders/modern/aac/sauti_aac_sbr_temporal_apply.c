@@ -230,3 +230,44 @@ int sauti_aac_sbr_temporal_gain_apply_flush(
     *report=stats;
     return 1;
 }
+
+int sauti_aac_sbr_temporal_hf_shift_gain(
+    const SautiAacSbrComplex *current,size_t current_count,
+    const SautiAacSbrComplex *previous,size_t previous_count,
+    const double gain[HF_COUNT],
+    const uint8_t apply[HF_COUNT],
+    SautiAacSbrComplex *output,size_t output_count){
+    if(!current || !gain || !apply || !output ||
+       current_count<HF_COUNT || output_count<HF_COUNT)
+        return 0;
+    if(previous){
+        if(previous_count<HF_COUNT)return 0;
+    }else if(previous_count)
+        return 0;
+    SautiAacSbrComplex staging[HF_COUNT];
+    memcpy(staging,output,sizeof(staging));
+    for(unsigned t=0u;t<HF_SLOTS;t++){
+        for(unsigned k=0u;k<HF_BANDS;k++){
+            const unsigned ix=t*HF_BANDS+k;
+            const unsigned use=apply[ix];
+            if(use>1u)return 0;
+            if(!use)continue;
+            const double g=gain[ix];
+            if(!isfinite(g) || g<0.0)return 0;
+            if(t<6u && !previous)continue;
+            const unsigned src=t<6u?t+26u:t-6u;
+            const SautiAacSbrComplex *frame=t<6u?previous:current;
+            const SautiAacSbrComplex x=frame[(size_t)src*HF_BANDS+k];
+            if(!isfinite(x.re) || !isfinite(x.im))return 0;
+            const double re=(double)x.re*g;
+            const double im=(double)x.im*g;
+            if(!isfinite(re) || !isfinite(im) ||
+               fabs(re)>FLT_MAX || fabs(im)>FLT_MAX)
+                return 0;
+            staging[ix].re=(float)re;
+            staging[ix].im=(float)im;
+        }
+    }
+    memcpy(output,staging,sizeof(staging));
+    return 1;
+}

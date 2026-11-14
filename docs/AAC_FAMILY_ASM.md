@@ -6912,3 +6912,48 @@ The tone was compared offline and was not written into `harmonic_preview`. The p
 - The k42 sum relative residual is `0.0011`. The sine matches. What remains is the old gain HF: its best scale is still `105.8` rather than `32*sqrt(2)`, and that shape residual is `0.108`. SBR-53d is unchanged.
 
 `harmonic_preview`, AAC-LC, the public QMF path, and `hf_sine_mix` do not use this boost. The gain-partition, gain-limit, and temporal-reference-gain tests pass. The probe still exits 1 on this fixture after a complete trace. That exit is the existing public-parser limit.
+
+### SBR-73 — experimental tone uses the limiter boost (2026-11-14)
+
+`sauti_aac_sbr_temporal_harmonic_scale` multiplies a tone the unscaled preview has already added. The factor is that slot's limiter boost times `1024/sqrt(2)`. `harmonic_preview` still adds `sqrt(E/(1+Q))`, and its existing test still expects `sqrt(8)`. phase+2 is not scaled.
+
+The probe keeps the windowed limiter boost on every frame. The sine is emitted one loop later, and a `source=0` slot reads the previous frame's boost. A missing window leaves that bin unscaled. The experimental sine PCM uses the scaled QMF. `SAUTI_SBR73_SAUTI_SCALED` writes k18 and k42. SBR-53d, the units path, AAC-LC, the public QMF path, and `hf_sine_mix` keep their previous values.
+
+On `he_test.aac` the scaled QMF matches that formula to relative `3e-8` (1600 slots, frames 0–49). Steady frames 4–47, call = frame+1, same slot, after multiplying by `32*sqrt(2)`:
+- k18 tone relative residual is `8.3e-8`. The sum with the unchanged gain HF is `9.4e-7`.
+- k42 tone relative residual is `5.2e-5`. The sum is `0.00106`. What remains is the SBR-53d gain HF.
+
+The harmonic-preview test passes, including the new scale case. The probe still exits 1 after the complete dump.
+
+### SBR-73 — experimental gain HF reads analysis slot t-6 (2026-11-14)
+
+`sauti_aac_sbr_temporal_hf_shift_gain` multiplies one emitted HF frame by a gain the caller already converted. Output slot `t` reads analysis slot `t-6` of that frame. When `t<6` it reads the previous frame at slot `t+26`. The probe passes the limiter's post-boost `hf_gain` times `1024/sqrt(2)`. A missing previous frame, or a band with no saved window, keeps the unshifted SBR-53d sample. The function does not scale by `32768` itself.
+
+SBR-53d, `gain_one`, the unscaled oscillator, phase+2, the units path, AAC-LC, the public QMF path, and `hf_sine_mix` are unchanged. `SAUTI_SBR73_SAUTI_SCALED` is still the old gain plus the scaled tone. `SAUTI_SBR73_SAUTI_GAINHF` writes the shifted product. `SAUTI_SBR73_SAUTI_SUM` adds the already scaled tone on bins where a tone was added. The experimental sine PCM uses that sum.
+
+On `he_test.aac`, steady frames 4–47, call = frame+1, same slot, after multiplying by `32*sqrt(2)` (1408 slots):
+- Gain-only k18 relative residual is `1.31e-7`, best scale `1.000000018`. Slots `t<6` are `1.52e-7` and slots `t>=6` are `1.25e-7`.
+- Gain-only k42 relative residual is `0.00161`, best scale `1.000057`. Slots `t<6` are `0.00177` and slots `t>=6` are `0.00157`.
+- The unchanged SBR-53d gain HF on k42 is still best scale `2.34`, shape residual `0.108`. All 1408 steady k42 bins of the new product differ from that path.
+- The sum against full `Y` is k18 relative `8.7e-8` and k42 relative `5.2e-5`. The sinusoid is much larger than the gain HF, so this sum sits on the tone residual.
+- Frame 0 stays on SBR-53d for all 32 slots. That frame has no saved limiter window.
+
+The apply test passes, including the new shift case. The probe still exits 1 after the complete 50-frame dump. The remaining k42 gain-only residual is `0.00161`, the same number as the offline product of this shift.
+
+### SBR-73 — the k42 gain residual is the quiet-band analysis floor (2026-11-14)
+
+The shifted product was split on the same steady 1408 slots. FFmpeg `Y` after `g_filt` equals `X_high[t+2]` times the unsmoothed post-boost gain to relative `3.5e-8` at both k18 and k42. Every one of the 50 headers has `bs_smoothing_mode=1`, so `h_SL` is 0 and the smoother does not run. Replacing only the gain leaves the k42 residual at `0.00163`. Replacing only `X` drops it to `1.67e-4`, which is the limiter-gain mismatch. The `0.00161` is the pre-gain sample.
+
+That sample is low band 14 copied into k42. Sauti frame N, analysis slot `t`, times `32768`, against FFmpeg call N+1, `X` slot `t+8` (and the next call's slots 2..7 for analysis slots 26..31):
+
+| Band | Relative | Absolute RMS | Power relative, worst frame |
+| --- | --- | --- | --- |
+| low 2 (k18) | `3.58e-7` | `0.066` | `8.4e-7` |
+| low 7 (k35) | `3.90e-4` | `0.0033` | `1.1e-4` |
+| low 14 (k42) | `1.62e-3` | `0.0044` | `5.3e-4` |
+
+`X` at k42 has RMS `2.70`. `Y` after gain has RMS `0.019`. Full `Y` has RMS `10.37`, so this gain-sample error is relative `3.0e-6` of the assembled bin. The sum's `5.2e-5` is the tone. Per frame, the k42 tone scale misses FFmpeg by the same amount as the boost, worst `7.88e-5`, with no extra shape.
+
+The window sum `u[64]` already matches the FFmpeg dump to relative `3.24e-7` (absolute RMS `2.0e-8`). A float accumulation of the same five taps is not closer. Running Sauti's direct modulator on FFmpeg's own `u` still leaves relative `8.2e-4` on low band 14 (absolute RMS `0.0022`) and `7.2e-8` on low band 2. The rest of the band-14 error is that `u` difference after the `32768` modulation (absolute RMS `0.0036`). Both pieces are the float MDCT rounding of a small projection, not a wrong slot, a missing smooth, or a bad gain formula.
+
+**No production change.** The analysis, the modulator, SBR-53d, and the experimental shift stay as they are. `32768` was not written into the QMF. AAC-LC and the public QMF path were not edited.

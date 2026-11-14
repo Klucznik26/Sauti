@@ -50,4 +50,20 @@ int sauti_aac_sbr_temporal_gain_apply_flush(
     SautiAacSbrComplex *adjusted_hf,size_t adjusted_count,
     SautiAacSbrTemporalApplyReport *report);
 
+/* SBR-73: one emitted HF frame times a caller-supplied gain, read
+ * from the HF-generator sample. Output slot t uses analysis slot
+ * t-6 of current, or slot t+26 of previous when t<6. gain is already
+ * in the caller's domain; this function does not scale it. apply[i]
+ * is 1 only for a bin that should change. apply[i]==0 keeps the value
+ * already stored in output. A t<6 bin whose previous frame is NULL
+ * keeps that same fallback and does not fail the frame. Non-finite
+ * gain or source sample fails and leaves output unchanged. This does
+ * not replace sauti_aac_sbr_temporal_gain_apply. */
+int sauti_aac_sbr_temporal_hf_shift_gain(
+    const SautiAacSbrComplex *current,size_t current_count,
+    const SautiAacSbrComplex *previous,size_t previous_count,
+    const double gain[32u*64u],
+    const uint8_t apply[32u*64u],
+    SautiAacSbrComplex *output,size_t output_count);
+
 #endif
