@@ -57,8 +57,18 @@ static int find_hybrid_pair(int *p_cpu,int *e_cpu){
         if(type==SAUTI_AAC_QMF_INTEL_E_CORE && *e_cpu<0)*e_cpu=cpu;
         if(*p_cpu>=0 && *e_cpu>=0)break;
     }
-    restore_affinity();
-    return *p_cpu>=0 && *e_cpu>=0;
+    /* Restore immediately after probing. Keep a copy of the original
+     * affinity for the later P/E alternation and final restoration. */
+    if(sched_setaffinity(0,sizeof(saved_affinity),&saved_affinity)!=0){
+        fputs("FAIL: could not restore affinity after probing\n",stderr);
+        saved_valid=0;
+        return -1;
+    }
+    if(*p_cpu<0 || *e_cpu<0){
+        saved_valid=0;
+        return 0;
+    }
+    return 1;
 }
 #endif
 
@@ -87,10 +97,14 @@ int main(int argc,char **argv){
     int p_cpu=-1,e_cpu=-1,has_both=0;
 #if defined(__linux__) && SAUTI_AAC_QMF_NATIVE_ASM
     has_both=find_hybrid_pair(&p_cpu,&e_cpu);
+    if(has_both<0)return 4;
 #endif
     FILE *out=fopen(argv[1],"wb");
     if(!out){
         perror("PCM output");
+#if defined(__linux__) && SAUTI_AAC_QMF_NATIVE_ASM
+        restore_affinity();
+#endif
         return 3;
     }
     unsigned seen_p=0,seen_e=0;
