@@ -759,6 +759,14 @@ $(OBJDIR)/test_aac_qmf_simd: tests/test_aac_qmf_simd.c include/sauti_aac_sbr_qmf
 test-aac-qmf-simd: $(OBJDIR)/test_aac_qmf_simd
 	./$(OBJDIR)/test_aac_qmf_simd
 
+# Opt-in local QMF kernel benchmark; does not gate correctness tests.
+$(OBJDIR)/sauti_qmf_simd_bench: tools/sauti_qmf_simd_bench.c $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_qmf_simd_bench.c $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+.PHONY: bench-aac-qmf
+bench-aac-qmf: $(OBJDIR)/sauti_qmf_simd_bench
+	./$(OBJDIR)/sauti_qmf_simd_bench
+
 $(OBJDIR)/test_aac_sbr_qmf_analysis: tests/test_aac_sbr_qmf_analysis.c include/sauti_aac_sbr_qmf_analysis.h $(AAC_SBR_QMF_ANALYSIS_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_qmf_analysis.c $(AAC_SBR_QMF_ANALYSIS_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
 
