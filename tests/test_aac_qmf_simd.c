@@ -62,9 +62,15 @@ static void test_polyphase(void) {
         sse[-1]=avx[-1]=unrolled[-1]=6789.0f;
         sse[64]=avx[64]=unrolled[64]=12345.0f;
         sse[65]=avx[65]=unrolled[65]=-23456.0f;
+        if(iteration==0) fprintf(stderr,"window: SSE2 start\n");
         sauti_aac_sbr_qmf_synth_window_slot_asm(sse,coeff_storage+1,ptrs);
+        if(iteration==0) fprintf(stderr,"window: SSE2 done\n");
+        if(iteration==0) fprintf(stderr,"window: AVX2 loop start\n");
         sauti_aac_sbr_qmf_synth_window_slot_avx2(avx,coeff_storage+1,ptrs);
+        if(iteration==0) fprintf(stderr,"window: AVX2 loop done\n");
+        if(iteration==0) fprintf(stderr,"window: AVX2 unrolled start\n");
         sauti_aac_sbr_qmf_synth_window_slot_avx2_unrolled(unrolled,coeff_storage+1,ptrs);
+        if(iteration==0) fprintf(stderr,"window: AVX2 unrolled done\n");
         /* Identical floating-point operation order; no FMA in any path. */
         assert(memcmp(sse,avx,64*sizeof(float))==0);
         assert(memcmp(sse,unrolled,64*sizeof(float))==0);
