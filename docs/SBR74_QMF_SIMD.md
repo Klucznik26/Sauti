@@ -18,6 +18,7 @@ make test-aac-qmf-simd
 make test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-synth-window
 make test-aac-ps-pcm-stereo test-aac-he-ps-bridge
 make test-aac-native
+make bench-aac-qmf  # optional per-slot median microbenchmark
 ```
 
 `test-aac-qmf-simd` runs real native SSE2 and AVX2 kernels with input variation and output canaries. The 640-tap window should be bit-identical; modulation is compared with an explicit rounding tolerance. On hosts without AVX2 the differential target prints SKIP; the SSE2 public tests still run. Existing public tests cover the C wrapper's transactional behavior and mathematical reference.
