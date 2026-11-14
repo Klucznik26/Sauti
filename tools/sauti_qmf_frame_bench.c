@@ -9,6 +9,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "sauti_aac_sbr_qmf_synth_mod.h"
 #include <math.h>
+#include <string.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <time.h>
@@ -37,7 +38,10 @@ static int process_frame(void) {
             SAUTI_AAC_SBR_QMF_SYNTH_WINDOW_OUTPUT,&state);
 }
 
-int main(void) {
+int main(int argc,char **argv) {
+    if(argc!=1 && (argc!=3 || argv[1]==NULL ||
+                    strcmp(argv[1],"--pcm-out")!=0 || argv[2]==NULL))
+        return 7;
     for(unsigned t=0;t<SAUTI_AAC_SBR_QMF_MOD_MAX_SLOTS;t++)
         for(unsigned k=0;k<SAUTI_AAC_SBR_QMF_MOD_BANDS;k++) {
             const size_t i=(size_t)t*SAUTI_AAC_SBR_QMF_MOD_BANDS+k;
@@ -73,6 +77,16 @@ int main(void) {
         checksum+=(double)pcm[i]*(double)((i%17u)+1u);
     }
     sink=checksum;
+    /* The binary dump lets CI compare full 40-slot output sample by sample
+     * between separately compiled dispatch and forced-SSE2 wrappers. */
+    if(argc==3) {
+        FILE *fp=fopen(argv[2],"wb");
+        if(!fp)return 8;
+        const size_t length=sizeof(pcm)/sizeof(pcm[0]);
+        const size_t written=fwrite(pcm,sizeof(pcm[0]),length,fp);
+        const int closed=fclose(fp);
+        if(written!=length || closed!=0)return 9;
+    }
 #if defined(SAUTI_QMF_FORCE_SSE2)
     const char *mode="forced-sse2";
 #elif defined(SAUTI_QMF_DISABLE_ASM)
