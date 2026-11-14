@@ -6,7 +6,7 @@
 
 - Retain the working x86-64 System V SSE2 synthesis kernels. The modulation kernel can fold loads from 32-byte-aligned, constant lookup tables into `mulps`. The polyphase window kernel **must not** do so: its caller-supplied coefficient pointer may be unaligned, and legacy SSE `mulps xmm, m128` requires 16-byte alignment. The window uses `movups` followed by register-register `mulps`.
 - Add a 256-bit AVX2 implementation of the 640-tap polyphase synthesis window (32 output samples per chunk, ten taps) and complex modulation (eight floats per vector; mirrored outputs).
-- Include an **experimental** fully-unrolled AVX2 window kernel for measurement and bit-exact differential tests. It is **not** selected by the public runtime dispatcher until A/B measurements justify adopting it.
+- An experimental fully-unrolled AVX2 window was tested and rejected: on GitHub Actions its median was 28.1 ns/slot versus 28.4 ns/slot for the simpler AVX2 loop (about 1% difference, below a credible cross-CPU improvement). The unrolled object was removed rather than expanding the binary without a justified benefit.
 - The two modulator variants share the same precomputed trigonometric tables. AVX2 uses **no FMA**, deliberately keeping multiplication and addition separate to limit rounding differences. Modulation may still differ by a few float ulps because of the reduction tree.
 - The public C wrappers check finite inputs, bounds, output overlap and rollback before/after invoking ASM, as before.
 - Use `__builtin_cpu_supports("avx2")` on GNU/Clang System V x86-64: this checks processor and OS extended register support. Never execute AVX2 before the check. CPUID is evaluated once per call to the frame wrapper, outside the slot loop. On older x86-64 use SSE2.
@@ -23,7 +23,7 @@ make test-aac-native
 make bench-aac-qmf  # optional per-slot median microbenchmark
 ```
 
-`test-aac-qmf-simd` runs real native SSE2, AVX2 and the unrolled AVX2 window with input variation, deliberately offset/unaligned input and output buffers, and output canaries. The 640-tap window should be bit-identical; modulation is compared with an explicit rounding tolerance. On hosts without AVX2 the differential target prints SKIP; the SSE2 public tests still run. Existing public tests cover the C wrapper's transactional behavior and mathematical reference.
+`test-aac-qmf-simd` runs real native SSE2 and AVX2 window with input variation, deliberately offset/unaligned input and output buffers, and output canaries. The 640-tap window should be bit-identical; modulation is compared with an explicit rounding tolerance. On hosts without AVX2 the differential target prints SKIP; the SSE2 public tests still run. Existing public tests cover the C wrapper's transactional behavior and mathematical reference.
 
 Run a **fresh rebuild** to force SSE2 before comparing output or measuring the per-frame cost:
 
@@ -36,4 +36,4 @@ For standalone C11 reference checks on a non-ELF platform, compile the two `.c` 
 
 ## Acceptance criteria
 
-Do **not** claim a speedup from source inspection alone. Collect median and tail times per 40-slot frame on the actual CPU (plus full HE-AAC playback under load), verify the intended CPU branch is used, compare pre-PS PCM on real fixtures, and run sanitizer tests. The unrolled AVX2 variant remains test/benchmark-only until it is measurably faster and tested on more than one CPU. FMA or a DCT/FFT rewrite would be a separate, numerically revalidated change. This branch does not change the SBR envelope/noise/PS reconstruction.
+Do **not** claim a speedup from source inspection alone. Collect median and tail times per 40-slot frame on the actual CPU (plus full HE-AAC playback under load), verify the intended CPU branch is used, compare pre-PS PCM on real fixtures, and run sanitizer tests. FMA or a DCT/FFT rewrite would be a separate, numerically revalidated change. This branch does not change the SBR envelope/noise/PS reconstruction.
