@@ -101,8 +101,11 @@ AAC_SBR_NOISE_ROM_SRC := src/decoders/modern/aac/sauti_aac_sbr_noise_rom.c
 AAC_SBR_HF_JOINT_ROM_SRC := src/decoders/modern/aac/sauti_aac_sbr_hf_joint_rom.c
 AAC_SBR_QMF_SYNTH_WINDOW_ASM := $(OBJDIR)/sauti_aac_sbr_qmf_synth_window_asm.o
 AAC_SBR_QMF_SYNTH_MOD_ASM := $(OBJDIR)/sauti_aac_sbr_qmf_synth_mod_asm.o
-AAC_SBR_QMF_SYNTH_WINDOW_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window.c $(AAC_SBR_QMF_SYNTH_WINDOW_ASM)
-AAC_SBR_QMF_SYNTH_MOD_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod.c $(AAC_SBR_QMF_SYNTH_MOD_ASM)
+AAC_SBR_QMF_SYNTH_WINDOW_AVX2 := $(OBJDIR)/sauti_aac_sbr_qmf_synth_window_avx2.o
+AAC_SBR_QMF_SYNTH_MOD_AVX2 := $(OBJDIR)/sauti_aac_sbr_qmf_synth_mod_avx2.o
+# Keep the original SSE2 kernels; AVX2 is dispatched only after CPUID/OSXSAVE.
+AAC_SBR_QMF_SYNTH_WINDOW_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window.c $(AAC_SBR_QMF_SYNTH_WINDOW_ASM) $(AAC_SBR_QMF_SYNTH_WINDOW_AVX2)
+AAC_SBR_QMF_SYNTH_MOD_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod.c $(AAC_SBR_QMF_SYNTH_MOD_ASM) $(AAC_SBR_QMF_SYNTH_MOD_AVX2)
 AAC_SBR_QMF_ANALYSIS_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_analysis.c
 AAC_SBR_QMF_FRAME_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_frame.c
 AAC_SBR_PAYLOAD_SRC := src/decoders/modern/aac/sauti_aac_sbr_payload.c
@@ -425,6 +428,12 @@ $(AAC_SBR_QMF_SYNTH_WINDOW_ASM): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth
 	$(NASM) -f elf64 -o $@ $<
 
 $(AAC_SBR_QMF_SYNTH_MOD_ASM): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod.asm src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_tables.inc | $(OBJDIR)
+	$(NASM) -f elf64 -o $@ $<
+
+$(AAC_SBR_QMF_SYNTH_WINDOW_AVX2): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window_avx2.asm | $(OBJDIR)
+	$(NASM) -f elf64 -o $@ $<
+
+$(AAC_SBR_QMF_SYNTH_MOD_AVX2): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod_avx2.asm | $(OBJDIR)
 	$(NASM) -f elf64 -o $@ $<
 
 $(OBJDIR)/test_aac_syntax: tests/test_aac_syntax.c include/sauti_aac_syntax.h $(AAC_SYNTAX_SRC) $(AAC_DSP_ASM) $(AAC_HEADERS_ASM) | $(OBJDIR)
