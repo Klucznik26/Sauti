@@ -715,16 +715,27 @@ int sauti_aac_sbr_qmf_synth_window_64(
             next.ready=1u;next.head=0u;
         }
         memcpy(next.history[next.head],block,128u*sizeof(float));
+        const float *hist_ptrs[10];
+        for(unsigned j=0;j<10u;j++){
+            const unsigned ix=(next.head+j)%10u;
+            const unsigned offset=(j&1u)?64u:0u;
+            hist_ptrs[j]=&next.history[ix][offset];
+        }
+        float *slot_out=stage+(size_t)t*64u;
+#if defined(__x86_64__) || defined(_M_X64)
+        sauti_aac_sbr_qmf_synth_window_slot_asm(slot_out,qmf_coeff,hist_ptrs);
+#else
         for(unsigned n=0;n<64u;n++){
             double sum=0.0;
             for(unsigned j=0;j<10u;j++){
-                const unsigned ix=(next.head+j)%10u;
-                const unsigned offset=(j&1u)?64u:0u;
                 sum+=(double)qmf_coeff[j*64u+n]*
-                     (double)next.history[ix][offset+n];
+                     (double)hist_ptrs[j][n];
             }
-            if(!isfinite(sum) || fabs(sum)>FLT_MAX)return 0;
-            stage[(size_t)t*64u+n]=(float)sum;
+            slot_out[n]=(float)sum;
+        }
+#endif
+        for(unsigned n=0;n<64u;n++){
+            if(!isfinite(slot_out[n]) || fabsf(slot_out[n])>FLT_MAX)return 0;
         }
     }
     memcpy(output,stage,(size_t)slots*64u*sizeof(float));

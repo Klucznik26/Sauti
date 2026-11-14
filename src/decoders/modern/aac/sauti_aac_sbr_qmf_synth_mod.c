@@ -40,7 +40,11 @@ int sauti_aac_sbr_qmf_synth_modulate_64(
 
     float stage[SAUTI_AAC_SBR_QMF_MOD_MAX_SLOTS*
                 SAUTI_AAC_SBR_QMF_MOD_VALUES];
-    for(unsigned t=0;t<slots;t++)
+    for(unsigned t=0;t<slots;t++){
+        float *slot_out=stage+(size_t)t*SAUTI_AAC_SBR_QMF_MOD_VALUES;
+#if defined(__x86_64__) || defined(_M_X64)
+        sauti_aac_sbr_qmf_synth_mod_slot_asm(slot_out,bands+(size_t)t*SAUTI_AAC_SBR_QMF_MOD_BANDS);
+#else
         for(unsigned n=0;n<SAUTI_AAC_SBR_QMF_MOD_VALUES;n++){
             const double offset=(double)(2u*n)+1.0;
             double sum=0.0;
@@ -52,10 +56,13 @@ int sauti_aac_sbr_qmf_synth_modulate_64(
                 sum+=(double)x.re*cos(theta)-
                      (double)x.im*sin(theta);
             }
-            const double y=-sum/64.0;
-            if(!isfinite(y) || fabs(y)>FLT_MAX)return 0;
-            stage[(size_t)t*SAUTI_AAC_SBR_QMF_MOD_VALUES+n]=(float)y;
+            slot_out[n]=(float)(-sum/64.0);
         }
+#endif
+        for(unsigned n=0;n<SAUTI_AAC_SBR_QMF_MOD_VALUES;n++){
+            if(!isfinite(slot_out[n]) || fabsf(slot_out[n])>FLT_MAX)return 0;
+        }
+    }
     memcpy(modulation,stage,
         (size_t)slots*SAUTI_AAC_SBR_QMF_MOD_VALUES*sizeof(float));
     return 1;

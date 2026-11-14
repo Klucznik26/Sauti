@@ -63,4 +63,10 @@ int sauti_aac_sbr_qmf_synth_window_64(
     unsigned slots,float *output,size_t output_count,
     SautiAacSbrQmfSynthWindowState *state);
 
+/* Native x86-64 NASM SSE2 polyphase synthesis window kernel for one 64-sample slot. */
+void sauti_aac_sbr_qmf_synth_window_slot_asm(
+    float *output64,
+    const float *qmf_coeff640,
+    const float * const history_ptrs[10]);
+
 #endif

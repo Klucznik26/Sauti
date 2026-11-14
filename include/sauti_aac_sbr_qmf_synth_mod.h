@@ -52,4 +52,9 @@ int sauti_aac_sbr_qmf_synth_64(
     size_t output_count,
     SautiAacSbrQmfSynthWindowState *state);
 
+/* Native x86-64 NASM SSE2 complex QMF synthesis modulation kernel for one 128-sample slot. */
+void sauti_aac_sbr_qmf_synth_mod_slot_asm(
+    float *out128,
+    const SautiAacSbrComplex *bands64);
+
 #endif

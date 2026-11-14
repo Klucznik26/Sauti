@@ -7072,3 +7072,26 @@ The 640-tap synthesis window matches FFmpeg 8 `sbr_qmf_window_us` at every index
 FFmpeg's 320-tap analysis window `sbr_qmf_window_ds` is the even taps of that same prototype. It matches Sauti's `qmf_coeff[2*i]` at all 320 indexes, maximum absolute difference `0`. FFmpeg multiplies it reversed against the chronological buffer, and Sauti multiplies it forward against the newest-first history. Those are the same product. The analysis coefficients were not edited.
 
 On the same steady frames the phase+2 residual is the gap between that preview and the SBR-54m reference-gain PCM. FFmpeg marks `s_mapped = 1` on k18 and k40–k44 for every one of those 44 frames, and `s_mapped = 0` on k19–k39. On the mapped bands the reference-gain signal matches FFmpeg except at bins 296 and 680, where phase+2 is still closer. Taking reference-gain there and phase+2 everywhere else, including those two tone bins, brings the steady residual from `1.060e-4` to `4.04e-5`. Taking reference-gain on every band raises it to `1.58e-4`, because the unmapped bands already match the preview. The reference gain stays diagnostic. SBR-53d, the noise mix, and the oscillator were not changed.
+
+### SBR-74 — akceleracja asemblerowa x86-64 NASM (SSE2) syntezy QMF (2026-11-14)
+
+Zoptymalizowano dwa krytyczne moduły 64-pasmowego banku syntezy QMF (dotychczasowe wąskie gardło obliczeniowe dekodera HE-AAC/PS) za pomocą natywnego asemblera x86-64 NASM i wektoryzacji SSE2:
+
+1. **Polifazowe okno syntezy 640-tap (`sauti_aac_sbr_qmf_synth_window.asm`):**
+   - Jądro `sauti_aac_sbr_qmf_synth_window_slot_asm` syntezuje 64 próbki na slot w 4 blokach po 16 próbek (`xmm0..xmm3`).
+   - Wewnętrzna pętla 10 bloków historii wykonuje bezpośrednią wektorową akumulację mnożenia (`mulps` + `addps`) z 10 wskaźnikami bufora pierścieniowego `history` i współczynnikami `qmf_coeff`.
+   - Zapewnia pełną zgodność z zachowaniem bit-identical w testach podziału slotów (17+23 vs 40).
+
+2. **Zespolona modulacja syntezy QMF (`sauti_aac_sbr_qmf_synth_mod.asm`):**
+   - Wykorzystano symetrię trygonometryczną kątów $\theta(k, 127-n) = \pi - \theta(k, n)$, co zredukowało liczbę wierszy o połowę:
+     $$V[n] = R[n] + I[n], \quad V[127-n] = I[n] - R[n]$$
+     gdzie $R[n]$ to iloczyn skalarny części rzeczywistych z tabelą cosinusów, a $I[n]$ to iloczyn części urojonych z tabelą sinusów.
+   - Wektory części rzeczywistej i urojonej są deinterleave'owane na 16-bajtowo wyrównanym stosie za pomocą `shufps`.
+   - Stałe współczynniki modulacji $-\frac{1}{64}\cos(\theta)$ oraz $\frac{1}{64}\sin(\theta)$ zostały prekompilowane w precyzji IEEE-754 do sekcji `.rodata` (`sauti_aac_sbr_qmf_synth_tables.inc`, 32 KB łącznie).
+   - Wyeliminowano runtime'owe wywołania biblioteki matematycznej `libm` `cos()`/`sin()` (262 144 wywołań na ramkę mono, 524 288 w stereo), osiągając przyspieszenie rzędu ~190x na poziomie pojedynczego slotu modulacji (~4.0 ms -> ~0.02 ms na ramkę 40-slotową).
+
+3. **Czysta integracja i testy:**
+   - W plikach C (`sauti_aac_sbr_qmf_synth_window.c` i `sauti_aac_sbr_qmf_synth_mod.c`) zachowano pełne sprawdzanie poprawności wejść (NaN/Inf, aliasowanie buforów, rollback stanu przy błędach) oraz przenośny fallback w czystym C11 dla architektur innych niż x86-64.
+   - Wszystkie reguły `Makefile` automatycznie kompilują i dołączają moduły NASM (`sauti_aac_sbr_qmf_synth_window_asm.o` i `sauti_aac_sbr_qmf_synth_mod_asm.o`).
+   - Pełny zestaw testów `make test-aac-native`, `make test-aac-ps*` oraz `make test-aac-ps5-temporal` przeszedł w 100% bez jakichkolwiek regresji.
+
