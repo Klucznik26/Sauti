@@ -28,7 +28,8 @@ static double bench(int avx2,int modulation){
                 if(avx2) sauti_aac_sbr_qmf_synth_mod_slot_avx2(g_out,g_bands);
                 else sauti_aac_sbr_qmf_synth_mod_slot_asm(g_out,g_bands);
             }else{
-                if(avx2) sauti_aac_sbr_qmf_synth_window_slot_avx2(g_out,g_coeff,g_ptrs);
+                if(avx2==2) sauti_aac_sbr_qmf_synth_window_slot_avx2_unrolled(g_out,g_coeff,g_ptrs);
+                else if(avx2==1) sauti_aac_sbr_qmf_synth_window_slot_avx2(g_out,g_coeff,g_ptrs);
                 else sauti_aac_sbr_qmf_synth_window_slot_asm(g_out,g_coeff,g_ptrs);
             }
         }
@@ -63,11 +64,13 @@ int main(void){
             g_hist[j][n]=(float)((int)((j*11+n*7)%31)-15)*0.125f;
     }
     double m_sse=bench(0,1),m_avx=bench(1,1);
-    double w_sse=bench(0,0),w_avx=bench(1,0);
+    double w_sse=bench(0,0),w_avx=bench(1,0),w_unrolled=bench(2,0);
     printf("QMF modulation: SSE2 %.1f ns/slot, AVX2 %.1f ns/slot; %.2fx\n",
         m_sse,m_avx,m_avx>0?m_sse/m_avx:0.0);
-    printf("QMF window:     SSE2 %.1f ns/slot, AVX2 %.1f ns/slot; %.2fx\n",
-        w_sse,w_avx,w_avx>0?w_sse/w_avx:0.0);
+    printf("QMF window:     SSE2 %.1f ns, AVX2 loop %.1f ns, AVX2 unrolled %.1f ns per slot\n",
+        w_sse,w_avx,w_unrolled);
+    printf("Window A/B: AVX2 loop %.2fx SSE2; unrolled %.2fx AVX2 loop (experimental)\n",
+        w_avx>0?w_sse/w_avx:0.0,w_unrolled>0?w_avx/w_unrolled:0.0);
     puts("Median of seven batches. Microbenchmark only; verify full decoding separately.");
 #else
     puts("SKIP QMF SIMD benchmark: System V x86-64 only");
