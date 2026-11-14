@@ -4,6 +4,45 @@
 The core remains independent of PipeWire, SDL2, Wayland and operating-system
 calls. There is no native AyoOS/Windows audio adapter yet.
 
+## Creative VOC (initial PCM support)
+
+The native decoder accepts Creative Voice File blocks 1/2 (8-bit PCM),
+3 (silence), 8 (extended mono/stereo PCM), and 9 (8-bit unsigned or
+16-bit signed little-endian PCM). It supports multiple chunks and seeking.
+Files with Creative ADPCM, repeat blocks (6/7), unknown audio codecs,
+incompatible sample rates, or invalid/truncated headers are rejected
+instead of guessed. The Linux audio browser accepts .voc files.
+Run `make test-voc` for the bounded parser/PCM regression.
+
+## AAC, Ogg, WebM, ALAC and AIFF
+
+- Ogg Vorbis and Ogg Opus were already supported (Opus requires opusfile).
+- Native AIFF / AIFF-C uncompressed signed PCM 8/16/24/32-bit decoder:
+  AIFF big-endian and AIFC `sowt` little-endian. Unknown compression
+  is rejected.
+- Optional *in-process* FFmpeg adapter: ADTS AAC (`.aac`), AAC or ALAC
+  in MP4/M4A (`.m4a`, including MP4 renamed to `.alac`), and WebM with
+  Opus/Vorbis (`.webm`). Content and codec are checked, not just the suffix.
+- Fedora packages: `sudo dnf install ffmpeg-free-devel`, then rebuild
+  with `make clean && make test && make window-pipewire`.
+- Test via `make test-aiff`, `make test-ffmpeg`, `make test-container-formats`.
+  The FFmpeg command-line utility is only used to *generate tests*, not
+  to play music.
+- The initial FFmpeg decoder buffers PCM at open, up to 512 MiB of float
+  samples. Long recordings may not load until streaming support is added.
+- Without FFmpeg development files Sauti still compiles; AAC/ALAC/WebM
+  adapters remain disabled.
+
+## Native AAC family (ASM, work in progress)
+
+A shared AAC-LC / HE-AAC (SBR) / HE-AAC v2 (SBR+PS) decoder is being
+developed in NASM. The new ADTS parser and MSB-first bitreader are written
+in ASM, with a small AudioSpecificConfig grammar helper for explicit
+AOT 2 / 5 / 29 signaling. Run `make test-aac-headers`.
+**These modules do not yet decode AAC audio to PCM.** Playback still uses
+the optional FFmpeg adapter until all three profiles pass real PCM tests.
+See `docs/AAC_FAMILY_ASM.md` for milestones and limitations.
+
 ## Features available
 
 - NASM auto-gain (1..64x, visual only), on-screen Peak/RMS dBFS bars.

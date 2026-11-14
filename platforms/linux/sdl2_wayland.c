@@ -1908,7 +1908,7 @@ static int browser_is_audio_file(const char *name){
      * Keep the list focused on formats we intend to support. */
     static const char *audio[]={
         "mid","midi",
-        "mp3","wav","flac","ogg","oga","opus","m4a","aac","wv","avr","dvs","ym","dtm","sndh","snd"
+        "mp3","wav","voc","aif","aiff","aifc","aac","m4a","alac","webm","flac","ogg","oga","opus","m4a","aac","wv","avr","dvs","ym","dtm","sndh","snd"
     };
     for(size_t i=0;i<sizeof(audio)/sizeof(audio[0]);++i)
         if(strcasecmp(ext,audio[i])==0)return 1;
@@ -2262,7 +2262,7 @@ static int player_load(SautiPlayer *p,const char *path){
     player_unload(p);
     if(player_init(p)!=0)return -1;
     const char *ext=strrchr(path,'.');
-    if(ext && (strcasecmp(ext,".mp3")==0 || strcasecmp(ext,".ogg")==0 || strcasecmp(ext,".oga")==0 || strcasecmp(ext,".opus")==0 || strcasecmp(ext,".wav")==0 || strcasecmp(ext,".flac")==0 || strcasecmp(ext,".wv")==0 || strcasecmp(ext,".mid")==0 || strcasecmp(ext,".midi")==0 || strcasecmp(ext,".avr")==0 || strcasecmp(ext,".dvs")==0 || strcasecmp(ext,".ym")==0 || strcasecmp(ext,".dtm")==0 || strcasecmp(ext,".sndh")==0 || strcasecmp(ext,".snd")==0)){
+    if(ext && (strcasecmp(ext,".mp3")==0 || strcasecmp(ext,".ogg")==0 || strcasecmp(ext,".oga")==0 || strcasecmp(ext,".opus")==0 || strcasecmp(ext,".wav")==0 || strcasecmp(ext,".voc")==0 || strcasecmp(ext,".aif")==0 || strcasecmp(ext,".aiff")==0 || strcasecmp(ext,".aifc")==0 || strcasecmp(ext,".aac")==0 || strcasecmp(ext,".m4a")==0 || strcasecmp(ext,".alac")==0 || strcasecmp(ext,".webm")==0 || strcasecmp(ext,".flac")==0 || strcasecmp(ext,".wv")==0 || strcasecmp(ext,".mid")==0 || strcasecmp(ext,".midi")==0 || strcasecmp(ext,".avr")==0 || strcasecmp(ext,".dvs")==0 || strcasecmp(ext,".ym")==0 || strcasecmp(ext,".dtm")==0 || strcasecmp(ext,".sndh")==0 || strcasecmp(ext,".snd")==0)){
         p->portable_mp3=sauti_mp3_sdl_open(path);
         if(p->portable_mp3){
             p->duration=sauti_mp3_sdl_duration(p->portable_mp3);

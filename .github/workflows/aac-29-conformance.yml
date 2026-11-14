@@ -1,0 +1,43 @@
+name: Native AAC-29 conformance
+
+on:
+  push:
+    branches:
+      - feature/aac-family-asm
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  aac-29:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TMPDIR: ${{ github.workspace }}/build/tmp
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install assembler and reference encoder/decoder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm ffmpeg
+      - name: Set up temporary build area
+        run: mkdir -p build/tmp
+      - name: Native AAC unit and adapter regressions
+        run: make test-aac-native PKG_CONFIG=/bin/false
+      - name: Strict 36-case AAC-29 reference matrix
+        run: make test-aac-29-ci PKG_CONFIG=/bin/false
+      - name: Extended 6-second stereo streams (3 representative cases)
+        run: make test-aac-29-long PKG_CONFIG=/bin/false
+      - name: Upload PCM diagnostics when a check fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aac-29-failed-diagnostics
+          path: |
+            build/audio-fixtures/aac-29/summary_full.json
+            build/audio-fixtures/aac-29/*.log
+            build/audio-fixtures/aac-29-long/summary_smoke.json
+            build/audio-fixtures/aac-29-long/*.log
+          if-no-files-found: ignore
