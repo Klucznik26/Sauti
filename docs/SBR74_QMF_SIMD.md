@@ -18,6 +18,7 @@
 
 ```sh
 make test-aac-qmf-dispatch  # pure P/E policy + live CPU checks
+make test-aac-qmf-migration  # 16 frames; automatically alternates available P/E cores
 make probe-aac-qmf  # report selected implementation on this CPU
 make test-aac-qmf-simd
 make test-aac-qmf-variants  # C11 and forced SSE2 public-API tests
@@ -81,6 +82,25 @@ probe does not pin threads by itself; `taskset` is for the measurement only.
 The normal player does not change thread affinity. Both wrappers recheck the
 current core at each 40-slot batch; migration *during* the batch can affect
 performance but not the semantics of the selected kernel.
+
+## Multi-frame P/E migration continuity
+
+`make test-aac-qmf-migration` creates two independently compiled
+executables, automatic dispatch and forced SSE2. The Linux test inspects the
+**currently allowed** CPU affinity mask and searches for one P-core and one
+E-core by CPUID (never assumes that CPU numbers 4 or 12 are universal).
+When both are accessible, it alternates those cores on consecutive 40-slot
+frames for 16 frames, verifying the dispatch preference each time, and
+**restores the original affinity mask** before exiting. It does not alter
+thread affinity in the real decoder. On homogeneous CI runners or restricted
+CPU sets it reports SKIP for migration, but still generates both PCM streams.
+
+The existing PCM comparator now accepts a whole number of 40-slot frames,
+rejects different file lengths, and checks **all 40,960 samples** for
+finite values and agreement within the established numerical tolerance.
+It continues to support the original one-frame test. This covers state
+continuity across P/E transitions without claiming identical-bit AVX2
+modulation output. The benchmark remains separate from this correctness test.
 
 ## Acceptance criteria
 
