@@ -23,6 +23,8 @@ jobs:
         run: |
           make test-aac-qmf-variants test-aac-qmf-simd
           make bench-aac-qmf
+      - name: Benchmark end-to-end 40-slot QMF synthesis (non-gating performance)
+        run: make bench-aac-qmf-frame
       - name: Decode actual AAC, ALAC and WebM fixtures
         run: make test-container-formats
       - name: Sanitizer regression (C harness only; ASM guarded by canaries)
