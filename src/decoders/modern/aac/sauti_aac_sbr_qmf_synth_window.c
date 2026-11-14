@@ -707,7 +707,7 @@ int sauti_aac_sbr_qmf_synth_window_64(
     float stage[SAUTI_AAC_SBR_QMF_SYNTH_WINDOW_SLOTS*64u];
     /* Runtime AVX2/OS support, once per batch; no unconditional AVX.
      * The 10-tap multiplication-addition order is unchanged. */
-#if defined(__x86_64__) && !defined(_WIN32) && \
+#if defined(__x86_64__) && defined(__ELF__) && !defined(_WIN32) && \
     (defined(__GNUC__) || defined(__clang__)) && !defined(SAUTI_QMF_DISABLE_ASM)
 #if defined(SAUTI_QMF_FORCE_SSE2)
     const int use_avx2=0;
@@ -732,7 +732,7 @@ int sauti_aac_sbr_qmf_synth_window_64(
             hist_ptrs[j]=&next.history[ix][offset];
         }
         float *slot_out=stage+(size_t)t*64u;
-#if defined(__x86_64__) && !defined(_WIN32) && \
+#if defined(__x86_64__) && defined(__ELF__) && !defined(_WIN32) && \
     (defined(__GNUC__) || defined(__clang__)) && !defined(SAUTI_QMF_DISABLE_ASM)
         if(use_avx2)
             sauti_aac_sbr_qmf_synth_window_slot_avx2(slot_out,qmf_coeff,hist_ptrs);
