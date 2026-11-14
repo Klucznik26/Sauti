@@ -797,6 +797,13 @@ bench-aac-qmf-frame: $(OBJDIR)/sauti_qmf_frame_bench_auto $(OBJDIR)/sauti_qmf_fr
 	./$(OBJDIR)/sauti_qmf_frame_bench_auto
 	./$(OBJDIR)/sauti_qmf_frame_bench_sse2
 
+# End-to-end QMF synthesis output comparison, not merely kernel math.
+.PHONY: test-aac-qmf-frame-parity
+test-aac-qmf-frame-parity: $(OBJDIR)/sauti_qmf_frame_bench_auto $(OBJDIR)/sauti_qmf_frame_bench_sse2
+	./$(OBJDIR)/sauti_qmf_frame_bench_auto --pcm-out $(OBJDIR)/sauti_qmf_auto.f32le
+	./$(OBJDIR)/sauti_qmf_frame_bench_sse2 --pcm-out $(OBJDIR)/sauti_qmf_sse2.f32le
+	python3 tools/sauti_qmf_frame_compare.py $(OBJDIR)/sauti_qmf_auto.f32le $(OBJDIR)/sauti_qmf_sse2.f32le
+
 $(OBJDIR)/test_aac_sbr_qmf_analysis: tests/test_aac_sbr_qmf_analysis.c include/sauti_aac_sbr_qmf_analysis.h $(AAC_SBR_QMF_ANALYSIS_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_qmf_analysis.c $(AAC_SBR_QMF_ANALYSIS_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
 
