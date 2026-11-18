@@ -35,8 +35,13 @@ static int channel_parse(const uint8_t *data,size_t length,size_t *pos,
         *reason=SAUTI_AAC_REASON_INVALID_SCALEFACTORS;
         return 0;
     }
+    SautiAacPulseData pulse;memset(&pulse,0,sizeof(pulse));
+    unsigned have_pulse=0;
     if(!get(data,length,pos,1,&v))return 0;
-    if(v){*reason=SAUTI_AAC_REASON_PULSE;return -1;}
+    if(v){
+        if(!sauti_aac_pulse_parse(data,length,pos,&ch->ics,&pulse)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
+        have_pulse=1u;
+    }
     if(!get(data,length,pos,1,&v))return 0;
     if(v){
         ch->tns_present=1u;
@@ -51,6 +56,9 @@ static int channel_parse(const uint8_t *data,size_t length,size_t *pos,
         }
     if(!sauti_aac_lc_spectral_data_parse(data,length,pos,rate,&ch->ics,
                                           &ch->sections,ch->quant)){
+        *reason=SAUTI_AAC_REASON_INVALID_SPECTRAL;return 0;
+    }
+    if(have_pulse && !sauti_aac_lc_pulse_apply(ch->quant,rate,&ch->ics,&ch->factors,&pulse)){
         *reason=SAUTI_AAC_REASON_INVALID_SPECTRAL;return 0;
     }
     return 1;
@@ -117,10 +125,9 @@ static int apply_ms(const SautiAacCpeData *cpe,unsigned rate,
             if(!cpe->ms_used[g][band])continue;
             const unsigned a=cpe->channel[0].factors.codebook[g][band];
             const unsigned b=cpe->channel[1].factors.codebook[g][band];
-            if(b==14u || b==15u)continue; /* intensity handles MS sign */
-            if(a==13u && b==13u)continue; /* correlated PNS follows */
+            if(a>=13u || b>=13u)continue; /* PNS albo intensity w kanale: motyw M/S nie dotyczy pasma (obu PNS: korelowany szum ponizej) */
             if(a>11u || b>11u){
-                *reason=SAUTI_AAC_REASON_MID_SIDE;return -1;
+                *reason=SAUTI_AAC_REASON_MID_SIDE;return -1;           /* 12 = zarezerwowany */
             }
             const unsigned start=offsets[band],end=offsets[band+1u];
             if(end<=start || end>(shortwin?128u:1024u))return 0;
@@ -149,6 +156,7 @@ static int apply_ms(const SautiAacCpeData *cpe,unsigned rate,
 static int apply_correlated_pns(const SautiAacCpeData *cpe,unsigned rate,
                                 const float left[1024],float right[1024],
                                 SautiAacReason *reason){
+    (void)reason;
     if(!cpe->common_window || !cpe->ms_mask_present)return 1;
     const SautiAacIcsInfo *ics=&cpe->channel[0].ics;
     const unsigned shortwin=ics->window_sequence==2u;
@@ -164,10 +172,7 @@ static int apply_correlated_pns(const SautiAacCpeData *cpe,unsigned rate,
             const unsigned a=cpe->channel[0].factors.codebook[g][band];
             const unsigned b=cpe->channel[1].factors.codebook[g][band];
             if(a!=13u && b!=13u)continue;
-            if(a!=13u || b!=13u){
-                *reason=SAUTI_AAC_REASON_MID_SIDE;
-                return -1;
-            }
+            if(a!=13u || b!=13u)continue;   /* PNS tylko w jednym kanale: szum niezalezny, M/S nie dotyczy pasma */
             const int32_t ls=cpe->channel[0].factors.value[g][band];
             const int32_t rs=cpe->channel[1].factors.value[g][band];
             if(ls< -512 || ls>512 || rs< -512 || rs>512)return 0;
@@ -212,7 +217,7 @@ static int apply_intensity(const SautiAacCpeData *cpe,unsigned rate,
             if(cb!=14u && cb!=15u)continue;
             if(!cpe->common_window)return 0;
             unsigned left_cb=cpe->channel[0].factors.codebook[g][band];
-            if(left_cb>=13u)return 0; /* PNS stereo correlation deferred */
+            if(left_cb>13u)return 0;     /* 14/15 w lewym kanale i 12 sa niepoprawne; lewy PNS (13) jest dozwolony: prawy = lewy (szum) * skala, jak w FFmpeg */
             const int32_t position=cpe->channel[1].factors.value[g][band];
             if(position < -512 || position > 512)return 0;
             double sign=cb==15u?1.0:-1.0;
@@ -314,6 +319,12 @@ int sauti_aac_lc_cpe_synthesize(const SautiAacCpeData *parsed,
     *reason=SAUTI_AAC_REASON_OK;
     return 1;
 }
+static int skip_fill_element(const uint8_t *raw,size_t raw_length,size_t *pos,
+                             SautiAacReason *reason){
+    const int status=sauti_aac_fill_skip_non_sbr(raw,raw_length,pos,NULL);
+    if(status==-1)*reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;
+    return status;
+}
 int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
                                       SautiAacLcSynthesis state[2],
                                       float interleaved[2048],
@@ -338,11 +349,8 @@ int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
         if(!get(raw,raw_length,&probe,3,&id))return 0;
         if(id!=6u)break;
         pos=probe;
-        SautiAacFillInfo fill;
-        if(!sauti_aac_fill_parse(raw,raw_length,&pos,&fill))return 0;
-        if(fill.payload_bytes && fill.extension_type!=0u){
-            *reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;return -1;
-        }
+        const int skipped=skip_fill_element(raw,raw_length,&pos,reason);
+        if(skipped!=1)return skipped;
     }
     const size_t cpe_start=pos;
     SautiAacCpeData parsed;
@@ -373,8 +381,12 @@ int sauti_aac_lc_adts_stereo_decode_ex(const uint8_t *frame,size_t length,
             *reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;
         }
         if(id==7u)break;
-        *reason=id==6u?SAUTI_AAC_REASON_UNSUPPORTED_FIL:
-                        SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;
+        if(id==6u){                                   /* FIL za elementem kanalowym (np. fdk-aac) */
+            const int skipped=skip_fill_element(raw,raw_length,&pos,reason);
+            if(skipped!=1)return skipped;
+            continue;
+        }
+        *reason=SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;
         return -1;
     }
     while(pos&7u){

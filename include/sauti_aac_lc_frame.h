@@ -15,6 +15,16 @@ int sauti_aac_lc_adts_mono_decode(const uint8_t *frame,size_t length,
                                  SautiAacLcSynthesis *state,
                                  float pcm[1024]);
 
+/* Tool pulse (AAC-LC, okna dlugie): dodaje amplitudy do skwantowanych wspolczynnikow (q > 0: q + amp, w przeciwnym razie q - amp, jak w specyfikacji) PRZED odwrotna kwantyzacja.
+ * Pasma szumowe (PNS), zerowe i intensywnosci sa pomijane, jak w FFmpeg.  1 = zastosowano (takze gdy cala pulsacja trafila w pominiete pasma), 0 = poza zakresem
+ * (start_sfb >= liczby pasm albo pozycja >= 1024): ramka niepoprawna. */
+#include "sauti_aac_syntax.h"
+#include "sauti_aac_scalefactors.h"
+int sauti_aac_lc_pulse_apply(int32_t quant[1024],unsigned rate_index,
+                             const SautiAacIcsInfo *ics,
+                             const SautiAacScaleFactors *factors,
+                             const SautiAacPulseData *pulse);
+
 /* Isolated parsed SCE from a raw_data_block. Produces the quantized spectrum
  * and scale factor fields. On failure leaves output and offset unchanged.
  * -1 = unsupported AAC element/tool; 0 = malformed or truncated. */

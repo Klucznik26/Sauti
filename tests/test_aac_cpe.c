@@ -347,6 +347,170 @@ static void mutation_sweep(void){
     assert(accepted+rejected==length*8u);
     assert(rejected>0);
 }
+
+/* ---- regresje z macierzy korpusu (tools/aac_corpus_matrix.py, 2026-11-18): bledy znalezione na prawdziwych strumieniach fdk-aac i faac ---- */
+static unsigned fill_frame(uint8_t *frame,unsigned lead_type,unsigned lead_cnt,
+                           unsigned trail_type,unsigned trail_cnt,
+                           unsigned count_fil_after){
+    /* [FIL poczatkowy] CPE (cisza, common_window, brak MS) [FIL koncowy x count_fil_after] END; typ 99 = brak elementu */
+    Bits raw={0};
+    if(lead_type!=99u){
+        put(&raw,3,6);put(&raw,4,lead_cnt);
+        if(lead_cnt){put(&raw,4,lead_type);for(unsigned i=4;i<lead_cnt*8u;i++)put(&raw,1,0);}
+    }
+    put(&raw,3,1);put(&raw,4,0);put(&raw,1,1);
+    ics(&raw,0);put(&raw,2,0);
+    channel(&raw,1);channel(&raw,1);
+    for(unsigned n=0;n<count_fil_after;n++){
+        put(&raw,3,6);put(&raw,4,trail_cnt);
+        if(trail_cnt){put(&raw,4,trail_type);for(unsigned i=4;i<trail_cnt*8u;i++)put(&raw,1,0);}
+    }
+    put(&raw,3,7);
+    while(raw.bits%8u)put(&raw,1,0);
+    const unsigned length=7u+(unsigned)(raw.bits/8u);
+    header(frame,length);memcpy(frame+7,raw.b,raw.bits/8u);
+    return length;
+}
+static int decode_fill(unsigned lead_type,unsigned lead_cnt,unsigned trail_type,
+                       unsigned trail_cnt,unsigned after,SautiAacReason *reason){
+    uint8_t frame[160];
+    const unsigned length=fill_frame(frame,lead_type,lead_cnt,trail_type,trail_cnt,after);
+    SautiAacLcSynthesis state[2]={0};
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    float pcm[2048];
+    const int status=sauti_aac_lc_adts_stereo_decode_ex(frame,length,state,pcm,reason);
+    if(status==1)for(unsigned i=0;i<2048;i++)assert(pcm[i]==0.0f);
+    return status;
+}
+static void fill_elements(void){
+    SautiAacReason r;
+    /* FIL ZA elementem kanalowym (fdk-aac): kazdy typ poza SBR jest pomijany */
+    for(unsigned t=0;t<=12u;t++){
+        if(t==13u)continue;
+        assert(decode_fill(99,0,t,3,1,&r)==1 && r==SAUTI_AAC_REASON_OK);
+    }
+    assert(decode_fill(99,0,15,5,1,&r)==1);                     /* typ zarezerwowany */
+    assert(decode_fill(99,0,1,0,1,&r)==1);                      /* FIL bez ladunku (cnt=0) */
+    assert(decode_fill(99,0,1,2,3,&r)==1);                      /* kilka FIL pod rzad */
+    /* FIL PRZED CPE: rowniez dowolny typ poza SBR (wczesniej tylko typ 0) */
+    assert(decode_fill(1,4,0,0,0,&r)==1 && decode_fill(11,2,0,0,0,&r)==1 && decode_fill(0,3,0,0,0,&r)==1);
+    /* SBR (13, 14) zmienia wyjscie (HE-AAC): rdzen LC go odrzuca, nigdy nie pomija po cichu */
+    assert(decode_fill(99,0,13,3,1,&r)==-1 && r==SAUTI_AAC_REASON_UNSUPPORTED_FIL);
+    assert(decode_fill(99,0,14,3,1,&r)==-1 && r==SAUTI_AAC_REASON_UNSUPPORTED_FIL);
+    assert(decode_fill(13,3,0,0,0,&r)==-1 && r==SAUTI_AAC_REASON_UNSUPPORTED_FIL);
+    assert(decode_fill(14,3,0,0,0,&r)==-1);
+    /* ucieta ramka z FIL: niepoprawna, bez zmiany stanu */
+    uint8_t frame[160];
+    const unsigned length=fill_frame(frame,99,0,1,6,1);
+    SautiAacLcSynthesis state[2]={0},saved[2];
+    assert(sauti_aac_lc_synthesis_init(&state[0],0));
+    assert(sauti_aac_lc_synthesis_init(&state[1],0));
+    saved[0]=state[0];saved[1]=state[1];
+    float pcm[2048];
+    assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length-3u,state,pcm,&r)==0);
+    assert(memcmp(saved,state,sizeof(saved))==0);
+}
+static unsigned pns_left_frame(uint8_t *frame,unsigned right_book,unsigned mask,
+                               unsigned mask_flag,unsigned position_delta){
+    /* CPE common_window, 1 pasmo: lewy = PNS (cb 13), prawy = cb 15/14 (intensity) albo cb 1 (widmo); mask: ms_mask_present, mask_flag: ms_used[0][0] */
+    Bits raw={0};
+    put(&raw,3,1);put(&raw,4,0);put(&raw,1,1);
+    ics(&raw,1);put(&raw,2,mask);
+    if(mask==1u)put(&raw,1,mask_flag);
+    put(&raw,8,100);put(&raw,4,13);put(&raw,5,1);put(&raw,9,256);
+    put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);
+    put(&raw,8,100);put(&raw,4,right_book);put(&raw,5,1);
+    symbol(&raw,0,60u+position_delta);
+    put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);
+    if(right_book<=11u)symbol(&raw,right_book,right_book==1u?80u:0u);
+    put(&raw,3,7);
+    while(raw.bits%8u)put(&raw,1,0);
+    const unsigned length=7u+(unsigned)(raw.bits/8u);
+    header(frame,length);memcpy(frame+7,raw.b,raw.bits/8u);
+    return length;
+}
+static void pns_with_stereo_tools(void){
+    SautiAacReason r;float pcm[2048];
+    /* intensywnosc w prawym kanale nad lewym pasmem PNS (faac): prawy = lewy * skala, jak w FFmpeg (wczesniej: ramka niepoprawna) */
+    for(unsigned book=14u;book<=15u;book++){
+        for(unsigned delta=0;delta<=4u;delta+=4u){
+            uint8_t frame[160];
+            const unsigned length=pns_left_frame(frame,book,0,0,delta);
+            SautiAacLcSynthesis state[2]={0};
+            assert(sauti_aac_lc_synthesis_init(&state[0],0));
+            assert(sauti_aac_lc_synthesis_init(&state[1],0));
+            assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,state,pcm,&r)==1);
+            const float scale=(book==15u?1.0f:-1.0f)*exp2f(-(float)delta/4.0f);
+            double energy=0;
+            for(unsigned i=0;i<1024;i++){
+                assert(isfinite(pcm[2*i]) && isfinite(pcm[2*i+1]));
+                assert(fabsf(pcm[2*i+1]-pcm[2*i]*scale)<1.e-6f);
+                energy+=(double)pcm[2*i]*pcm[2*i];
+            }
+            assert(energy>0.0);                                    /* lewy szum jest niezerowy */
+        }
+    }
+    /* M/S zaznaczone na pasmie, w ktorym PNS jest tylko w jednym kanale: M/S nie dotyczy pasma (wczesniej: odrzucenie mid_side) */
+    {
+        uint8_t frame[160];
+        const unsigned length=pns_left_frame(frame,1u,1u,1u,0);
+        SautiAacLcSynthesis state[2]={0};
+        assert(sauti_aac_lc_synthesis_init(&state[0],0));
+        assert(sauti_aac_lc_synthesis_init(&state[1],0));
+        assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,state,pcm,&r)==1 && r==SAUTI_AAC_REASON_OK);
+        uint8_t frame2[160];
+        const unsigned length2=pns_left_frame(frame2,1u,1u,0u,0);        /* to samo bez zaznaczenia M/S */
+        SautiAacLcSynthesis state2[2]={0};
+        float pcm2[2048];
+        assert(sauti_aac_lc_synthesis_init(&state2[0],0));
+        assert(sauti_aac_lc_synthesis_init(&state2[1],0));
+        assert(sauti_aac_lc_adts_stereo_decode_ex(frame2,length2,state2,pcm2,&r)==1);
+        for(unsigned i=0;i<2048;i++)assert(pcm[i]==pcm2[i]);           /* flaga M/S na takim pasmie nie zmienia PCM */
+    }
+}
+static unsigned seq_frame(uint8_t *frame,unsigned sequence){
+    Bits raw={0};
+    put(&raw,3,1);put(&raw,4,0);put(&raw,1,1);
+    put(&raw,1,0);put(&raw,2,sequence);put(&raw,1,0);
+    put(&raw,6,0);put(&raw,1,0);put(&raw,2,0);
+    channel(&raw,1);channel(&raw,1);
+    put(&raw,3,7);
+    while(raw.bits%8u)put(&raw,1,0);
+    const unsigned length=7u+(unsigned)(raw.bits/8u);
+    header(frame,length);memcpy(frame+7,raw.b,raw.bits/8u);
+    return length;
+}
+static void stream_start_any_window_sequence(void){
+    /* strumien moze zaczac sie dowolna sekwencja okien (faac zaczyna od LONG_START/EIGHT_SHORT); pozniejsze przejscia nadal sa kontrolowane */
+    SautiAacReason r;float pcm[2048];
+    for(unsigned seq=0;seq<=3u;seq++){
+        if(seq==2u)continue;                                         /* EIGHT_SHORT ma inna skladnie ICS: pokryte przez korpus faac */
+        uint8_t frame[160];
+        const unsigned length=seq_frame(frame,seq);
+        SautiAacLcSynthesis state[2]={0};
+        assert(sauti_aac_lc_synthesis_init(&state[0],0));
+        assert(sauti_aac_lc_synthesis_init(&state[1],0));
+        assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,state,pcm,&r)==1);
+        assert(state[0].previous_sequence==seq);
+        if(seq==1u){                                                 /* po LONG_START wolno tylko EIGHT_SHORT: ONLY_LONG odrzucone, stan bez zmian */
+            uint8_t f2[160];
+            const unsigned l2=seq_frame(f2,0);
+            SautiAacLcSynthesis saved[2]={state[0],state[1]};
+            assert(sauti_aac_lc_adts_stereo_decode_ex(f2,l2,state,pcm,&r)==0);
+            assert(memcmp(saved,state,sizeof(saved))==0);
+        }
+        if(seq==3u){                                                 /* po LONG_STOP: ONLY_LONG i LONG_START dozwolone, LONG_STOP nie */
+            uint8_t f2[160];
+            SautiAacLcSynthesis saved[2]={state[0],state[1]};
+            const unsigned l3=seq_frame(f2,3);
+            assert(sauti_aac_lc_adts_stereo_decode_ex(f2,l3,state,pcm,&r)==0);
+            assert(memcmp(saved,state,sizeof(saved))==0);
+            const unsigned l0=seq_frame(f2,0);
+            assert(sauti_aac_lc_adts_stereo_decode_ex(f2,l0,state,pcm,&r)==1);
+        }
+    }
+}
 int main(void){
     run(0,0);run(1,0);run(1,1);run(1,2);
     nonzero_ms(0);nonzero_ms(1);nonzero_ms(2);unsupported();
@@ -355,8 +519,9 @@ int main(void){
     intensity_stereo(15,0,4);
     shared_pns_stream();
     correlated_pns(1,0);correlated_pns(2,4);
+    fill_elements();pns_with_stereo_tools();stream_start_any_window_sequence();
     robustness();
     mutation_sweep();
-    puts("PASS AAC-26/29D CPE: stereo PNS, malformed ADTS, bit mutations, rollback and recovery");
+    puts("PASS AAC-26/29D CPE: stereo PNS, FIL skipping, PNS with intensity/M-S, any first window sequence, malformed ADTS, bit mutations, rollback and recovery");
     return 0;
 }

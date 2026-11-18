@@ -65,6 +65,35 @@ int sauti_aac_fill_parse(const uint8_t *data,size_t size,
      * Never identify PS here: PS is signaled inside the SBR extension. */
     *info=next;*bit_offset=ext_start+next.extension_bits;return 1;
 }
+int sauti_aac_pulse_parse(const uint8_t *data,size_t size,size_t *bit_offset,
+                          const SautiAacIcsInfo *ics,SautiAacPulseData *out){
+    SautiAacPulseData next;
+    size_t pos;
+    uint32_t n=0;
+    if(!data||!bit_offset||!out||!ics||ics->window_sequence==2u)return 0;   /* pulse_data tylko dla okien dlugich */
+    pos=*bit_offset;
+    memset(&next,0,sizeof(next));
+    if(!read(data,size,&pos,2,&n)||!read(data,size,&pos,6,&next.start_sfb))return 0;
+    next.count=n+1u;
+    for(uint32_t i=0;i<next.count;i++){
+        uint32_t off=0,amp=0;
+        if(!read(data,size,&pos,5,&off)||!read(data,size,&pos,4,&amp))return 0;
+        next.offset[i]=(uint8_t)off;next.amp[i]=(uint8_t)amp;
+    }
+    *out=next;*bit_offset=pos;return 1;
+}
+int sauti_aac_fill_skip_non_sbr(const uint8_t *data,size_t size,
+                                size_t *bit_offset,SautiAacFillInfo *info){
+    SautiAacFillInfo fill;
+    size_t pos;
+    if(!data||!bit_offset)return 0;
+    pos=*bit_offset;
+    if(!sauti_aac_fill_parse(data,size,&pos,&fill))return 0;
+    if(fill.payload_bytes!=0u && fill.sbr_candidate)return -1;
+    *bit_offset=pos;
+    if(info)*info=fill;
+    return 1;
+}
 int sauti_aac_raw_prefix_parse(const uint8_t *data,size_t size,
                                size_t *bit_offset,SautiAacRawPrefix *info){
     if(!data||!bit_offset||!info)return 0;

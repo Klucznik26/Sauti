@@ -31,12 +31,9 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
         if(!read(raw,length,&probe,3,&id))return 0;
         if(id!=6u)break;
         pos=probe;
-        SautiAacFillInfo fill;
-        if(!sauti_aac_fill_parse(raw,length,&pos,&fill))return 0;
-        if(fill.payload_bytes!=0u && fill.extension_type!=0u){
-            *reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;
-            return -1;
-        }
+        const int skipped=sauti_aac_fill_skip_non_sbr(raw,length,&pos,NULL);
+        if(skipped==-1){*reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;return -1;}
+        if(skipped!=1)return 0;
     }
     size_t probe=pos;
     uint32_t first_id=0;
@@ -64,8 +61,13 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
      * Pulse, TNS and gain control payloads have variable lengths.
      * Never interpret their bits as spectral_data. */
     uint32_t flag=0;
+    SautiAacPulseData pulse;memset(&pulse,0,sizeof(pulse));
+    unsigned have_pulse=0;
     if(!read(raw,length,&pos,1,&flag))return 0;
-    if(flag){*reason=SAUTI_AAC_REASON_PULSE;return -1;} /* pulse_data_present */
+    if(flag){                                            /* pulse_data_present */
+        if(!sauti_aac_pulse_parse(raw,length,&pos,&next.ics,&pulse)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
+        have_pulse=1u;
+    }
     if(!read(raw,length,&pos,1,&flag))return 0;
     if(flag){
         next.tns_present=1u;
@@ -80,8 +82,32 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
         if(next.sections.sections[i].codebook>=14u){*reason=SAUTI_AAC_REASON_INTENSITY;return -1;}
     if(!sauti_aac_lc_spectral_data_parse(raw,length,&pos,rate_index,
                         &next.ics,&next.sections,next.quant)){*reason=SAUTI_AAC_REASON_INVALID_SPECTRAL;return 0;}
+    if(have_pulse && !sauti_aac_lc_pulse_apply(next.quant,rate_index,&next.ics,&next.factors,&pulse)){*reason=SAUTI_AAC_REASON_INVALID_SPECTRAL;return 0;}
     *out=next;
     *bit_offset=pos;
+    return 1;
+}
+int sauti_aac_lc_pulse_apply(int32_t quant[1024],unsigned rate_index,
+                             const SautiAacIcsInfo *ics,
+                             const SautiAacScaleFactors *factors,
+                             const SautiAacPulseData *pulse){
+    const uint16_t *offsets=NULL;unsigned bands=0;
+    if(!quant||!ics||!factors||!pulse||pulse->count<1u||pulse->count>4u||
+       ics->window_sequence==2u||
+       !sauti_aac_band_offsets(rate_index,0,&offsets,&bands) ||
+       pulse->start_sfb>=bands)return 0;
+    uint32_t k=offsets[pulse->start_sfb];
+    for(uint32_t i=0;i<pulse->count;i++){
+        k+=pulse->offset[i];
+        if(k>=1024u)return 0;
+        unsigned band=0;
+        while(band+1u<bands && offsets[band+1u]<=k)band++;
+        if(band>=ics->max_sfb)continue;                        /* poza zakodowanymi pasmami: wspolczynnik zerowy, pomijany */
+        const unsigned cb=factors->codebook[0][band];
+        if(cb==0u || cb>=13u)continue;                          /* zerowe, PNS, intensywnosc */
+        const int32_t q=quant[k];
+        quant[k]=q>0?q+(int32_t)pulse->amp[i]:q-(int32_t)pulse->amp[i];
+    }
     return 1;
 }
 int sauti_aac_lc_mono_parse(const uint8_t *raw,size_t length,
@@ -125,13 +151,18 @@ int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
         }
     }
     /* The one SCE should be followed by zero or more filler elements,
-     * then ID_END and zero byte alignment. Refuse all FIL conservatively
-     * until extension contents can be inspected for implicit SBR. */
+     * then ID_END and zero byte alignment.  FIL with any extension but SBR
+     * (13/14) is skipped; SBR changes the output (HE-AAC) and stays rejected. */
     for(;;){
         uint32_t id=0;
         if(!read(raw,raw_length,&pos,3,&id)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
         if(id==7u)break;
-        if(id==6u){*reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;return -1;}
+        if(id==6u){
+            const int skipped=sauti_aac_fill_skip_non_sbr(raw,raw_length,&pos,NULL);
+            if(skipped==-1){*reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;return -1;}
+            if(skipped!=1){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
+            continue;
+        }
         *reason=SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;return -1; /* extra element */
     }
     /* ADTS bitstream is padded to a whole byte after ID_END. */

@@ -77,8 +77,70 @@ static void real_stream(const char *path){
     sauti_decoder_close(&decoder);
     free(bytes);
 }
+
+/* Adapter MONO LC (AAC-LC SCE): cisza + FIL za elementem (typ 1, jak fdk-aac) -- ramka, ktora wczesniej byla odrzucana; HE-AAC (FIL z SBR) musi zostac odrzucone przy otwarciu. */
+static size_t make_mono_frame(uint8_t *out,unsigned fil_type,unsigned fil_count){
+    Bits raw={0};
+    put(&raw,3,0);put(&raw,4,0);                     /* ID_SCE, tag */
+    put(&raw,8,100);                                 /* global_gain */
+    put(&raw,1,0);put(&raw,2,0);put(&raw,1,0);       /* reserved, ONLY_LONG, sin */
+    put(&raw,6,0);put(&raw,1,0);                     /* max_sfb=0, brak predykcji */
+    put(&raw,1,0);put(&raw,1,0);put(&raw,1,0);       /* pulse, TNS, gain control */
+    if(fil_count){
+        put(&raw,3,6);put(&raw,4,fil_count);put(&raw,4,fil_type);
+        for(unsigned i=4;i<fil_count*8u;i++)put(&raw,1,0);
+    }
+    put(&raw,3,7);while(raw.bits%8u)put(&raw,1,0);
+    const size_t length=7u+raw.bits/8u;
+    memset(out,0,length);
+    out[0]=0xff;out[1]=0xf1;out[2]=0x50;             /* LC, 44.1 kHz, channel_config bit 2 = 0 */
+    out[3]=(uint8_t)(0x40u|((length>>11u)&3u));      /* channel_config=1 (mono) */
+    out[4]=(uint8_t)(length>>3u);
+    out[5]=(uint8_t)(((length&7u)<<5u)|0x1fu);
+    out[6]=0xfcu;
+    memcpy(out+7,raw.data,raw.bits/8u);
+    return length;
+}
+static void mono_adapter(void){
+    uint8_t f[64];
+    const size_t n=make_mono_frame(f,1,3);
+    uint8_t stream[3*64];
+    for(unsigned i=0;i<3;i++)memcpy(stream+i*n,f,n);
+    const SautiDecoderOps *mono[]={&sauti_decoder_aac_mono_native_ops};
+    const SautiDecoderOps *all[]={&sauti_decoder_aac_native_ops,&sauti_decoder_aac_mono_native_ops,&sauti_decoder_aac_he_native_ops};
+    assert(sauti_decoder_ops_valid(mono[0]));
+    SautiDecoder d={0};
+    assert(sauti_decoder_open(&d,mono,1,stream,3*n));
+    assert(d.info.channels==1 && d.info.sample_rate==44100 && d.info.total_frames==3072);
+    float pcm[4096];
+    assert(sauti_decoder_read(&d,pcm,1500)==1500);
+    for(unsigned i=0;i<1500;i++)assert(pcm[i]==0.0f);
+    assert(sauti_decoder_seek(&d,2047));
+    assert(sauti_decoder_read(&d,pcm,2000)==1025);          /* do konca: 3072 - 2047 */
+    assert(sauti_decoder_read(&d,pcm,1)==0);
+    assert(!sauti_decoder_seek(&d,3073));
+    sauti_decoder_close(&d);
+    /* rejestr z wszystkimi adapterami: mono LC trafia do adaptera mono, nie do stereo ani HE */
+    assert(sauti_decoder_open(&d,all,3,stream,3*n));
+    assert(d.ops==&sauti_decoder_aac_mono_native_ops && d.info.channels==1);
+    sauti_decoder_close(&d);
+    /* HE-AAC mono (FIL z SBR, typ 13/14): rdzen LC go nie pomija, adapter nie otwiera strumienia */
+    for(unsigned t=13;t<=14;t++){
+        uint8_t he[64];
+        const size_t hn=make_mono_frame(he,t,3);
+        assert(!sauti_decoder_open(&d,mono,1,he,hn));
+    }
+    /* stereo nie jest mono: adapter mono nie probuje stereo */
+    uint8_t st[64]={0};
+    const size_t sn=make_frame(st);
+    assert(!sauti_decoder_open(&d,mono,1,st,sn));
+    /* ucieta ramka w srodku strumienia: otwarcie odrzucone (naglowki sprawdzane w calosci) */
+    assert(!sauti_decoder_open(&d,mono,1,stream,3*n-2));
+}
+
 int main(int argc,char **argv){
     if(argc!=1 && argc!=2)return 2;
+    mono_adapter();
     uint8_t bytes[64]={0};
     size_t n=make_frame(bytes);
     memcpy(bytes+n,bytes,n);

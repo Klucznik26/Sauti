@@ -7095,3 +7095,25 @@ Zoptymalizowano dwa krytyczne moduły 64-pasmowego banku syntezy QMF (dotychczas
    - Wszystkie reguły `Makefile` automatycznie kompilują i dołączają moduły NASM (`sauti_aac_sbr_qmf_synth_window_asm.o` i `sauti_aac_sbr_qmf_synth_mod_asm.o`).
    - Pełny zestaw testów `make test-aac-native`, `make test-aac-ps*` oraz `make test-aac-ps5-temporal` przeszedł w 100% bez jakichkolwiek regresji.
 
+
+### AAC-LC: domknięcie wobec FFmpeg — macierz korpusu, pulse_data, adapter mono (2026-11-18)
+
+Dekoder LC porównywany różnicowo z FFmpeg (`tools/aac_corpus_matrix.py`, adapter `tools/sauti_aac_adapter_cli.c`, `make aac-adapter-cli`). Kodery-generatory: faac, libfdk_aac, ffmpeg (fdk-aac-free nie ma kodera SBR/PS, więc HE/HEv2 nie są tu walidowane). Werdykt `OK` = SNR bliski precyzji float (≈139 dB) przy zgodnej liczbie próbek.
+
+**Wynik pełnej macierzy:** 442 OK / 8 REF-ERR / 6 DIVERGE / 0 MISMATCH / 0 REJECT. Dodatkowo własnoręcznie zbudowane strumienie z `pulse_data` (`tools/gen_aac_pulse_fixture.c`, mono i stereo, 1–4 pulsacji, pasmo szumu pomijane): 139,1 dB i 139,3 dB, 15360/15360 próbek (`make test-aac-pulse-diff`; test jest pomijany bez ffmpeg, ale przy jego braku nie udaje wyniku).
+
+**Zmiany w dekoderze:**
+- `pulse_data` (ISO/IEC 14496-3 4.4.2.7): `sauti_aac_pulse_parse` + `sauti_aac_lc_pulse_apply`; amplituda dodawana ze znakiem współczynnika (0 → ujemna), pozycje kumulowane od `start_sfb`, pasma PNS/zerowe/≥`max_sfb` pomijane, okna krótkie bez pulsacji. Obcięty ładunek pulsacji = ramka błędna (0), nie „nieobsługiwana” (-1).
+- Element FIL: pomijane wszystkie rozszerzenia poza SBR (13/14), także w mono.
+- M/S i intensity: M/S nie dotyka pasm PNS/intensity (`cb>=13`), intensity odrzuca `left_cb>13`.
+- Pierwsza ramka strumienia może mieć dowolną sekwencję okien (po cięciu/otwarciu w środku); `previous_sequence=4` = „brak poprzedniej”. Po ramce LONG nadal obowiązuje reguła przejść.
+- Adapter mono `SautiDecoderOps` obok stereo.
+
+**Znane rozbieżności (świadome, nie błędy Sauti):**
+- PNS skorelowany z M/S wg specyfikacji; FFmpeg losuje niezależnie — Sauti zostaje przy specyfikacji (decyzja właściciela otwarta).
+- TNS rząd >12 dla LC: FFmpeg odrzuca ramkę; Sauti dekoduje.
+- FFmpeg gubi pierwszą ramkę strumienia faac (opóźnienie koderu) — to artefakt referencji.
+
+**Testy:** `make test-aac-pulse` (jednostkowy, w `test-aac-native`), `make test-aac-native` PASS (88 testów). Dwa testy starego zachowania zaktualizowano: `test_aac_lc_synth` (dowolna pierwsza sekwencja, reguła przejść po ramce LONG) i `test_aac_lc_frame` (pulsacja nie jest już odrzucana jako nieobsługiwana).
+
+**Nie zrobione w LC:** wielokanałowość/PCE (parser ADTS w ASM odrzuca `channel_config>2`), `raw_blocks>1`, 88,2/96 kHz w macierzy, CCE, Main/LTP, kontener MP4/M4A. Brak mutantów dla nowego kodu pulse. HE/HEv2 wymaga prawdziwych plików.

@@ -89,16 +89,25 @@ int main(void){
         assert(memcmp(&old,&state,sizeof(old))==0);
         assert(memcmp(saved,pcm,sizeof(saved))==0);
     }
-    /* Starting a short frame without LONG_START must be rejected. */
+    /* A short frame right after a LONG frame (no LONG_START) must be rejected. */
     assert(sauti_aac_lc_synthesis_init(&state,0));
     SautiAacIcsInfo ics;
     SautiAacSections sec;
     SautiAacScaleFactors sf;
     int32_t q[1024];float pcm[1024]={0};
+    setup(0,0,&ics,&sec,&sf,q);
+    assert(sauti_aac_lc_synthesis_frame(&state,4,&ics,&sec,&sf,q,pcm));
     setup(2,0,&ics,&sec,&sf,q);
     SautiAacLcSynthesis prior=state;
     assert(!sauti_aac_lc_synthesis_frame(&state,4,&ics,&sec,&sf,q,pcm));
     assert(memcmp(&prior,&state,sizeof(state))==0);
+    /* With no previous frame (stream cut or opened mid-way) ANY window sequence may come first, as in FFmpeg. */
+    for(unsigned first=0;first<4u;first++){
+        SautiAacLcSynthesis fresh={0};
+        assert(sauti_aac_lc_synthesis_init(&fresh,0));
+        setup(first,0,&ics,&sec,&sf,q);
+        assert(sauti_aac_lc_synthesis_frame(&fresh,4,&ics,&sec,&sf,q,pcm));
+    }
     /* Opt-in PNS succeeds and keeps RNG state continuous, while the
      * original strict synthesis API continues to reject PNS. */
     setup(0,0,&ics,&sec,&sf,q);

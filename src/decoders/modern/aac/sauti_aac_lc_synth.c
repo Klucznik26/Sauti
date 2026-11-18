@@ -13,13 +13,14 @@ int sauti_aac_lc_synthesis_init(SautiAacLcSynthesis *state,
     if(!state || previous_shape>1u)return 0;
     SautiAacLcSynthesis next={0};
     next.previous_shape=previous_shape;
-    next.previous_sequence=0u;
+    next.previous_sequence=4u; /* brak poprzedniej ramki: strumien moze zaczac sie dowolna sekwencja okien (np. LONG_START po wycieciu/odczycie od srodka) */
     next.initialized=1u;
     next.pns_seed=0x1f2e3d4cu; /* FFmpeg AAC decoder initial PNS seed */
     *state=next;
     return 1;
 }
 static int valid_transition(unsigned previous,unsigned current){
+    if(previous==4u)return current<=3u;
     if(previous==0u)return current==0u || current==1u;
     if(previous==1u)return current==2u;
     if(previous==2u)return current==2u || current==3u;

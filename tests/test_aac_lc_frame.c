@@ -174,10 +174,14 @@ static void failure(void){
         init_header(frame,(unsigned)size,4);
         memcpy(frame+7,raw.bytes,(raw.bits+7u)/8u);
         SautiAacReason reason=SAUTI_AAC_REASON_OK;
-        assert(sauti_aac_lc_adts_mono_decode_ex(frame,size,&state,pcm,
-                                                &reason)==-1);
-        assert(reason==(tool==1?SAUTI_AAC_REASON_PULSE:
-                                SAUTI_AAC_REASON_GAIN_CONTROL));
+        if(tool==1){
+            /* pulse_data is supported now; this frame is cut right after the flag, so it is MALFORMED (0), not unsupported (-1) */
+            assert(sauti_aac_lc_adts_mono_decode_ex(frame,size,&state,pcm,&reason)==0);
+            assert(reason!=SAUTI_AAC_REASON_OK && reason!=SAUTI_AAC_REASON_PULSE);
+        }else{
+            assert(sauti_aac_lc_adts_mono_decode_ex(frame,size,&state,pcm,&reason)==-1);
+            assert(reason==SAUTI_AAC_REASON_GAIN_CONTROL);
+        }
         assert(memcmp(&old,&state,sizeof(old))==0);
     }
     /* Stereo frames are explicitly unsupported. */

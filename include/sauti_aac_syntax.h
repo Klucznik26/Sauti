@@ -19,6 +19,17 @@ typedef struct {
 int sauti_aac_ics_info_parse(const uint8_t *bytes,size_t size,
                              size_t *bit_offset,SautiAacIcsInfo *info);
 
+/* pulse_data() (ISO/IEC 14496-3 4.4.2.7, tylko okna dlugie): count = number_pulse + 1 (1..4), pierwsza pozycja = swb_offset[start_sfb] + offset[0], kolejne dodaja offset[i].
+ * Parser sprawdza tylko skladnie i to, ze okno nie jest EIGHT_SHORT; zakres start_sfb/pozycji sprawdza sauti_aac_lc_pulse_apply (zna tabele pasm dla czestotliwosci). */
+typedef struct {
+    uint32_t count;
+    uint32_t start_sfb;
+    uint8_t offset[4];
+    uint8_t amp[4];
+} SautiAacPulseData;
+int sauti_aac_pulse_parse(const uint8_t *bytes,size_t size,size_t *bit_offset,
+                          const SautiAacIcsInfo *ics,SautiAacPulseData *out);
+
 /* Parses FIL byte-count and first 4-bit extension type; skips the remainder
  * without claiming the SBR envelope was decoded or PS was found.
  * extension_type=0xffffffff when FIL count is zero. */
@@ -33,6 +44,12 @@ typedef struct {
 
 int sauti_aac_fill_parse(const uint8_t *bytes,size_t size,
                          size_t *bit_offset,SautiAacFillInfo *info);
+
+/* FIL dla rdzenia AAC-LC (bez SBR): konsumuje jeden element FIL (identyfikator ID_FIL juz odczytany) i POMIJA jego ladunek dla kazdego typu rozszerzenia poza SBR (13/14) --
+ * EXT_FILL, EXT_FILL_DATA, EXT_DATA_ELEMENT, DYNAMIC_RANGE, SAC i typy zarezerwowane (ISO/IEC 14496-3 4.4.2.7: dekoder pomija nieznane).  SBR zmienia wyjscie (HE-AAC), wiec rdzen LC go
+ * nie pomija: zwraca -1 i NIE przesuwa *bit_offset.  1 = pominieto (info, gdy niepuste, opisuje element), 0 = niepoprawny/ucieta ramka. */
+int sauti_aac_fill_skip_non_sbr(const uint8_t *bytes,size_t size,
+                                size_t *bit_offset,SautiAacFillInfo *info);
 
 /* Limited raw_data_block prefix walker. Stops at an undecodable syntactic
  * element (SCE/CPE/LFE/etc.) rather than assuming an audio-element length.
