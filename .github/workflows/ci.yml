@@ -1,0 +1,93 @@
+# CI MaktabaSauti / Sauti.  Zasada: weryfikacja wielowatkowa pod ThreadSanitizerem jest WYMAGANA i brak runtime TSan wywraca zadanie (nie jest pomijany).
+# Uwaga: ten plik zostal napisany bez mozliwosci uruchomienia go lokalnie; pierwszy przebieg moze ujawnic bledy konfiguracji.  Zadania, ktorych zielonego wyniku jeszcze
+# nie znamy, maja `continue-on-error: true` z komentarzem; po pierwszym zielonym przebiegu zmieniamy na wymagane.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # wymagane: dekodery AAC (ASan/UBSan w testach jednostkowych) i naglowki publiczne
+  aac-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: sudo apt-get update && sudo apt-get install -y nasm gcc g++ make python3
+      - name: AAC native tests
+        run: make test-aac-native
+      - name: public headers (C99 pedantic, C++17, ABI layout)
+        run: make test-maktabasauti-headers
+
+  # WYMAGANE: ThreadSanitizer.  Brak libtsan => REQUIRE_TSAN=1 daje FAIL.
+  tsan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain (libtsan is required)
+        run: sudo apt-get update && sudo apt-get install -y nasm gcc make libtsan2
+      - name: multi-thread re-entrancy under ThreadSanitizer
+        env:
+          REQUIRE_TSAN: "1"
+        run: scripts/test_aac_threads.sh 8 4
+
+  asan-ubsan-threads:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y nasm gcc make
+      - name: multi-thread test under AddressSanitizer + UBSan (bit-identical PCM)
+        run: |
+          make build/test_aac_threads_asan
+          build/test_aac_threads_asan 8 4 tests/data/lc.aac tests/data/he1.aac tests/data/he2.aac tests/data/he1.m4a tests/data/he1.loas tests/data/he1.adif tests/data/m51.aac
+
+  # naglowki publiczne na wszystkich docelowych platformach (sam naglowek nie ma asm ani zaleznosci od systemu)
+  headers:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: C99 pedantic + C++17
+        run: |
+          cc  -std=c99   -pedantic -Wall -Wextra -Werror -Iinclude tests/test_maktabasauti_headers.c     -o t_c   && ./t_c
+          c++ -std=c++17 -pedantic -Wall -Wextra -Werror -Iinclude tests/test_maktabasauti_headers_cpp.cpp -o t_cpp && ./t_cpp
+
+  headers-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: C99 pedantic + C++17 (MinGW)
+        run: |
+          gcc -std=c99   -pedantic -Wall -Wextra -Werror -Iinclude tests/test_maktabasauti_headers.c     -o t_c.exe   && ./t_c.exe
+          g++ -std=c++17 -pedantic -Wall -Wextra -Werror -Iinclude tests/test_maktabasauti_headers_cpp.cpp -o t_cpp.exe && ./t_cpp.exe
+
+  headers-freebsd:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: vmactions/freebsd-vm@v1
+        with:
+          run: |
+            cc  -std=c99   -pedantic -Wall -Wextra -Werror -Iinclude tests/test_maktabasauti_headers.c     -o t_c   && ./t_c
+            c++ -std=c++17 -pedantic -Wall -Wextra -Werror -Iinclude tests/test_maktabasauti_headers_cpp.cpp -o t_cpp && ./t_cpp
+
+  # pelna budowa dekoderow na Windows/ARM/BSD wymaga sciezek C zamiast asm NASM (BIBLIOTEKA_PLAN.md, etap 4): do tego czasu nie moze byc wymagana
+  portable-build-pending:
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true   # oczekiwane niepowodzenie: 25 plikow NASM tylko x86-64; zadanie istnieje, zeby postep byl widoczny, nie ukryty
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y gcc make
+      - name: native AAC tests on ARM64 (needs C fallbacks for the NASM kernels)
+        run: make test-aac-native
