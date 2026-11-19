@@ -1297,7 +1297,8 @@ static int sbr73_noise_level(
     if(!saved || slot->envelope>=saved->envs ||
        !saved->band_ok[slot->envelope][k])
         return 1;
-    /* The attack envelope keeps the sine and adds no noise.
+    /* A transient envelope (FFmpeg e==e_a[0] or e==e_a[1], i.e. delta==0: its own onset or the one carried from the previous
+     * frame) keeps the sine and adds no noise.  SBR-79: "attack" here is that delta==0 flag, it used to be the own onset only.
      * Later envelopes of the same frame keep theirs. */
     if(saved->attack[slot->envelope])return 1;
     const double q=saved->noise[slot->envelope][k];
@@ -1555,6 +1556,7 @@ static int sbr73_trace_limit(
         return 0;
     uint8_t band_ok[SAUTI_AAC_SBR_MAX_ENV][64]={0};
     uint8_t saved_sine[SAUTI_AAC_SBR_MAX_ENV][64]={0};
+    uint8_t quiet_env[SAUTI_AAC_SBR_MAX_ENV]={0};   /* delta==0: e==e_a[0]||e==e_a[1]; FFmpeg adds the sine but NO noise there */
     double saved_boost[SAUTI_AAC_SBR_MAX_ENV][64]={0};
     double saved_gain[SAUTI_AAC_SBR_MAX_ENV][64]={0};
     double saved_noise[SAUTI_AAC_SBR_MAX_ENV][64]={0};
@@ -1634,6 +1636,7 @@ static int sbr73_trace_limit(
          * one-envelope frame keeps delta=1. A real pointer sets
          * attack on that envelope only. */
         const unsigned delta=sauti_aac_sbr_env_delta(payload,env,history->has_previous?&history->previous:NULL);
+        quiet_env[env]=delta==0u;
         SautiAacSbrGainLimitedFrame limited;
         if(!sauti_aac_sbr_gain_limit_partition_flags(
                energy,ec,noise,center,mapped,bands.edges,
@@ -1668,7 +1671,7 @@ static int sbr73_trace_limit(
     memcpy(prev,hf,sizeof(sbr73_limit_prev));
     sbr73_limit_have_prev=1;
     sbr73_boost_remember(frame,payload->grid.env_count,
-                         band_ok,saved_sine,payload->attack,
+                         band_ok,saved_sine,quiet_env,
                          saved_boost,saved_gain,
                          saved_noise,hf);
     if(path && fflush(out)!=0)return 0;
@@ -2382,24 +2385,27 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             /* SBR-76: sloty 26..31 POPRZEDNIEJ ramki sa slyszane jako sloty 0..5 tej ramki; FFmpeg generuje ich nosnik danymi BIEZACEJ ramki (alpha, bw, mapa lat).
              * Przeliczamy je i podmieniamy WE WSZYSTKICH miejscach, gdzie nosnik poprzedniej ramki jest trzymany. */
             if(!getenv("SAUTI_SBR76_NOTAIL") && i>0u){   /* SBR-79: domyslnie wlaczone; SAUTI_SBR76_NOTAIL=1 wylacza (porownania) */
+                /* Per slot: FFmpeg generates the carrier of time slots >= 2*t_env[0] in THIS call (current alpha/bw/patches) and
+                 * leaves earlier slots to the previous call.  So only the slots whose owner is the current frame (source==1) are
+                 * recomputed; before SBR-79 one previous-frame-owned slot (e.g. a FIXVAR/VARFIX frame whose first envelope
+                 * starts after slot 0) switched the whole correction off. */
                 SautiAacSbrComplex tail[6u*64u];
-                int tail_ok=1;
-                for(unsigned s6=0u;s6<6u && tail_ok;s6++){
+                unsigned patch[6u]={0};
+                for(unsigned s6=0u;s6<6u;s6++){
                     const SautiAacSbrTemporalHfSlot *ow=&t75.slot[s6];       /* slot HF 0..5 tej ramki: kto go posiada */
-                    if(ow->source!=1u){tail_ok=0;break;}                      /* tylko wlasciciel = biezaca ramka (inaczej zostaje nosnik poprzedniej) */
-                    if(!sauti_aac_sbr_hf_predict(&temporal_history.current.patches,&temporal_history.current.tables,
-                            lpc_prev8+s6*32u,3u*32u,1u,&c75,&ch75,tail+s6*64u,64u))tail_ok=0;
+                    if(ow->source!=1u)continue;                               /* wlasciciel = poprzednia ramka: zostaje jej nosnik */
+                    if(sauti_aac_sbr_hf_predict(&temporal_history.current.patches,&temporal_history.current.tables,
+                            lpc_prev8+s6*32u,3u*32u,1u,&c75,&ch75,tail+s6*64u,64u))patch[s6]=1u;
                 }
-                if(tail_ok){
-                    Sbr73BoostSaved *ring=(Sbr73BoostSaved *)sbr73_boost_find(i-1u);
-                    for(unsigned s6=0u;s6<6u;s6++){
-                        const unsigned row=(26u+s6)*64u;
-                        memcpy(sbr73_limit_prev+row,tail+s6*64u,64u*sizeof(tail[0]));   /* the limiter's e_curr window look-back (SBR-79) */
-                        if(ring)memcpy(ring->baseline+row,tail+s6*64u,64u*sizeof(tail[0]));
-                        memcpy(ref_prev_hf+row,tail+s6*64u,64u*sizeof(tail[0]));
-                        memcpy(temporal_apply.held+row,tail+s6*64u,64u*sizeof(tail[0]));
-                        memcpy(ref_hf_apply_state.held+row,tail+s6*64u,64u*sizeof(tail[0]));
-                    }
+                Sbr73BoostSaved *ring=(Sbr73BoostSaved *)sbr73_boost_find(i-1u);
+                for(unsigned s6=0u;s6<6u;s6++){
+                    if(!patch[s6])continue;
+                    const unsigned row=(26u+s6)*64u;
+                    memcpy(sbr73_limit_prev+row,tail+s6*64u,64u*sizeof(tail[0]));   /* the limiter's e_curr window look-back (SBR-79) */
+                    if(ring)memcpy(ring->baseline+row,tail+s6*64u,64u*sizeof(tail[0]));
+                    memcpy(ref_prev_hf+row,tail+s6*64u,64u*sizeof(tail[0]));
+                    memcpy(temporal_apply.held+row,tail+s6*64u,64u*sizeof(tail[0]));
+                    memcpy(ref_hf_apply_state.held+row,tail+s6*64u,64u*sizeof(tail[0]));
                 }
             }
             for(unsigned t=0u;t<32u;t++){
