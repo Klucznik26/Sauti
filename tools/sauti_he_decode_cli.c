@@ -32,7 +32,10 @@ int main(int argc,char **argv){
         SautiAacSbrPayloadFrame payload;
         SautiAacReason reason=SAUTI_AAC_REASON_OK;
         const int r=sauti_aac_he_adts_mono_temporal_decode_ex(buf+pos,(size_t)n-pos,&core_state,core,&payload,&reason);
-        if(r!=1){fprintf(stderr,"frame %ld: core/payload rejected (%d, reason %d)\n",frames,r,(int)reason);break;}
+        if(r!=1){
+            SautiAacSbrPayloadStage stage=SAUTI_SBR_PAYLOAD_INPUT;unsigned seen=0;float c2[1024];SautiAacSbrPayloadFrame p2;SautiAacReason r2=SAUTI_AAC_REASON_OK;
+            (void)sauti_aac_he_adts_mono_temporal_diagnose_ex(buf+pos,(size_t)n-pos,&core_state,c2,&p2,&r2,&stage,&seen);
+            fprintf(stderr,"frame %ld: core/payload rejected (%d, reason %d, SBR stage %d, payload seen %u)\n",frames,r,(int)reason,(int)stage,seen);break;}
         static SautiAacSbrComplex grid[SAUTI_AAC_SBR_CHANNEL_GRID];
         float pcm[2048];
         if(!sauti_aac_sbr_channel_frame(&ch,core,&payload,grid)){fprintf(stderr,"frame %ld: SBR channel rejected\n",frames);break;}

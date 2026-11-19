@@ -1234,10 +1234,21 @@ AAC_SBR_CHANNEL_CLI_SRC := build/sauti_aac_dequant.o build/sauti_aac_dsp.o build
 $(OBJDIR)/sauti_he_decode_cli: tools/sauti_he_decode_cli.c include/sauti_aac_sbr_channel.h $(AAC_SBR_CHANNEL_CLI_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_decode_cli.c $(AAC_SBR_CHANNEL_CLI_SRC) -lm -no-pie
 
+$(OBJDIR)/sauti_he_remix: tools/sauti_he_remix.c $(AAC_SBR_CHANNEL_CLI_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_remix.c $(AAC_SBR_CHANNEL_CLI_SRC) -lm -no-pie
+
+.PHONY: he-remix
+he-remix: $(OBJDIR)/sauti_he_remix
+
 .PHONY: he-decode-cli
 he-decode-cli: $(OBJDIR)/sauti_he_decode_cli
 
 # Needs an HE-AAC file and the instrumented FFmpeg (outside test-aac-native): make test-aac-he-channel-ffmpeg HE_FILE=/path/file.aac
+# Generated SBR data on a real core (needs the instrumented FFmpeg and a core stream): make test-aac-he-channel-remix CORE=/path/core.aac
+.PHONY: test-aac-he-channel-remix
+test-aac-he-channel-remix: $(OBJDIR)/sauti_he_remix $(OBJDIR)/sauti_he_decode_cli
+	bash scripts/test_he_channel_remix_vs_ffmpeg.sh "$(CORE)" $(or $(HE_FRAMES),200)
+
 .PHONY: test-aac-he-channel-ffmpeg
 test-aac-he-channel-ffmpeg: $(OBJDIR)/sauti_he_decode_cli
 	bash scripts/test_he_channel_vs_ffmpeg.sh "$(HE_FILE)" $(or $(HE_FRAMES),400)
