@@ -84,15 +84,15 @@ static int parse_pce_layout(const uint8_t *raw,size_t length,size_t *pos,SautiAa
     }
     if(!get(raw,length,pos,1,&v))return 0;
     if(v&&(!get(raw,length,pos,2,&v)||!get(raw,length,pos,1,&v)))return 0;
-    uint8_t cls[16],cpe[16];unsigned n=0;
+    uint8_t cls[16],cpe[16],etag[16];unsigned n=0;
     const uint32_t counts[3]={front,side,back};
     for(unsigned c=0;c<3;c++)for(uint32_t i=0;i<counts[c];i++){
         uint32_t is_cpe,tag;
         if(!get(raw,length,pos,1,&is_cpe)||!get(raw,length,pos,4,&tag))return 0;
         if(n>=16u)return -1;
-        cls[n]=(uint8_t)c;cpe[n]=(uint8_t)is_cpe;n++;
+        cls[n]=(uint8_t)c;cpe[n]=(uint8_t)is_cpe;etag[n]=(uint8_t)tag;n++;
     }
-    for(uint32_t i=0;i<lfe;i++){uint32_t tag;if(!get(raw,length,pos,4,&tag))return 0;if(n>=16u)return -1;cls[n]=3;cpe[n]=0;n++;}
+    for(uint32_t i=0;i<lfe;i++){uint32_t tag;if(!get(raw,length,pos,4,&tag))return 0;if(n>=16u)return -1;cls[n]=3;cpe[n]=0;etag[n]=(uint8_t)tag;n++;}
     for(uint32_t i=0;i<assoc;i++)if(!get(raw,length,pos,4,&v))return 0;
     for(uint32_t i=0;i<cc;i++)if(!get(raw,length,pos,1,&v)||!get(raw,length,pos,4,&v))return 0;
     while(*pos&7u)if(!get(raw,length,pos,1,&v))return 0;
@@ -102,12 +102,14 @@ static int parse_pce_layout(const uint8_t *raw,size_t length,size_t *pos,SautiAa
     if(cc)return -1;                                    /* CCE */
     /* kanaly dekodowane w kolejnosci elementow; kazdemu przypisujemy pozycje wyjsciowa */
     int8_t position[16];unsigned channels=0;
+    uint8_t slot_of[16];
     unsigned front_pairs=0,front_sce=0,back_pairs=0,back_sce=0,side_pairs=0,lfes=0,back_cpe_total=0;
     for(unsigned e=0;e<n;e++)if(cls[e]==2u&&cpe[e])back_cpe_total++;
     const unsigned second_back_pair=back_cpe_total==2u;
     for(unsigned e=0;e<n;e++){
         const unsigned need=cpe[e]?2u:1u;
         if(channels+need>SAUTI_AAC_LC_MULTI_MAX)return -1;
+        slot_of[e]=(uint8_t)channels;
         if(cls[e]==0){
             if(cpe[e]){ if(front_pairs>=2u)return -1; position[channels]=front_pairs?POS_FLC:POS_FL; position[channels+1u]=front_pairs?POS_FRC:POS_FR; front_pairs++; }
             else { if(front_sce)return -1; position[channels]=POS_FC; front_sce=1u; }
@@ -131,6 +133,11 @@ static int parse_pce_layout(const uint8_t *raw,size_t length,size_t *pos,SautiAa
     }
     if(!channels)return -1;
     SautiAacLcLayout l;memset(&l,0,sizeof(l));l.channels=channels;
+    if(n>SAUTI_AAC_LC_MULTI_MAX)return -1;
+    l.n_elements=n;
+    for(unsigned e=0;e<n;e++){l.elem_type[e]=cls[e]==3u?3u:(cpe[e]?1u:0u);l.elem_tag[e]=etag[e];l.elem_slot[e]=slot_of[e];}
+    for(unsigned a=0;a<n;a++)for(unsigned b2=a+1u;b2<n;b2++)
+        if(l.elem_type[a]==l.elem_type[b2]&&l.elem_tag[a]==l.elem_tag[b2])return -1;      /* (typ, tag) musi byc jednoznaczne */
     unsigned o=0;
     for(int bit=0;bit<=POS_SR;bit++)for(unsigned c=0;c<channels;c++)if(position[c]==bit)l.map[o++]=(uint8_t)c;
     if(o!=channels)return -1;
@@ -157,6 +164,8 @@ int sauti_aac_lc_multi_init_layout(SautiAacLcMulti *state,const SautiAacLcLayout
     SautiAacLcMulti next;memset(&next,0,sizeof(next));
     next.channels=layout->channels;next.config=0;
     memcpy(next.map,layout->map,sizeof(next.map));
+    next.n_elements=layout->n_elements;
+    memcpy(next.elem_type,layout->elem_type,sizeof(next.elem_type));memcpy(next.elem_tag,layout->elem_tag,sizeof(next.elem_tag));memcpy(next.elem_slot,layout->elem_slot,sizeof(next.elem_slot));
     for(unsigned i=0;i<next.channels;i++)
         if(!sauti_aac_lc_synthesis_init(&next.ch[i],previous_shape))return 0;
     next.pns_seed=next.ch[0].pns_seed;
@@ -193,12 +202,22 @@ int sauti_aac_lc_adts_multi_decode_ex(const uint8_t *frame,size_t length,
     SautiAacLcMulti next=*state;                              /* atomowosc: pracujemy na kopii */
     float stage[SAUTI_AAC_LC_MULTI_MAX][1024];                /* kolejnosc dekodowania */
     unsigned used=0;
+    unsigned taken=0;                                          /* tylko PCE: elementy PCE juz zdekodowane w tej ramce */
     uint32_t shared_pns=next.pns_seed;
     for(;;){
         size_t probe=pos;
         uint32_t id=0;
         if(!get(raw,raw_length,&probe,3,&id)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
         if(id==7u){pos=probe;break;}
+        unsigned slot=used;
+        if(next.config==0u&&(id==0u||id==1u||id==3u)){        /* PCE: miejsce kanalu wg (typ, element_instance_tag) */
+            size_t tp=probe;uint32_t tag=0;int found=-1;
+            if(!get(raw,raw_length,&tp,4,&tag)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
+            for(unsigned e=0;e<next.n_elements;e++)
+                if(next.elem_type[e]==id&&next.elem_tag[e]==tag&&!(taken&(1u<<e))){found=(int)e;break;}
+            if(found<0){*reason=SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;return -1;}
+            taken|=1u<<found;slot=next.elem_slot[found];
+        }
         if(id==0u||id==3u){                                   /* SCE / LFE */
             if(used+1u>next.channels){*reason=SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;return 0;}
             SautiAacLcMonoData *el=calloc(1,sizeof(*el));
@@ -206,12 +225,12 @@ int sauti_aac_lc_adts_multi_decode_ex(const uint8_t *frame,size_t length,
             const int st=sauti_aac_lc_element_parse(raw,raw_length,&pos,rate,id,el,reason);
             if(st!=1){free(el);return st;}
             float tmp[1024];
-            next.ch[used].pns_seed=shared_pns;
-            const int ok=sauti_aac_lc_synthesis_frame_tns(&next.ch[used],rate,&el->ics,&el->sections,&el->factors,
+            next.ch[slot].pns_seed=shared_pns;
+            const int ok=sauti_aac_lc_synthesis_frame_tns(&next.ch[slot],rate,&el->ics,&el->sections,&el->factors,
                                                           el->quant,el->tns_present?&el->tns:NULL,tmp);
             free(el);
-            if(!ok||!scale_out(stage[used],tmp,1u,1024u)){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;}
-            shared_pns=next.ch[used].pns_seed;
+            if(!ok||!scale_out(stage[slot],tmp,1u,1024u)){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;}
+            shared_pns=next.ch[slot].pns_seed;
             used++;
             continue;
         }
@@ -221,15 +240,15 @@ int sauti_aac_lc_adts_multi_decode_ex(const uint8_t *frame,size_t length,
             if(!el){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;}
             const int st=sauti_aac_lc_cpe_parse(raw,raw_length,&pos,rate,el,reason);
             if(st!=1){free(el);return st;}
-            SautiAacLcSynthesis pair[2]={next.ch[used],next.ch[used+1u]};
+            SautiAacLcSynthesis pair[2]={next.ch[slot],next.ch[slot+1u]};
             pair[0].pns_seed=pair[1].pns_seed=shared_pns;
             float inter[2048];
             const int ss=sauti_aac_lc_cpe_synthesize(el,rate,pair,inter,reason);
             free(el);
             if(ss!=1)return ss;
-            next.ch[used]=pair[0];next.ch[used+1u]=pair[1];
+            next.ch[slot]=pair[0];next.ch[slot+1u]=pair[1];
             shared_pns=pair[0].pns_seed;
-            for(unsigned i=0;i<1024u;i++){stage[used][i]=inter[2u*i];stage[used+1u][i]=inter[2u*i+1u];}
+            for(unsigned i=0;i<1024u;i++){stage[slot][i]=inter[2u*i];stage[slot+1u][i]=inter[2u*i+1u];}
             used+=2u;                                           /* cpe_synthesize zwraca juz PCM w jednostkach wyjsciowych (skalowanie 2^-16 w srodku) */
             continue;
         }

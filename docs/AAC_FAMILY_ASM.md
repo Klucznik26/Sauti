@@ -7642,3 +7642,31 @@ Testy (`test_aac_mp4.c`): `stz2` w trzech szerokościach (4-bitowy z rozmiarami 
 **Testy** (`test_aac_adif.c`, ASan/UBSan): fixtura bit po bicie (mono i stereo, CBR/VBR, copyright, miksowanie i komentarz, DSE i FIL przed i po elemencie, 24 kHz), odrzucenia (dwa programy, Main, kanał boczny, losowe dane), ucięcie, adapter z przewijaniem; mutanty (wyrównanie DSE, warunek `buffer_fullness`, długość copyright, wyrównanie po END, wyrównanie w PCE) padają. Fuzzing ASan: 1800 iteracji na 5 plikach ADIF, 0 raportów.
 
 **Granice.** Brak ADIF wielokanałowego (PCE z wieloma elementami) i z profilem Main/LTP; blok z PCE w strumieniu odrzucany; dopasowanie do FFmpeg niemożliwe (brak demuxera), wzorcem jest równość z ADTS oraz FAAD2.
+
+### SBR-99 — cel projektu rozszerzony na całą rodzinę MPEG-4 Audio; mapa wsparcia; błąd kolejności kanałów w 7.1 (2026-11-19)
+
+**Wymaganie (od użytkownika, 2026-11-19).** Cel: **maksymalne zbliżenie brzmieniem do oryginału (dekodera referencyjnego) we wszystkich wersjach i wariantach AAC**; kodek ma wspierać: AAC Main, LC, SSR, LTP, Scalable, HE-AAC v1/v2, ER AAC-LC / LTP / Scalable / BSAC / LD / ELD (także ELD v2 i LD v2), xHE-AAC/USAC, warianty MPEG-2 (Main, LC, SSR), AAC IIF; oraz narzędzia spoza AAC: TwinVQ i ER TwinVQ, CELP i ER CELP, HVXC i ER HVXC, HILN i ER Parametric, SSC, MPEG Surround i LD MPEG Surround, SAOC. To wielokrotnie szerszy zakres niż dotychczasowe LC/HE, więc obowiązuje poniższa mapa (stan na dziś; „wzorzec” = dekoder, z którym można porównać wynik).
+
+| typ obiektu (AOT) | stan | wzorzec dostępny lokalnie |
+|---|---|---|
+| 2 AAC-LC (mono, stereo, wielokanałowe do 7.1, PCE) | **zrobione**, 138–140 dB vs FFmpeg, 8–96 kHz | FFmpeg, FAAD2 |
+| MPEG-2 AAC-LC (ADTS z bitem ID = 1) | **zrobione** (identyczne z ID = 0) | FFmpeg |
+| 5 SBR (HE-AAC v1), 29 PS (HE-AAC v2) | **zrobione**, 119–125 dB HF, PS wszystkie tryby | FFmpeg, FAAD2 (PS faza) |
+| 1 AAC Main (predykcja), MPEG-2 Main | brak | FFmpeg (ma predykcję Main), FAAD2; brak lokalnego enkodera Main |
+| 4 AAC-LTP, 19 ER LTP | brak | FFmpeg, FAAD2; brak lokalnego enkodera LTP |
+| 3 AAC-SSR, MPEG-2 SSR | brak | FAAD2 ma SSR; FFmpeg nie |
+| 6 AAC Scalable, 20 ER Scalable, 22 ER BSAC | brak | FAAD2 (częściowo); FFmpeg nie |
+| 17 ER AAC-LC | brak | FFmpeg, FAAD2 |
+| 23 ER AAC-LD, 39 ER AAC-ELD (+SBR), ELD v2 | brak | FFmpeg, FAAD2 (LD); **fdkaac koduje LD i ELD** |
+| 42 USAC / xHE-AAC | brak | FFmpeg (dekoduje USAC) |
+| 47 AAC IIF (Immersive Interchange Format) | brak | brak |
+| ramki 960 próbek (DAB+), HE z ramką 960 | brak | FFmpeg, FAAD2 |
+| TwinVQ, CELP, HVXC, HILN, SSC, MPEG Surround, LD MPEG Surround, SAOC | brak | FFmpeg (TwinVQ), FAAD2 (CELP/HVXC tylko dekoder DRM), reszta bez wzorca lokalnego |
+
+Kolejność prac (wpływ na brzmienie prawdziwych plików × dostępność wzorca): (1) domknięcie LC: wszystkie wersje wielokanałowe i częstotliwości (zrobione niżej), ramki 960 (DAB+); (2) ER AAC-LC, LD, ELD (fdkaac koduje, FFmpeg i FAAD2 dekodują); (3) Main i LTP (wzorce są, brak enkoderów lokalnych: do rozważenia pliki zewnętrzne lub własny generator strumieni jak `sauti_he_remix`); (4) USAC/xHE-AAC; (5) SSR, Scalable, BSAC; (6) narzędzia spoza AAC, które mają wzorzec (TwinVQ), potem reszta. Dla pozycji bez wzorca lokalnego dokumentuję wprost, że zgodność jest sprawdzona tylko względem normy/testów jednostkowych.
+
+**Błąd naprawiony: kolejność kanałów w 7.1 z PCE.** Test na syntetycznym 7.1 (każdy kanał ma własną amplitudę: BL = 0,70, SL = 0,40 względem FL) pokazał, że Sauti zamieniał parę tylną z boczną względem FFmpeg (kanał BL niósł treść SL). Przyczyna: wielokanałowy dekoder indeksował kanały w kolejności elementów **w strumieniu**, a pozycje wyjściowe z PCE przypisywał w kolejności **listy w PCE**; gdy te kolejności się różnią (plik FFmpeg 7.1: w strumieniu tagi 1, 2, w PCE lista 2, 1), kanały lądowały na złych miejscach. FFmpeg mapuje po parze (typ elementu, `element_instance_tag`); Sauti robi to teraz tak samo (miejsce kanału z PCE, element strumienia szukany po (typ, tag), duplikaty i elementy spoza PCE odrzucane). Układy z `channel_configuration` 1–7 bez PCE bez zmian (kolejność elementów jest tam określona normą).
+
+**Test regresyjny (nowy).** `scripts/test_aac_lc_variants_vs_ffmpeg.sh` + `tools/sauti_multichannel_compare.py`: sygnał syntetyczny (osobny ton i amplituda na kanał, bez plików użytkownika), układy mono, stereo, 3.0, 5.0 (PCE), 5.1, 7.1 (PCE) oraz częstotliwości 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 64000, 88200, 96000 Hz dla stereo i 5.1; **28 strumieni, wszystkie 138–140 dB, kanały porównywane w identycznej kolejności** (nie w najlepszym dopasowaniu, więc zamiana kanałów nie może się ukryć). Zepsuta wersja (miejsce wg kolejności w strumieniu) daje na kanałach 4–7 odpowiednio 7,3 / 7,3 / 2,4 / 2,4 dB, czyli test ją wykrywa.
+
+**Granice.** Wzorcem jest wciąż FFmpeg (kolejność kanałów i wartości), a dla PNS skorelowanego FAAD2; `test-aac-native` przechodzi.
