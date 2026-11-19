@@ -89,7 +89,8 @@ int main(void){
         assert(memcmp(&old,&state,sizeof(old))==0);
         assert(memcmp(saved,pcm,sizeof(saved))==0);
     }
-    /* A short frame right after a LONG frame (no LONG_START) must be rejected. */
+    /* A short frame right after a LONG frame (no LONG_START) is forbidden by the standard, but real encoders emit it (fdkaac at
+     * stream start) and FFmpeg plays it: it is decoded from the current sequence and the saved overlap, and counted (SBR-81). */
     assert(sauti_aac_lc_synthesis_init(&state,0));
     SautiAacIcsInfo ics;
     SautiAacSections sec;
@@ -97,10 +98,23 @@ int main(void){
     int32_t q[1024];float pcm[1024]={0};
     setup(0,0,&ics,&sec,&sf,q);
     assert(sauti_aac_lc_synthesis_frame(&state,4,&ics,&sec,&sf,q,pcm));
+    assert(state.transition_violations==0u);
     setup(2,0,&ics,&sec,&sf,q);
-    SautiAacLcSynthesis prior=state;
-    assert(!sauti_aac_lc_synthesis_frame(&state,4,&ics,&sec,&sf,q,pcm));
-    assert(memcmp(&prior,&state,sizeof(state))==0);
+    assert(sauti_aac_lc_synthesis_frame(&state,4,&ics,&sec,&sf,q,pcm));
+    assert(state.transition_violations==1u && state.previous_sequence==2u);
+    /* every legal transition leaves the counter alone, every illegal one adds exactly one */
+    for(unsigned a=0;a<4u;a++)for(unsigned b=0;b<4u;b++){
+        const int legal=(a==0&&(b==0||b==1))||(a==1&&b==2)||(a==2&&(b==2||b==3))||(a==3&&(b==0||b==1));
+        SautiAacLcSynthesis t={0};
+        assert(sauti_aac_lc_synthesis_init(&t,0));
+        setup(a,0,&ics,&sec,&sf,q);
+        assert(sauti_aac_lc_synthesis_frame(&t,4,&ics,&sec,&sf,q,pcm));
+        assert(t.transition_violations==0u);          /* the first frame has no predecessor */
+        setup(b,0,&ics,&sec,&sf,q);
+        assert(sauti_aac_lc_synthesis_frame(&t,4,&ics,&sec,&sf,q,pcm));
+        assert(t.transition_violations==(legal?0u:1u));
+        for(unsigned i=0;i<1024u;i++)assert(isfinite(pcm[i]));
+    }
     /* With no previous frame (stream cut or opened mid-way) ANY window sequence may come first, as in FFmpeg. */
     for(unsigned first=0;first<4u;first++){
         SautiAacLcSynthesis fresh={0};

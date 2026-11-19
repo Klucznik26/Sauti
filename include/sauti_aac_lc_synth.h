@@ -14,6 +14,10 @@ typedef struct {
     unsigned previous_sequence;
     unsigned initialized;
     uint32_t pns_seed;
+    /* Window-sequence transitions the standard forbids (e.g. ONLY_LONG straight to EIGHT_SHORT, which fdkaac emits at stream
+     * start).  FFmpeg decodes them from the current sequence and the saved overlap alone, and so do we; the count lets a caller
+     * report it.  Counted, never fatal. */
+    uint32_t transition_violations;
 } SautiAacLcSynthesis;
 
 int sauti_aac_lc_synthesis_init(SautiAacLcSynthesis *state,

@@ -6,6 +6,7 @@
 #include "sauti_aac_window.h"
 #include "sauti_aac_pns.h"
 #include <math.h>
+#include <stdint.h>
 #include <string.h>
 
 int sauti_aac_lc_synthesis_init(SautiAacLcSynthesis *state,
@@ -36,8 +37,7 @@ int sauti_aac_lc_synthesis_spectral(SautiAacLcSynthesis *state,
     if(!state || !ics || !spectral_input || !pcm ||
        sample_rate_index>=13u || state->initialized!=1u ||
        state->previous_shape>1u || ics->window_shape>1u ||
-       ics->window_sequence>3u ||
-       !valid_transition(state->previous_sequence,ics->window_sequence))
+       ics->window_sequence>3u)
         return 0;
     for(unsigned i=0;i<1024;i++)
         if(!isfinite(state->overlap[i]) ||
@@ -46,6 +46,9 @@ int sauti_aac_lc_synthesis_spectral(SautiAacLcSynthesis *state,
     memcpy(spectral,spectral_input,sizeof(spectral));
     if(tns && !sauti_aac_tns_apply(tns,ics,sample_rate_index,spectral))
         return 0;
+    /* SBR-81: a forbidden transition is decoded like FFmpeg does (windowing depends on the current sequence and the saved overlap only)
+     * and counted; before, one such frame made the whole stream undecodable although every real decoder plays it. */
+    const unsigned transition_ok=valid_transition(state->previous_sequence,ics->window_sequence);
     if(ics->window_sequence==2u){
         for(unsigned block=0;block<8;block++)
             if(!sauti_aac_imdct(spectral+128u*block,128u,
@@ -58,6 +61,7 @@ int sauti_aac_lc_synthesis_spectral(SautiAacLcSynthesis *state,
     memcpy(state->overlap,history,sizeof(history));
     state->previous_sequence=ics->window_sequence;
     state->previous_shape=ics->window_shape;
+    if(!transition_ok && state->transition_violations<UINT32_MAX)state->transition_violations++;
     return 1;
 }
 static int synth_internal(int allow_pns,const SautiAacTnsData *tns,
@@ -70,8 +74,7 @@ static int synth_internal(int allow_pns,const SautiAacTnsData *tns,
                                 float pcm[1024]){
     if(!state || !ics || !sections || !factors || !quant || !pcm ||
        state->initialized!=1u || state->previous_shape>1u ||
-       ics->window_shape>1u || ics->window_sequence>3u ||
-       !valid_transition(state->previous_sequence,ics->window_sequence))
+       ics->window_shape>1u || ics->window_sequence>3u)
         return 0;
     for(unsigned j=0;j<1024;j++)
         if(!isfinite(state->overlap[j]))return 0;

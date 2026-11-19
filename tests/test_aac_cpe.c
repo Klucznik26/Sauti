@@ -482,7 +482,7 @@ static unsigned seq_frame(uint8_t *frame,unsigned sequence){
     return length;
 }
 static void stream_start_any_window_sequence(void){
-    /* strumien moze zaczac sie dowolna sekwencja okien (faac zaczyna od LONG_START/EIGHT_SHORT); pozniejsze przejscia nadal sa kontrolowane */
+    /* strumien moze zaczac sie dowolna sekwencja okien (faac zaczyna od LONG_START/EIGHT_SHORT); pozniejsze zabronione przejscia sa dekodowane jak w FFmpeg i liczone (SBR-81) */
     SautiAacReason r;float pcm[2048];
     for(unsigned seq=0;seq<=3u;seq++){
         if(seq==2u)continue;                                         /* EIGHT_SHORT ma inna skladnie ICS: pokryte przez korpus faac */
@@ -493,21 +493,23 @@ static void stream_start_any_window_sequence(void){
         assert(sauti_aac_lc_synthesis_init(&state[1],0));
         assert(sauti_aac_lc_adts_stereo_decode_ex(frame,length,state,pcm,&r)==1);
         assert(state[0].previous_sequence==seq);
-        if(seq==1u){                                                 /* po LONG_START wolno tylko EIGHT_SHORT: ONLY_LONG odrzucone, stan bez zmian */
+        if(seq==1u){                                                 /* po LONG_START wolno tylko EIGHT_SHORT: ONLY_LONG jest zabronione -> dekodowane i policzone na obu kanalach */
             uint8_t f2[160];
             const unsigned l2=seq_frame(f2,0);
-            SautiAacLcSynthesis saved[2]={state[0],state[1]};
-            assert(sauti_aac_lc_adts_stereo_decode_ex(f2,l2,state,pcm,&r)==0);
-            assert(memcmp(saved,state,sizeof(saved))==0);
+            assert(state[0].transition_violations==0u && state[1].transition_violations==0u);
+            assert(sauti_aac_lc_adts_stereo_decode_ex(f2,l2,state,pcm,&r)==1);
+            assert(state[0].transition_violations==1u && state[1].transition_violations==1u);
         }
-        if(seq==3u){                                                 /* po LONG_STOP: ONLY_LONG i LONG_START dozwolone, LONG_STOP nie */
+        if(seq==3u){                                                 /* po LONG_STOP: ONLY_LONG i LONG_START dozwolone, LONG_STOP nie (liczone) */
             uint8_t f2[160];
-            SautiAacLcSynthesis saved[2]={state[0],state[1]};
-            const unsigned l3=seq_frame(f2,3);
-            assert(sauti_aac_lc_adts_stereo_decode_ex(f2,l3,state,pcm,&r)==0);
-            assert(memcmp(saved,state,sizeof(saved))==0);
             const unsigned l0=seq_frame(f2,0);
             assert(sauti_aac_lc_adts_stereo_decode_ex(f2,l0,state,pcm,&r)==1);
+            assert(state[0].transition_violations==0u);              /* STOP -> LONG legalne */
+            SautiAacLcSynthesis s2[2]={state[0],state[1]};
+            uint8_t f3[160];
+            const unsigned l3=seq_frame(f3,3);                       /* LONG -> STOP zabronione */
+            assert(sauti_aac_lc_adts_stereo_decode_ex(f3,l3,s2,pcm,&r)==1);
+            assert(s2[0].transition_violations==1u && s2[1].transition_violations==1u);
         }
     }
 }
