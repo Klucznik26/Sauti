@@ -19,6 +19,24 @@ jobs:
         run: make test
       - name: Test native AAC ASM with FFmpeg discovery disabled
         run: make -B test-aac-native PKG_CONFIG=/bin/false
+      - name: Verify QMF C11, SSE2, AVX2 and log non-gating performance
+        run: |
+          make test-aac-qmf-variants test-aac-qmf-simd
+          make bench-aac-qmf
+      - name: Verify Intel hybrid QMF dispatch policy and print CI core type
+        run: |
+          make test-aac-qmf-dispatch
+          make probe-aac-qmf
+      - name: Benchmark end-to-end 40-slot QMF synthesis (non-gating performance)
+        run: make bench-aac-qmf-frame
+      - name: Compare all 40-slot QMF PCM samples between auto dispatch and SSE2
+        run: make test-aac-qmf-frame-parity
+      - name: Verify 16-frame QMF continuity across P/E migrations when available
+        run: make test-aac-qmf-migration
+      - name: Cross-check QMF SSE2 AVX2 and C11 with Clang
+        run: |
+          clang --version
+          make -B test-aac-qmf-dispatch test-aac-qmf-variants test-aac-qmf-simd test-aac-qmf-frame-parity test-aac-qmf-migration CC=clang
       - name: Decode actual AAC, ALAC and WebM fixtures
         run: make test-container-formats
       - name: Sanitizer regression (C harness only; ASM guarded by canaries)

@@ -54,44 +54,36 @@ sauti_aac_sbr_qmf_synth_mod_slot_asm:
 .k_loop:
     ; Real accumulation
     movaps xmm8, [rsp + rax]
-    movaps xmm9, [r10 + rax]
-    mulps xmm8, xmm9
+    mulps xmm8, [r10 + rax]
     addps xmm0, xmm8
 
     movaps xmm10, [rsp + rax + 16]
-    movaps xmm11, [r10 + rax + 16]
-    mulps xmm10, xmm11
+    mulps xmm10, [r10 + rax + 16]
     addps xmm1, xmm10
 
     movaps xmm12, [rsp + rax + 32]
-    movaps xmm13, [r10 + rax + 32]
-    mulps xmm12, xmm13
+    mulps xmm12, [r10 + rax + 32]
     addps xmm2, xmm12
 
     movaps xmm14, [rsp + rax + 48]
-    movaps xmm15, [r10 + rax + 48]
-    mulps xmm14, xmm15
+    mulps xmm14, [r10 + rax + 48]
     addps xmm3, xmm14
 
     ; Imag accumulation
     movaps xmm8, [rsp + 256 + rax]
-    movaps xmm9, [r11 + rax]
-    mulps xmm8, xmm9
+    mulps xmm8, [r11 + rax]
     addps xmm4, xmm8
 
     movaps xmm10, [rsp + 256 + rax + 16]
-    movaps xmm11, [r11 + rax + 16]
-    mulps xmm10, xmm11
+    mulps xmm10, [r11 + rax + 16]
     addps xmm5, xmm10
 
     movaps xmm12, [rsp + 256 + rax + 32]
-    movaps xmm13, [r11 + rax + 32]
-    mulps xmm12, xmm13
+    mulps xmm12, [r11 + rax + 32]
     addps xmm6, xmm12
 
     movaps xmm14, [rsp + 256 + rax + 48]
-    movaps xmm15, [r11 + rax + 48]
-    mulps xmm14, xmm15
+    mulps xmm14, [r11 + rax + 48]
     addps xmm7, xmm14
 
     add rax, 64

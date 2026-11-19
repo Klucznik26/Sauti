@@ -14,6 +14,7 @@
  * The ring buffer avoids O(1280) sample movement at every slot.
  */
 #include "sauti_aac_sbr_qmf_synth_window.h"
+#include "sauti_aac_qmf_dispatch.h"
 #include <float.h>
 #include <math.h>
 #include <stdint.h>
@@ -705,6 +706,11 @@ int sauti_aac_sbr_qmf_synth_window_64(
      * even when an invalid sample arrives in a late slot. */
     SautiAacSbrQmfSynthWindowState next=*state;
     float stage[SAUTI_AAC_SBR_QMF_SYNTH_WINDOW_SLOTS*64u];
+    /* Hybrid Intel core-type aware SIMD dispatch, once per batch.
+     * The 10-tap multiplication-addition order is unchanged. */
+#if SAUTI_AAC_QMF_NATIVE_ASM
+    const int use_avx2=sauti_aac_qmf_use_avx2();
+#endif
     for(unsigned t=0;t<slots;t++){
         const float *block=modulation+(size_t)t*128u;
         for(unsigned n=0;n<128u;n++)
@@ -722,8 +728,11 @@ int sauti_aac_sbr_qmf_synth_window_64(
             hist_ptrs[j]=&next.history[ix][offset];
         }
         float *slot_out=stage+(size_t)t*64u;
-#if defined(__x86_64__) || defined(_M_X64)
-        sauti_aac_sbr_qmf_synth_window_slot_asm(slot_out,qmf_coeff,hist_ptrs);
+#if SAUTI_AAC_QMF_NATIVE_ASM
+        if(use_avx2)
+            sauti_aac_sbr_qmf_synth_window_slot_avx2(slot_out,qmf_coeff,hist_ptrs);
+        else
+            sauti_aac_sbr_qmf_synth_window_slot_asm(slot_out,qmf_coeff,hist_ptrs);
 #else
         for(unsigned n=0;n<64u;n++){
             double sum=0.0;

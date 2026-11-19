@@ -101,8 +101,11 @@ AAC_SBR_NOISE_ROM_SRC := src/decoders/modern/aac/sauti_aac_sbr_noise_rom.c
 AAC_SBR_HF_JOINT_ROM_SRC := src/decoders/modern/aac/sauti_aac_sbr_hf_joint_rom.c
 AAC_SBR_QMF_SYNTH_WINDOW_ASM := $(OBJDIR)/sauti_aac_sbr_qmf_synth_window_asm.o
 AAC_SBR_QMF_SYNTH_MOD_ASM := $(OBJDIR)/sauti_aac_sbr_qmf_synth_mod_asm.o
-AAC_SBR_QMF_SYNTH_WINDOW_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window.c $(AAC_SBR_QMF_SYNTH_WINDOW_ASM)
-AAC_SBR_QMF_SYNTH_MOD_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod.c $(AAC_SBR_QMF_SYNTH_MOD_ASM)
+AAC_SBR_QMF_SYNTH_WINDOW_AVX2 := $(OBJDIR)/sauti_aac_sbr_qmf_synth_window_avx2.o
+AAC_SBR_QMF_SYNTH_MOD_AVX2 := $(OBJDIR)/sauti_aac_sbr_qmf_synth_mod_avx2.o
+# Keep the original SSE2 kernels; AVX2 is dispatched only after CPUID/OSXSAVE.
+AAC_SBR_QMF_SYNTH_WINDOW_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window.c $(AAC_SBR_QMF_SYNTH_WINDOW_ASM) $(AAC_SBR_QMF_SYNTH_WINDOW_AVX2)
+AAC_SBR_QMF_SYNTH_MOD_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod.c $(AAC_SBR_QMF_SYNTH_MOD_ASM) $(AAC_SBR_QMF_SYNTH_MOD_AVX2)
 AAC_SBR_QMF_ANALYSIS_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_analysis.c
 AAC_SBR_QMF_FRAME_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_frame.c
 AAC_SBR_PAYLOAD_SRC := src/decoders/modern/aac/sauti_aac_sbr_payload.c
@@ -428,6 +431,12 @@ $(AAC_SBR_QMF_SYNTH_WINDOW_ASM): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth
 $(AAC_SBR_QMF_SYNTH_MOD_ASM): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod.asm src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_tables.inc | $(OBJDIR)
 	$(NASM) -f elf64 -o $@ $<
 
+$(AAC_SBR_QMF_SYNTH_WINDOW_AVX2): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window_avx2.asm | $(OBJDIR)
+	$(NASM) -f elf64 -o $@ $<
+
+$(AAC_SBR_QMF_SYNTH_MOD_AVX2): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod_avx2.asm | $(OBJDIR)
+	$(NASM) -f elf64 -o $@ $<
+
 $(OBJDIR)/test_aac_syntax: tests/test_aac_syntax.c include/sauti_aac_syntax.h $(AAC_SYNTAX_SRC) $(AAC_DSP_ASM) $(AAC_HEADERS_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_syntax.c $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) $(AAC_DSP_ASM) -no-pie
 
@@ -742,6 +751,101 @@ $(OBJDIR)/test_aac_sbr_qmf_synth_mod: tests/test_aac_sbr_qmf_synth_mod.c include
 .PHONY: test-aac-sbr-qmf-synth-mod
 test-aac-sbr-qmf-synth-mod: $(OBJDIR)/test_aac_sbr_qmf_synth_mod
 	./$(OBJDIR)/test_aac_sbr_qmf_synth_mod
+
+# Native SSE2/AVX2 differential tests; automatically SKIP on CPUs without AVX2.
+$(OBJDIR)/test_aac_qmf_simd: tests/test_aac_qmf_simd.c include/sauti_aac_sbr_qmf_synth_mod.h $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_qmf_simd.c $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+.PHONY: test-aac-qmf-simd
+test-aac-qmf-simd: $(OBJDIR)/test_aac_qmf_simd
+	./$(OBJDIR)/test_aac_qmf_simd
+
+# Pure CPU policy and live CPUID dispatch verification, including forced modes.
+$(OBJDIR)/test_aac_qmf_dispatch: tests/test_aac_qmf_dispatch.c include/sauti_aac_qmf_dispatch.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_qmf_dispatch.c
+
+$(OBJDIR)/test_aac_qmf_dispatch_sse2: tests/test_aac_qmf_dispatch.c include/sauti_aac_qmf_dispatch.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -DSAUTI_QMF_FORCE_SSE2 -Iinclude -o $@ tests/test_aac_qmf_dispatch.c
+
+$(OBJDIR)/test_aac_qmf_dispatch_avx2: tests/test_aac_qmf_dispatch.c include/sauti_aac_qmf_dispatch.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -DSAUTI_QMF_FORCE_AVX2 -Iinclude -o $@ tests/test_aac_qmf_dispatch.c
+
+$(OBJDIR)/test_aac_qmf_dispatch_c11: tests/test_aac_qmf_dispatch.c include/sauti_aac_qmf_dispatch.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -DSAUTI_QMF_DISABLE_ASM -Iinclude -o $@ tests/test_aac_qmf_dispatch.c
+
+.PHONY: test-aac-qmf-dispatch
+test-aac-qmf-dispatch: $(OBJDIR)/test_aac_qmf_dispatch $(OBJDIR)/test_aac_qmf_dispatch_sse2 $(OBJDIR)/test_aac_qmf_dispatch_avx2 $(OBJDIR)/test_aac_qmf_dispatch_c11
+	./$(OBJDIR)/test_aac_qmf_dispatch
+	./$(OBJDIR)/test_aac_qmf_dispatch_sse2
+	./$(OBJDIR)/test_aac_qmf_dispatch_avx2
+	./$(OBJDIR)/test_aac_qmf_dispatch_c11
+
+$(OBJDIR)/sauti_qmf_dispatch_probe: tools/sauti_qmf_dispatch_probe.c include/sauti_aac_qmf_dispatch.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_qmf_dispatch_probe.c
+
+.PHONY: probe-aac-qmf
+probe-aac-qmf: $(OBJDIR)/sauti_qmf_dispatch_probe
+	./$(OBJDIR)/sauti_qmf_dispatch_probe
+
+# Three independently compiled public-API pathways: scalar C11, forced
+# System V SSE2 and automatic AVX2/SSE2. The C11 test deliberately does
+# not link any QMF NASM objects, exercising the Windows-safe fallback.
+AAC_QMF_C11_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod.c src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window.c
+
+$(OBJDIR)/test_aac_qmf_c11: tests/test_aac_sbr_qmf_synth_mod.c $(AAC_QMF_C11_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -DSAUTI_QMF_DISABLE_ASM -Iinclude -o $@ tests/test_aac_sbr_qmf_synth_mod.c $(AAC_QMF_C11_SRC) -lm
+
+$(OBJDIR)/test_aac_qmf_sse2: tests/test_aac_sbr_qmf_synth_mod.c $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -DSAUTI_QMF_FORCE_SSE2 -Iinclude -o $@ tests/test_aac_sbr_qmf_synth_mod.c $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+.PHONY: test-aac-qmf-variants
+test-aac-qmf-variants: $(OBJDIR)/test_aac_qmf_c11 $(OBJDIR)/test_aac_qmf_sse2
+	./$(OBJDIR)/test_aac_qmf_c11
+	./$(OBJDIR)/test_aac_qmf_sse2
+
+# Opt-in local QMF kernel benchmark; does not gate correctness tests.
+$(OBJDIR)/sauti_qmf_simd_bench: tools/sauti_qmf_simd_bench.c $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_qmf_simd_bench.c $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+.PHONY: bench-aac-qmf
+bench-aac-qmf: $(OBJDIR)/sauti_qmf_simd_bench
+	./$(OBJDIR)/sauti_qmf_simd_bench
+
+# Compare 40-slot public-API QMF synthesis with native runtime dispatch
+# against a separately compiled SSE2-only wrapper. No decoder-wide claim.
+AAC_QMF_FRAME_BENCH_SRC := tools/sauti_qmf_frame_bench.c
+$(OBJDIR)/sauti_qmf_frame_bench_auto: $(AAC_QMF_FRAME_BENCH_SRC) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ $(AAC_QMF_FRAME_BENCH_SRC) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+$(OBJDIR)/sauti_qmf_frame_bench_sse2: $(AAC_QMF_FRAME_BENCH_SRC) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -DSAUTI_QMF_FORCE_SSE2 -Iinclude -o $@ $(AAC_QMF_FRAME_BENCH_SRC) $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+.PHONY: bench-aac-qmf-frame
+bench-aac-qmf-frame: $(OBJDIR)/sauti_qmf_frame_bench_auto $(OBJDIR)/sauti_qmf_frame_bench_sse2
+	./$(OBJDIR)/sauti_qmf_frame_bench_auto
+	./$(OBJDIR)/sauti_qmf_frame_bench_sse2
+
+# End-to-end QMF synthesis output comparison, not merely kernel math.
+.PHONY: test-aac-qmf-frame-parity
+test-aac-qmf-frame-parity: $(OBJDIR)/sauti_qmf_frame_bench_auto $(OBJDIR)/sauti_qmf_frame_bench_sse2
+	./$(OBJDIR)/sauti_qmf_frame_bench_auto --pcm-out $(OBJDIR)/sauti_qmf_auto.f32le
+	./$(OBJDIR)/sauti_qmf_frame_bench_sse2 --pcm-out $(OBJDIR)/sauti_qmf_sse2.f32le
+	python3 tools/sauti_qmf_frame_compare.py $(OBJDIR)/sauti_qmf_auto.f32le $(OBJDIR)/sauti_qmf_sse2.f32le
+
+# Continuity across Linux P/E migrations. Both binaries emit 16 consecutive
+# 40-slot frames; on homogeneous CI machines they still exercise state and
+# compare complete streams but print a clear SKIP for P/E migration itself.
+$(OBJDIR)/sauti_qmf_migration_auto: tools/sauti_qmf_migration_test.c include/sauti_aac_qmf_dispatch.h $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_qmf_migration_test.c $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+$(OBJDIR)/sauti_qmf_migration_sse2: tools/sauti_qmf_migration_test.c include/sauti_aac_qmf_dispatch.h $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
+	$(CC) $(CFLAGS) -DSAUTI_QMF_FORCE_SSE2 -Iinclude -o $@ tools/sauti_qmf_migration_test.c $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
+
+.PHONY: test-aac-qmf-migration
+test-aac-qmf-migration: $(OBJDIR)/sauti_qmf_migration_auto $(OBJDIR)/sauti_qmf_migration_sse2
+	./$(OBJDIR)/sauti_qmf_migration_auto $(OBJDIR)/sauti_qmf_migrate_auto.f32le
+	./$(OBJDIR)/sauti_qmf_migration_sse2 $(OBJDIR)/sauti_qmf_migrate_sse2.f32le
+	python3 tools/sauti_qmf_frame_compare.py $(OBJDIR)/sauti_qmf_migrate_auto.f32le $(OBJDIR)/sauti_qmf_migrate_sse2.f32le
 
 $(OBJDIR)/test_aac_sbr_qmf_analysis: tests/test_aac_sbr_qmf_analysis.c include/sauti_aac_sbr_qmf_analysis.h $(AAC_SBR_QMF_ANALYSIS_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_qmf_analysis.c $(AAC_SBR_QMF_ANALYSIS_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
@@ -1596,7 +1700,7 @@ test-aac-sbr-hf-stem-audit:
 	python3 tools/sauti_sbr62_hf_stem_audit.py --self-test
 
 .PHONY: test-aac-native
-test-aac-native: test-aac-pulse test-aac-lc-multi test-aac-sbr-ffmpeg-phase-trace test-aac-sbr-hf-timing-control test-aac-sbr-qmf-phase-frames test-aac-sbr-qmf-phase-ab test-aac-sbr-harmonic-phase2-ab test-aac-sbr-tonal-lines-audit test-aac-sbr-tonal-delta-audit test-aac-sbr-tonal-ab-audit test-aac-sbr-hf-peak-audit test-aac-sbr-hf-edge-audit test-aac-sbr-hf-spectral-audit test-aac-sbr-hf-frame-audit test-aac-sbr-hf-stem-audit test-aac-headers test-aac-syntax test-aac-ps-map test-aac-ps-hybrid test-aac-ps-qmf-high test-aac-ps-qmf-low test-aac-ps-qmf-bank test-aac-ps-qmf-reference test-aac-ps-transient test-aac-ps-decorrelate test-aac-ps-decorrelator test-aac-ps-stereo test-aac-ps-hybrid-synth test-aac-ps-pcm-stereo test-aac-he-ps-bridge test-aac-he-ps-delay test-aac-he-adts-ps test-aac-ps5-native test-aac-ps-matrix test-aac-ps-phase test-aac-ps-mix test-aac-ps-render test-aac-adts-crc test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-qmf-hf-export test-aac-sbr-qmf-export test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-sbr-adts-cpe test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
+test-aac-native: test-aac-pulse test-aac-lc-multi test-aac-qmf-migration test-aac-qmf-dispatch test-aac-qmf-simd test-aac-qmf-variants test-aac-sbr-ffmpeg-phase-trace test-aac-sbr-hf-timing-control test-aac-sbr-qmf-phase-frames test-aac-sbr-qmf-phase-ab test-aac-sbr-harmonic-phase2-ab test-aac-sbr-tonal-lines-audit test-aac-sbr-tonal-delta-audit test-aac-sbr-tonal-ab-audit test-aac-sbr-hf-peak-audit test-aac-sbr-hf-edge-audit test-aac-sbr-hf-spectral-audit test-aac-sbr-hf-frame-audit test-aac-sbr-hf-stem-audit test-aac-headers test-aac-syntax test-aac-ps-map test-aac-ps-hybrid test-aac-ps-qmf-high test-aac-ps-qmf-low test-aac-ps-qmf-bank test-aac-ps-qmf-reference test-aac-ps-transient test-aac-ps-decorrelate test-aac-ps-decorrelator test-aac-ps-stereo test-aac-ps-hybrid-synth test-aac-ps-pcm-stereo test-aac-he-ps-bridge test-aac-he-ps-delay test-aac-he-adts-ps test-aac-ps5-native test-aac-ps-matrix test-aac-ps-phase test-aac-ps-mix test-aac-ps-render test-aac-adts-crc test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-qmf-hf-export test-aac-sbr-qmf-export test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-sbr-adts-cpe test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
 
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm
@@ -1685,30 +1789,30 @@ $(OBJDIR)/test_frame: tests/test_frame.c include/sauti.h $(ASMOBJ)
 $(OBJDIR)/sauti_demo: tests/demo_ppm.c include/sauti.h $(ASMOBJ)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/demo_ppm.c $(ASMOBJ) -no-pie
 
-$(OBJDIR)/sauti_window: third_party/dr_libs/dr_flac.h third_party/stb/stb_vorbis.c third_party/tml/tml.h src/decoders/modern/sauti_decoder_opus.c src/decoders/modern/sauti_decoder_vorbis.c src/decoders/modern/sauti_decoder_midi.c platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/sauti_mp3_sdl_player.h include/sauti.h include/sauti_playlist.h include/sauti_audio_backend.h $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(YM_ASM) $(YM_ARCHIVE_SRC) include/sauti_ym_archive.h $(SNDH_OBJECTS) $(WAVPACK_SRC)
+$(OBJDIR)/sauti_window: third_party/dr_libs/dr_flac.h third_party/stb/stb_vorbis.c third_party/tml/tml.h src/decoders/modern/sauti_decoder_opus.c src/decoders/modern/sauti_decoder_vorbis.c src/decoders/modern/sauti_decoder_midi.c platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/sauti_mp3_sdl_player.h include/sauti.h include/sauti_playlist.h include/sauti_audio_backend.h $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(filter-out $(AAC_PLAYER_SRC),$(AAC_PLAYER_ASM)) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(YM_ASM) $(YM_ARCHIVE_SRC) include/sauti_ym_archive.h $(SNDH_OBJECTS) $(WAVPACK_SRC)
 	$(CC) $(CFLAGS) $(FFMPEG_FLAGS) $(OPUS_FLAGS) $(ARCHIVE_FLAGS) $(XMP_FLAGS) $(WAVPACK_FLAGS) $(SNDH_CFLAGS) -Iinclude -Iplatforms/linux $(shell $(PKG_CONFIG) --cflags sdl2 SDL2_mixer) \
-	  -o $@ platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(YM_ASM) $(YM_ARCHIVE_SRC) $(SNDH_OBJECTS) $(WAVPACK_SRC) \
+	  -o $@ platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(filter-out $(AAC_PLAYER_SRC),$(AAC_PLAYER_ASM)) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(YM_ASM) $(YM_ARCHIVE_SRC) $(SNDH_OBJECTS) $(WAVPACK_SRC) \
 	  $(shell $(PKG_CONFIG) --libs sdl2 SDL2_mixer) $(OPUS_LIBS) $(FFMPEG_LIBS) $(ARCHIVE_LIBS) $(XMP_LIBS) $(WAVPACK_LIBS) $(SNDH_LINK) -lm -no-pie
 
-$(OBJDIR)/sauti_window_pw: third_party/dr_libs/dr_flac.h third_party/stb/stb_vorbis.c third_party/tml/tml.h src/decoders/modern/sauti_decoder_opus.c src/decoders/modern/sauti_decoder_vorbis.c src/decoders/modern/sauti_decoder_midi.c platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/sauti_mp3_sdl_player.h platforms/linux/pipewire_capture.c platforms/linux/pipewire_capture.h include/sauti.h include/sauti_playlist.h include/sauti_audio_backend.h $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(YM_ASM) $(YM_ARCHIVE_SRC) include/sauti_ym_archive.h $(SNDH_OBJECTS) $(WAVPACK_SRC)
+$(OBJDIR)/sauti_window_pw: third_party/dr_libs/dr_flac.h third_party/stb/stb_vorbis.c third_party/tml/tml.h src/decoders/modern/sauti_decoder_opus.c src/decoders/modern/sauti_decoder_vorbis.c src/decoders/modern/sauti_decoder_midi.c platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/sauti_mp3_sdl_player.h platforms/linux/pipewire_capture.c platforms/linux/pipewire_capture.h include/sauti.h include/sauti_playlist.h include/sauti_audio_backend.h $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(filter-out $(AAC_PLAYER_SRC),$(AAC_PLAYER_ASM)) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(YM_ASM) $(YM_ARCHIVE_SRC) include/sauti_ym_archive.h $(SNDH_OBJECTS) $(WAVPACK_SRC)
 	$(CC) $(CFLAGS) $(FFMPEG_FLAGS) $(OPUS_FLAGS) $(ARCHIVE_FLAGS) $(XMP_FLAGS) $(WAVPACK_FLAGS) $(SNDH_CFLAGS) -D_GNU_SOURCE -DSAUTI_HAS_PIPEWIRE -Iinclude -Iplatforms/linux \
 	  $(shell $(PKG_CONFIG) --cflags sdl2 SDL2_mixer libpipewire-0.3) -o $@ \
-	  platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/pipewire_capture.c $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(YM_ASM) $(YM_ARCHIVE_SRC) $(SNDH_OBJECTS) $(WAVPACK_SRC) \
+	  platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/pipewire_capture.c $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(filter-out $(AAC_PLAYER_SRC),$(AAC_PLAYER_ASM)) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(YM_ASM) $(YM_ARCHIVE_SRC) $(SNDH_OBJECTS) $(WAVPACK_SRC) \
 	  $(shell $(PKG_CONFIG) --libs sdl2 SDL2_mixer libpipewire-0.3) $(OPUS_LIBS) $(FFMPEG_LIBS) $(ARCHIVE_LIBS) $(XMP_LIBS) $(WAVPACK_LIBS) $(SNDH_LINK) -lm -no-pie
 
-$(OBJDIR)/sauti_window_pw_reference: third_party/dr_libs/dr_flac.h third_party/stb/stb_vorbis.c third_party/tml/tml.h src/decoders/modern/sauti_decoder_opus.c src/decoders/modern/sauti_decoder_vorbis.c src/decoders/modern/sauti_decoder_midi.c platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/sauti_mp3_sdl_player.h platforms/linux/pipewire_capture.c platforms/linux/pipewire_capture.h include/sauti.h include/sauti_playlist.h include/sauti_audio_backend.h $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(OBJDIR)/sauti_decoder_ym_reference_dac.o $(YM_ARCHIVE_SRC) include/sauti_ym_archive.h
+$(OBJDIR)/sauti_window_pw_reference: third_party/dr_libs/dr_flac.h third_party/stb/stb_vorbis.c third_party/tml/tml.h src/decoders/modern/sauti_decoder_opus.c src/decoders/modern/sauti_decoder_vorbis.c src/decoders/modern/sauti_decoder_midi.c platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/sauti_mp3_sdl_player.h platforms/linux/pipewire_capture.c platforms/linux/pipewire_capture.h include/sauti.h include/sauti_playlist.h include/sauti_audio_backend.h $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(filter-out $(AAC_PLAYER_SRC),$(AAC_PLAYER_ASM)) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(OBJDIR)/sauti_decoder_ym_reference_dac.o $(YM_ARCHIVE_SRC) include/sauti_ym_archive.h
 	$(CC) $(CFLAGS) $(FFMPEG_FLAGS) -DSAUTI_YM_LISTEN_REFERENCE $(OPUS_FLAGS) $(ARCHIVE_FLAGS) $(XMP_FLAGS) -D_GNU_SOURCE -DSAUTI_HAS_PIPEWIRE -Iinclude -Iplatforms/linux \
 	  $(shell $(PKG_CONFIG) --cflags sdl2 SDL2_mixer libpipewire-0.3) -o $@ \
-	  platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/pipewire_capture.c $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(OBJDIR)/sauti_decoder_ym_reference_dac.o $(YM_ARCHIVE_SRC) \
+	  platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/pipewire_capture.c $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(filter-out $(AAC_PLAYER_SRC),$(AAC_PLAYER_ASM)) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(OBJDIR)/sauti_decoder_ym_reference_dac.o $(YM_ARCHIVE_SRC) \
 	  $(shell $(PKG_CONFIG) --libs sdl2 SDL2_mixer libpipewire-0.3) $(OPUS_LIBS) $(FFMPEG_LIBS) $(ARCHIVE_LIBS) $(XMP_LIBS) -lm -no-pie
 
 .PHONY: window-pipewire-reference
 window-pipewire-reference: $(OBJDIR)/sauti_window_pw_reference
 
-$(OBJDIR)/sauti_window_pw_pre_tick: third_party/dr_libs/dr_flac.h third_party/stb/stb_vorbis.c third_party/tml/tml.h src/decoders/modern/sauti_decoder_opus.c src/decoders/modern/sauti_decoder_vorbis.c src/decoders/modern/sauti_decoder_midi.c platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/sauti_mp3_sdl_player.h platforms/linux/pipewire_capture.c platforms/linux/pipewire_capture.h include/sauti.h include/sauti_playlist.h include/sauti_audio_backend.h $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(OBJDIR)/sauti_decoder_ym_env_pre_tick.o $(YM_ARCHIVE_SRC) include/sauti_ym_archive.h
+$(OBJDIR)/sauti_window_pw_pre_tick: third_party/dr_libs/dr_flac.h third_party/stb/stb_vorbis.c third_party/tml/tml.h src/decoders/modern/sauti_decoder_opus.c src/decoders/modern/sauti_decoder_vorbis.c src/decoders/modern/sauti_decoder_midi.c platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/sauti_mp3_sdl_player.h platforms/linux/pipewire_capture.c platforms/linux/pipewire_capture.h include/sauti.h include/sauti_playlist.h include/sauti_audio_backend.h $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(filter-out $(AAC_PLAYER_SRC),$(AAC_PLAYER_ASM)) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(OBJDIR)/sauti_decoder_ym_env_pre_tick.o $(YM_ARCHIVE_SRC) include/sauti_ym_archive.h
 	$(CC) $(CFLAGS) $(FFMPEG_FLAGS) -DSAUTI_YM_LISTEN_REFERENCE $(OPUS_FLAGS) $(ARCHIVE_FLAGS) $(XMP_FLAGS) -D_GNU_SOURCE -DSAUTI_HAS_PIPEWIRE -Iinclude -Iplatforms/linux \
 	  $(shell $(PKG_CONFIG) --cflags sdl2 SDL2_mixer libpipewire-0.3) -o $@ \
-	  platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/pipewire_capture.c $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(OBJDIR)/sauti_decoder_ym_env_pre_tick.o $(YM_ARCHIVE_SRC) \
+	  platforms/linux/sdl2_wayland.c platforms/linux/sauti_mp3_sdl_player.c platforms/linux/pipewire_capture.c $(PORTABLE_SRC) $(AAC_PLAYER_SRC) $(ASMOBJ) $(filter-out $(AAC_PLAYER_SRC),$(AAC_PLAYER_ASM)) $(AVR_ASM) $(DVSM_ASM) $(YM_SRC) $(OBJDIR)/sauti_decoder_ym_env_pre_tick.o $(YM_ARCHIVE_SRC) \
 	  $(shell $(PKG_CONFIG) --libs sdl2 SDL2_mixer libpipewire-0.3) $(OPUS_LIBS) $(FFMPEG_LIBS) $(ARCHIVE_LIBS) $(XMP_LIBS) -lm -no-pie
 
 .PHONY: window-pipewire-pre-tick
