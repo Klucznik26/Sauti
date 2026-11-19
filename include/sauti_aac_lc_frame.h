@@ -63,6 +63,12 @@ typedef enum {
     SAUTI_AAC_REASON_MID_SIDE
 } SautiAacReason;
 const char *sauti_aac_reason_name(SautiAacReason reason);
+/* Pojedynczy element kanalowy (ID_SCE = 0 albo ID_LFE = 3) od pozycji `*bit_offset` wskazujacej na jego id; pomija poprzedzajace elementy FIL (nie-SBR).  Dla wieloelementowych
+ * ramek (sauti_aac_lc_multi).  1 / 0 / -1 jak sauti_aac_lc_mono_parse, powod w `reason`. */
+int sauti_aac_lc_element_parse(const uint8_t *raw,size_t length,
+                               size_t *bit_offset,unsigned rate_index,
+                               unsigned element_id,SautiAacLcMonoData *out,
+                               SautiAacReason *reason);
 int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
                                      SautiAacLcSynthesis *state,
                                      float pcm[1024],SautiAacReason *reason);

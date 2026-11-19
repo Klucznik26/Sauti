@@ -15,7 +15,7 @@ static int read(const uint8_t *p,size_t n,size_t *pos,
     return sauti_aac_bits_read_asm(p,n,pos,bits,v);
 }
 static int mono_parse_ex(const uint8_t *raw,size_t length,
-                           size_t *bit_offset,unsigned rate_index,
+                           size_t *bit_offset,unsigned rate_index,unsigned element_id,
                            SautiAacLcMonoData *out,SautiAacReason *reason){
     if(!raw||!bit_offset||!out||length>SIZE_MAX/8u||
        *bit_offset>length*8u||rate_index>=13u)return 0;
@@ -38,12 +38,12 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
     size_t probe=pos;
     uint32_t first_id=0;
     if(!read(raw,length,&probe,3,&first_id))return 0;
-    if(first_id!=0u){
+    if(first_id!=element_id){
         *reason=SAUTI_AAC_REASON_UNSUPPORTED_PREFIX;
         return -1;
     }
     SautiAacScePrefix sce;
-    if(!sauti_aac_lc_sce_prefix_parse(raw,length,&pos,&sce)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
+    if(!sauti_aac_lc_sce_prefix_parse_id(raw,length,&pos,element_id,&sce)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
     const uint16_t *offsets=NULL;unsigned count=0;
     if(!sauti_aac_band_offsets(rate_index,
                                sce.ics.window_sequence==2u,
@@ -114,7 +114,14 @@ int sauti_aac_lc_mono_parse(const uint8_t *raw,size_t length,
                            size_t *bit_offset,unsigned rate_index,
                            SautiAacLcMonoData *out){
     SautiAacReason reason=SAUTI_AAC_REASON_OK;
-    return mono_parse_ex(raw,length,bit_offset,rate_index,out,&reason);
+    return mono_parse_ex(raw,length,bit_offset,rate_index,0u,out,&reason);
+}
+int sauti_aac_lc_element_parse(const uint8_t *raw,size_t length,
+                               size_t *bit_offset,unsigned rate_index,
+                               unsigned element_id,SautiAacLcMonoData *out,
+                               SautiAacReason *reason){
+    if(!reason)return 0;
+    return mono_parse_ex(raw,length,bit_offset,rate_index,element_id,out,reason);
 }
 int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
                                  SautiAacLcSynthesis *state,
@@ -137,7 +144,7 @@ int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
     size_t pos=0;
     const size_t sce_start=pos;
     SautiAacLcMonoData parsed;
-    int status=mono_parse_ex(raw,raw_length,&pos,rate,&parsed,reason);
+    int status=mono_parse_ex(raw,raw_length,&pos,rate,0u,&parsed,reason);
     if(status!=1)return status;
     if(adts.crc_present){
         if(pos<sce_start+3u){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}

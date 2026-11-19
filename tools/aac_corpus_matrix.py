@@ -20,6 +20,8 @@ def make_signal(kind, rate, ch, seconds):
                 if f0 * h < rate * 0.45: s += a / h * np.sin(2 * np.pi * f0 * h * t)
         s *= (0.5 + 0.5 * np.exp(-3 * (t % 1.0)))
         chans = [s * 0.5 * (1.0 - 0.4 * c / max(1, ch - 1)) for c in range(ch)]
+        if ch > 2:                                        # wielokanalowo: kazdy kanal inny (przesuniecie w czasie), zeby zla kolejnosc kanalow dawala niski SNR
+            chans = [np.roll(chans[c], 311 * c) for c in range(ch)]
     elif kind == "noise":                                 # szum pasmowy: wymusza PNS/szeroki widmowo
         x = rng.standard_normal(n); k = np.ones(8) / 8
         chans = [np.convolve(rng.standard_normal(n), k, mode="same") * 0.2 for _ in range(ch)]
@@ -28,14 +30,24 @@ def make_signal(kind, rate, ch, seconds):
         s = 0.2 * np.sin(2 * np.pi * 523.0 * t)
         for p in range(0, n, rate // 4):
             m = min(64, n - p); s[p:p + m] += 0.8 * np.hanning(m) * rng.standard_normal(m)
-        chans = [s if c % 2 == 0 else np.roll(s, 37) for c in range(ch)]
+        chans = [s if c % 2 == 0 else np.roll(s, 37) for c in range(ch)] if ch <= 2 else [np.roll(s, 997 * c) for c in range(ch)]
     x = np.stack(chans, axis=1)
     return np.clip(x, -0.99, 0.99)
 
+WAV_MASK = {3: 0x7, 4: 0x107, 5: 0x37, 6: 0x3F, 8: 0x63F}   # FL FR FC | +BC | FL FR FC BL BR | 5.1 (back) | 7.1: kolejnosc danych = kolejnosc bitow maski
+
 def write_wav(path, x, rate):
     pcm = (x * 32767).astype("<i2")
-    with wave.open(path, "wb") as w:
-        w.setnchannels(x.shape[1]); w.setsampwidth(2); w.setframerate(rate); w.writeframes(pcm.tobytes())
+    ch = x.shape[1]
+    if ch <= 2:
+        with wave.open(path, "wb") as w:
+            w.setnchannels(ch); w.setsampwidth(2); w.setframerate(rate); w.writeframes(pcm.tobytes())
+        return
+    if ch not in WAV_MASK: raise ValueError("brak ukladu dla %d kanalow" % ch)
+    data = pcm.tobytes()                                   # WAVE_FORMAT_EXTENSIBLE z maska kanalow (ffmpeg inaczej zgadlby np. 2.1 dla 3 kanalow)
+    fmt = struct.pack("<HHIIHHH", 0xFFFE, ch, rate, rate * ch * 2, ch * 2, 16, 22) + struct.pack("<HIH", 16, WAV_MASK[ch], 1) + b"\x00\x00\x00\x00\x10\x00\x80\x00\x00\xaa\x00\x38\x9b\x71"
+    body = b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt + b"data" + struct.pack("<I", len(data)) + data
+    open(path, "wb").write(b"RIFF" + struct.pack("<I", len(body)) + body)
 
 def read_wav_f32(path):
     d = open(path, "rb").read()
@@ -67,8 +79,13 @@ def snr_db(ref, test, max_lag=4096):
     else: ra, ta = ref[0:n + lag], test[-lag:n]
     m = min(len(ra), len(ta)) - 2048
     ra, ta = ra[1024:1024 + m], ta[1024:1024 + m]
-    num = float((ra ** 2).sum()); den = float(((ra - ta) ** 2).sum()) + 1e-30
-    return 10 * np.log10(num / den + 1e-30), lag
+    worst = None
+    for c in range(ra.shape[1]):                          # najgorszy kanal (jeden zepsuty kanal nie moze zniknac w sredniej)
+        num = float((ra[:, c] ** 2).sum()); den = float(((ra[:, c] - ta[:, c]) ** 2).sum()) + 1e-30
+        if num < 1e-9: continue                           # kanal cichy w referencji (np. LFE bez tonu): nie ma czego porownywac
+        v = 10 * np.log10(num / den + 1e-30)
+        worst = v if worst is None else min(worst, v)
+    return (worst if worst is not None else 200.0), lag
 
 EXPECTED_DIVERGENCE = {"ffmpeg-aac-ms-pns": "PNS+M/S: norma wymaga szumu skorelowanego, FFmpeg dekoduje niezalezny (Sauti: zgodnie z norma)"}
 
@@ -141,6 +158,7 @@ def main():
         for rate in map(int, args.rates.split(",")):
             for ch in map(int, args.channels.split(",")):
                 if label == "fdk-hev2" and ch != 2: continue
+                if ch > 2 and (isinstance(enc, tuple) or "he" in label): continue         # faac i HE: tylko mono/stereo w tej macierzy
                 for kind in (args.signals.split(",") if args.signals else []) + ["music:" + m for m in args.music]:
                     kname = kind if not kind.startswith("music:") else "m" + str(abs(hash(kind)) % 10000)
                     tag = f"{label}_{rate}_{ch}_{kname}"

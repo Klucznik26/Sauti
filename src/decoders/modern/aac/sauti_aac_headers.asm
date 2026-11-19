@@ -57,7 +57,7 @@ sauti_aac_adts_parse_asm:
     or r8d,eax              ; channel_configuration, core channels only
     cmp r8d,1               ; PCE configuration 0 postponed
     jb .fail
-    cmp r8d,2               ; current decoder design mono and stereo
+    cmp r8d,7               ; 1..7 = standard layouts (mono .. 7.1); 8-15 reserved/other layouts stay rejected
     ja .fail
     movzx eax,byte [rdi+3]
     and eax,3

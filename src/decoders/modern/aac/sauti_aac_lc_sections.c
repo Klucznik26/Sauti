@@ -64,12 +64,17 @@ int sauti_aac_lc_sections_parse(const uint8_t *data,size_t length,
 }
 int sauti_aac_lc_sce_prefix_parse(const uint8_t *data,size_t length,
                                   size_t *bit_offset,SautiAacScePrefix *out){
-    if(!data||!bit_offset||!out)return 0;
+    return sauti_aac_lc_sce_prefix_parse_id(data,length,bit_offset,0u,out);
+}
+int sauti_aac_lc_sce_prefix_parse_id(const uint8_t *data,size_t length,
+                                     size_t *bit_offset,unsigned element_id,
+                                     SautiAacScePrefix *out){
+    if(!data||!bit_offset||!out||(element_id!=0u&&element_id!=3u))return 0;
     SautiAacScePrefix next;
     memset(&next,0,sizeof(next));
     size_t pos=*bit_offset;
     uint32_t id;
-    if(!bits(data,length,&pos,3,&id) || id!=0u ||
+    if(!bits(data,length,&pos,3,&id) || id!=element_id ||
        !bits(data,length,&pos,4,&next.instance_tag) ||
        !bits(data,length,&pos,8,&next.global_gain) ||
        !sauti_aac_ics_info_parse(data,length,&pos,&next.ics) ||

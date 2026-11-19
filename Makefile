@@ -112,7 +112,8 @@ AAC_HE_ADTS_QMF_SRC := src/decoders/modern/aac/sauti_aac_he_adts_qmf.c
 AAC_HE_ADTS_CPE_SRC := src/decoders/modern/aac/sauti_aac_he_adts_cpe.c
 AAC_HE_ADTS_CPE_QMF_SRC := src/decoders/modern/aac/sauti_aac_he_adts_cpe_qmf.c
 AAC_ADTS_CRC_SRC := src/decoders/modern/aac/sauti_aac_adts_crc.c
-AAC_NATIVE_ADAPTER_DEPS = $(sort $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_SBR_ADTS_CPE_DEPS))
+AAC_LC_MULTI_SRC := src/decoders/modern/aac/sauti_aac_lc_multi.c
+AAC_NATIVE_ADAPTER_DEPS = $(sort $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_LC_MULTI_SRC) $(AAC_SBR_ADTS_CPE_DEPS))
 AAC_LC_SECTIONS_SRC := src/decoders/modern/aac/sauti_aac_lc_sections.c
 AAC_HUFFMAN_SRC := src/decoders/modern/aac/sauti_aac_huffman.c
 AAC_HUFFMAN_ASM := $(OBJDIR)/sauti_aac_huffman.o
@@ -1082,7 +1083,7 @@ test-aac-ps5-compare-help: probe-he-ps
 	@echo "Run: python3 tools/sauti_ps5_compare.py INPUT.aac --native ./$(OBJDIR)/sauti_he_ps_decode --rate 48000"
 
 
-AAC_SBR_ADTS_CPE_DEPS := $(sort $(AAC_HE_ADTS_CPE_QMF_SRC) $(AAC_HE_ADTS_CPE_SRC) src/decoders/modern/aac/sauti_aac_cpe.c $(AAC_SBR_ADTS_QMF_DEPS))
+AAC_SBR_ADTS_CPE_DEPS := $(sort $(AAC_HE_ADTS_CPE_QMF_SRC) $(AAC_HE_ADTS_CPE_SRC) src/decoders/modern/aac/sauti_aac_cpe.c $(AAC_LC_MULTI_SRC) $(AAC_SBR_ADTS_QMF_DEPS))
 $(OBJDIR)/test_aac_sbr_adts_cpe: tests/test_aac_sbr_adts_cpe.c tests/test_aac_sbr_payload.c include/sauti_aac_he_adts_cpe.h include/sauti_decoder_aac_native.h src/sauti_decoder.c src/decoders/modern/aac/sauti_decoder_aac_native.c $(AAC_SBR_ADTS_CPE_DEPS) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_adts_cpe.c src/sauti_decoder.c src/decoders/modern/aac/sauti_decoder_aac_native.c $(AAC_SBR_ADTS_CPE_DEPS) -lm -no-pie
 
@@ -1515,6 +1516,19 @@ test-aac-pulse-diff: test-aac-pulse $(OBJDIR)/gen_aac_pulse_fixture $(OBJDIR)/sa
 	./$(OBJDIR)/gen_aac_pulse_fixture stereo $(OBJDIR)/audio-fixtures/pulse/pulse_stereo.aac && \
 	python3 tools/aac_corpus_matrix.py --out $(OBJDIR)/audio-fixtures/pulse --file $(OBJDIR)/audio-fixtures/pulse/pulse_mono.aac --file $(OBJDIR)/audio-fixtures/pulse/pulse_stereo.aac --require-ok
 
+# AAC-LC wielokanalowy: test jednostkowy (hermetyczny) + ROZNICOWY z FFmpeg (3.0/4.0/5.0/5.1/7.1 kodowane przez ffmpeg `aac`, per-kanalowy SNR).
+$(OBJDIR)/test_aac_lc_multi: tests/test_aac_lc_multi.c include/sauti_aac_lc_multi.h $(AAC_LC_MULTI_SRC) $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_lc_multi.c $(AAC_LC_MULTI_SRC) $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) -lm -no-pie
+
+.PHONY: test-aac-lc-multi test-aac-multi-diff
+test-aac-lc-multi: $(OBJDIR)/test_aac_lc_multi
+	./$(OBJDIR)/test_aac_lc_multi
+
+test-aac-multi-diff: test-aac-lc-multi $(OBJDIR)/sauti_aac_adapter_cli
+	@if ! command -v ffmpeg >/dev/null 2>&1; then echo "SKIP AAC multi diff: ffmpeg CLI unavailable"; exit 0; fi; \
+	mkdir -p $(OBJDIR)/audio-fixtures/multi && \
+	python3 tools/aac_corpus_matrix.py --out $(OBJDIR)/audio-fixtures/multi --channels 3,4,5,6,8 --rates 44100 --seconds 2 --signals music,transient --filter ffmpeg-aac-fast --require-ok
+
 .PHONY: test-aac-native-adapter
 test-aac-native-adapter: $(OBJDIR)/test_decoder_aac_native
 	./$(OBJDIR)/test_decoder_aac_native
@@ -1582,7 +1596,7 @@ test-aac-sbr-hf-stem-audit:
 	python3 tools/sauti_sbr62_hf_stem_audit.py --self-test
 
 .PHONY: test-aac-native
-test-aac-native: test-aac-pulse test-aac-sbr-ffmpeg-phase-trace test-aac-sbr-hf-timing-control test-aac-sbr-qmf-phase-frames test-aac-sbr-qmf-phase-ab test-aac-sbr-harmonic-phase2-ab test-aac-sbr-tonal-lines-audit test-aac-sbr-tonal-delta-audit test-aac-sbr-tonal-ab-audit test-aac-sbr-hf-peak-audit test-aac-sbr-hf-edge-audit test-aac-sbr-hf-spectral-audit test-aac-sbr-hf-frame-audit test-aac-sbr-hf-stem-audit test-aac-headers test-aac-syntax test-aac-ps-map test-aac-ps-hybrid test-aac-ps-qmf-high test-aac-ps-qmf-low test-aac-ps-qmf-bank test-aac-ps-qmf-reference test-aac-ps-transient test-aac-ps-decorrelate test-aac-ps-decorrelator test-aac-ps-stereo test-aac-ps-hybrid-synth test-aac-ps-pcm-stereo test-aac-he-ps-bridge test-aac-he-ps-delay test-aac-he-adts-ps test-aac-ps5-native test-aac-ps-matrix test-aac-ps-phase test-aac-ps-mix test-aac-ps-render test-aac-adts-crc test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-qmf-hf-export test-aac-sbr-qmf-export test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-sbr-adts-cpe test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
+test-aac-native: test-aac-pulse test-aac-lc-multi test-aac-sbr-ffmpeg-phase-trace test-aac-sbr-hf-timing-control test-aac-sbr-qmf-phase-frames test-aac-sbr-qmf-phase-ab test-aac-sbr-harmonic-phase2-ab test-aac-sbr-tonal-lines-audit test-aac-sbr-tonal-delta-audit test-aac-sbr-tonal-ab-audit test-aac-sbr-hf-peak-audit test-aac-sbr-hf-edge-audit test-aac-sbr-hf-spectral-audit test-aac-sbr-hf-frame-audit test-aac-sbr-hf-stem-audit test-aac-headers test-aac-syntax test-aac-ps-map test-aac-ps-hybrid test-aac-ps-qmf-high test-aac-ps-qmf-low test-aac-ps-qmf-bank test-aac-ps-qmf-reference test-aac-ps-transient test-aac-ps-decorrelate test-aac-ps-decorrelator test-aac-ps-stereo test-aac-ps-hybrid-synth test-aac-ps-pcm-stereo test-aac-he-ps-bridge test-aac-he-ps-delay test-aac-he-adts-ps test-aac-ps5-native test-aac-ps-matrix test-aac-ps-phase test-aac-ps-mix test-aac-ps-render test-aac-adts-crc test-aac-sbr-grid test-aac-sbr-master test-aac-sbr-master-log test-aac-sbr-limits test-aac-sbr-tables test-aac-sbr-control test-aac-sbr-huffman test-aac-sbr-quant test-aac-sbr-energy test-aac-sbr-coupled test-aac-sbr-patch test-aac-sbr-hf test-aac-sbr-hf-predict test-aac-sbr-lpc test-aac-sbr-hf-adjust test-aac-sbr-hf-limiter test-aac-sbr-limiter-bands test-aac-sbr-hf-noise test-aac-sbr-hf-sine test-aac-sbr-hf-joint test-aac-sbr-smooth test-aac-sbr-hf-joint-smooth test-aac-sbr-noise-rom test-aac-sbr-hf-joint-rom test-aac-sbr-qmf-synth-window test-aac-sbr-qmf-synth-mod test-aac-sbr-qmf-analysis test-aac-sbr-qmf-frame test-aac-sbr-qmf-hf-export test-aac-sbr-qmf-export test-aac-sbr-temporal-energy-units test-aac-sbr-payload test-aac-sbr-adts-mono test-aac-sbr-adts-qmf test-aac-sbr-adts-cpe test-aac-he-probe-smoke test-aac-lc-sections test-aac-huffman test-aac-spectral test-aac-tables test-aac-scalefactors test-aac-spectral-data test-aac-dequant test-aac-imdct test-aac-window test-aac-lc-synth test-aac-lc-frame test-aac-pns test-aac-tns test-aac-cpe test-aac-stereo-strict test-aac-native-adapter
 
 $(OBJDIR)/test_decoder_aiff: tests/test_decoder_aiff.c include/sauti_decoder_aiff.h include/sauti_decoder.h src/sauti_decoder.c $(AIFF_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aiff.c src/sauti_decoder.c $(AIFF_SRC) -lm

@@ -5,6 +5,7 @@
  * payloads are decoded incrementally during read/seek. */
 #include "sauti_decoder_aac_native.h"
 #include "sauti_aac_cpe.h"
+#include "sauti_aac_lc_multi.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_he_adts_cpe_qmf.h"
 #include "sauti_aac_he_adts_qmf.h"
@@ -677,4 +678,164 @@ static int he_cpe_seek_native(void *ctx,uint64_t position){
 const SautiDecoderOps sauti_decoder_aac_he_cpe_native_ops={
     "aac-he-sbr-cpe-native-adts-experimental",he_cpe_probe,he_cpe_open_native,
     he_cpe_read_native,he_cpe_seek_native,he_cpe_release
+};
+
+/* Natywny AAC-LC WIELOKANALOWY ADTS (channel_configuration 3..7: 3.0, 4.0, 5.0, 5.1, 7.1; jeden raw_data_block na ramke, bez CRC): ten sam kontrakt co adaptery
+ * mono/stereo.  PCM jest w kolejnosci FFmpeg/WAVE (patrz sauti_aac_lc_multi.h).  Probe przyjmuje tylko >= 3 kanaly, wiec stereo/mono zostaja przy swoich adapterach. */
+typedef struct {
+    SautiAacLcMulti history;
+    unsigned char valid;
+} NativeMultiCheckpoint;
+typedef struct {
+    const uint8_t *bytes;
+    size_t bytes_length;
+    size_t *offsets; /* frame_count + 1, sentinel at end */
+    size_t frame_count;
+    size_t next_frame;
+    uint64_t position;
+    unsigned channels;
+    SautiAacLcMulti history;
+    float cache[SAUTI_AAC_LC_MULTI_MAX*1024];
+    size_t cache_frame;
+    NativeMultiCheckpoint *checkpoints;
+    size_t checkpoint_count;
+} NativeMultiAac;
+
+static int multi_probe(const uint8_t *data,size_t size){
+    SautiAacAdts h={0};
+    return data && size>=7 &&
+           sauti_aac_adts_parse_asm(data,size,&h) &&
+           h.core_aot==2u && h.core_channels>=3u && h.core_channels<=7u &&
+           h.raw_blocks==1u && !h.crc_present;
+}
+static int multi_reset(NativeMultiAac *s,unsigned config){
+    if(!sauti_aac_lc_multi_init(&s->history,config,0))return 0;
+    s->next_frame=0;
+    s->cache_frame=1024;
+    return 1;
+}
+static int multi_decode_next(NativeMultiAac *s){
+    if(s->next_frame>=s->frame_count)return 0;
+    const size_t offset=s->offsets[s->next_frame];
+    const size_t length=s->offsets[s->next_frame+1]-offset;
+    SautiAacReason reason=SAUTI_AAC_REASON_OK;
+    if(sauti_aac_lc_adts_multi_decode_ex(s->bytes+offset,length,&s->history,s->cache,&reason)!=1)
+        return 0;
+    for(size_t i=0;i<(size_t)1024u*s->channels;i++)
+        if(!isfinite(s->cache[i]))return 0;
+    s->next_frame++;
+    if(s->checkpoints && s->next_frame%AAC_CHECKPOINT_FRAMES==0){
+        const size_t k=s->next_frame/AAC_CHECKPOINT_FRAMES;
+        if(k<s->checkpoint_count && !s->checkpoints[k].valid){
+            s->checkpoints[k].history=s->history;
+            s->checkpoints[k].valid=1;
+        }
+    }
+    s->cache_frame=0;
+    return 1;
+}
+static void multi_release(void *ctx){
+    NativeMultiAac *s=ctx;
+    if(s){free(s->checkpoints);free(s->offsets);free(s);}
+}
+static void *multi_open_native(const uint8_t *data,size_t length,SautiPcmInfo *info){
+    if(!info || !multi_probe(data,length))return NULL;
+    if(length>512u*1024u*1024u)return NULL;
+    size_t offset=0,count=0,capacity=0;
+    size_t *offsets=NULL;
+    unsigned rate=0,config=0;
+    while(offset<length){
+        SautiAacAdts h={0};
+        if(!sauti_aac_adts_parse_asm(data+offset,length-offset,&h) ||
+           h.frame_bytes<7 || h.frame_bytes>length-offset ||
+           h.core_aot!=2u || h.core_channels<3u || h.core_channels>7u ||
+           h.raw_blocks!=1u || h.crc_present)goto fail;
+        if(!count){rate=h.core_sample_rate;config=h.core_channels;}
+        if(rate!=h.core_sample_rate || config!=h.core_channels)goto fail;
+        if(count>=SIZE_MAX/1024u)goto fail;
+        if(count+2u>capacity){
+            size_t next=capacity?capacity*2u:128u;
+            if(next<capacity || next>SIZE_MAX/sizeof(*offsets))goto fail;
+            size_t *resized=realloc(offsets,next*sizeof(*offsets));
+            if(!resized)goto fail;
+            offsets=resized;capacity=next;
+        }
+        offsets[count++]=offset;
+        offset+=h.frame_bytes;
+    }
+    if(!count)goto fail;
+    offsets[count]=length;
+    NativeMultiAac *s=calloc(1,sizeof(*s));
+    if(!s)goto fail;
+    s->bytes=data;s->bytes_length=length;
+    s->offsets=offsets;s->frame_count=count;
+    s->channels=sauti_aac_lc_multi_config_channels(config);
+    if(!s->channels || !multi_reset(s,config)){multi_release(s);return NULL;}
+    s->checkpoint_count=count/AAC_CHECKPOINT_FRAMES+1u;
+    if(s->checkpoint_count>SIZE_MAX/sizeof(*s->checkpoints)){
+        multi_release(s);return NULL;
+    }
+    s->checkpoints=calloc(s->checkpoint_count,sizeof(*s->checkpoints));
+    if(!s->checkpoints){multi_release(s);return NULL;}
+    s->checkpoints[0].history=s->history;
+    s->checkpoints[0].valid=1;
+    /* Tylko pierwsza ramka przy open (jak w adapterze stereo); reszta leniwie, blad zatrzymuje read() bez wymyslonego PCM. */
+    if(!multi_decode_next(s)){multi_release(s);return NULL;}
+    s->position=0;
+    info->sample_rate=rate;
+    info->channels=s->channels;
+    info->total_frames=(uint64_t)count*1024u;
+    return s;
+fail:
+    free(offsets);
+    return NULL;
+}
+static size_t multi_read_native(void *ctx,float *output,size_t frames){
+    NativeMultiAac *s=ctx;
+    if(!s || !output || !frames)return 0;
+    const uint64_t total=(uint64_t)s->frame_count*1024u;
+    if(s->position>=total)return 0;
+    uint64_t available=total-s->position;
+    if((uint64_t)frames>available)frames=(size_t)available;
+    size_t written=0;
+    while(written<frames){
+        if(s->cache_frame==1024u && !multi_decode_next(s))break;
+        size_t take=frames-written;
+        if(take>1024u-s->cache_frame)take=1024u-s->cache_frame;
+        memcpy(output+written*s->channels,s->cache+s->cache_frame*s->channels,
+               take*s->channels*sizeof(float));
+        s->cache_frame+=take;
+        written+=take;
+        s->position+=take;
+    }
+    return written;
+}
+static int multi_seek_native(void *ctx,uint64_t position){
+    NativeMultiAac *s=ctx;
+    if(!s || position>(uint64_t)s->frame_count*1024u)return 0;
+    if(position==s->position)return 1;
+    const size_t target=(size_t)(position/1024u);
+    size_t origin=0;
+    for(size_t k=target/AAC_CHECKPOINT_FRAMES+1u;k>0;--k){
+        const size_t slot=k-1u;
+        if(slot<s->checkpoint_count && s->checkpoints[slot].valid){
+            s->history=s->checkpoints[slot].history;
+            origin=slot*AAC_CHECKPOINT_FRAMES;
+            break;
+        }
+    }
+    s->next_frame=origin;
+    s->cache_frame=1024u;
+    for(size_t i=origin;i<target;i++)
+        if(!multi_decode_next(s))return 0;
+    s->cache_frame=1024u;
+    if(position%1024u){
+        if(!multi_decode_next(s))return 0;
+        s->cache_frame=(size_t)(position%1024u);
+    }
+    s->position=position;
+    return 1;
+}
+const SautiDecoderOps sauti_decoder_aac_multi_native_ops={
+    "aac-lc-native-multi-adts",multi_probe,multi_open_native,multi_read_native,multi_seek_native,multi_release
 };

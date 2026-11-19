@@ -13,6 +13,8 @@ extern const SautiDecoderOps sauti_decoder_aac_native_ops;
 /* Native AAC-LC MONO ADTS (one SCE per access unit, no SBR/PS): the stereo adapter's single-channel counterpart.  An HE-AAC stream (SBR extension in FIL) is rejected at open,
  * so this adapter can sit in a registry before the HE adapters. */
 extern const SautiDecoderOps sauti_decoder_aac_mono_native_ops;
+/* AAC-LC wielokanalowy (ADTS channel_configuration 3..7, bez CRC); PCM w kolejnosci FFmpeg/WAVE, patrz sauti_aac_lc_multi.h. */
+extern const SautiDecoderOps sauti_decoder_aac_multi_native_ops;
 
 /* Strictly experimental native HE-AAC v1 / SBR ADTS bridge.
  *

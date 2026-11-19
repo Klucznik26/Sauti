@@ -7117,3 +7117,16 @@ Dekoder LC porównywany różnicowo z FFmpeg (`tools/aac_corpus_matrix.py`, adap
 **Testy:** `make test-aac-pulse` (jednostkowy, w `test-aac-native`), `make test-aac-native` PASS (88 testów). Dwa testy starego zachowania zaktualizowano: `test_aac_lc_synth` (dowolna pierwsza sekwencja, reguła przejść po ramce LONG) i `test_aac_lc_frame` (pulsacja nie jest już odrzucana jako nieobsługiwana).
 
 **Nie zrobione w LC:** wielokanałowość/PCE (parser ADTS w ASM odrzuca `channel_config>2`), `raw_blocks>1`, 88,2/96 kHz w macierzy, CCE, Main/LTP, kontener MP4/M4A. Brak mutantów dla nowego kodu pulse. HE/HEv2 wymaga prawdziwych plików.
+
+### AAC-LC: wielokanałowość 3.0–7.1 i pełna macierz częstotliwości (2026-11-19)
+
+**Wielokanałowość (nowy moduł `sauti_aac_lc_multi`, adapter `aac-lc-native-multi-adts`).** ADTS `channel_configuration` 3..7 (3.0, 4.0, 5.0, 5.1, 7.1; 1 i 2 też obsługuje moduł, ale zostają przy adapterach mono/stereo). Parser ADTS w ASM przyjmuje teraz konfiguracje 1..7 (było 1..2); wszystkie istniejące ścieżki sprawdzają `core_channels` jawnie, więc HE i LC mono/stereo bez zmian (pełny `make test-aac-native` PASS).
+- Pętla po elementach `raw_data_block`: SCE, CPE, LFE (id 3, ta sama składnia co SCE), DSE i PCE (pomijane), FIL (nie-SBR pomijany), END. Liczba kanałów z elementów musi zgadzać się z konfiguracją, inaczej ramka jest błędna (0).
+- Jeden wspólny generator PNS dla całej ramki w kolejności elementów (jak FFmpeg).
+- Atomowo: błąd nie zmienia ani stanu, ani PCM. PCM w kolejności wyjściowej FFmpeg/WAVE (5.1: FL FR FC LFE BL BR; 7.1: FL FR FC LFE BL BR SL SR), mapa w `sauti_aac_lc_multi_output_map`.
+- **Jawnie odrzucane (-1):** CCE, SBR, ADTS z CRC, `channel_configuration` 0 (PCE w strumieniu) i >7.
+
+**Dowody:** `make test-aac-lc-multi` (hermetyczny: mapy, SCE/CPE/LFE, DSE/PCE/FIL, niezgodność liczby kanałów, CCE i CRC, atomowość, ucięta ramka), `make test-aac-multi-diff` (ffmpeg `aac` 3/4/5/6/8 kanałów, muzyka i transient, SNR najgorszego kanału ≈139 dB, kolejność kanałów sprawdzana tym samym SNR — każdy kanał ma inny sygnał). Szersza macierz (3,4,5,6,8 kanałów × 44,1/48 kHz × music/transient/noise, wszystkie koderzy ffmpeg i fdk-lc): 286 OK; wyjątki to znana rozbieżność PNS+M/S (2 wiersze) i fdk 8-kanałowy.
+**Znane granice:** fdk-aac koduje 8 kanałów z `channel_configuration=0` (układ w PCE), więc adapter go odrzuca do czasu obsługi PCE. Brak mutantów dla nowego kodu. Harness: `tools/aac_corpus_matrix.py` zapisuje teraz wielokanałowe WAV z maską kanałów (WAVE_FORMAT_EXTENSIBLE) i raportuje SNR najgorszego kanału.
+
+**Częstotliwości.** Dodatkowe 7350, 11025, 12000, 24000, 64000, 88200, 96000 Hz (mono i stereo, wszyscy koderzy): 514 wierszy OK, reszta to znane rozbieżności (PNS+M/S; TNS rzędu >12 odrzucane przez FFmpeg). Prawdziwy plik użytkownika `1.aac` (LC stereo 44,1 kHz, 95 s): 138,8 dB, 4008960/4008960 próbek.

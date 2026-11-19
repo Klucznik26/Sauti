@@ -45,4 +45,8 @@ typedef struct {
 int sauti_aac_lc_sce_prefix_parse(const uint8_t *data, size_t length,
                                   size_t *bit_offset,
                                   SautiAacScePrefix *out);
+/* Jak wyzej, ale element_id to ID_SCE (0) albo ID_LFE (3): skladnia single_channel_element i lfe_element jest ta sama. */
+int sauti_aac_lc_sce_prefix_parse_id(const uint8_t *data,size_t length,
+                                     size_t *bit_offset,unsigned element_id,
+                                     SautiAacScePrefix *out);
 #endif
