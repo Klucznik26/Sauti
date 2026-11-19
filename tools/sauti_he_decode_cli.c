@@ -4,6 +4,7 @@
 #include "sauti_aac_he_adts_mono.h"
 #include "sauti_aac_sbr_channel.h"
 #include "sauti_aac_he_ps_bridge.h"
+#include "sauti_aac_he_adts_cpe.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +32,32 @@ int main(int argc,char **argv){
     const int ps_mode=getenv("SAUTI_SBR82_PS")!=NULL;        /* HE-AAC v2: render parametric stereo, output interleaved L/R */
     if(!sauti_aac_he_adts_mono_init(&core_state) || !sauti_aac_sbr_channel_init(&ch))return 2;
     size_t pos=0;long frames=0;
+    /* channel configuration of the first ADTS header (2 = a CPE: HE-AAC v1 stereo, two independent SBR channels) */
+    const unsigned cfg=n>=7?(((unsigned)(buf[2]&1u)<<2u)|((unsigned)buf[3]>>6u)):1u;
+    if(cfg==2u){
+        static SautiAacHeAdtsCpeState cpe;static SautiAacSbrChannel sch[2];
+        if(!sauti_aac_he_adts_cpe_init(&cpe) || !sauti_aac_sbr_channel_init(&sch[0]) || !sauti_aac_sbr_channel_init(&sch[1]))return 2;
+        while(pos+7<=(size_t)n && frames<max_frames){
+            const unsigned len=((unsigned)(buf[pos+3]&3u)<<11)|((unsigned)buf[pos+4]<<3)|((unsigned)buf[pos+5]>>5);
+            if(len<7 || pos+len>(size_t)n)break;
+            float core2[2048];SautiAacSbrPayloadCpeFrame pl;SautiAacReason reason=SAUTI_AAC_REASON_OK;
+            const int r=sauti_aac_he_adts_cpe_decode_ex(buf+pos,(size_t)n-pos,&cpe,core2,&pl,&reason);
+            if(r!=1){fprintf(stderr,"frame %ld: CPE core/payload rejected (%d, reason %d)\n",frames,r,(int)reason);break;}
+            float c[2][1024],pcm2[2][2048];static SautiAacSbrComplex g2[2][SAUTI_AAC_SBR_CHANNEL_GRID];
+            for(unsigned i=0;i<1024;i++){c[0][i]=core2[2*i];c[1][i]=core2[2*i+1];}
+            int ok=1;
+            for(unsigned k=0;k<2 && ok;k++)
+                ok=sauti_aac_sbr_channel_frame(&sch[k],c[k],&pl.channel[k],g2[k]) && sauti_aac_sbr_channel_synthesize(&sch[k],g2[k],pcm2[k]);
+            if(!ok){fprintf(stderr,"frame %ld: SBR channel rejected\n",frames);break;}
+            float il[4096];
+            for(unsigned i=0;i<2048;i++){il[2*i]=pcm2[0][i];il[2*i+1]=pcm2[1][i];}
+            fwrite(il,sizeof(float),4096,out);
+            pos+=len;frames++;
+        }
+        fclose(out);if(gf)fclose(gf);
+        printf("frames=%ld stereo (CPE) discontinuities=%llu/%llu\n",frames,(unsigned long long)sch[0].discontinuities,(unsigned long long)sch[1].discontinuities);
+        return frames>0?0:1;
+    }
     while(pos+7<=(size_t)n && frames<max_frames){
         const unsigned len=((unsigned)(buf[pos+3]&3u)<<11)|((unsigned)buf[pos+4]<<3)|((unsigned)buf[pos+5]>>5);
         if(len<7 || pos+len>(size_t)n)break;

@@ -190,6 +190,38 @@ static void uncoupled_cpe_payload(Bits *b,const SautiAacSbrHeader *hdr,
     put(b,1u,0u);put(b,1u,0u);put(b,1u,0u); /* harmonic, harmonic, ext */
     align_byte(b);
 }
+/* Uncoupled pair in the standard's order: sbr_dtdf(0), sbr_dtdf(1), sbr_invf(0), sbr_invf(1).  Distinct non-zero modes per channel. */
+static void uncoupled_cpe_payload_modes(Bits *b,const SautiAacSbrHeader *hdr,const SautiAacSbrTables *tab,
+                                        const unsigned *mode0,const unsigned *mode1){
+    *b=(Bits){0};
+    put(b,4u,13u);put(b,1u,1u);header_bits(b,hdr);
+    put(b,1u,0u);put(b,1u,0u);
+    cpe_grid(b);cpe_grid(b);
+    for(unsigned i=0u;i<8u;i++)put(b,1u,0u);                              /* dtdf of both channels: 4 + 4 bits */
+    for(unsigned i=0u;i<tab->n_noise;i++)put(b,2u,mode0[i]);
+    for(unsigned i=0u;i<tab->n_noise;i++)put(b,2u,mode1[i]);
+    cpe_envelopes(b,tab,5u);cpe_envelopes(b,tab,7u);
+    cpe_noises(b,tab,6u);cpe_noises(b,tab,8u);
+    put(b,1u,0u);put(b,1u,0u);put(b,1u,0u);
+    align_byte(b);
+}
+static void test_uncoupled_dtdf_invf_order(void){
+    SautiAacSbrHeader header;SautiAacSbrTables tab;
+    choose(&header,&tab);
+    unsigned m0[8]={1,2,3,1,2,3,1,2},m1[8]={3,0,2,3,0,2,3,0};
+    Bits b;
+    uncoupled_cpe_payload_modes(&b,&header,&tab,m0,m1);
+    SautiAacSbrPayloadCpeState st={0};SautiAacSbrPayloadCpeFrame out;
+    assert(sauti_aac_sbr_payload_cpe_parse(b.data,sizeof(b.data),0u,b.bit,48000u,&st,&out));
+    assert(out.coupling==0u);
+    for(unsigned i=0u;i<tab.n_noise;i++){
+        assert(out.channel[0].control.invf_mode[i]==m0[i]);
+        assert(out.channel[1].control.invf_mode[i]==m1[i]);
+    }
+    /* the envelopes and noise floors read after the control fields land on the right bits only with the right order */
+    assert(out.channel[0].quant.env[0][0]==5u && out.channel[1].quant.env[0][0]==7u);
+    assert(out.channel[0].quant.noise[0][0]==6u && out.channel[1].quant.noise[0][0]==8u);
+}
 static void put_payload_with_offset(Bits *dst,const Bits *src,unsigned offset){
     *dst=(Bits){0};
     for(unsigned i=0;i<offset;i++)put(dst,1,i&1u);
@@ -688,6 +720,7 @@ static void test_temporal_fixvar_17_side_data(void){
     puts("SBR-52: FIXVAR 2-slot tail + following frame -> exact 32 QMF slot owners, rollback PASS");
 }
 int main(void){
+    test_uncoupled_dtdf_invf_order();
     test_header_grid_entropy_and_harmonics();
     test_atomic_failure_modes();
     test_ps_extension_side_data();

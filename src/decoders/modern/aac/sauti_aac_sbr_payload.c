@@ -386,10 +386,15 @@ int sauti_aac_sbr_payload_cpe_parse(
         memcpy(control[0].invf_mode,control[1].invf_mode,
                sizeof(control[0].invf_mode));
     }else{
-        if(!sauti_aac_sbr_control_parse(packed,len,&pos,&grid[0],&tables,
-                                        &control[0]) ||
-           !sauti_aac_sbr_control_parse(packed,len,&pos,&grid[1],&tables,
-                                        &control[1]))return 0;
+        /* Uncoupled pair: sbr_dtdf(0), sbr_dtdf(1), THEN sbr_invf(0), sbr_invf(1).  Before SBR-85 each channel was parsed as a whole
+         * (dtdf0, invf0, dtdf1, invf1), which only agrees when the dtdf bits of channel 1 happen to fit (one envelope per channel). */
+        if(!cpe_control_parse(packed,len,&pos,&grid[0],&tables,0u,&control[0]) ||
+           !cpe_control_parse(packed,len,&pos,&grid[1],&tables,0u,&control[1]))return 0;
+        for(unsigned ch=0;ch<2u;ch++)
+            for(unsigned i=0;i<tables.n_noise;i++){
+                if(!bits(packed,len,&pos,2u,&v))return 0;
+                control[ch].invf_mode[i]=(uint8_t)v;
+            }
     }
     SautiAacSbrQuantFrame quant[2];
     if(coupling){
