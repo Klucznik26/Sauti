@@ -1639,6 +1639,17 @@ $(OBJDIR)/test_decoder_aac_native: tests/test_decoder_aac_native.c include/sauti
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aac_native.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
 
 
+# SBR-88: mutation fuzzer for the native AAC adapters under ASan/UBSan (tool, not a product): make fuzz-aac FUZZ_SEEDS="a.m4a b.aac" [FUZZ_ITER=2000 FUZZ_SEED=1]
+FUZZ_ITER ?= 2000
+FUZZ_SEED ?= 1
+$(OBJDIR)/sauti_aac_fuzz: tools/sauti_aac_fuzz.c include/sauti_decoder_aac_native.h $(AAC_NATIVE_ADAPTER_DEPS) src/sauti_decoder.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -Iinclude -o $@ tools/sauti_aac_fuzz.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
+
+.PHONY: fuzz-aac
+fuzz-aac: $(OBJDIR)/sauti_aac_fuzz
+	@test -n "$(FUZZ_SEEDS)" || { echo "FUZZ_SEEDS=<files> required"; exit 2; }
+	$(OBJDIR)/sauti_aac_fuzz $(FUZZ_ITER) $(FUZZ_SEED) $(FUZZ_SEEDS)
+
 # SBR-86: sequential read vs many seeks through the native adapters (tool, not a product): make build/sauti_aac_seek_check
 $(OBJDIR)/sauti_aac_seek_check: tools/sauti_aac_seek_check.c include/sauti_decoder_aac_native.h $(AAC_NATIVE_ADAPTER_DEPS) src/sauti_decoder.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_aac_seek_check.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
