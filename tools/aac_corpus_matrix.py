@@ -69,8 +69,10 @@ def snr_db(ref, test, max_lag=4096):
     r = ref[:n].mean(axis=1); t = test[:n].mean(axis=1)
     seg = slice(n // 4, n // 4 + min(16384, n // 2))
     best = (-1.0, 0)
+    a = r[seg]
     for lag in range(-max_lag, max_lag + 1, 1):
-        a = r[seg]; b = np.roll(t, lag)[seg]
+        b = t[seg.start - lag:seg.stop - lag]                      # = np.roll(t, lag)[seg] bez kopiowania calej tablicy (n // 4 > max_lag)
+        if len(b) != len(a): continue
         den = np.sqrt((a * a).sum() * (b * b).sum()) + 1e-30
         c = float((a * b).sum() / den)
         if c > best[0]: best = (c, lag)
@@ -142,7 +144,7 @@ def main():
     for path in args.file:                                 # prawdziwe pliki: tylko dekodowanie i porownanie, bez kodowania
         tag = os.path.splitext(os.path.basename(path))[0]
         ref = f"{args.out}/{tag}.ref.wav"; nat = f"{args.out}/{tag}.nat.f32"
-        r = run(["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", path, "-c:a", "pcm_f32le", ref])
+        r = run(["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", path, "-vn", "-c:a", "pcm_f32le", ref])
         if not os.path.exists(ref): rows.append((tag, 0, 0, "file", "REF-FAIL", r.stdout.strip()[:60])); continue
         rrate, rch, rx = read_wav_f32(ref)
         c = run([CLI, path, nat]); line = c.stdout.strip().splitlines()[-1] if c.stdout.strip() else ""

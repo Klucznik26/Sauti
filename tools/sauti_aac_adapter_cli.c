@@ -12,14 +12,14 @@ int main(int argc, char **argv) {
     uint8_t *bytes;
     long end;
     SautiDecoder dec;
-    const SautiDecoderOps *const registry[] = { &sauti_decoder_aac_native_ops, &sauti_decoder_aac_mono_native_ops, &sauti_decoder_aac_multi_native_ops, &sauti_decoder_aac_he_native_ops, &sauti_decoder_aac_he_cpe_native_ops };
+    const SautiDecoderOps *const registry[] = { &sauti_decoder_aac_native_ops, &sauti_decoder_aac_mono_native_ops, &sauti_decoder_aac_multi_native_ops, &sauti_decoder_aac_mp4_native_ops, &sauti_decoder_aac_he_native_ops, &sauti_decoder_aac_he_cpe_native_ops };
     float *pcm;
     size_t total = 0, got;
     FILE *out;
     if (argc != 3) return 2;
     f = fopen(argv[1], "rb");
     if (!f) { perror(argv[1]); return 2; }
-    if (fseek(f, 0, SEEK_END) != 0 || (end = ftell(f)) <= 0 || end > 200000000L || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return 2; }
+    if (fseek(f, 0, SEEK_END) != 0 || (end = ftell(f)) <= 0 || end > 2000000000L || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return 2; }
     bytes = (uint8_t *)malloc((size_t)end);
     if (!bytes || fread(bytes, 1, (size_t)end, f) != (size_t)end) { fclose(f); free(bytes); return 2; }
     fclose(f);

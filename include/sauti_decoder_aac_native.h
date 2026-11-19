@@ -15,6 +15,9 @@ extern const SautiDecoderOps sauti_decoder_aac_native_ops;
 extern const SautiDecoderOps sauti_decoder_aac_mono_native_ops;
 /* AAC-LC wielokanalowy (ADTS channel_configuration 3..7, bez CRC); PCM w kolejnosci FFmpeg/WAVE, patrz sauti_aac_lc_multi.h. */
 extern const SautiDecoderOps sauti_decoder_aac_multi_native_ops;
+/* AAC-LC w MP4/M4A/M4B (ISO BMFF): demuxer + wlasciwy adapter ADTS (LC mono/stereo/wielokanalowy; HE/HEv2: open() = NULL -> FFmpeg); ALAC, fragmentowane MP4 i nieobslugiwane konfiguracje: open() = NULL,
+ * rejestr przechodzi dalej.  Przyciecie z listy edycji (opoznienie kodera) jak w FFmpeg. */
+extern const SautiDecoderOps sauti_decoder_aac_mp4_native_ops;
 
 /* Strictly experimental native HE-AAC v1 / SBR ADTS bridge.
  *
