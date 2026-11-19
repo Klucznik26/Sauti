@@ -66,6 +66,20 @@ int main(void){
     assert(!sauti_aac_standard_codeword(12,0,&code,&bits));
     assert(!sauti_aac_standard_codeword(0,121,&code,&bits));
     assert(!sauti_aac_standard_tree_build(12,nodes,SAUTI_AAC_HUFF_MAX_NODES));
+    /* The cached tries equal a fresh build from the codewords, for every book, and small capacities are refused as before. */
+    for(unsigned book=0;book<12u;book++){
+        SautiAacHuffNode fresh[SAUTI_AAC_HUFF_MAX_NODES],cached[SAUTI_AAC_HUFF_MAX_NODES];
+        SautiAacHuffEntry entries[289];size_t cnt=0;uint32_t c;uint8_t b;
+        while(sauti_aac_standard_codeword(book,(unsigned)cnt,&c,&b)){entries[cnt].code=c;entries[cnt].bits=b;entries[cnt].symbol=(int16_t)cnt;cnt++;}
+        const size_t want=sauti_aac_huffman_tree_build(entries,cnt,fresh,SAUTI_AAC_HUFF_MAX_NODES);
+        assert(want>1u);
+        for(int round=0;round<2;round++){
+            assert(sauti_aac_standard_tree_build(book,cached,SAUTI_AAC_HUFF_MAX_NODES)==want);
+            assert(memcmp(fresh,cached,want*sizeof(fresh[0]))==0);
+        }
+        assert(!sauti_aac_standard_tree_build(book,cached,want-1u));
+        assert(sauti_aac_standard_tree_build(book,cached,want)==want);
+    }
     puts("PASS AAC standard Huffman: all codewords, scalefactors, spectral ESC");
     printf("Verified %u normative codewords over 12 tables\n",verified);
     return 0;

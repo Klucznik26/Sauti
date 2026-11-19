@@ -5,6 +5,8 @@
  * redistributing the numeric table dataset as part of a packaged release.
  */
 #include "sauti_aac_tables.h"
+#include <stdatomic.h>
+#include <string.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -335,9 +337,15 @@ int sauti_aac_standard_codeword(unsigned book,unsigned symbol,
     return 1;
 }
 
-size_t sauti_aac_standard_tree_build(unsigned book,SautiAacHuffNode *nodes,
-                                     size_t capacity){
-    if(book>11u || !nodes)return 0;
+/* The standard codebooks are constant, so each trie is built once (the decoder asks for the same few trees every frame) and copied out. */
+typedef struct {
+    atomic_int state;                              /* 0 = not built, 1 = being built, 2 = ready */
+    size_t used;                                   /* nodes of the finished trie, 0 = the build failed */
+    SautiAacHuffNode nodes[1024];                  /* a trie of n codewords has at most 2n-1 nodes: 577 for the largest book (289) */
+} StandardTrie;
+static StandardTrie standard_trie[12];
+
+static void standard_trie_build(StandardTrie *t,unsigned book){
     SautiAacHuffEntry entries[289];
     const size_t count=standard[book].count;
     for(size_t i=0;i<count;i++){
@@ -345,7 +353,20 @@ size_t sauti_aac_standard_tree_build(unsigned book,SautiAacHuffNode *nodes,
         entries[i].bits=standard[book].bits[i];
         entries[i].symbol=(int16_t)i;
     }
-    return sauti_aac_huffman_tree_build(entries,count,nodes,capacity);
+    t->used=sauti_aac_huffman_tree_build(entries,count,t->nodes,1024u);
+}
+size_t sauti_aac_standard_tree_build(unsigned book,SautiAacHuffNode *nodes,
+                                     size_t capacity){
+    if(book>11u || !nodes || capacity<2u || capacity>SAUTI_AAC_HUFF_MAX_NODES)return 0;
+    StandardTrie *t=&standard_trie[book];
+    int expected=0;
+    if(atomic_compare_exchange_strong(&t->state,&expected,1)){
+        standard_trie_build(t,book);
+        atomic_store(&t->state,2);
+    }else while(atomic_load(&t->state)!=2){}
+    if(!t->used || t->used>capacity)return 0;      /* the same refusal as building into too small an array */
+    memcpy(nodes,t->nodes,t->used*sizeof(*nodes));
+    return t->used;
 }
 
 int sauti_aac_scalefactor_symbol_decode(const uint8_t *data,size_t length,
