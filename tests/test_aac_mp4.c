@@ -31,6 +31,8 @@ typedef struct {
     int elst;                      /* 1 = dodaj liste edycji */
     uint32_t elst_media_time, elst_duration;
     int codec_alac, drop_stco, big_au, stsz_truncated, stco_far, version1_mvhd;
+    unsigned frag;                 /* > 0: fragmentowany MP4, tyle fragmentow po samples/frag AU; stbl bez probek */
+    unsigned frag_variant;         /* 0 = base_data_offset + rozmiary w trun; 1 = default_base_is_moof + default_sample_size w tfhd; 2 = rozmiar z trex */
     const char *smpb;              /* tekst iTunSMPB (NULL = brak) */
 } Spec;
 static void build(Buf *f,const Spec *sp){
@@ -42,6 +44,7 @@ static void build(Buf *f,const Spec *sp){
       close_box(f,mv); }
     const size_t trak=open_box(f,"trak");
     if(sp->elst){ size_t ed=open_box(f,"edts");size_t el=open_box(f,"elst");u32(f,0);u32(f,1);u32(f,sp->elst_duration);u32(f,sp->elst_media_time);u32(f,0x10000);close_box(f,el);close_box(f,ed); }
+    if(sp->frag){ size_t th=open_box(f,"tkhd");u32(f,3);u32(f,0);u32(f,0);u32(f,1);u32(f,0);u32(f,0);for(int i=0;i<60;i++){u8(f,0);} close_box(f,th); }
     const size_t mdia=open_box(f,"mdia");
     { size_t md=open_box(f,"mdhd");u32(f,0);u32(f,0);u32(f,0);u32(f,48000);u32(f,sp->samples*1024u);u32(f,0);close_box(f,md); }
     { size_t h=open_box(f,"hdlr");u32(f,0);u32(f,0);raw(f,"soun",4);for(int i=0;i<12;i++){u8(f,0);}
@@ -57,8 +60,8 @@ static void build(Buf *f,const Spec *sp){
         u8(f,0x04);u8(f,17);u8(f,0x40);u8(f,0x15);u8(f,0);u16(f,0);u32(f,0);u32(f,0);   /* DecoderConfigDescriptor */
         u8(f,0x05);u8(f,2);raw(f,asc,2);u8(f,0x06);u8(f,1);u8(f,2);
         close_box(f,es);close_box(f,en);close_box(f,sd); }
-    { size_t sz=open_box(f,"stsz");u32(f,0);u32(f,sp->big_au?9000u:0u);u32(f,sp->samples);
-      if(!sp->big_au){for(unsigned i=0;i<(sp->stsz_truncated?sp->samples/2u:sp->samples);i++)u32(f,4);}
+    { size_t sz=open_box(f,"stsz");u32(f,0);u32(f,sp->big_au?9000u:0u);u32(f,sp->frag?0u:sp->samples);
+      if(!sp->big_au&&!sp->frag){for(unsigned i=0;i<(sp->stsz_truncated?sp->samples/2u:sp->samples);i++)u32(f,4);}
       close_box(f,sz); }
     { size_t sc=open_box(f,"stsc");u32(f,0);u32(f,1);u32(f,1);u32(f,sp->samples);u32(f,1);close_box(f,sc); }
     size_t stco_at=0;
@@ -72,7 +75,34 @@ static void build(Buf *f,const Spec *sp){
         { size_t d=open_box(f,"data");u32(f,1);u32(f,0);raw(f,sp->smpb,strlen(sp->smpb));close_box(f,d); }
         close_box(f,dd);close_box(f,il);close_box(f,me);close_box(f,ud);
     }
+    if(sp->frag){
+        size_t mx=open_box(f,"mvex"),tx=open_box(f,"trex");u32(f,0);u32(f,1);u32(f,1);u32(f,1024);u32(f,sp->frag_variant==2u?4u:0u);u32(f,0);close_box(f,tx);close_box(f,mx);
+    }
     close_box(f,moov);
+    if(sp->frag){
+        const unsigned per=sp->samples/sp->frag;
+        for(unsigned fr=0;fr<sp->frag;fr++){
+            const size_t moof=open_box(f,"moof");
+            { size_t mf=open_box(f,"mfhd");u32(f,0);u32(f,fr+1u);close_box(f,mf); }
+            const size_t traf=open_box(f,"traf");
+            { size_t th=open_box(f,"tfhd");
+              if(sp->frag_variant==0u){u32(f,0x1u);u32(f,1);u32(f,0);u32(f,(uint32_t)moof);}              /* base_data_offset = moof */
+              else if(sp->frag_variant==1u){u32(f,0x20010u);u32(f,1);u32(f,4);}                           /* default_base_is_moof + default_sample_size */
+              else {u32(f,0x20000u);u32(f,1);}
+              close_box(f,th); }
+            { size_t tr=open_box(f,"trun");u32(f,sp->frag_variant==0u?0x201u:0x1u);u32(f,per);
+              const size_t off_at=f->n;u32(f,0);
+              if(sp->frag_variant==0u)for(unsigned i=0;i<per;i++)u32(f,4);
+              close_box(f,tr);
+              close_box(f,traf);close_box(f,moof);
+              const uint32_t doff=(uint32_t)(f->n-moof+8u);
+              f->b[off_at]=(uint8_t)(doff>>24);f->b[off_at+1]=(uint8_t)(doff>>16);f->b[off_at+2]=(uint8_t)(doff>>8);f->b[off_at+3]=(uint8_t)doff; }
+            size_t md=open_box(f,"mdat");
+            for(unsigned i=0;i<per;i++)raw(f,au,4);
+            close_box(f,md);
+        }
+        return;
+    }
     size_t md=open_box(f,"mdat");
     const size_t data_at=f->n;
     if(sp->big_au){for(unsigned i=0;i<9000;i++){u8(f,0);}}
@@ -149,6 +179,25 @@ int main(void){
     memset(&f.b[4],'x',4);assert(!sauti_aac_mp4_probe(f.b,f.n));
     { SautiDecoder dec;const SautiDecoderOps *const reg[]={&sauti_decoder_aac_mp4_native_ops};
       assert(!sauti_decoder_open(&dec,reg,1,f.b,f.n)); }
+    /* fragmentowany MP4 (moov bez probek + moof/traf/trun): trzy sposoby opisu rozmiarow i podstawy offsetow, kilka fragmentow */
+    for(unsigned variant=0;variant<3u;variant++){
+        Spec g;memset(&g,0,sizeof g);g.samples=6;g.rate_index=3;g.channel_config=1;g.frag=3;g.frag_variant=variant;
+        build(&f,&g);adts=NULL;
+        assert(sauti_aac_mp4_to_adts(f.b,f.n,&adts,&al,&info)==1 && info.sample_count==6u && al==6u*11u);
+        for(unsigned i=0;i<6;i++){uint8_t au[4];make_au(au);assert(memcmp(adts+i*11u+7u,au,4)==0);}
+        free(adts);
+        SautiDecoder dec;const SautiDecoderOps *const reg[]={&sauti_decoder_aac_mp4_native_ops};
+        assert(sauti_decoder_open(&dec,reg,1,f.b,f.n)&&dec.info.total_frames==6u*1024u);
+        sauti_decoder_close(&dec);
+        /* ucieta koncowka (ostatni fragment niepelny): kompletne fragmenty zostaja, jak w odtwarzaczach; 6 AU w 3 fragmentach po 2 */
+        Buf cut=f;cut.n=f.n-30u;
+        adts=NULL;assert(sauti_aac_mp4_to_adts(cut.b,cut.n,&adts,&al,&info)==1 && info.sample_count==4u && al==4u*11u);free(adts);
+        /* data_offset wskazujacy poza plik: odrzucenie calego pliku (zadnego odczytu poza buforem) */
+        Buf bad=f;
+        for(size_t at=12u;at+8u<bad.n;at++)
+            if(memcmp(bad.b+at,"trun",4)==0){const size_t o=at+4u+8u;bad.b[o]=0x7f;bad.b[o+1]=0xff;bad.b[o+2]=0xff;bad.b[o+3]=0xf0;if(variant==0u)break;}
+        adts=NULL;assert(sauti_aac_mp4_to_adts(bad.b,bad.n,&adts,&al,&info)==0);
+    }
     puts("PASS AAC MP4: demuxer ISO BMFF -> ADTS, lista edycji, adapter (dekodowanie, przyciecie, seek), odrzucenia");
     return 0;
 }

@@ -6,7 +6,9 @@
 /* Minimalny demuxer ISO BMFF (MP4/M4A/M4B) dla AAC: znajduje pierwsza ssciezke dzwiekowa `mp4a` (AAC), czyta AudioSpecificConfig i tablice probek (stsz, stsc,
  * stco/co64) i owija KAZDA jednostke dostepu w naglowek ADTS (bez CRC), dzieki czemu wszystkie natywne adaptery ADTS (LC mono/stereo/wielokanalowy, HE) dzialaja bez zmian.
  * Lista edycji (elst, pierwszy wpis niepusty) daje przyciecie jak w FFmpeg: `skip_samples` (opoznienie kodera) i `duration_samples`.
- * Nieobslugiwane (zwraca 0, bez PCM zastepczego): fragmentowane MP4 (moof), brak sciezki AAC, inny kodek (np. ALAC), czestotliwosc poza tablica ADTS, AU > 8184 B, uszkodzone tabele. */
+ * Fragmentowane MP4 (moov z mvex/trex + moof/traf/trun, rozmiary z trun, tfhd albo trex, podstawa offsetow z base_data_offset albo poczatek moof): jednostki z tablic stbl i z
+ * fragmentow tworza jedna liste; niepelny (ucięty) ostatni fragment jest pomijany, kompletne zostaja.
+ * Nieobslugiwane (zwraca 0, bez PCM zastepczego): brak sciezki AAC, inny kodek (np. ALAC), czestotliwosc poza tablica ADTS, AU > 8184 B, uszkodzone tabele. */
 typedef struct {
     unsigned aot;                 /* typ obiektu z ASC (2 = LC; 5/29 = SBR/PS jawnie) */
     unsigned rate_index;          /* indeks czestotliwosci rdzenia (ADTS) */

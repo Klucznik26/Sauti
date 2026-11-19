@@ -7558,3 +7558,22 @@ Sprzężona dekwantyzacja (poziom + balans), wspólna siatka czasowa i inverse f
 **Dokładność bez zmian na prawdziwych plikach** (względem FFmpeg, pełne utwory): HE-AAC v1 stereo ze sprzężeniem 139,2 dB niskie / 120,3–120,9 dB HF; M4A HE-AAC v2 135,3 / 121,4 dB; `test-aac-native` przechodzi. Czas: 2,69 → **1,76 s** (43× czasu rzeczywistego, kolejny profil: TNS 57%, analiza QMF 13%, drzewa Huffmana 7%, IMDCT 3%).
 
 **Czego nie ruszam i dlaczego.** TNS (28 µs/wywołanie) to filtr wszystkobiegunowy w float32; kolejność odejmowań k = 1..rząd musi pozostać taka sama (zmiana kolejności zmienia zaokrąglenia, a norma i FFmpeg liczą tak, jak jest: zapis w kodzie, że wersja podwójna się rozjeżdża), a każda próbka zależy od poprzedniej, więc łańcuch zależności jest nieusuwalny bez utraty zgodności. Zostają: analiza QMF 32-pasmowa (C, 13%) i budowa drzew Huffmana co ramkę (7%, do zbuforowania) jako możliwe dalsze kroki; asm dla SBR (założenie projektu) nie jest dziś uzasadniony pomiarem, bo SBR to ok. 15% czasu.
+
+### SBR-94 — fragmentowane MP4 (moof) i sygnalizacja niejawna w MP4 (2026-11-19)
+
+**Luka.** Demuxer MP4 odrzucał każdy plik fragmentowany (`moof`): tablice `stbl` są tam puste, próbki są w `moof/traf/trun`. **Zmiana** (`sauti_aac_mp4.c`): jedna lista jednostek dostępu (offset + rozmiar) zbierana z tablic `stbl` i z fragmentów. Dla ścieżki o `track_ID` z `tkhd` czytane są `trex` (domyślny rozmiar), `tfhd` (flagi: `base_data_offset`, `default_sample_size`; podstawą offsetów jest `base_data_offset` albo początek `moof`, co obejmuje `default_base_is_moof`) i `trun` (`data_offset`, rozmiary próbek; kursor ciągły między `trun` bez `data_offset`). Każda jednostka jest sprawdzana względem rozmiaru pliku. Niepełny ostatni fragment (plik ucięty) jest pomijany, kompletne zostają; offset poza plikiem odrzuca plik.
+
+**Wynik względem FFmpeg (ten sam plik, pełne dekodowanie, przycięcie po obu stronach, 200 skoków bit w bit):**
+
+| plik | wynik |
+|---|---|
+| ADTS→MP4 zwykły, sygnalizacja **niejawna** (AOT 2, SBR/PS tylko w strumieniu): LC+SBR stereo 20 s, HE-AAC v2, mono v1 | niskie 135–139 dB, HF 120–123 dB, 0 błędów przewijania |
+| fragmentowany `empty_moov`, jeden fragment: te same trzy | identycznie |
+| fragmentowany, 40 fragmentów (`frag_duration`), `default_base_moof`: te same trzy | identycznie |
+| M4A jawne (HE-AAC v2, v1 stereo) jako fragmentowane: 1, 36 fragmentów, `omit_tfhd_offset`+`separate_moof` | niskie 135–139 dB, HF 121–124 dB |
+
+**Testy.** `test_aac_mp4.c`: zmontowany fragmentowany plik w trzech wariantach opisu (rozmiary w `trun` + `base_data_offset`; `default_base_is_moof` + `default_sample_size` w `tfhd`; rozmiar z `trex`), 3 fragmenty; zawartość jednostek, długość, adapter; ucięty ogon (4 z 6 jednostek); `data_offset` poza plikiem (odrzucenie). Trzy mutanty (zła podstawa offsetów, ignorowany `default_sample_size`, ignorowany `trex`) padają. Fuzzing ASan/UBSan na plikach fragmentowanych: 1800 iteracji, 0 raportów. `test-aac-native` przechodzi.
+
+**Pułapka testowa.** `ffmpeg -c copy -bsf:a aac_adtstoasc -movflags empty_moov` z ADTS zapisuje `esds` **bez ASC** (nagłówek powstaje przed pierwszym pakietem): plik jest wadliwy (FFmpeg raportuje 96000 Hz), więc nie jest fixturą; fragmentowane pliki do testów powstają z zwykłego MP4 (`-i plik.mp4 -c copy`), który ma ASC.
+
+**Granice.** Nie sprawdzone: wiele ścieżek audio w jednym pliku (pierwsza AAC), `sidx`/DASH z `styp` (pudełka nieznane są pomijane, ale bez testu), kilka `traf` tej samej ścieżki w jednym `moof`, lista edycji i `iTunSMPB` w plikach fragmentowanych (ten sam kod co w zwykłych), pliki z enkoderów innych niż fdkaac/FFmpeg (Apple, Nero).

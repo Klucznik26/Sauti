@@ -32,6 +32,19 @@ static int find_child(View v,uint32_t type,View *out){
 int sauti_aac_mp4_probe(const uint8_t *data,size_t size){
     return data&&size>=12u&&memcmp(data+4,"ftyp",4)==0;
 }
+#define MAX_SAMPLES 20000000u
+typedef struct { uint64_t off; uint32_t size; } Sample;
+static int add_sample(Sample **v,size_t *n,size_t *cap,uint64_t off,uint32_t size){
+    if(*n>=MAX_SAMPLES)return 0;
+    if(*n==*cap){
+        const size_t nc=*cap?*cap*2u:4096u;
+        Sample *t=realloc(*v,nc*sizeof(**v));
+        if(!t)return 0;
+        *v=t;*cap=nc;
+    }
+    (*v)[*n].off=off;(*v)[*n].size=size;(*n)++;
+    return 1;
+}
 static const unsigned rates[13]={96000,88200,64000,48000,44100,32000,24000,22050,16000,12000,11025,8000,7350};
 
 /* Deskryptory MPEG-4 (esds): tag + rozmiar zmiennej dlugosci (7 bitow na bajt). */
@@ -159,52 +172,112 @@ int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t 
         if(!find_child(esds_parent,FOURCC('e','s','d','s'),&esds)||!parse_esds(esds,asc,&asc_len))continue;
         SautiAacMp4Info inf;memset(&inf,0,sizeof(inf));
         if(!parse_asc(asc,asc_len,&inf))continue;
-        /* tablice probek */
-        View stsz,stsc,stco;int co64=0;
-        if(!find_child(stbl,FOURCC('s','t','s','z'),&stsz)||!find_child(stbl,FOURCC('s','t','s','c'),&stsc))continue;
-        if(!find_child(stbl,FOURCC('s','t','c','o'),&stco)){ if(!find_child(stbl,FOURCC('c','o','6','4'),&stco))continue; co64=1; }
-        if(stsz.n<12u||stsc.n<8u||stco.n<8u)continue;
-        const uint32_t fixed=be32(stsz.p+4),count=be32(stsz.p+8);
-        if(count==0u||count>50000000u)continue;
-        if(!fixed&&(size_t)count>(stsz.n-12u)/4u)continue;
-        const uint32_t stsc_n=be32(stsc.p+4);
-        if((size_t)stsc_n>(stsc.n-8u)/12u||stsc_n==0u)continue;
-        const uint32_t chunks=be32(stco.p+4);
-        const size_t esz=co64?8u:4u;
-        if((size_t)chunks>(stco.n-8u)/esz||chunks==0u)continue;
-        /* wymiar wyjscia: suma (7 + rozmiar AU), AU <= 8184 */
-        uint64_t total=0;
-        for(uint32_t i=0;i<count;i++){
-            const uint32_t sz=fixed?fixed:be32(stsz.p+12+(size_t)i*4u);
-            if(sz>8184u||sz==0u){total=0;break;}
-            total+=7u+sz;
-        }
-        if(!total||total>(uint64_t)512u*1024u*1024u)continue;
-        uint8_t *out=malloc((size_t)total);
-        if(!out)return 0;
-        size_t w=0;uint32_t sample=0;int ok=1;
-        for(uint32_t g=0;g<stsc_n&&ok&&sample<count;g++){
-            const uint32_t first=be32(stsc.p+8+(size_t)g*12u),per=be32(stsc.p+12+(size_t)g*12u);
-            const uint32_t last=(g+1u<stsc_n)?be32(stsc.p+8+(size_t)(g+1u)*12u):chunks+1u;
-            if(first<1u||last<first||last>chunks+1u||per==0u){ok=0;break;}
-            for(uint32_t c=first;c<last&&ok&&sample<count;c++){
-                uint64_t off=co64?be64(stco.p+8+(size_t)(c-1u)*8u):be32(stco.p+8+(size_t)(c-1u)*4u);
-                for(uint32_t s=0;s<per&&sample<count;s++,sample++){
-                    const uint32_t sz=fixed?fixed:be32(stsz.p+12+(size_t)sample*4u);
-                    if(off>size||sz>size-off){ok=0;break;}
-                    const unsigned len=7u+sz;
-                    out[w+0]=0xff;out[w+1]=0xf1;
-                    out[w+2]=(uint8_t)(0x40u|(inf.rate_index<<2)|((inf.channel_config>>2)&1u));
-                    out[w+3]=(uint8_t)(((inf.channel_config&3u)<<6)|((len>>11)&3u));
-                    out[w+4]=(uint8_t)(len>>3);
-                    out[w+5]=(uint8_t)(((len&7u)<<5)|0x1fu);
-                    out[w+6]=0xfc;
-                    memcpy(out+w+7,data+off,sz);
-                    w+=len;off+=sz;
+        /* Lista jednostek dostepu: z tablic probek (stbl) i z fragmentow (moof/trun) - plik moze miec jedno, drugie albo oba. */
+        Sample *list=NULL;size_t nlist=0,caplist=0;
+        {
+            View stsz,stsc,stco;int co64=0;
+            if(find_child(stbl,FOURCC('s','t','s','z'),&stsz)&&find_child(stbl,FOURCC('s','t','s','c'),&stsc)&&
+               (find_child(stbl,FOURCC('s','t','c','o'),&stco)||(find_child(stbl,FOURCC('c','o','6','4'),&stco)&&(co64=1)))&&
+               stsz.n>=12u&&stsc.n>=8u&&stco.n>=8u){
+                const uint32_t fixed=be32(stsz.p+4),count=be32(stsz.p+8);
+                const uint32_t stsc_n=be32(stsc.p+4),chunks=be32(stco.p+4);
+                const size_t esz=co64?8u:4u;
+                if(count>0u&&count<=MAX_SAMPLES&&(fixed||(size_t)count<=(stsz.n-12u)/4u)&&
+                   stsc_n>0u&&(size_t)stsc_n<=(stsc.n-8u)/12u&&chunks>0u&&(size_t)chunks<=(stco.n-8u)/esz){
+                    uint32_t sample=0;int ok=1;
+                    for(uint32_t g=0;g<stsc_n&&ok&&sample<count;g++){
+                        const uint32_t first=be32(stsc.p+8+(size_t)g*12u),per=be32(stsc.p+12+(size_t)g*12u);
+                        const uint32_t last=(g+1u<stsc_n)?be32(stsc.p+8+(size_t)(g+1u)*12u):chunks+1u;
+                        if(first<1u||last<first||last>chunks+1u||per==0u){ok=0;break;}
+                        for(uint32_t c=first;c<last&&ok&&sample<count;c++){
+                            uint64_t off=co64?be64(stco.p+8+(size_t)(c-1u)*8u):be32(stco.p+8+(size_t)(c-1u)*4u);
+                            for(uint32_t s2=0;s2<per&&sample<count;s2++,sample++){
+                                const uint32_t sz=fixed?fixed:be32(stsz.p+12+(size_t)sample*4u);
+                                if(!add_sample(&list,&nlist,&caplist,off,sz)){ok=0;break;}
+                                off+=sz;
+                            }
+                        }
+                    }
+                    if(!ok||sample!=count){free(list);list=NULL;nlist=caplist=0;}
                 }
             }
         }
-        if(!ok||sample!=count||w!=(size_t)total){free(out);continue;}
+        {   /* fragmenty: moof na poziomie pliku, traf dla tej sciezki */
+            View tkhd,mvex;uint32_t track_id=0,trex_size=0;
+            if(find_child(trak,FOURCC('t','k','h','d'),&tkhd)&&tkhd.n>=24u)
+                track_id=tkhd.p[0]==1u?(tkhd.n>=28u?be32(tkhd.p+20):0u):be32(tkhd.p+12);
+            if(find_child(moov,FOURCC('m','v','e','x'),&mvex)){
+                size_t tp=0;Box tb;
+                while(next_box(mvex,&tp,&tb))
+                    if(tb.type==FOURCC('t','r','e','x')&&tb.end-tb.payload>=24u&&be32(mvex.p+tb.payload+4)==track_id)
+                        trex_size=be32(mvex.p+tb.payload+16);
+                size_t fp=0;Box fb;
+                while(track_id&&next_box(file,&fp,&fb)){
+                    if(fb.type!=FOURCC('m','o','o','f'))continue;
+                    View moof={data+fb.payload,fb.end-fb.payload};
+                    size_t mp=0;Box tf;
+                    while(next_box(moof,&mp,&tf)){
+                        if(tf.type!=FOURCC('t','r','a','f'))continue;
+                        View traf={moof.p+tf.payload,tf.end-tf.payload};
+                        size_t hp=0;Box hb;uint64_t base=fb.start,cursor=0;int have_cursor=0;
+                        uint32_t def_size=trex_size;int mine=0;
+                        while(next_box(traf,&hp,&hb)){
+                            const uint8_t *q=traf.p+hb.payload;const size_t qn=hb.end-hb.payload;
+                            if(hb.type==FOURCC('t','f','h','d')&&qn>=8u){
+                                const uint32_t flags=be32(q)&0xffffffu;size_t o=8u;
+                                if(be32(q+4)!=track_id)break;
+                                mine=1;
+                                if(flags&0x1u){if(qn<o+8u)break;base=be64(q+o);o+=8u;}
+                                if(flags&0x2u)o+=4u;
+                                if(flags&0x8u)o+=4u;
+                                if(flags&0x10u){if(qn<o+4u)break;def_size=be32(q+o);o+=4u;}
+                            }else if(hb.type==FOURCC('t','r','u','n')&&mine&&qn>=8u){
+                                const uint32_t flags=be32(q)&0xffffffu,cnt=be32(q+4);size_t o=8u;
+                                if(flags&0x1u){if(qn<o+4u)break;cursor=(uint64_t)((int64_t)base+(int32_t)be32(q+o));have_cursor=1;o+=4u;}
+                                else if(!have_cursor){cursor=base;have_cursor=1;}
+                                if(flags&0x4u)o+=4u;
+                                const size_t per=((flags&0x100u)?4u:0u)+((flags&0x200u)?4u:0u)+((flags&0x400u)?4u:0u)+((flags&0x800u)?4u:0u);
+                                if(per&&(size_t)cnt>(qn-o)/per)break;
+                                for(uint32_t i=0;i<cnt;i++){
+                                    const uint8_t *r=q+o+(size_t)i*per;size_t ro=0;
+                                    if(flags&0x100u)ro+=4u;
+                                    uint32_t sz=def_size;
+                                    if(flags&0x200u){sz=be32(r+ro);}
+                                    if(!add_sample(&list,&nlist,&caplist,cursor,sz)){nlist=0;break;}
+                                    cursor+=sz;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if(!nlist){free(list);continue;}
+        const size_t count=nlist;
+        /* wymiar wyjscia: suma (7 + rozmiar AU), AU <= 8184 */
+        uint64_t total=0;
+        for(size_t i=0;i<count;i++){
+            const uint32_t sz=list[i].size;
+            if(sz>8184u||sz==0u||list[i].off>size||sz>size-list[i].off){total=0;break;}
+            total+=7u+sz;
+        }
+        if(!total||total>(uint64_t)512u*1024u*1024u){free(list);continue;}
+        uint8_t *out=malloc((size_t)total);
+        if(!out){free(list);return 0;}
+        size_t w=0;
+        for(size_t i=0;i<count;i++){
+            const uint32_t sz=list[i].size;const unsigned len=7u+sz;
+            out[w+0]=0xff;out[w+1]=0xf1;
+            out[w+2]=(uint8_t)(0x40u|(inf.rate_index<<2)|((inf.channel_config>>2)&1u));
+            out[w+3]=(uint8_t)(((inf.channel_config&3u)<<6)|((len>>11)&3u));
+            out[w+4]=(uint8_t)(len>>3);
+            out[w+5]=(uint8_t)(((len&7u)<<5)|0x1fu);
+            out[w+6]=0xfc;
+            memcpy(out+w+7,data+list[i].off,sz);
+            w+=len;
+        }
+        free(list);
+        if(w!=(size_t)total){free(out);continue;}
         inf.sample_count=count;
         /* lista edycji: pierwszy wpis niepusty */
         View edts,elst;
