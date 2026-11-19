@@ -7192,3 +7192,25 @@ Wszystkie eksperymenty są włączane zmiennymi środowiskowymi sondy (`SAUTI_SB
 **4. Jeszcze nie ustalone (nie zmierzone osobno).** Wkład **szumu i sinusoid**: najlepszy wariant (`reftone`) nie ma szumu (G-only) ani poprawnych tonów; po usunięciu błędu z p. 2 pozostała luka (obecnie pasmo >5,5 kHz: 21,5 dB, etap `Yfull` błąd względny 0,57 wobec 0,11 po wzmocnieniu) należy w całości do tych dwóch składników. Kolejność dalszej pracy: (a) p. 2, (b) szum z indeksem tablicy `ff_sbr_noise_table` prowadzonym jak w FFmpeg (`indexnoise = (indexnoise + m_max) & 0x1ff` na slot), (c) sinusoidy `indexsine`.
 
 Narzędzia: `SAUTI_SBR75_LPC=1` (LPC u źródła), `SAUTI_SBR75_ALPHA=plik.csv` (zrzut `alpha0/alpha1` per ramka i pasmo do porównania z `SAUTI_SBR73_FFMPEG_HFGEN`). `SAUTI_SBR75_LPC40=1` dotyczy tylko starszego bloku „obok”.
+
+### SBR-76 — punkt 2 (nośnik 6 „pożyczonych” slotów) wykonany i potwierdzony; szum jest teraz jedynym znanym brakiem (2026-11-19)
+
+**Poprawka (`SAUTI_SBR76_TAIL=1`, razem z `SAUTI_SBR75_LPC=1`).** Po wyliczeniu `alpha`/`bw` bieżącej ramki sonda przelicza nośnik slotów 26–31 *poprzedniej* ramki (wejście: 8 slotów historii LF; dane: mapa łat, tablice, `alpha`, `bw` bieżącej ramki; tylko gdy właścicielem slotów HF 0–5 jest bieżąca ramka) i podmienia go we wszystkich czterech miejscach, gdzie nośnik poprzedniej ramki jest trzymany: `temporal_apply.held`, `ref_hf_apply_state.held`, `ref_prev_hf` i `sbr73_boost_ring[].baseline`. Domyślne wyjście sondy pozostaje bitowo identyczne, `test-aac-he-probe-smoke` przechodzi.
+
+**Wynik (etap wzmocnienia vs `Ygain` FFmpeg, 400 ramek `Bogini_HEv2`, błąd względny po dopasowaniu skali):**
+
+| wariant | mediana | sloty 0–5 (błąd²) | sloty 6–31 (błąd²) |
+|---|---|---|---|
+| bez LPC | 0,539 | — | — |
+| LPC u źródła (SBR-75) | 0,107 | 0,0999 | 0,0015 |
+| **LPC + nośnik ogona (SBR-76)** | **0,0175** | **0,0069** | 0,0013 |
+
+Skala konwersji jednostek Sauti→FFmpeg jest w etapie wzmocnienia **stała we wszystkich binach 18–44: 45,5 ± 0,3**, czyli etap jest zgodny z FFmpeg z dokładnością do jednej stałej jednostkowej. Diagnoza z poprzedniego wpisu jest tym samym potwierdzona eksperymentem, nie tylko opisem.
+
+**PCM się nie poprawił (>5,5 kHz „reftone”: 21,5 → 21,2 dB), bo wzmocnienie nie jest już wąskim gardłem.** W FFmpeg szum i sinusoidy to **32 % energii** HF w QMF (mediana; p10 18 %, p90 35 %), a wariant „reftone” nie ma szumu.
+
+**Szum (stan, nie rozwiązanie).** Składnik „dodatek” Sauti (suma minus wzmocnienie) i dodatek FFmpeg (`Yfull − Ygain`) są **spójne: mediana 0,95** (p10 0,67, p90 0,995), a w pojedynczych binach 0,78–0,94: indeksy tablicy szumu i znaki są więc w większości dobre. Brakuje **amplitudy**: najlepsza skala dodatku względem skali wzmocnienia wynosi 412–666 (mediana 554) i zmienia się skokowo wraz z pasmem (biny 27–30: 665; 20–26: 530–580; 33–39: 510–600; bin 42, pasmo z tonem, dla którego skala = 1,00, ma osobną ścieżkę). Sprawdziłem i **wykluczyłem jako wyjaśnienie** pojedynczy czynnik: mediana boostu limitera na bin (korelacja z odwrotnością skali 0,16), amplituda szumu zapisana w pierścieniu (0,40) i wzmocnienie `hf_gain` per pasmo. To zgadza się z wcześniejszym zapisem SBR-73 („570–940, nie jedna brakująca stała 1024/√2”). Skokowość w pasmach sugeruje zależność od pasma szumu/obwiedni (np. forma `E·Q/(1+Q)` albo mapowanie `Q` na pasma wysokie), ale tego nie potwierdziłem.
+
+**Następny krok.** Porównać amplitudę szumu bezpośrednio z FFmpeg na poziomie `q_m` (instrumentacja `sbr_gain_calc`), zamiast wnioskować ze skali dopasowanej metodą najmniejszych kwadratów (przy spójności 0,8–0,9 dopasowanie zaniża skalę i miesza błąd amplitudy z błędem fazy). Dopiero po tym warto ruszać tonami.
+
+Narzędzia: `SAUTI_SBR76_TAIL=1`, `SAUTI_SBR76_BN=plik.csv` (zrzut `frame,env,k,boost,hf_gain,noise,sine` z pierścienia).

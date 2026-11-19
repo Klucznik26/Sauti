@@ -1065,6 +1065,18 @@ static void sbr73_boost_remember(
     const double hf_gain[SAUTI_AAC_SBR_MAX_ENV][64],
     const double noise[SAUTI_AAC_SBR_MAX_ENV][64],
     const SautiAacSbrComplex *baseline){
+    if(getenv("SAUTI_SBR76_BN")){            /* zrzut per-bin: frame,env,k,boost,hf_gain,noise,band_ok,sine (do analizy skali szumu) */
+        static FILE *bn;
+        if(!bn)bn=fopen(getenv("SAUTI_SBR76_BN"),"wb");
+        if(bn){
+            for(unsigned e=0u;e<envs;e++)
+                for(unsigned k=0u;k<64u;k++)
+                    if(band_ok[e][k])
+                        fprintf(bn,"%llu,%u,%u,%.9g,%.9g,%.9g,%u\n",(unsigned long long)frame,e,k,
+                                boost[e][k],hf_gain[e][k],noise[e][k],(unsigned)sine[e][k]);
+            fflush(bn);
+        }
+    }
     memmove(&sbr73_boost_ring[1],&sbr73_boost_ring[0],
             (SBR73_BOOST_RING-1u)*sizeof(sbr73_boost_ring[0]));
     Sbr73BoostSaved *saved=&sbr73_boost_ring[0];
@@ -2340,6 +2352,28 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                !sauti_aac_sbr_chirp_update(temporal_history.current.control.invf_mode,temporal_history.current.tables.n_noise,&ch75)){
                 printf("  ramka %zu: SBR-75 LPC/chirp odrzucone\n",i);
                 break;
+            }
+            /* SBR-76: sloty 26..31 POPRZEDNIEJ ramki sa slyszane jako sloty 0..5 tej ramki; FFmpeg generuje ich nosnik danymi BIEZACEJ ramki (alpha, bw, mapa lat).
+             * Przeliczamy je i podmieniamy WE WSZYSTKICH miejscach, gdzie nosnik poprzedniej ramki jest trzymany. */
+            if(getenv("SAUTI_SBR76_TAIL") && i>0u){
+                SautiAacSbrComplex tail[6u*64u];
+                int tail_ok=1;
+                for(unsigned s6=0u;s6<6u && tail_ok;s6++){
+                    const SautiAacSbrTemporalHfSlot *ow=&t75.slot[s6];       /* slot HF 0..5 tej ramki: kto go posiada */
+                    if(ow->source!=1u){tail_ok=0;break;}                      /* tylko wlasciciel = biezaca ramka (inaczej zostaje nosnik poprzedniej) */
+                    if(!sauti_aac_sbr_hf_predict(&temporal_history.current.patches,&temporal_history.current.tables,
+                            lpc_prev8+s6*32u,3u*32u,1u,&c75,&ch75,tail+s6*64u,64u))tail_ok=0;
+                }
+                if(tail_ok){
+                    Sbr73BoostSaved *ring=(Sbr73BoostSaved *)sbr73_boost_find(i-1u);
+                    for(unsigned s6=0u;s6<6u;s6++){
+                        const unsigned row=(26u+s6)*64u;
+                        if(ring)memcpy(ring->baseline+row,tail+s6*64u,64u*sizeof(tail[0]));
+                        memcpy(ref_prev_hf+row,tail+s6*64u,64u*sizeof(tail[0]));
+                        memcpy(temporal_apply.held+row,tail+s6*64u,64u*sizeof(tail[0]));
+                        memcpy(ref_hf_apply_state.held+row,tail+s6*64u,64u*sizeof(tail[0]));
+                    }
+                }
             }
             for(unsigned t=0u;t<32u;t++){
                 const SautiAacSbrTemporalHfSlot *ow=&t75.slot[t];
