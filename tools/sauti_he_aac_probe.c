@@ -2334,10 +2334,11 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             break;
         }
         qmf_prepared_frames++;
-        /* SBR-75 (eksperyment jednoczynnikowy, SAUTI_SBR75_LPC=1): HF generator z LPC i chirpem JAK W FFMPEG (okno 8+32 slotow, 38 rownan)
+        /* SBR-78 (domyslnie; wczesniej eksperyment SAUTI_SBR75_LPC=1): HF generator z LPC i chirpem JAK W FFMPEG (okno 8+32 slotow, 38 rownan)
          * zamiast zwyklej transpozycji, podstawiony ZANIM jakikolwiek dalszy etap (limiter, moc, wzmocnienie, ton) zobaczy HF.  Stan LPC/chirp
-         * posuwa dalej blok SBR-54g nizej; tu tylko liczymy. */
-        if(getenv("SAUTI_SBR75_LPC")){
+         * posuwa dalej blok SBR-54g nizej; tu tylko liczymy.  SAUTI_SBR75_LEGACY=1 przywraca dawna transpozycje bez filtrowania odwrotnego
+         * (tylko do porownan z wczesniejszymi pomiarami; bez LPC ramki z bs_invf_mode maja blad wzmocnienia 0,54 wobec FFmpeg). */
+        if(!getenv("SAUTI_SBR75_LEGACY")){
             SautiAacSbrTemporalHfTargets t75;
             SautiAacSbrComplex in40[40u*32u],in34[34u*32u];
             SautiAacSbrLpcCoeffs c75;

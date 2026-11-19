@@ -2,6 +2,7 @@
  * Production decoder remains untouched; no HE-AAC PCM asserted. */
 #include "sauti_aac_sbr_lpc_estimate.h"
 #include <assert.h>
+#include <complex.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -74,6 +75,52 @@ int main(void){
     for(unsigned k=0u;k<BANDS;k++){
         assert(coeff.alpha0[k].re==0.0f && coeff.alpha0[k].im==0.0f);
         assert(coeff.alpha1[k].re==0.0f && coeff.alpha1[k].im==0.0f);
+    }
+
+    /* SBR-78: the FFmpeg / ISO window. 8 history slots + 32 current = 40 slots, 38 equations
+     * (t = 2..39).  Compared against an independent closed-form solution of the 2x2 normal
+     * equations, and against the shorter 32-equation window the probe used before (it must
+     * differ on a signal without exact AR structure, otherwise the window would not matter). */
+    {
+        enum {HIST=40u,EQ=38u};
+        static SautiAacSbrComplex w[HIST*BANDS];
+        unsigned long long seed=0x9e3779b97f4a7c15ull;
+        for(unsigned i=0u;i<HIST*BANDS;i++){
+            seed=seed*6364136223846793005ull+1442695040888963407ull;
+            const float re=(float)((int)((seed>>40)&0xffffu)-32768)/32768.0f;
+            seed=seed*6364136223846793005ull+1442695040888963407ull;
+            const float im=(float)((int)((seed>>40)&0xffffu)-32768)/32768.0f;
+            w[i].re=re*(0.2f+0.05f*(float)(i%BANDS));
+            w[i].im=im*(0.2f+0.05f*(float)(i%BANDS));
+        }
+        SautiAacSbrLpcCoeffs c38,c32;
+        assert(sauti_aac_sbr_lpc_estimate_2(w,HIST*BANDS,EQ,&c38));
+        assert(sauti_aac_sbr_lpc_estimate_2(w+(HIST-34u)*BANDS,34u*BANDS,32u,&c32));
+        double worst=0.0,diff_window=0.0;
+        for(unsigned k=0u;k<BANDS;k++){
+            double complex spp=0,sqq=0,spq=0,sxp=0,sxq=0;
+            for(unsigned t=2u;t<HIST;t++){
+                const double complex x=w[t*BANDS+k].re+I*(double)w[t*BANDS+k].im;
+                const double complex pv=w[(t-1u)*BANDS+k].re+I*(double)w[(t-1u)*BANDS+k].im;
+                const double complex qv=w[(t-2u)*BANDS+k].re+I*(double)w[(t-2u)*BANDS+k].im;
+                spp+=conj(pv)*pv;sqq+=conj(qv)*qv;spq+=conj(pv)*qv;
+                sxp+=conj(pv)*x;sxq+=conj(qv)*x;
+            }
+            /* [spp spq; conj(spq) sqq] [a0;a1] = -[sxp;sxq] */
+            const double complex det=spp*sqq-spq*conj(spq);
+            const double complex a0=(-sxp*sqq+spq*sxq)/det;
+            const double complex a1=(-spp*sxq+conj(spq)*sxp)/det;
+            const double e0=cabs(a0-(c38.alpha0[k].re+I*(double)c38.alpha0[k].im));
+            const double e1=cabs(a1-(c38.alpha1[k].re+I*(double)c38.alpha1[k].im));
+            if(e0>worst)worst=e0;
+            if(e1>worst)worst=e1;
+            const double d=cabs((double)c38.alpha0[k].re-(double)c32.alpha0[k].re+
+                                I*((double)c38.alpha0[k].im-(double)c32.alpha0[k].im));
+            if(d>diff_window)diff_window=d;
+        }
+        assert(worst<2e-4);          /* independent closed form, ridge 1e-7 only */
+        assert(diff_window>1e-3);    /* the 38-equation window is not the old 32-equation one */
+        printf("SBR-78: 38-equation FFmpeg window vs closed form, worst |dalpha|=%.2e; window matters (max |alpha0 38-32|=%.3f) PASS\n",worst,diff_window);
     }
     puts("PASS SBR-54g native complex LPC(2) estimator (no PCM)");
     return 0;
