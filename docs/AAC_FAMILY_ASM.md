@@ -7143,3 +7143,21 @@ Dekoder LC porównywany różnicowo z FFmpeg (`tools/aac_corpus_matrix.py`, adap
 **Dowody.** `make test-aac-mp4` (ASan/UBSan; pliki składane w pamięci z prawdziwymi ramkami AAC-LC, dekodowanie ciszy, przycięcie, seek, odrzucenia, uciętym wejściem; 2 mutanty zabite: zły offset `media_time` i brak limitu rozmiaru AU) oraz `make test-aac-mp4-diff FILES="..."` na prawdziwych plikach. Na wszystkich **183 plikach MP4/M4A z audio AAC-LC z dysku autora** (44,1 i 48 kHz, stereo, od 6 s do ponad 7 minut, w tym filmy 300+ MB) SNR wobec FFmpeg ≥ 138,6 dB, lag 0 lub −1024 (priming), liczba próbek zgodna do 1 ramki; 3 pliki bez ścieżki audio pominięte. (Narzędzie testowe odrzucało pliki > 200 MB, limit podniesiony do 2 GB; harness dostał `-vn` i szybsze dopasowanie opóźnienia.)
 
 **HE-AAC v2 na prawdziwych plikach (stan, nie naprawa).** `Bogini_HEv2.aac`, `he_test.aac`, `he_v2_real.aac` (48 kHz, rdzeń mono 24 kHz + SBR + PS): adapter stereo/mono ich nie przyjmuje (SBR), `he_test` otwiera się jako mono (bez PS), a narzędzie `sauti_he_ps_decode` kończy na pierwszej ramce (`UNSUPPORTED_FIL`: parser SBR odrzuca ramkę, którą wariant „temporal” przyjmuje; `class=0`, jedna koperta). Dopóki tego nie ma, HEv2 nie jest zwalidowany względem FFmpeg.
+
+### HE-AAC na prawdziwych plikach: stan i wąskie gardło (2026-11-19)
+
+Pomiar `make he-frame-stats FILE=...` (`tools/sauti_he_frame_stats.c`) na trzech prawdziwych plikach HE-AAC (48 kHz, rdzeń mono 24 kHz + SBR):
+
+| plik | ramek | przyjęte standardowo | **tylko temporalnie** | odrzucone w obu | z PS | klasy FIXFIX/FIXVAR/VARFIX/VARVAR | ostatnia granica > 16 |
+|---|---|---|---|---|---|---|---|
+| `he_test.aac` | 50 | 46 | **4** | 0 | 0 | 46/2/2/0 | 2 |
+| `he_v2_real.aac` | 285 | 283 | **2** | 0 | 285 | 283/1/1/0 | 1 |
+| `Bogini_HEv2.aac` | 3550 | 2447 | **1103 (31 %)** | 0 | 3550 | 2100/579/579/292 | 611 |
+
+**Wnioski (z pomiaru, nie z założeń):**
+1. **Parser SBR czyta wszystkie ramki wszystkich trzech plików** (0 odrzuconych w obu wariantach), a PS jest wykrywany w 100 % ramek obu plików HEv2. Brak PCM nie bierze się z parsowania.
+2. **Wąskie gardło to obwiednie „temporalne”** (klasy FIXVAR/VARFIX/VARVAR, ostatnia granica obwiedni > 16, czyli sięgająca w następną ramkę): w realnym utworze (`Bogini_HEv2`) to **31 % ramek**, więc dekoder produkcyjny, który je odrzuca (`UNSUPPORTED_FIL`), nie przejdzie przez ten plik. Rozstrzygnięcie granic i przeniesienie odroczonych slotów istnieje jako etapy pośrednie (SBR-47…53: plan, moc, wzmocnienie, szum, podgląd PCM), ale **nie jest zintegrowane w torze dekodera** (`sauti_aac_he_adts_mono_decode_ex` kończy na ramce z granicą poza oknem).
+3. **`he_test.aac` jest HE-AAC v1 (SBR bez PS)**, mimo że `ffprobe` raportuje „HE-AACv2, 2 kanały”: FFmpeg przy niejawnej sygnalizacji zakłada możliwość PS i zwraca stereo (to samo L=R). Adapter mono Sauti oddaje 1 kanał, więc harness widzi `FORMAT` (1 vs 2 kanały); to różnica polityki, nie błąd dekodera.
+4. Zgodność **liczbowa** toru standardowych ramek z FFmpeg na tych plikach nie jest udowodniona (wcześniejsze etapy SBR-54…73 badają różnice HF na stałych ramkach `he_test.aac`); dlatego adaptery HE pozostają poza rejestrem odtwarzacza i poza adapterem MP4.
+
+**Następny krok (do decyzji właściciela, bo dotyka toru SBR rozwijanego etapami):** zintegrować przeniesienie odroczonych slotów obwiedni między ramkami w produkcyjnym torze HE (stan między ramkami dla granicy `t_E[L_E] > 16`), potem zmierzyć PCM wobec FFmpeg na ramkach standardowych i temporalnych osobno.

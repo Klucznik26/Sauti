@@ -1135,6 +1135,14 @@ test-aac-he-adts-ps: $(OBJDIR)/test_aac_he_adts_ps
 $(OBJDIR)/sauti_he_ps_decode: tools/sauti_he_ps_decode.c include/sauti_aac_he_adts_ps.h $(AAC_HE_ADTS_PS_LINK) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_ps_decode.c $(AAC_HE_ADTS_PS_LINK) -lm -no-pie
 
+# Diagnostyka HE-AAC na prawdziwych plikach: ile ramek SBR wymaga obwiedni "temporalnej" (poza biezaca ramka), ile ma PS (make he-frame-stats FILE=plik.aac).
+$(OBJDIR)/sauti_he_frame_stats: tools/sauti_he_frame_stats.c include/sauti_aac_he_adts_mono.h $(AAC_HE_ADTS_PS_LINK) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_frame_stats.c $(AAC_HE_ADTS_PS_LINK) -lm -no-pie
+
+.PHONY: he-frame-stats
+he-frame-stats: $(OBJDIR)/sauti_he_frame_stats
+	@if [ -z "$(FILE)" ]; then echo "podaj FILE=plik.aac"; exit 2; fi; ./$(OBJDIR)/sauti_he_frame_stats "$(FILE)"
+
 .PHONY: probe-he-ps test-aac-ps5-compare-help
 probe-he-ps: $(OBJDIR)/sauti_he_ps_decode
 
