@@ -7276,3 +7276,30 @@ Błąd spada do poziomu precyzji `float`, więc **wkład szumu jest wyjaśniony 
 *Ogon punktu 2 (`SAUTI_SBR76_TAIL=1`) zostaje za zmienną.* Przy nim pasmo >5,5 kHz wariantu „reftone” spada z 21,52 do **21,21 dB** (pasmo niskie 124,7 dB), choć etap wzmocnienia poprawia się (SBR-76: 0,107 → 0,0175). Ten wariant nie ma szumu, więc nie umiem teraz rozstrzygnąć, czy spadek o 0,3 dB to artefakt braku szumu, czy realny koszt; domyślnym torem zrobię go razem z poprawką amplitudy szumu z SBR-77, kiedy PCM da się ocenić z szumem.
 
 *Adaptery HE/HEv2 w rejestrze odtwarzacza: nadal nie.* Tor ma ok. 21 dB w paśmie HF bez szumu i tonów (SBR-77), więc nie jest w stanie odtwarzać HE-AAC poprawnie; wprowadzenie go do rejestru dałoby użytkownikom gorszy dźwięk niż dekodowanie samego rdzenia LC.
+
+### SBR-79 — wzmocnienie 25 % za duże w ramkach jednoobwiedniowych: zła reguła `delta`; „reftone” 21,5 → 28,3 dB (2026-11-19)
+
+**Sprostowanie wcześniejszych wpisów (moje błędy).** (1) SBR-76 napisał, że wariant „reftone” nie ma szumu. To nieprawda: `sbr73_add_reference_noise` dodaje do niego szum z wartością **po limiterze** (z pierścienia), od commitu „fix the reftone boundary and add its noise”. (2) Analiza SBR-77 (amplituda szumu = `qm_before`, brak czynnika limitera) dotyczy płaszczyzny **`summed_hf`** (plik PCM główny i `sinephase2`, 3,33 dB w paśmie >5,5 kHz), a nie najlepszego wariantu „reftone”. Wniosek SBR-77 jest dla `summed_hf` prawdziwy, ale nie wyjaśnia 21,5 dB „reftone” i nie poprawia najlepszej ścieżki. Pierwotne zdanie „szum jest jedynym znanym brakiem” było więc błędne dla ścieżki, którą mierzyłem.
+
+**Nowy zrzut `SAUTI_SBR79_REFGRID=plik`** (układ `SBG1`: płaszczyzny `ref_tone_hf` = wzmocnienie + ton phase+2 + szum referencyjny, `ref_boundary_hf` = samo wzmocnienie, `adjusted_hf`). Dopasowanie do `Ygain`/`Yfull` FFmpeg: **ramka Sauti f = wywołanie f+1, przesunięcie −6 slotów** (slot FFmpeg s = slot siatki s−6), bez tego błąd względny ≈ 0,8–1,0. Po dopasowaniu błąd energii: wzmocnienie 0,0052, całość 0,0040 (skala dopasowana osobno na ramkę).
+
+**Skala zmieniała się między ramkami, a to był trop.** Skala jednostek (`|Sauti|·s = |FFmpeg|`) wynosiła w płaszczyźnie wzmocnienia od 26 600 do 32 800 (mediana 28 663), w całości 28 160–32 768, zamiast stałej `2^15 = 32 768`. Rozbicie po cechach ramki: **dokładnie 32 768 dla ramek z ≥ 3 obwiedniami i klas 1 i 3**, a ok. 26 900 dla ramek jednoobwiedniowych klasy 0 (stosunek amplitud na bin 1,02–1,18, stały wzdłuż slotów, najwyższy w pasmach 23–25 i 33–34). Wzmocnienia w pierścieniu (`hf_gain`) zgadzały się z FFmpeg dla każdej liczby obwiedni (mediana 1,000), więc wina leżała w drugim, niezależnym obliczeniu: `sauti_aac_sbr_temporal_reference_gain_calculate`, które zasila płaszczyznę.
+
+**Przyczyna.** Funkcja liczyła `delta = (env == transient_env) ? 0 : 1`. Parser (`attack_env` w `sauti_aac_sbr_payload.c`) zapisuje jednak `transient_env = 0` jako „brak zgłoszonego przejścia” (wtedy `attack[0]` zostaje 0), więc **obwiednia 0 każdej ramki FIXFIX i VARFIX bez przejścia była traktowana jako przejściowa** (`delta = 0`), gdzie FFmpeg ma `delta = 1` (`e_a[1] = −1`). Zestawienie z zrzutu FFmpeg (kolumna `delta`): 159 obwiedni FIXFIX z 1 obwiednią, 113 + 37 obwiedni 0 w ramkach 2-obwiedniowych: Sauti 0, FFmpeg 1. Limiter z błędnym `delta` zwraca inne wzmocnienie. Poprawka: `delta = attack[env] ? 0 : 1`, jak w ścieżce pierścienia, która była poprawna.
+
+**Wynik (400 ramek `Bogini_HEv2`):**
+
+| | przed | po |
+|---|---|---|
+| skala jednostek, mediana (wzmocnienie / całość) | 28 663 / 29 760 | **32 804 / 32 784** (≈ 2^15) |
+| `g54`/FFmpeg, ramki 1-obwiedniowe, mediana | 1,25 | **0,9987** |
+| PCM >5,5 kHz „reftone” | 21,52 dB | **28,34 dB** (pasmo niskie 124,4 → 127,3 dB) |
+| z `SAUTI_SBR76_TAIL=1` | 21,21 dB | 28,00 dB |
+
+**Czego to nie rozwiązuje (zmierzone, nie założone).**
+- Wzmocnienie ma jeszcze rozrzut: p5 = 0,948 (1 obwiednia), 0,949 (2), 0,772 (3), 0,931 (4); dokładnie (|r−1| < 10⁻³) tylko 20 % binów w ramkach jednoobwiedniowych i 58–75 % w pozostałych. Ten sam rozrzut ma pierścień, więc siedzi we wspólnej funkcji `sauti_aac_sbr_gain_limit_partition_flags` albo w jej wejściach (limiter `gain_max`, `s_mapped`, `e_curr`); nie zbadane.
+- **Kodowanie `transient_env = 0` jest niejednoznaczne**: przejście dokładnie w obwiedni 0 (klasy 1 i 3 przy `pointer = env_count + 1`, `e_a[1] = 0`) wygląda tak samo jak brak przejścia, więc dostaje `delta = 1` zamiast 0. Brakuje też historii międzyramkowej `e_a[0]` (8 przypadków z 4 ramek klasy 3: Sauti 1, FFmpeg 0, np. ramka (3-obw., klasa 3, env 0): 4 z 14).
+- Ogon slotów 26–31 (punkt 2) nadal obniża wynik o 0,34 dB (28,34 → 28,00): zostaje opcjonalny.
+- Wynik dotyczy jednego pliku; to tor sondy, nie dekoder w rejestrze.
+
+**Testy.** `tests/test_aac_sbr_temporal_reference_gain.c` kodował starą, błędną konwencję (komentarz „transient_env = 0 → delta = 0”); poprawiony na `attack[0] = 1`, plus `new_owner_delta` (regresja: `transient_env = 0` bez `attack` → `delta = 1`; z `attack` → 0; `transient_env` poza zakresem → 1); stara reguła jest wykrywana. **Ten test nie wchodził do `test-aac-native`** (59 z 156 celów `test-aac-*` było poza zestawem), więc zmiana reguły przeszłaby niezauważona. Do zestawu dopisałem 25 przechodzących testów (`temporal-*`, `gain-*`, `*-audit`, `qmf-convention/modulation/shared-input`, `ps-owned-geometry`, `qmf-frame-parity`, `tone`): 109 → 134 PASS. Poza nim zostają testy wymagające zewnętrznych danych lub FFmpeg; trzy z nich (`qmf-startup-slots`, `qmf-steady`, `qmf-tones`) padają dziś z powodów środowiskowych (brak fixtur w `/tmp`, selekcja stereo instrumentowanego FFmpeg), ich części syntetyczne przechodzą.

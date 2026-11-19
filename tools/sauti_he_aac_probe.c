@@ -842,34 +842,55 @@ static int sbr73_trace_sum(uint64_t frame,
  * gain HF, and the unshifted SBR-53d gain. Off unless
  * SAUTI_SBR73_SAUTI_GRID=/path.f32le. Each record is the frame index
  * and three 32*64 complex planes, slot-major. */
-static int sbr73_trace_grid(uint64_t frame,
-                            const SautiAacSbrComplex *sum,
-                            const SautiAacSbrComplex *shifted,
-                            const SautiAacSbrComplex *adjusted){
-    const char *path=getenv("SAUTI_SBR73_SAUTI_GRID");
-    static FILE *out;
-    static int header_done;
+static int sbr_write_grid(const char *path,FILE **out,int *header_done,
+                          uint64_t frame,
+                          const SautiAacSbrComplex *a,
+                          const SautiAacSbrComplex *b,
+                          const SautiAacSbrComplex *c){
     if(!path)return 1;
-    if(!sum || !shifted || !adjusted)return 0;
-    if(!out){
-        out=fopen(path,"wb");
-        if(!out){
+    if(!a || !b || !c)return 0;
+    if(!*out){
+        *out=fopen(path,"wb");
+        if(!*out){
             perror(path);
             return 0;
         }
     }
-    if(!header_done){
-        if(fwrite("SBG1",1,4,out)!=4)return 0;
-        header_done=1;
+    if(!*header_done){
+        if(fwrite("SBG1",1,4,*out)!=4)return 0;
+        *header_done=1;
     }
     const uint32_t index=(uint32_t)frame;
-    if(fwrite(&index,sizeof(index),1,out)!=1 ||
-       fwrite(sum,sizeof(SautiAacSbrComplex),32u*64u,out)!=32u*64u ||
-       fwrite(shifted,sizeof(SautiAacSbrComplex),32u*64u,out)!=32u*64u ||
-       fwrite(adjusted,sizeof(SautiAacSbrComplex),32u*64u,out)!=32u*64u ||
-       fflush(out)!=0)
+    if(fwrite(&index,sizeof(index),1,*out)!=1 ||
+       fwrite(a,sizeof(SautiAacSbrComplex),32u*64u,*out)!=32u*64u ||
+       fwrite(b,sizeof(SautiAacSbrComplex),32u*64u,*out)!=32u*64u ||
+       fwrite(c,sizeof(SautiAacSbrComplex),32u*64u,*out)!=32u*64u ||
+       fflush(*out)!=0)
         return 0;
     return 1;
+}
+
+static int sbr73_trace_grid(uint64_t frame,
+                            const SautiAacSbrComplex *sum,
+                            const SautiAacSbrComplex *shifted,
+                            const SautiAacSbrComplex *adjusted){
+    static FILE *out;
+    static int header_done;
+    return sbr_write_grid(getenv("SAUTI_SBR73_SAUTI_GRID"),&out,&header_done,
+                          frame,sum,shifted,adjusted);
+}
+
+/* SBR-79 optional full grid of the "reftone" path (the best PCM variant): planes are the finished HF (reference gain + phase+2 tone +
+ * reference noise), the reference gain alone, and the unshifted SBR-53d gain. Same SBG1 layout as SAUTI_SBR73_SAUTI_GRID.
+ * Enable with SAUTI_SBR79_REFGRID=/path.f32le. */
+static int sbr79_trace_refgrid(uint64_t frame,
+                               const SautiAacSbrComplex *full,
+                               const SautiAacSbrComplex *gain,
+                               const SautiAacSbrComplex *adjusted){
+    static FILE *out;
+    static int header_done;
+    return sbr_write_grid(getenv("SAUTI_SBR79_REFGRID"),&out,&header_done,
+                          frame,full,gain,adjusted);
 }
 
 /* SBR-73 optional split of gain-adjusted HF and the unsmoothed noise
@@ -2823,6 +2844,11 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                    &noise_frame,noise_report.rom_index,
                    &emitted_targets,&temporal_noise.held_targets)){
                 printf("  ramka %zu: SBR-73 ton na referencyjnym HF odrzucony\n",i);
+                break;
+            }
+            if(!sbr79_trace_refgrid(tone_report.frame_index,ref_tone_hf,
+                                    ref_boundary_hf,adjusted_hf)){
+                printf("  ramka %zu: SBR-79 zrzut siatki reftone odrzucony\n",i);
                 break;
             }
             ref_tone_ready=1;

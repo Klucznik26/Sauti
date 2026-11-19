@@ -57,7 +57,7 @@ static void run(unsigned tail){
     SautiAacSbrPayloadFrame before,now;
     make_frame(&before,64.0);extend(&before,tail);
     make_frame(&now,144.0);follow(&now,tail);
-    now.transient_env=0u; /* delta=0 in the NEW owner only */
+    now.attack[0]=1u;     /* delta=0 in the NEW owner only: a signaled onset is attack[env] (SBR-79), not env==transient_env */
     now.harmonic[0]=0u;
     SautiAacSbrTemporalHistory history={0};
     SautiAacSbrTemporalHandoff handoff;
@@ -177,8 +177,40 @@ static void run(unsigned tail){
 
     printf("SBR-54l: %u-slot FIXVAR, source=previous/current, tonal/attack and rollback PASS\n",tail);
 }
+/* SBR-79: the parser stores transient_env=0 for "no signaled onset" and leaves attack[0] clear.  That must give delta=1 (FFmpeg
+ * e_a[1]=-1), not delta=0 as the old env==transient_env rule did.  Returns the delta of the new owner's envelope. */
+static unsigned new_owner_delta(unsigned attack0,unsigned transient_env){
+    SautiAacSbrPayloadFrame before,now;
+    make_frame(&before,64.0);extend(&before,6u);
+    make_frame(&now,144.0);follow(&now,6u);
+    now.transient_env=transient_env;
+    now.attack[0]=(uint8_t)attack0;
+    now.harmonic[0]=0u;
+    SautiAacSbrTemporalHistory history={0};
+    SautiAacSbrTemporalHandoff handoff;
+    SautiAacSbrTemporalPowerState state={0};
+    SautiAacSbrTemporalPowerReport power={0};
+    SautiAacSbrTemporalReferenceGainReport comparison={0};
+    SautiAacSbrComplex x[COUNT],previous_x[COUNT];
+    assert(sauti_aac_sbr_temporal_history_push(&before,&history,&handoff));
+    hf(x,&before,32u,2.0f,2.0f);
+    assert(sauti_aac_sbr_temporal_power_measure(&history,x,COUNT,&state,&power));
+    memcpy(previous_x,x,sizeof(previous_x));
+    assert(sauti_aac_sbr_temporal_history_push(&now,&history,&handoff));
+    hf(x,&now,6u,10.0f,3.0f);
+    assert(sauti_aac_sbr_temporal_power_measure(&history,x,COUNT,&state,&power));
+    assert(power.completed_count==2u);
+    assert(sauti_aac_sbr_temporal_reference_gain_calculate(
+        &history,&power,x,COUNT,previous_x,COUNT,NULL,0u,&comparison));
+    assert(comparison.completed[1].source==1u);
+    return comparison.completed[1].transient_delta;
+}
 int main(void){
     run(2u);run(6u);
+    assert(new_owner_delta(0u,0u)==1u);   /* no onset: parser gives transient_env=0, attack[0]=0 */
+    assert(new_owner_delta(1u,0u)==0u);   /* signaled onset */
+    assert(new_owner_delta(0u,1u)==1u);   /* transient_env past the last envelope = none */
+    puts("SBR-79: delta follows attack[env], transient_env=0 means no onset PASS");
     puts("PASS SBR-54l real-envelope gain partition adapter (NO PCM)");
     return 0;
 }

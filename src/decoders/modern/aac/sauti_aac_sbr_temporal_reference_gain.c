@@ -128,7 +128,10 @@ static int build_one(
         }
     }
     /* delta=0 marks the locally signaled transient envelope.
-     * FFmpeg's cross-frame e_a history is not yet represented.
+     * SBR-79: that is attack[env], not env==transient_env.  The payload parser stores transient_env=0 for "no transient"
+     * (attack[0] stays clear), so comparing the index made envelope 0 of every FIXFIX / transient-free VARFIX frame a
+     * transient (delta=0) where FFmpeg has delta=1: the limiter then ran with the wrong delta and the gain came out
+     * ~25 % too large on one-envelope frames.  FFmpeg's cross-frame e_a[0] history is still not represented.
      * Square sums below stay on the unscaled mean power. */
     double raw_e[64]={0},raw_c[64]={0};
     for(unsigned k=kx;k<k2;k++){
@@ -137,7 +140,7 @@ static int build_one(
         if(!isfinite(raw_e[k]) || raw_e[k]<0.0 ||
            !isfinite(raw_c[k]) || raw_c[k]<0.0)return 0;
     }
-    const unsigned delta=env==f->transient_env?0u:1u;
+    const unsigned delta=f->attack[env]?0u:1u;
     SautiAacSbrGainLimitedFrame limited;
     if(!sauti_aac_sbr_gain_limit_partition_flags(
            raw_e,raw_c,q,active_sine,sine_mapped,
