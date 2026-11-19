@@ -7359,3 +7359,30 @@ Ogon (punkt 2) jest więc dopiero teraz korzystny dla PCM (+0,54 dB względem `N
 **Wynik na trzecim, niezależnym strumieniu** (`fdkaac -p 5 -b 64`, mono HE-AAC v1, ten sam utwór od 60. s, 280 ramek, referencja FFmpeg z `SKIP_PS`): sonda dekoduje wszystkie ramki (przed: odrzucona w ramce 1), pasmo niskie **135,7 dB**, pasmo >5,5 kHz **41,74 dB**. To pierwszy strumień HE-AAC v1 zmierzony w tym torze; łącznie trzy pliki (v2 ×2, v1 mono) dają 40,0 / 36,35 / 41,74 dB.
 
 **Nadal odrzucone:** stereo (`-p 5`, 64 i 96 kb/s), ramka 0. Tor badawczy jest jednokanałowy (SCE), a SBR dla pary kanałów (CPE: sprzężenie energii `bs_coupling`, dwa zestawy obwiedni i szumu) nie jest w nim zaimplementowany; to ten sam brak, który blokuje adapter stereo. Stereo wymaga dwóch niezależnych instancji stanu potoku (dziś stan jest statyczny), więc kolejność prac: najpierw przeniesienie potoku do biblioteki ze stanem jawnym, dopiero potem stereo.
+
+### SBR-82 — kanał SBR według struktury normy: zgodność z FFmpeg do zaokrągleń float (2026-11-19)
+
+**Decyzja.** Zamiast przenosić tor badawczy sondy do biblioteki (jednoramkowe opóźnienie emisji, „pożyczone” sloty, ton wyznaczany jako różnica siatek, brak wygładzania, 6 równoległych wariantów PCM), napisałem nowy moduł od zera według struktury, którą pokazały pomiary SBR-75…81: `include/sauti_aac_sbr_channel.h`, `src/decoders/modern/aac/sauti_aac_sbr_channel.c`. Używa istniejących, już sprawdzonych klocków (analiza QMF, LPC/chirp, nośnik `hf_predict`, limiter `gain_limit_partition_flags`, ROM szumu, synteza `qmf_synth_64`); nowe jest tylko złożenie.
+
+**Struktura (jedna ramka, bez opóźnienia emisji i bez flushu).** `X_low[40][32]` = 8 slotów historii + 32 nowe; nośnik HF dla slotu wyjściowego `i` to `X_high[i+2]` z `X_low[i..i+2]`; obwiednia `e` obejmuje sloty `[env_edges[e], env_edges[e+1])`, a jej wzmocnienie, szum i sinus wynikają z limitera nad mocą nośnika *dokładnie tych slotów*; slot wyjściowy `i` to `X_low[i+2]` poniżej `kx` i `G·X_high[i+2] + szum + sinus` powyżej (wygładzanie `G` i `Q` na pięciu slotach przy `bs_smoothing_mode == 0`, poza obwiedniami przejściowymi); obwiednia sięgająca poza slot 32 jest liczona w tym wywołaniu i przekazywana do następnego (do 6 slotów), nigdy nie liczona ponownie. Wyjściem jest siatka QMF 32×64 (niskie pasmo poniżej `kx`, HF w `[kx, kx+m)`, zero wyżej), osobno funkcja syntezy; siatka jako wyjście pozwala wpiąć PS i stereo. Stan jest jedną strukturą, zatwierdzaną atomowo; brak zmiennych statycznych.
+
+**Wynik względem FFmpeg (instrumentowany, ten sam znacznik czasu, bez żadnej kompensacji opóźnienia; metryka jak wcześniej, ramki od 20):**
+
+| plik | pasmo niskie | pasmo >5,5 kHz | sonda (SBR-80/81) |
+|---|---|---|---|
+| `Bogini_HEv2` (400 ramek, HE-AAC v2, PS pominięte u referencji) | 139,3 dB | **119,66 dB** | 39,98 dB |
+| drugi fragment, `fdkaac -p 29` (HE-AAC v2) | 138,8 dB | **122,86 dB** | 36,35 dB |
+| mono HE-AAC v1, `fdkaac -p 5 -b 64` | 138,9 dB | **121,27 dB** | 41,74 dB |
+
+Siatka QMF względem `Yfull` FFmpeg (wywołanie c = moja ramka c−1, bez przesunięcia slotów): łączny błąd względny energii **9,7·10⁻¹³** na Bogini, mediana błędu na ramkę 1,5·10⁻¹², maks. 2·10⁻⁸ (386 ramek, żadna powyżej 10⁻⁶); to poziom zaokrągleń `float`.
+
+**Co ustaliły pomiary w trakcie (każdy przez porównanie z FFmpeg, nie przez założenie).**
+- *Sinus przed obwiednią przejściową.* Moja pierwsza reguła („ton trwa dalej z ostatniej obwiedni poprzedniej ramki”) dawała błędy w ramkach z przejściem w środku; druga („tylko flagi poprzedniej ramki po przeniesionym przejściu”) też. Po zebraniu 125 przypadków binów w trzech strumieniach reguła jest jednoznaczna: **w obwiedni przed bieżącym przejściem sinus na binie `k` istnieje wtedy i tylko wtedy, gdy `k` jest oflagowany w bieżącej ramce I sinus już trwał w ostatniej obwiedni poprzedniej ramki** (64/64 przypadków zgodnych, 61 bez sinusa zgodnych). W obwiedniach od przejścia (albo gdy go nie było) obowiązują flagi bieżącej ramki. Przejście przeniesione (`transient_env == env_count`) nie dodaje osobnej reguły.
+- *Szum w obwiedniach przejściowych* i `delta` (`e_a[0]`, `e_a[1]`) z SBR-79/80 są tu naturalnie częścią jednego przebiegu.
+- *Przesunięcie czasu:* wyjście jest zgodne z FFmpeg co do próbki (korelacja 1,00000 przy przesunięciu 0); opóźnienie niskiego pasma wynika wyłącznie z `X_low[i+2]` (6 slotów), a stare przesunięcie 384 próbek było cechą jednoramkowej emisji sondy.
+
+**Mutanty (zabite przez porównanie PCM z FFmpeg na `m64`, HF 121 dB → ):** krok indeksu szumu +1 → 7,96 dB; stara reguła sinusa → 36,58 dB; szum w obwiedniach przejściowych → 19,40 dB; odwrócony znak fazy sinusa → 31,26 dB.
+
+**Narzędzia i testy.** `tools/sauti_he_decode_cli.c` (cel `make build/sauti_he_decode_cli`; zmienne `SAUTI_SBR82_GRID` zrzut siatki, `SAUTI_SBR82_FLAGS` flagi ramek; `-DSAUTI_SBR_CHANNEL_TRACE` zrzut parametrów obwiedni `SAUTI_SBR82_ENV`, tylko do porównań), `tools/sauti_he_pcm_vs_ffmpeg.py`, `scripts/test_he_channel_vs_ffmpeg.sh PLIK.aac` (cel `make test-aac-he-channel-ffmpeg HE_FILE=…`, `SKIP` jawny bez pliku lub instrumentowanego FFmpeg, nie jest dowodem zgodności).
+
+**Czego to NIE obejmuje (stan, nie obietnica).** (a) Wygładzanie `bs_smoothing_mode == 0` jest zaimplementowane według normy, ale **niezweryfikowane**: wszystkie trzy pliki mają `bs_smoothing_mode = 1` w każdej ramce. (b) Para kanałów (stereo, sprzężenie `bs_coupling`) i PS (HE-AAC v2 stereo) nie są jeszcze podłączone; moduł dostarcza siatkę QMF, na której PS pracuje. (c) Brak adaptera w rejestrze odtwarzacza i brak testu jednostkowego w `test-aac-native` (test względem FFmpeg wymaga zewnętrznego narzędzia). (d) Zmiana geometrii tabel w trakcie strumienia (reset nagłówka) i nieciągłość granic obwiedni są tylko wykrywane (`discontinuities`), nie testowane. (e) Wynik na trzech strumieniach z jednego utworu i dwóch ustawień kodera.

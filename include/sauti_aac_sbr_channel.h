@@ -1,0 +1,64 @@
+#ifndef SAUTI_AAC_SBR_CHANNEL_H
+#define SAUTI_AAC_SBR_CHANNEL_H
+
+#include "sauti_aac_sbr_hf_predict.h"
+#include "sauti_aac_sbr_payload.h"
+#include "sauti_aac_sbr_qmf_analysis.h"
+#include "sauti_aac_sbr_qmf_synth_mod.h"
+
+/* SBR-82: one SBR channel decoded the way the standard lays it out, with all state in one object.
+ *
+ * Per frame, in the QMF domain (32 slots x 64 bands, slot-major):
+ *   - analysis of the 1024 core samples gives 32 new low-band slots; with the 8 slots kept from the previous frame they form
+ *     X_low[40][32];
+ *   - HF carrier X_high[j] for j = i+2 comes from X_low[j-2..j] (complex second-order prediction with the LPC of this frame and the
+ *     chirp factors);
+ *   - envelope e covers output slots i in [env_edges[e], env_edges[e+1]); its gain, noise and sine amplitudes come from the
+ *     limiter over the carrier power of exactly those slots (so the six slots of look-back are implicit in X_low);
+ *   - output slot i is X_low[i+2] in the bands below kx and G*X_high[i+2] + noise + sine above (G smoothed over five slots when
+ *     bs_smoothing_mode == 0 except in transient envelopes);
+ *   - an envelope that ends after slot 32 spills into the first slots of the next frame: those slots are produced in this call and
+ *     handed over, never recomputed.
+ * No frame is held back: the grid returned for frame c is complete and in time order, there is nothing to flush at the end.
+ *
+ * Validation of this module against another decoder happens in tools/tests, not here; no external decoder is used at run time.
+ * All state is committed only when the whole frame succeeded. Zero-initialise with sauti_aac_sbr_channel_init. */
+
+#define SAUTI_AAC_SBR_CHANNEL_SLOTS 32u
+#define SAUTI_AAC_SBR_CHANNEL_BANDS 64u
+#define SAUTI_AAC_SBR_CHANNEL_GRID (SAUTI_AAC_SBR_CHANNEL_SLOTS*SAUTI_AAC_SBR_CHANNEL_BANDS)
+#define SAUTI_AAC_SBR_CHANNEL_SPILL 6u
+
+typedef struct {
+    uint32_t ready;
+    uint64_t frames;
+    SautiAacSbrQmfAnalysisState analysis;
+    SautiAacSbrQmfSynthWindowState synth;
+    SautiAacSbrComplex low_history[8u*32u];           /* last 8 low-band slots of the previous frame */
+    SautiAacSbrChirp chirp;
+    SautiAacSbrPayloadFrame previous;                 /* for the carried-over onset e_a[0] and the sine continuation */
+    uint32_t have_previous;
+    unsigned previous_last_edge;                      /* env_edges[env_count] of the previous frame (32..38) */
+    uint8_t last_sine[64];                            /* per bin: was a sine added in the last envelope of the previous frame */
+    SautiAacSbrComplex spill[SAUTI_AAC_SBR_CHANNEL_SPILL*64u]; /* finished HF of the slots the previous frame ran past its end */
+    unsigned spill_slots,spill_kx,spill_k2;
+    double gain_history[4][64],noise_history[4][64];  /* gain / noise of the last four processed slots (smoothing) */
+    uint32_t history_valid;
+    unsigned index_noise,index_sine;
+    uint64_t discontinuities;                         /* frames whose first border did not continue the previous frame */
+} SautiAacSbrChannel;
+
+int sauti_aac_sbr_channel_init(SautiAacSbrChannel *ch);
+
+/* core: 1024 core-rate PCM samples of this frame; payload: the parsed SBR data of this frame (temporal parse, borders may run past
+ * the frame). grid: 32*64 complex, low band below kx, HF in [kx, kx+m), zero above. Returns 1, or 0 with *ch and grid unchanged. */
+int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
+                                const SautiAacSbrPayloadFrame *payload,
+                                SautiAacSbrComplex grid[SAUTI_AAC_SBR_CHANNEL_GRID]);
+
+/* 32 slots of the grid -> 2048 PCM samples at twice the core rate. */
+int sauti_aac_sbr_channel_synthesize(SautiAacSbrChannel *ch,
+                                     const SautiAacSbrComplex grid[SAUTI_AAC_SBR_CHANNEL_GRID],
+                                     float pcm[2048]);
+
+#endif
