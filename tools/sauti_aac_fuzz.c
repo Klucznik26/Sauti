@@ -27,7 +27,7 @@ int main(int argc,char **argv){
         seed[i]=malloc(len[i]);if(!seed[i]||fread(seed[i],1,len[i],f)!=len[i])return 2;fclose(f);
     }
     const SautiDecoderOps *const registry[]={&sauti_decoder_aac_native_ops,&sauti_decoder_aac_mono_native_ops,&sauti_decoder_aac_multi_native_ops,
-        &sauti_decoder_aac_mp4_native_ops,&sauti_decoder_aac_latm_native_ops,&sauti_decoder_aac_he_native_ops,&sauti_decoder_aac_he_cpe_native_ops};
+        &sauti_decoder_aac_mp4_native_ops,&sauti_decoder_aac_latm_native_ops,&sauti_decoder_aac_adif_native_ops,&sauti_decoder_aac_he_native_ops,&sauti_decoder_aac_he_cpe_native_ops};
     signal(SIGALRM,on_alarm);
     static float buf[4096*2];
     long opened=0,rejected=0;unsigned long long frames_read=0;

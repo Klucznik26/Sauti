@@ -19,6 +19,7 @@ extern const SautiDecoderOps sauti_decoder_aac_multi_native_ops;
  * rejestr przechodzi dalej.  Przyciecie z listy edycji (opoznienie kodera) jak w FFmpeg. */
 extern const SautiDecoderOps sauti_decoder_aac_mp4_native_ops;
 extern const SautiDecoderOps sauti_decoder_aac_latm_native_ops;
+extern const SautiDecoderOps sauti_decoder_aac_adif_native_ops;
 
 /* Strictly experimental native HE-AAC v1 / SBR ADTS bridge.
  *

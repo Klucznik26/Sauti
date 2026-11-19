@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
     uint8_t *bytes;
     long end;
     SautiDecoder dec;
-    const SautiDecoderOps *const registry[] = { &sauti_decoder_aac_native_ops, &sauti_decoder_aac_mono_native_ops, &sauti_decoder_aac_multi_native_ops, &sauti_decoder_aac_mp4_native_ops,&sauti_decoder_aac_latm_native_ops, &sauti_decoder_aac_he_native_ops, &sauti_decoder_aac_he_cpe_native_ops };
+    const SautiDecoderOps *const registry[] = { &sauti_decoder_aac_native_ops, &sauti_decoder_aac_mono_native_ops, &sauti_decoder_aac_multi_native_ops, &sauti_decoder_aac_mp4_native_ops,&sauti_decoder_aac_latm_native_ops,&sauti_decoder_aac_adif_native_ops, &sauti_decoder_aac_he_native_ops, &sauti_decoder_aac_he_cpe_native_ops };
     float *pcm;
     size_t total = 0, got;
     FILE *out;
