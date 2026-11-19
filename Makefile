@@ -117,7 +117,7 @@ AAC_HE_ADTS_CPE_QMF_SRC := src/decoders/modern/aac/sauti_aac_he_adts_cpe_qmf.c
 AAC_ADTS_CRC_SRC := src/decoders/modern/aac/sauti_aac_adts_crc.c
 AAC_LC_MULTI_SRC := src/decoders/modern/aac/sauti_aac_lc_multi.c
 AAC_MP4_SRC := src/decoders/modern/aac/sauti_aac_mp4.c src/decoders/modern/aac/sauti_decoder_aac_mp4.c
-AAC_NATIVE_ADAPTER_DEPS = $(sort $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_LC_MULTI_SRC) $(AAC_MP4_SRC) $(AAC_SBR_ADTS_CPE_DEPS))
+AAC_NATIVE_ADAPTER_DEPS = $(sort $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_LC_MULTI_SRC) $(AAC_MP4_SRC) $(AAC_SBR_ADTS_CPE_DEPS) $(AAC_SBR_CHANNEL_CLI_SRC) src/decoders/modern/aac/sauti_decoder_aac_he.c)
 AAC_LC_SECTIONS_SRC := src/decoders/modern/aac/sauti_aac_lc_sections.c
 AAC_HUFFMAN_SRC := src/decoders/modern/aac/sauti_aac_huffman.c
 AAC_HUFFMAN_ASM := $(OBJDIR)/sauti_aac_huffman.o
@@ -1197,8 +1197,8 @@ test-aac-ps5-compare-help: probe-he-ps
 
 
 AAC_SBR_ADTS_CPE_DEPS := $(sort $(AAC_HE_ADTS_CPE_QMF_SRC) $(AAC_HE_ADTS_CPE_SRC) src/decoders/modern/aac/sauti_aac_cpe.c $(AAC_LC_MULTI_SRC) $(AAC_SBR_ADTS_QMF_DEPS))
-$(OBJDIR)/test_aac_sbr_adts_cpe: tests/test_aac_sbr_adts_cpe.c tests/test_aac_sbr_payload.c include/sauti_aac_he_adts_cpe.h include/sauti_decoder_aac_native.h src/sauti_decoder.c src/decoders/modern/aac/sauti_decoder_aac_native.c $(AAC_SBR_ADTS_CPE_DEPS) | $(OBJDIR)
-	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_adts_cpe.c src/sauti_decoder.c src/decoders/modern/aac/sauti_decoder_aac_native.c $(AAC_SBR_ADTS_CPE_DEPS) -lm -no-pie
+$(OBJDIR)/test_aac_sbr_adts_cpe: tests/test_aac_sbr_adts_cpe.c tests/test_aac_sbr_payload.c include/sauti_aac_he_adts_cpe.h include/sauti_decoder_aac_native.h src/sauti_decoder.c src/decoders/modern/aac/sauti_decoder_aac_native.c $(AAC_NATIVE_ADAPTER_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_sbr_adts_cpe.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
 
 .PHONY: test-aac-sbr-adts-cpe
 test-aac-sbr-adts-cpe: $(OBJDIR)/test_aac_sbr_adts_cpe
@@ -1637,6 +1637,11 @@ inspect-aac-29-tools: $(OBJDIR)/test_aac_real_stereo
 AAC_NATIVE_ADAPTER_SRC := src/decoders/modern/aac/sauti_decoder_aac_native.c
 $(OBJDIR)/test_decoder_aac_native: tests/test_decoder_aac_native.c include/sauti_decoder_aac_native.h $(AAC_NATIVE_ADAPTER_DEPS) src/sauti_decoder.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_aac_native.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
+
+
+# SBR-86: sequential read vs many seeks through the native adapters (tool, not a product): make build/sauti_aac_seek_check
+$(OBJDIR)/sauti_aac_seek_check: tools/sauti_aac_seek_check.c include/sauti_decoder_aac_native.h $(AAC_NATIVE_ADAPTER_DEPS) src/sauti_decoder.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_aac_seek_check.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
 
 # Narzedzie macierzy korpusu AAC (tools/aac_corpus_matrix.py): adaptery natywne -> f32 PCM; nie jest czescia produktu ani testow.
 $(OBJDIR)/sauti_aac_adapter_cli: tools/sauti_aac_adapter_cli.c include/sauti_decoder_aac_native.h $(AAC_NATIVE_ADAPTER_DEPS) src/sauti_decoder.c | $(OBJDIR)

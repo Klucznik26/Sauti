@@ -7446,3 +7446,25 @@ Profil błędu miksowania wskazał przyczynę: największy w slocie 0 (1,2·10�
 **Wynik względem FFmpeg (pełne dekodowanie stereo, ten sam znacznik czasu):** `fdkaac -p 5 -b 64` (284 ramki): L niskie 138,8 / HF 124,3 dB, R 138,9 / 124,3 dB; `-b 96`: L 138,8 / 124,3 dB, R 139,0 / 124,3 dB. Test regresyjny: `tests/test_aac_sbr_payload.c::test_uncoupled_dtdf_invf_order` (niezerowe, różne tryby `invf` w obu kanałach, obwiednie i szum czytane z właściwych bitów; stara kolejność zabita jako mutant); skrypt `HE_PS=1 scripts/test_he_channel_vs_ffmpeg.sh PLIK.aac` działa też dla stereo (referencja bez pominięcia PS, wyjście CLI w stereo). `test-aac-native`: 134 PASS.
 
 **Czego to nie obejmuje.** Para sprzężona (`bs_coupling = 1`) w tych strumieniach występuje w ramkach 0–1 lub wcale (nie sprawdzałem, które ramki były sprzężone), więc jej poprawność energii jest zweryfikowana tylko pośrednio; generator SBR (`sauti_he_remix`) jest jednokanałowy. HE-AAC v1 stereo nie jest jeszcze w adapterze rejestru (tylko CLI), a ostatnia ramka PS pozostaje niewyprowadzona (SBR-84).
+
+### SBR-86 — adaptery HE-AAC w rejestrze odtwarzacza na nowym dekoderze (2026-11-19)
+
+**Co się zmieniło.** Dwa „eksperymentalne” adaptery HE (`aac-he-sbr-native-adts-experimental`, `…-cpe-…`), oparte na starej ścieżce `he_adts_qmf`, są zastąpione jednym modułem `src/decoders/modern/aac/sauti_decoder_aac_he.c` pod tymi samymi symbolami (`sauti_decoder_aac_he_native_ops`, `sauti_decoder_aac_he_cpe_native_ops`; nazwy `aac-he-native-adts`, `aac-he-cpe-native-adts`). Stary kod HE usunięty z `sauti_decoder_aac_native.c`.
+- rdzeń mono + SBR → PCM mono w 2× częstotliwości; rdzeń mono + SBR + PS (HE-AAC v2, rozstrzygane z pierwszej ramki) → stereo; rdzeń stereo (CPE) + SBR → stereo, po jednej instancji kanału SBR na kanał rdzenia;
+- cały stan w jednym obiekcie (`HeStream`, ok. 100 KB), więc punkt kontrolny to zwykła kopia, co 256 ramek; przewijanie przywraca najbliższy punkt i dekoduje do przodu;
+- PS potrzebuje 6 slotów po renderowanej ramce, więc w trybie PS PCM ramki *k* pojawia się po zdekodowaniu ramki *k+1*, a **ostatnia ramka jest renderowana z ciszą jako wyprzedzeniem** (nie jest gubiona, jak w CLI z SBR-84); ramki strumienia PS bez danych PS używają poprzednich parametrów (niezweryfikowane względem innego dekodera);
+- adapter otwiera tylko strumień, którego pierwsza ramka dekoduje się w całości z SBR: zwykły AAC-LC zostaje przy adapterach LC (jak dotąd, test odrzucenia przechodzi).
+
+**Wynik na prawdziwych plikach przez publiczny interfejs** (`scripts/test_he_adapter_vs_ffmpeg.sh PLIK.aac`, `tools/sauti_aac_adapter_cli`, `tools/sauti_aac_seek_check`):
+
+| plik | wyjście | próbki vs FFmpeg | niskie / HF | przewijanie |
+|---|---|---|---|---|
+| `Bogini_HEv2.aac`, **cały utwór** (151 s) | stereo (PS) | 7 270 400 = 7 270 400 | 135,4 / 121,8 dB (L), 135,3 / 121,8 dB (R) | 200 skoków, 0 błędów |
+| mono HE-AAC v1 (`fdkaac -p 5 -b 64`) | mono | 581 632 = 581 632 | 138,9 / 121,3 dB | 200 skoków, 0 błędów |
+| stereo HE-AAC v1 (`-p 5 -b 64`, CPE) | stereo | 581 632 = 581 632 | 138,8 / 124,3 dB (L), 138,9 / 124,3 dB (R) | 200 skoków, 0 błędów |
+
+Skoki w `sauti_aac_seek_check` obejmują dowolne pozycje, początki ramek, pozycje w obrębie ramki, okolice końca i początku (skok wstecz po dalekim skoku) oraz pozycję równą długości; po każdym skoku 1500 próbek musi być bit w bit równe odczytowi sekwencyjnemu.
+
+**Testy.** Istniejące testy adapterów (`test-aac-sbr-adts-qmf`, `test-aac-sbr-adts-cpe`, `test-aac-native-adapter`: otwarcie, dokładne powtórzenie po przewinięciu, EOF, odrzucenie AAC-LC bez SBR, CRC typu 14) przechodzą na nowej implementacji bez zmian. `test-aac-native`: 134 PASS. Powtarzalna kontrola względem FFmpeg wymaga instrumentowanego FFmpeg i pliku (`SKIP` jawny).
+
+**Czego to nie zamyka.** (a) **MP4/M4A z HE-AAC** (konfiguracja ASC, sygnalizacja SBR/PS jawna i niejawna) nadal nie jest podłączona: ADTS tylko. (b) Brak strumienia referencyjnego dla PS w trybie 34 pasm, z IPD/OPD i dla ramek PS bez danych. (c) Przewijanie sprawdzone na trzech plikach z jednego utworu; adapter nie ma testu jednostkowego dla PS w repozytorium (bez fixtury PS), tylko skrypt na prawdziwym pliku. (d) Dekoder SBR jest w C (asm-first dotyczy dziś tylko QMF i miksera PS).
