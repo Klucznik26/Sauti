@@ -7536,3 +7536,15 @@ FFmpeg raportuje mono HE-AAC v1 w M4A jako stereo (przy sygnalizacji bez jawnych
 **Weryfikacja (bez zależności od tego, co robi FFmpeg na ramkach bez danych).** Generator: `SAUTI_REMIX_PS_NODATA=30` (30% ramek bez rozszerzenia PS) i `SAUTI_REMIX_PS_NODATA_EMPTY=1` (te same ramki zapisane jawnie jako `num_env = 0`, ten sam strumień bitów SBR). Wyjście adaptera publicznego dla obu jest **identyczne bit w bit**, a wariant jawny zgadza się z FFmpeg na 115–121 dB (ziarna 3 i 4). Przewijanie strumienia z brakującymi ramkami: 200 skoków, 0 błędów. Skrypt `test_he_ps_remix_vs_ffmpeg.sh` ma teraz 17 strumieni. Prawdziwe pliki bez regresji, `test-aac-native` przechodzi.
 
 **Granice.** Pierwsza ramka strumienia bez danych PS (brak poprzednich parametrów) nadal kończy dekodowanie błędem. Nie ma wzorca zewnętrznego dla samej ramki bez danych, tylko równoważność z jawnym `num_env = 0`, które ma wzorzec.
+
+### SBR-92 — sprzężenie stereo SBR (`bs_coupling = 1`) na prawdziwych strumieniach (2026-11-19)
+
+Dotąd sprzężenie było sprawdzone tylko pośrednio (strumienie fdkaac 64 kb/s używają `bs_coupling = 0`: 0 z 284 ramek). Przy niższych przepływnościach fdkaac go używa: HE-AAC v1 stereo (`fdkaac -p 5 -f 2`, ten sam utwór, 76 s, 3549 ramek CPE) ma `bs_coupling = 1` w **3156 ramkach (24 kb/s), 3228 (32 kb/s), 3238 (48 kb/s)** i w 0 przy 128 kb/s (liczone sondą na `sauti_aac_he_adts_cpe_decode_ex`). Adapter publiczny `aac-he-cpe-native-adts` względem FFmpeg (`scripts/test_he_adapter_vs_ffmpeg.sh`, pełne utwory, 7 268 352 próbek = tyle samo):
+
+| przepływność | niskie pasmo L / R | HF L / R | przewijanie |
+|---|---|---|---|
+| 24 kb/s | 138,3 / 138,2 dB | 120,8 / 119,8 dB | 200 skoków, 0 błędów |
+| 32 kb/s | 139,2 / 139,2 dB | 120,3 / 120,9 dB | 200 skoków, 0 błędów |
+| 48 kb/s | 139,0 / 139,1 dB | 121,7 / 121,9 dB | 200 skoków, 0 błędów |
+
+Sprzężona dekwantyzacja (poziom + balans), wspólna siatka czasowa i inverse filtering kanału 0 są więc sprawdzone na ~9600 ramkach prawdziwej muzyki. **Granice:** strumienie pochodzą z jednego enkodera (fdkaac) i jednego utworu; generator `sauti_he_remix` pozostaje mono (nie ma generatora CPE ze sprzężeniem dla cech, których fdkaac nie emituje, np. sprzężone klasy siatki inne niż FIXFIX/zwykłe).
