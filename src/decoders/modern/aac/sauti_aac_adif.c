@@ -48,9 +48,10 @@ int sauti_aac_adif_probe(const uint8_t *data,size_t size){
     return data&&size>=8u&&memcmp(data,"ADIF",4)==0;
 }
 /* Dlugosc jednego raw_data_block() w bajtach (od `raw`, w danych o dlugosci `length`); 0 = blad albo ucięty. */
-static size_t block_length(const uint8_t *raw,size_t length,unsigned rate_index,unsigned channels){
-    static SautiAacCpeData cpe;
-    static SautiAacLcMonoData mono;
+typedef struct { SautiAacCpeData cpe; SautiAacLcMonoData mono; } Scratch;     /* wlasnosc jednego wywolania sauti_aac_adif_to_adts: bez stanu globalnego */
+static size_t block_length(const uint8_t *raw,size_t length,unsigned rate_index,unsigned channels,Scratch *sc){
+    SautiAacCpeData *cpe=&sc->cpe;
+    SautiAacLcMonoData *mono=&sc->mono;
     size_t pos=0;
     int channel_element=0;
     for(;;){
@@ -79,12 +80,12 @@ static size_t block_length(const uint8_t *raw,size_t length,unsigned rate_index,
         if(channel_element)return 0;                             /* tylko jeden element czolowy w bloku */
         if(id==0u&&channels==1u){
             size_t q=pos;
-            if(sauti_aac_lc_element_parse(raw,length,&q,rate_index,0u,&mono,&reason)!=1)return 0;
+            if(sauti_aac_lc_element_parse(raw,length,&q,rate_index,0u,mono,&reason)!=1)return 0;
             pos=q;channel_element=1;continue;
         }
         if(id==1u&&channels==2u){
             size_t q=pos;
-            if(sauti_aac_lc_cpe_parse(raw,length,&q,rate_index,&cpe,&reason)!=1)return 0;
+            if(sauti_aac_lc_cpe_parse(raw,length,&q,rate_index,cpe,&reason)!=1)return 0;
             pos=q;channel_element=1;continue;
         }
         return 0;                                                /* LFE, CCE, PCE w strumieniu, element niezgodny z PCE */
@@ -107,16 +108,17 @@ int sauti_aac_adif_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t
     size_t pos=b.pos/8u;
     size_t cap=size+size/4u+4096u,w=0;
     uint8_t *out=malloc(cap);
-    if(!out)return 0;
+    Scratch *sc=calloc(1,sizeof(*sc));
+    if(!out||!sc){free(out);free(sc);return 0;}
     uint64_t frames=0;
     while(pos<size){
-        const size_t len=block_length(data+pos,size-pos,pce.rate_index,channels);
+        const size_t len=block_length(data+pos,size-pos,pce.rate_index,channels,sc);
         if(!len)break;                                           /* koniec danych albo ucięty ostatni blok */
-        if(len>8184u){free(out);return 0;}
+        if(len>8184u){free(out);free(sc);return 0;}
         if(w+7u+len>cap){
             cap=cap*2u+len;
             uint8_t *t=realloc(out,cap);
-            if(!t){free(out);return 0;}
+            if(!t){free(out);free(sc);return 0;}
             out=t;
         }
         const unsigned l=7u+(unsigned)len;
@@ -129,6 +131,7 @@ int sauti_aac_adif_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t
         memcpy(out+w+7,data+pos,len);
         w+=l;pos+=len;frames++;
     }
+    free(sc);
     if(!frames){free(out);return 0;}
     memset(info,0,sizeof(*info));
     info->rate_index=pce.rate_index;info->sample_rate=rates[pce.rate_index];info->channel_config=channels;info->bitstream_type=type;info->bitrate=rate;info->frames=frames;

@@ -53,7 +53,17 @@ To **nie jest porada prawna**; przed wydaniem komercyjnym lub szerokim: przeglą
 - **Warstwy**: `core` (transformaty, tablice), `codecs` (AAC, DVSM, itd.), `containers` (demuxery/muxery), `api`. Kodeki jako rejestr z funkcjami tworzącymi (bez statycznych list w odtwarzaczu).
 - **Dyspozytor SIMD**: dla każdej funkcji gorącej wersja C (zawsze), wersje asm/intrinsics na x86-64 (SysV i Win64), ARM64 NEON; wybór w czasie działania lub budowania.
 
+## Uwagi prawne po przeglądzie (doprecyzowanie)
+
+- **Podobny algorytm nie jest automatycznie objęty licencją FFmpeg.** Liczy się, czy skopiowano chronioną implementację, czy napisano własną na podstawie normy. Komentarze „follow FFmpeg" w kodzie SBR trzeba więc przejrzeć pod kątem tego, czy kod jest własny (struktura wg normy, SBR-82) czy przepisany; nie zakładam z góry, że każdy jest pochodny.
+- **Każdą tablicę trzeba ocenić osobno**: nie wszystkie liczby matematyczne podlegają ochronie prawnoautorskiej (wzory, wartości wynikające z obliczeń, fakty z normy); inaczej kod, inaczej układ i dobór danych w pliku FFmpeg.
+- **Wydzielenie `sauti-tables` samo nie gwarantuje zgodności z LGPL.** Trzeba sprawdzić licencję każdego źródła, sposób łączenia (dzielona biblioteka albo obiekty do przelinkowania) i możliwość zastąpienia komponentu przez użytkownika.
+
+Dlatego kolejność prac jest następująca (zamiast tej z pierwszej wersji planu, która stawiała koder wcześniej): **1.** usunąć współdzielony stan i przetestować wielowątkowo (bez zmian algorytmów), **2.** równolegle sporządzić wykaz pochodzenia każdej tablicy i fragmentu pochodnego od FFmpeg, **3.** zdefiniować stabilne strumieniowe API i granice modułów, **4.** zapewnić niezależne, odpowiednio licencjonowane tablice i dopracować budowanie wieloplatformowe, **5.** na końcu zdecydować o budowie kodera AAC (dekoder jest zaawansowany; najpierw solidna, legalnie rozpowszechnialna biblioteka).
+
 ## Kamienie milowe
+
+**Stan (2026-11-19): kamień 1 wykonany dla dekoderów AAC.** Wszystkie modyfikowalne dane globalne w kodzie własnym usunięte: bufory robocze adaptera HE (`g2`, `grid`, `qmf38`, 68 KB) są teraz polami uchwytu dekodera, a bufory demuxera ADIF należą do jednego wywołania. Zostały wyłącznie tablice inicjalizowane **jednorazowo i atomowo**, potem tylko do odczytu (`standard_trie`, `plan128/1024` IMDCT). Kod osób trzecich (`stb_vorbis`: tablica CRC; `dr_flac`: flagi CPU) ma własny leniwy stan poza zakresem tej zmiany. Test: `scripts/test_aac_threads.sh` (8 wątków × 3 rundy × 7 rodzajów strumieni: LC, HE v1, HE v2, M4A, LOAS, ADIF, 5.1; wyjście musi być bit w bit równe dekodowaniu w jednym wątku, także po przewinięciu); wariant ze starymi statycznymi buforami daje 46 niezgodności (test działa), poprawiony 0. **ThreadSanitizer nie jest dostępny na tej maszynie** (brak pakietu `libtsan`), więc skrypt używa AddressSanitizera i porównania wyniku, a wyścigów bez uszkodzenia danych nie wyklucza; do uruchomienia pod TSan na maszynie z `libtsan` (CI).
 
 1. **Wielobieżność**: usunięcie wszystkich statycznych buforów; test dwóch dekoderów w dwóch wątkach (TSan) i 1000 otwarć/zamknięć (ASan, brak wycieków).
 2. **Publiczne API + wejście strumieniowe + testy API** (w tym zgodność wyników z obecnym rejestrem).

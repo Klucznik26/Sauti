@@ -1708,6 +1708,13 @@ $(OBJDIR)/test_aac_adif: tests/test_aac_adif.c include/sauti_aac_adif.h include/
 test-aac-adif: $(OBJDIR)/test_aac_adif
 	./$(OBJDIR)/test_aac_adif
 
+# re-entrancy: several decoders at once in several threads (ThreadSanitizer); run through scripts/test_aac_threads.sh (needs sample streams)
+$(OBJDIR)/test_aac_threads_tsan: tests/test_aac_threads.c include/sauti_decoder_aac_native.h src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=thread -Iinclude -o $@ tests/test_aac_threads.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -lpthread -no-pie
+
+$(OBJDIR)/test_aac_threads_asan: tests/test_aac_threads.c include/sauti_decoder_aac_native.h src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -Iinclude -o $@ tests/test_aac_threads.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -lpthread -no-pie
+
 $(OBJDIR)/test_aac_mp4: tests/test_aac_mp4.c include/sauti_aac_mp4.h include/sauti_decoder_aac_native.h src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) | $(OBJDIR)
 	$(CC) $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=undefined -Iinclude -o $@ tests/test_aac_mp4.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
 

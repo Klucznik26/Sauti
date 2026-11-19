@@ -52,6 +52,10 @@ typedef struct {
     HeStream st;
     float cache[2u*HE_FRAME_PCM];
     size_t cache_frame;              /* HE_FRAME_PCM = empty */
+    /* scratch owned by this decoder (not shared between decoders or threads, not part of checkpoints) */
+    SautiAacSbrComplex scratch_qmf38[38u*64u];
+    SautiAacSbrComplex scratch_grid[SAUTI_AAC_SBR_CHANNEL_GRID];
+    SautiAacSbrComplex scratch_g2[2][SAUTI_AAC_SBR_CHANNEL_GRID];
     HeCheckpoint *checkpoints;
     size_t checkpoint_count;
 } NativeHe;
@@ -73,7 +77,7 @@ static int he_cpe_probe(const uint8_t *data,size_t size){return he_probe_channel
 /* Parametric stereo of the pending frame; `lookahead` is the next frame's grid, or NULL at the end of the stream (silence). */
 static int he_render_ps(NativeHe *n,const SautiAacSbrComplex *lookahead,float *pcm_stereo){
     HeStream *s=&n->st;
-    static SautiAacSbrComplex qmf38[38u*64u];
+    SautiAacSbrComplex *qmf38=n->scratch_qmf38;
     memcpy(qmf38,s->pending,sizeof(s->pending));
     if(lookahead)memcpy(qmf38+32u*64u,lookahead,6u*64u*sizeof(qmf38[0]));
     else memset(qmf38+32u*64u,0,6u*64u*sizeof(qmf38[0]));
@@ -109,7 +113,7 @@ static int he_produce(NativeHe *n){
         SautiAacReason reason=SAUTI_AAC_REASON_OK;
         if(n->core_channels==1u){
             float core[1024];SautiAacSbrPayloadFrame payload;
-            static SautiAacSbrComplex grid[SAUTI_AAC_SBR_CHANNEL_GRID];
+            SautiAacSbrComplex *grid=n->scratch_grid;
             if(sauti_aac_he_adts_mono_temporal_decode_ex(n->bytes+offset,length,&s->mono,core,&payload,&reason)!=1)return 0;
             if(n->ps_mode){
                 if(!payload.has_ps){
@@ -137,7 +141,7 @@ static int he_produce(NativeHe *n){
         }else{
             float core2[2u*1024u],c[2][1024],pcm2[2][HE_FRAME_PCM];
             SautiAacSbrPayloadCpeFrame pl;
-            static SautiAacSbrComplex g2[2][SAUTI_AAC_SBR_CHANNEL_GRID];
+            SautiAacSbrComplex (*g2)[SAUTI_AAC_SBR_CHANNEL_GRID]=n->scratch_g2;
             if(sauti_aac_he_adts_cpe_decode_ex(n->bytes+offset,length,&s->cpe,core2,&pl,&reason)!=1)return 0;
             for(unsigned i=0;i<1024u;i++){c[0][i]=core2[2u*i];c[1][i]=core2[2u*i+1u];}
             for(unsigned k=0;k<2u;k++)
