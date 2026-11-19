@@ -7526,3 +7526,13 @@ FFmpeg raportuje mono HE-AAC v1 w M4A jako stereo (przy sygnalizacji bez jawnych
 **Wynik.** Nowy skrypt `scripts/test_he_ps_remix_vs_ffmpeg.sh CORE.aac`: 13 strumieni (6 par trybów IID/ICC, klasa stała i zmienna, ramki bez obwiedni, 4 ziarna ze zmianą trybu co 5 ramek, ~40 zmian na strumień) — wszystkie **113–126 dB** względem FFmpeg. Osobno 8 ziaren (3–10) ze zmianami trybu: 113–124 dB. Pliki prawdziwe bez regresji (HE-AAC v2 ADTS 135/122 dB). `test-aac-native` przechodzi.
 
 **Otwarte w PS.** (1) Znak części urojonej fazy IPD/OPD w najniższych pasmach hybrydowych (SBR-89), (2) ramki bez danych PS w ramce SBR (CLI badawcze odrzuca, adapter powtarza ostatnie parametry; FFmpeg inaczej), (3) przypadek `num_env = 0` ze zmianą układu — niezdefiniowany, patrz wyżej.
+
+### SBR-91 — ramki SBR bez danych PS w strumieniu HE-AAC v2 (2026-11-19)
+
+**Problem.** Ramka strumienia z PS, której rozszerzenie SBR nie niesie `ps_data()`. Adapter powtarzał wtedy **całą** poprzednią strukturę PS (obwiednie, granice i wartości każdej z nich), więc ramka „bez danych” odtwarzała ruch parametrów poprzedniej ramki. FFmpeg robi tam rzecz nieczystą (używa nieaktualnych tablic macierzy z indeksu `num_env_old`), więc jego wynik też nie jest wzorcem; porównanie z nim na takich ramkach (13 dB) niczego nie rozstrzyga.
+
+**Semantyka.** Brak danych PS to to samo, co `ps_data()` bez nagłówka i bez obwiedni (`num_env = 0`): parametry ostatniej obwiedni zostają, płasko na całej ramce, struktura obwiedni poprzedniej ramki nie jest powtarzana, IPD/OPD nie są zachowywane. Ten przypadek zakodowany jawnie FFmpeg dekoduje czysto i zgadza się z Sauti (SBR-89, ramki bez obwiedni 113–124 dB). `he_ps_hold` w `sauti_decoder_aac_he.c` buduje taką ramkę z poprzedniej.
+
+**Weryfikacja (bez zależności od tego, co robi FFmpeg na ramkach bez danych).** Generator: `SAUTI_REMIX_PS_NODATA=30` (30% ramek bez rozszerzenia PS) i `SAUTI_REMIX_PS_NODATA_EMPTY=1` (te same ramki zapisane jawnie jako `num_env = 0`, ten sam strumień bitów SBR). Wyjście adaptera publicznego dla obu jest **identyczne bit w bit**, a wariant jawny zgadza się z FFmpeg na 115–121 dB (ziarna 3 i 4). Przewijanie strumienia z brakującymi ramkami: 200 skoków, 0 błędów. Skrypt `test_he_ps_remix_vs_ffmpeg.sh` ma teraz 17 strumieni. Prawdziwe pliki bez regresji, `test-aac-native` przechodzi.
+
+**Granice.** Pierwsza ramka strumienia bez danych PS (brak poprzednich parametrów) nadal kończy dekodowanie błędem. Nie ma wzorca zewnętrznego dla samej ramki bez danych, tylko równoważność z jawnym `num_env = 0`, które ma wzorzec.

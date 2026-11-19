@@ -196,7 +196,17 @@ static void ps_put_phase_env(Bits *b,unsigned count,int *vals,const int *base_dt
 /* Appends the SBR extension (extended_data flag + byte count + id 2 + ps_data) to b. */
 static void ps_extension(Bits *b,unsigned frame_no){
     static const unsigned par[6]={10,20,34,10,20,34},phase[6]={5,11,17,5,11,17};
-    if(ps_env_int("SAUTI_REMIX_PS_NODATA",0)>0 && frame_no>0 && rnd()%100u<ps_env_int("SAUTI_REMIX_PS_NODATA",0)){put(b,1u,0u);return;}
+    if(ps_env_int("SAUTI_REMIX_PS_NODATA",0)>0 && frame_no>0 && rnd()%100u<ps_env_int("SAUTI_REMIX_PS_NODATA",0)){
+        if(!ps_env_int("SAUTI_REMIX_PS_NODATA_EMPTY",0)){put(b,1u,0u);return;}     /* no PS extension at all */
+        /* the same frame sent explicitly as ps_data() without header and without envelopes (and, if the header enables it, an empty extension) */
+        Bits ps={{0},0};put(&ps,1u,0u);put(&ps,1u,0u);put(&ps,2u,0u);
+        if(psg.ext_on)put(&ps,4u,0u);
+        const unsigned cnt=(unsigned)((2u+ps.bit+7u)/8u);
+        put(b,1u,1u);if(cnt<15u)put(b,4u,cnt);else{put(b,4u,15u);put(b,8u,cnt-15u);}
+        put(b,2u,2u);for(size_t i=0;i<ps.bit;i++)put(b,1u,(ps.bytes[i/8u]>>(7u-(unsigned)(i&7u)))&1u);
+        for(size_t i=2u+ps.bit;i<(size_t)cnt*8u;i++)put(b,1u,0u);
+        return;
+    }
     const unsigned change=ps_env_int("SAUTI_REMIX_PS_CHANGE",0);
     unsigned send_header=!psg.started,topology_changed=0;
     if(!psg.started){

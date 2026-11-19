@@ -80,6 +80,19 @@ static int he_render_ps(NativeHe *n,const SautiAacSbrComplex *lookahead,float *p
     return sauti_aac_he_ps_bridge_render(&s->pending_payload,qmf38,38u*64u,&s->ps,pcm_stereo,4096u);
 }
 
+/* A frame whose SBR extension carries no PS data: the same as a ps_data() with no envelopes and no header (num_env = 0) - the last envelope's parameters
+ * stay, flat over the whole frame, and the envelope structure of the previous frame is NOT replayed. IPD/OPD are not retained (a frame without the
+ * extension has none). `prev` is the previous frame's PS data. */
+static void he_ps_hold(const SautiAacPsFrame *prev,SautiAacPsFrame *out){
+    const unsigned last=prev->resolved_num_env?prev->resolved_num_env-1u:0u;
+    memset(out,0,sizeof(*out));
+    out->header=prev->header;
+    out->resolved_num_env=1u;out->border_position[0]=31u;
+    out->iid_count=prev->iid_count;out->icc_count=prev->icc_count;
+    memcpy(out->iid[0],prev->iid[last],sizeof(out->iid[0]));
+    memcpy(out->icc[0],prev->icc[last],sizeof(out->icc[0]));
+}
+
 /* Produce the next PCM frame into n->cache. 1 = produced, 0 = end of stream or error. */
 static int he_produce(NativeHe *n){
     HeStream *s=&n->st;
@@ -101,7 +114,7 @@ static int he_produce(NativeHe *n){
             if(n->ps_mode){
                 if(!payload.has_ps){
                     if(!s->pending_payload.has_ps)return 0;                  /* nothing to reuse */
-                    payload.ps=s->pending_payload.ps;payload.has_ps=1u;      /* no PS data in this frame: keep the last parameters */
+                    he_ps_hold(&s->pending_payload.ps,&payload.ps);payload.has_ps=1u;   /* no PS data in this frame: keep the last parameters */
                 }
             }
             if(!sauti_aac_sbr_channel_frame(&s->channel[0],core,&payload,grid))return 0;
