@@ -1,0 +1,161 @@
+diff --git a/stb_vorbis.c b/stb_vorbis.c
+index 23c93f4..d7b1cb7 100644
+--- a/stb_vorbis.c
++++ b/stb_vorbis.c
+@@ -822,6 +822,7 @@ struct stb_vorbis
+    stb_vorbis_alloc alloc;
+    int setup_offset;
+    int temp_offset;
++   void *temp_blocks;   // SAUTI: list of live setup_temp_malloc blocks (malloc mode)
+ 
+   // run-time results
+    int eof;
+@@ -947,34 +948,60 @@ static void *make_block_array(void *mem, int count, int size)
+    return p;
+ }
+ 
+-static void *setup_malloc(vorb *f, int sz)
++// SAUTI: the size parameter is size_t and bounded (original: int, so sizeof(x)*count computed in size_t was silently truncated to int, e.g. comment_list_length=0x20000001
++// allocated 8 bytes and the following loop wrote far beyond them = heap overflow on crafted files).  Oversized requests now fail like any out-of-memory.
++static void *setup_malloc(vorb *f, size_t sz_in)
+ {
++   int sz;
++   if (sz_in > (size_t) (INT_MAX - 8)) return NULL;
++   sz = (int) sz_in;
+    sz = (sz+7) & ~7; // round up to nearest 8 for alignment of future allocs.
+    f->setup_memory_required += sz;
+    if (f->alloc.alloc_buffer) {
+       void *p = (char *) f->alloc.alloc_buffer + f->setup_offset;
+       if (f->setup_offset + sz > f->temp_offset) return NULL;
+       f->setup_offset += sz;
++      memset(p, 0, sz);   // SAUTI: zeroed (see below)
+       return p;
+    }
+-   return sz ? malloc(sz) : NULL;
++   // SAUTI: calloc, not malloc.  vorbis_deinit() (called on EVERY setup error) walks arrays of structures allocated here and frees their members; with malloc the members
++   // of entries not yet filled in held garbage, so a crafted/corrupt Ogg file made free() receive wild pointers (SIGSEGV in free).
++   return sz ? calloc(1, sz) : NULL;
+ }
+ 
++// SAUTI: a pointer that is still a live temporary block (setup_temp_malloc) can reach setup_free() when start_decoder fails with e.g. c->codewords pointing to temp
++// memory; such blocks are owned by the temp list and freed by setup_temp_free_all(), so they must not be freed here (this would be an invalid free).
++static int stbv_is_live_temp(vorb *f, void *p);
+ static void setup_free(vorb *f, void *p)
+ {
+    if (f->alloc.alloc_buffer) return; // do nothing; setup mem is a stack
++   if (p && stbv_is_live_temp(f, p)) return;
+    free(p);
+ }
+ 
+-static void *setup_temp_malloc(vorb *f, int sz)
++// SAUTI: temporary blocks (malloc mode) are kept on a list in the decoder so that every setup error path frees them (the original leaked them whenever start_decoder
++// returned an error between setup_temp_malloc and setup_temp_free, i.e. on every malformed file).  Header is 16 bytes to keep the payload aligned.
++typedef struct stbv_temp_block { struct stbv_temp_block *next, *prev; } stbv_temp_block;
++#define STBV_TEMP_HDR 16
++static void *setup_temp_malloc(vorb *f, size_t sz_in)
+ {
++   int sz;
++   if (sz_in > (size_t) (INT_MAX - 8)) return NULL;   // SAUTI: see setup_malloc
++   sz = (int) sz_in;
+    sz = (sz+7) & ~7; // round up to nearest 8 for alignment of future allocs.
+    if (f->alloc.alloc_buffer) {
+       if (f->temp_offset - sz < f->setup_offset) return NULL;
+       f->temp_offset -= sz;
+       return (char *) f->alloc.alloc_buffer + f->temp_offset;
+    }
+-   return malloc(sz);
++   {
++      stbv_temp_block *b = (stbv_temp_block *) malloc((size_t) sz + STBV_TEMP_HDR);
++      if (!b) return NULL;
++      b->prev = NULL; b->next = (stbv_temp_block *) f->temp_blocks;
++      if (b->next) b->next->prev = b;
++      f->temp_blocks = b;
++      return (char *) b + STBV_TEMP_HDR;
++   }
+ }
+ 
+ static void setup_temp_free(vorb *f, void *p, int sz)
+@@ -983,7 +1010,27 @@ static void setup_temp_free(vorb *f, void *p, int sz)
+       f->temp_offset += (sz+7)&~7;
+       return;
+    }
+-   free(p);
++   if (p) {
++      stbv_temp_block *b = (stbv_temp_block *) ((char *) p - STBV_TEMP_HDR);
++      if (b->prev) b->prev->next = b->next; else f->temp_blocks = b->next;
++      if (b->next) b->next->prev = b->prev;
++      free(b);
++   }
++}
++
++static int stbv_is_live_temp(vorb *f, void *p)
++{
++   const stbv_temp_block *b;
++   for (b = (const stbv_temp_block *) f->temp_blocks; b; b = b->next)
++      if ((const char *) b + STBV_TEMP_HDR == (const char *) p) return 1;
++   return 0;
++}
++
++static void setup_temp_free_all(vorb *f)
++{
++   stbv_temp_block *b = (stbv_temp_block *) f->temp_blocks;
++   while (b) { stbv_temp_block *n = b->next; free(b); b = n; }
++   f->temp_blocks = NULL;
+ }
+ 
+ #define CRC32_POLY    0x04c11db7   // from spec
+@@ -1583,8 +1630,8 @@ static int get32_packet(vorb *f)
+ {
+    uint32 x;
+    x = get8_packet(f);
+-   x += get8_packet(f) << 8;
+-   x += get8_packet(f) << 16;
++   x += (uint32) get8_packet(f) << 8;    // SAUTI: unsigned shifts (get8_packet returns EOP = -1 at the end of a packet; shifting a negative int is UB)
++   x += (uint32) get8_packet(f) << 16;
+    x += (uint32) get8_packet(f) << 24;
+    return x;
+ }
+@@ -3650,6 +3697,8 @@ static int start_decoder(vorb *f)
+    if (!vorbis_validate(header))                    return error(f, VORBIS_invalid_setup);
+    //file vendor
+    len = get32_packet(f);
++   // SAUTI: sanity limits (the original trusted these 32-bit values: huge allocations, billions of loop iterations on a crafted file; len+1 could overflow int)
++   if (len < 0 || len > (1 << 24))                  return error(f, VORBIS_invalid_setup);
+    f->vendor = (char*)setup_malloc(f, sizeof(char) * (len+1));
+    if (f->vendor == NULL)                           return error(f, VORBIS_outofmem);
+    for(i=0; i < len; ++i) {
+@@ -3659,14 +3708,16 @@ static int start_decoder(vorb *f)
+    //user comments
+    f->comment_list_length = get32_packet(f);
+    f->comment_list = NULL;
++   if (f->comment_list_length < 0 || f->comment_list_length > 65536) { f->comment_list_length = 0; return error(f, VORBIS_invalid_setup); }   // SAUTI: see above
+    if (f->comment_list_length > 0)
+    {
+       f->comment_list = (char**) setup_malloc(f, sizeof(char*) * (f->comment_list_length));
+-      if (f->comment_list == NULL)                  return error(f, VORBIS_outofmem);
++      if (f->comment_list == NULL)                  { f->comment_list_length = 0; return error(f, VORBIS_outofmem); }   // SAUTI: deinit walks comment_list_length entries
+    }
+ 
+    for(i=0; i < f->comment_list_length; ++i) {
+       len = get32_packet(f);
++      if (len < 0 || len > (1 << 24))               return error(f, VORBIS_invalid_setup);
+       f->comment_list[i] = (char*)setup_malloc(f, sizeof(char) * (len+1));
+       if (f->comment_list[i] == NULL)               return error(f, VORBIS_outofmem);
+ 
+@@ -4210,7 +4261,7 @@ static void vorbis_deinit(stb_vorbis *p)
+    int i,j;
+ 
+    setup_free(p, p->vendor);
+-   for (i=0; i < p->comment_list_length; ++i) {
++   for (i=0; p->comment_list && i < p->comment_list_length; ++i) {   // SAUTI: comment_list may be NULL after an allocation failure
+       setup_free(p, p->comment_list[i]);
+    }
+    setup_free(p, p->comment_list);
+@@ -4263,6 +4314,7 @@ static void vorbis_deinit(stb_vorbis *p)
+       setup_free(p, p->window[i]);
+       setup_free(p, p->bit_reverse[i]);
+    }
++   setup_temp_free_all(p);   // SAUTI: blocks still live after a setup error (after all setup_free calls, which skip them)
+    #ifndef STB_VORBIS_NO_STDIO
+    if (p->close_on_free) fclose(p->f);
+    #endif

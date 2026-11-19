@@ -25,6 +25,12 @@ jobs:
         run: make test-maktabasauti-regression
       - name: MaktabaSauti core, portable build without the legacy bridge
         run: make test-maktabasauti-core-portable
+      - name: "Probe audit (every probe on exact-size guarded buffers: all formats, truncated/corrupt headers, random data; open fuzz; ASan+UBSan, trivial-auto-var-init and plain builds)"
+        run: make test-maktabasauti-probe-audit
+      - name: "Hostile input callbacks (contract violations, claimed sizes, io errors at every point, extreme host calls)"
+        run: make test-maktabasauti-hostile-io
+      - name: "Third-party hardening regressions (stb_vorbis, minimp3)"
+        run: make test-third-party-hardening
 
   # WYMAGANE: ThreadSanitizer.  Brak libtsan => REQUIRE_TSAN=1 daje FAIL.
   tsan:

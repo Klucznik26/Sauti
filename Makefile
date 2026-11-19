@@ -2146,6 +2146,8 @@ MKS_LEGACY_SRC := src/decoders/modern/sauti_decoder_wav.c src/decoders/retro/pc/
                   src/decoders/modern/sauti_decoder_midi.c src/decoders/modern/sauti_decoder_flac.c src/decoders/modern/sauti_decoder_mp3.c src/decoders/retro/atari/sauti_decoder_avr.c \
                   src/decoders/retro/atari/sauti_decoder_dvsm.c src/decoders/retro/atari/sauti_decoder_dtm.c src/decoders/retro/atari/sauti_decoder_ym.c src/sauti_decoder.c
 MKS_DEPS = $(sort $(MKS_CORE_SRC) $(MKS_LEGACY_SRC) $(AAC_PLAYER_SRC) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_ASM))
+# biblioteki zewnetrzne wlaczane do zrodel przez #include: zmiana ich pliku musi przebudowac testy (make nie widzi tego z samej listy zrodel)
+MKS_THIRD := $(wildcard third_party/minimp3/*.h third_party/stb/*.c third_party/dr_libs/*.h third_party/tml/*.h)
 MKS_INC := -Iinclude -Isrc/maktabasauti -Ithird_party -Ithird_party/dr_libs -Ithird_party/stb -Ithird_party/tml
 
 # rdzen musi byc C99 bez rozszerzen (poza mostem do starszych dekoderow, ktory wlacza ich naglowki)
@@ -2157,14 +2159,49 @@ check-maktabasauti-c99:
 	@echo "PASS MaktabaSauti core: C99 -pedantic (bridge to legacy decoders: C11)"
 
 # testy rdzenia (ASan + UBSan)
-$(OBJDIR)/test_maktabasauti_core: tests/test_maktabasauti_core.c $(MKS_DEPS) include/maktabasauti/maktabasauti.h include/maktabasauti/maktabasauti_codec.h | $(OBJDIR)
+$(OBJDIR)/test_maktabasauti_core: tests/test_maktabasauti_core.c $(MKS_DEPS) $(MKS_THIRD) include/maktabasauti/maktabasauti.h include/maktabasauti/maktabasauti_codec.h | $(OBJDIR)
 	$(CC) $(CFLAGS) -DMKS_TEST_LEGACY -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_core.c $(MKS_DEPS) -lm -lpthread -no-pie
-$(OBJDIR)/test_maktabasauti_regression: tests/test_maktabasauti_regression.c $(MKS_DEPS) include/maktabasauti/maktabasauti.h | $(OBJDIR)
+$(OBJDIR)/test_maktabasauti_regression: tests/test_maktabasauti_regression.c $(MKS_DEPS) $(MKS_THIRD) include/maktabasauti/maktabasauti.h | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_regression.c $(MKS_DEPS) -lm -lpthread -no-pie
-$(OBJDIR)/test_maktabasauti_threads_asan: tests/test_maktabasauti_threads.c $(MKS_DEPS) include/maktabasauti/maktabasauti.h | $(OBJDIR)
-	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_threads.c $(MKS_DEPS) -lm -lpthread -no-pie
-$(OBJDIR)/test_maktabasauti_threads_tsan: tests/test_maktabasauti_threads.c $(MKS_DEPS) include/maktabasauti/maktabasauti.h | $(OBJDIR)
-	$(CC) $(CFLAGS) -O1 -g -fsanitize=thread $(MKS_INC) -o $@ tests/test_maktabasauti_threads.c $(MKS_DEPS) -lm -lpthread -no-pie
+$(OBJDIR)/test_maktabasauti_threads_asan: tests/test_maktabasauti_threads.c tests/mks_probe_corpus.h $(MKS_DEPS) $(MKS_THIRD) include/maktabasauti/maktabasauti.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -Itests -o $@ tests/test_maktabasauti_threads.c $(MKS_DEPS) -lm -lpthread -no-pie
+$(OBJDIR)/test_maktabasauti_threads_tsan: tests/test_maktabasauti_threads.c tests/mks_probe_corpus.h $(MKS_DEPS) $(MKS_THIRD) include/maktabasauti/maktabasauti.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=thread $(MKS_INC) -Itests -o $@ tests/test_maktabasauti_threads.c $(MKS_DEPS) -lm -lpthread -no-pie
+
+# audyt sond (probe) i open() na dowolnych danych: bufory o dokladnym rozmiarze ze stronami ochronnymi, tylko do odczytu, zasmiecany stos (niezainicjowane zmienne);
+# trzy budowy: ASan+UBSan, zwykla -O2 z -ftrivial-auto-var-init=pattern (zmienne automatyczne wypelniane wzorcem) oraz -O0 bez sanitizerow
+MKS_AUDIT_EXTRA := src/decoders/modern/sauti_decoder_opus.c src/decoders/modern/sauti_decoder_ffmpeg.c
+MKS_AUDIT_FIXTURES := tests/data/lc.aac tests/data/he1.aac tests/data/he2.aac tests/data/he1.m4a tests/data/he1.loas tests/data/he1.adif tests/data/m51.aac $(wildcard tests/data/probe_real.*)
+$(OBJDIR)/test_maktabasauti_probe_audit_asan: tests/test_maktabasauti_probe_audit.c tests/mks_probe_corpus.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -Itests -o $@ tests/test_maktabasauti_probe_audit.c $(MKS_DEPS) $(MKS_AUDIT_EXTRA) -lm -lpthread -no-pie
+$(OBJDIR)/test_maktabasauti_probe_audit_pattern: tests/test_maktabasauti_probe_audit.c tests/mks_probe_corpus.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O2 -g -ftrivial-auto-var-init=pattern $(MKS_INC) -Itests -o $@ tests/test_maktabasauti_probe_audit.c $(MKS_DEPS) $(MKS_AUDIT_EXTRA) -lm -lpthread -no-pie
+$(OBJDIR)/test_maktabasauti_probe_audit_plain: tests/test_maktabasauti_probe_audit.c tests/mks_probe_corpus.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O0 -g $(MKS_INC) -Itests -o $@ tests/test_maktabasauti_probe_audit.c $(MKS_DEPS) $(MKS_AUDIT_EXTRA) -lm -lpthread -no-pie
+# wrogie wejscie (io niezgodne z kontraktem), skrajne wywolania uslug hosta, deklarowane rozmiary: ASan+UBSan oraz zwykla budowa
+$(OBJDIR)/test_maktabasauti_hostile_io_asan: tests/test_maktabasauti_hostile_io.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_hostile_io.c $(MKS_DEPS) -lm -lpthread -no-pie
+$(OBJDIR)/test_maktabasauti_hostile_io_plain: tests/test_maktabasauti_hostile_io.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O2 -g -ftrivial-auto-var-init=pattern $(MKS_INC) -o $@ tests/test_maktabasauti_hostile_io.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-maktabasauti-hostile-io
+test-maktabasauti-hostile-io: $(OBJDIR)/test_maktabasauti_hostile_io_asan $(OBJDIR)/test_maktabasauti_hostile_io_plain
+	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_hostile_io_asan tests/data/lc.aac
+	./$(OBJDIR)/test_maktabasauti_hostile_io_plain tests/data/lc.aac
+# regresje bledow w bibliotekach zewnetrznych (stb_vorbis, minimp3) znalezionych przez audyt sond: ASan+UBSan oraz zwykla budowa ze wzorcem w zmiennych automatycznych
+THH_SRC := src/decoders/modern/sauti_decoder_vorbis.c src/decoders/modern/sauti_decoder_mp3.c
+$(OBJDIR)/test_third_party_hardening_asan: tests/test_third_party_hardening.c $(THH_SRC) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -Iinclude -Ithird_party -o $@ tests/test_third_party_hardening.c $(THH_SRC) -lm
+$(OBJDIR)/test_third_party_hardening_plain: tests/test_third_party_hardening.c $(THH_SRC) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O2 -g -ftrivial-auto-var-init=pattern -Iinclude -Ithird_party -o $@ tests/test_third_party_hardening.c $(THH_SRC) -lm
+.PHONY: test-third-party-hardening
+test-third-party-hardening: $(OBJDIR)/test_third_party_hardening_asan $(OBJDIR)/test_third_party_hardening_plain
+	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_third_party_hardening_asan tests/data/probe_real.ogg tests/data/probe_real.mp3
+	./$(OBJDIR)/test_third_party_hardening_plain tests/data/probe_real.ogg tests/data/probe_real.mp3
+.PHONY: test-maktabasauti-probe-audit
+test-maktabasauti-probe-audit: $(OBJDIR)/test_maktabasauti_probe_audit_asan $(OBJDIR)/test_maktabasauti_probe_audit_pattern $(OBJDIR)/test_maktabasauti_probe_audit_plain
+	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_probe_audit_asan $(MKS_AUDIT_FIXTURES)
+	./$(OBJDIR)/test_maktabasauti_probe_audit_pattern $(MKS_AUDIT_FIXTURES)
+	./$(OBJDIR)/test_maktabasauti_probe_audit_plain $(MKS_AUDIT_FIXTURES)
 
 .PHONY: test-maktabasauti-core test-maktabasauti-regression
 test-maktabasauti-core: check-maktabasauti-c99 $(OBJDIR)/test_maktabasauti_core

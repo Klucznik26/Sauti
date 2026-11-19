@@ -126,3 +126,13 @@ Test `tests/test_aac_threads.c` ma dziś zapasowy wariant z ASan, bo na tej masz
 5. Wczytanie całości jest ograniczone do 1 GiB (`E_NO_MEMORY` powyżej).
 6. Wejście z pliku na Windows (UTF-8 → UTF-16) i budowa na pozostałych platformach są weryfikowane dopiero w CI; lokalnie przetestowano Linux x86-64.
 7. Dynamiczne ładowanie modułów (`maktabasauti_module_entry`) i pakowanie (CMake, `.so.1`, `pkg-config`) to etapy 3 i 4.
+
+## 13. Odporność rozpoznawania i wejścia (audyt sond, 2026-11-20)
+
+Pełny raport: `docs/AUDYT_SOND.md`. Zasady, które rdzeń i moduły muszą spełniać (sprawdzane testami `make test-maktabasauti-probe-audit`, `make test-maktabasauti-hostile-io`, wielowątkowym rozpoznawaniem w `scripts/test_maktabasauti_threads.sh`):
+
+**Sonda (`probe`)** — czysta funkcja nagłówka: przyjmuje DOWOLNE dane o dowolnej długości, w tym 0 bajtów, i nigdy nie zakłada, że dane należą do jej kodeka. Nie czyta poza `[prefix, prefix + n)` (także przy skrajnych polach długości i offsetach: rachunki w `size_t`/`uint64_t` z sprawdzeniem przed każdym odczytem), nie zapisuje do wejścia, nie alokuje, nie ma stanu, nie używa niezainicjowanych zmiennych, zwraca 0 albo 1..100 (wynik spoza zakresu rdzeń obcina). Sonda wołana na całym pliku (`NEEDS_FULL_BUFFER`) ma kosztować O(1) względem rozmiaru wejścia (czyta tylko okno nagłówka). Kod bibliotek zewnętrznych użyty w sondzie podlega tym samym zasadom (wniosek z błędu minimp3, commit `b2bdd74`).
+
+**Wejście (`maktabasauti_io_t`)** — rdzeń nie ufa wartościom zwracanym przez callbacki użytkownika: `read` zwracający więcej niż zażądano daje `E_IO` (bez zapisu poza buforem), kod błędu spoza `E_*` (np. `INT64_MIN`) jest normalizowany do `E_IO` (wcześniej po obcięciu do `int` mógł dać `OK`), `size` jest tylko wskazówką (początkowy bufor całego wejścia ≤ 64 MiB, dalej rośnie wyłącznie o faktycznie odczytane dane, twardy limit 1 GiB), `seek` z dowolnym `offset`/`whence` nie powoduje przepełnienia ze znakiem. Wejście, które nigdy nie zgłasza końca danych, kończy się `E_NO_MEMORY` po 1 GiB przy kodekach wymagających całości (strumieniowe moduły czytają dalej, tylko ile potrzebują).
+
+**Znane, opisane ryzyka:** (R1) rejestr domyślny wczytuje CAŁE wejście, żeby uruchomić sondy starych dekoderów, także dla nieznanych danych; usunie to etap 2 (moduły strumieniowe z sondą po prefiksie); (R2) `seek` w opakowanym dekoderze MIDI jest liniowy w liczbie ramek (uszkodzony plik może deklarować godziny); pozostałe w `docs/AUDYT_SOND.md`.

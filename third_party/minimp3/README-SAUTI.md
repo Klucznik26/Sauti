@@ -22,3 +22,7 @@ These headers are third-party code. Preserve their upstream notices.
   began probing every codec). Regression test: `tests/test_decoder_mp3.c`
   (`probe_with_poisoned_stack`; it fails without the fix in a build without
   ASan, where the stack layout is not altered). Report upstream when possible.
+- minimp3_ex.h, `mp3dec_skip_id3v1` (APEv2 size) and `mp3dec_check_vbrtag` (Xing frame count): 32-bit values assembled with unsigned shifts (upstream shifts a
+  byte promoted to `int` by 24 bits: undefined behaviour for bytes >= 128; UBSan finding of 2026-11-20). Regression tests: `tests/test_third_party_hardening.c`
+  (Xing frame count 0xFF000000, APEv2 size 0xFF000000) and the corpus item `syn_ape_huge.mp3` of the probe audit.
+- Upstream status: not reported yet; the patch against the imported upstream master is in `docs/upstream-patches/minimp3.patch`.

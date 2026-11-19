@@ -22,6 +22,9 @@ void mks_reader_free(mks_reader_t *r) {
     r->buf = NULL; r->mem = NULL;
 }
 
+/* kod bledu z wejscia uzytkownika: tylko znane kody MAKTABASAUTI_E_* przechodza dalej; wszystko inne (np. INT64_MIN, ktore po obcieciu do int daje 0 = OK) to E_IO */
+static int64_t io_err(int64_t v) { return (v >= MAKTABASAUTI_E_FORMAT_CHANGED && v <= -1) ? v : MAKTABASAUTI_E_IO; }
+
 /* dopelnia bufor tak, zeby od pos bylo dostepne co najmniej `need` bajtow (need <= cap), o ile wejscie je ma; zwraca ile jest dostepne albo kod bledu (gdy nic nie ma) */
 static int64_t fill(mks_reader_t *r, size_t need) {
     if (r->len - r->pos >= need) return (int64_t)(r->len - r->pos);
@@ -33,8 +36,9 @@ static int64_t fill(mks_reader_t *r, size_t need) {
     }
     while (r->len < need) {
         int64_t got = r->io.read(r->io.user, r->buf + r->len, r->cap - r->len);
-        if (got < 0) return r->len ? (int64_t)r->len : got;   /* mamy czesc danych: oddajemy je, blad wroci przy kolejnym wywolaniu */
+        if (got < 0) return r->len ? (int64_t)r->len : io_err(got);   /* mamy czesc danych: oddajemy je, blad wroci przy kolejnym wywolaniu */
         if (got == 0) break;                              /* koniec danych */
+        if ((uint64_t)got > (uint64_t)(r->cap - r->len)) return MAKTABASAUTI_E_IO;   /* wejscie oddaje wiecej, niz zazadano: naruszenie kontraktu (bufor nie jest ruszany) */
         r->len += (size_t)got;
     }
     return (int64_t)(r->len - r->pos);
@@ -57,8 +61,9 @@ int64_t mks_reader_read(mks_reader_t *r, void *dst, size_t n) {
             int64_t got;
             r->base += (int64_t)r->len; r->len = 0; r->pos = 0;
             got = r->io.read(r->io.user, out + done, n - done);
-            if (got < 0) return done ? (int64_t)done : got;
+            if (got < 0) return done ? (int64_t)done : io_err(got);
             if (got == 0) break;
+            if ((uint64_t)got > (uint64_t)(n - done)) return done ? (int64_t)done : MAKTABASAUTI_E_IO;   /* naruszenie kontraktu wejscia */
             r->base += got;                               /* bufor jest pusty: base = pozycja logiczna */
             done += (size_t)got;
             continue;
@@ -109,8 +114,15 @@ int64_t mks_reader_size(const mks_reader_t *r) {
 int64_t mks_reader_seek(mks_reader_t *r, int64_t offset, int whence) {
     int64_t target, cur = mks_reader_tell(r), sz = mks_reader_size(r);
     if (whence == 0) target = offset;
-    else if (whence == 1) target = cur + offset;
-    else if (whence == 2) { if (sz < 0) return MAKTABASAUTI_E_NOT_SEEKABLE; target = sz + offset; }
+    else if (whence == 1) {
+        if ((offset > 0 && cur > INT64_MAX - offset) || (offset < 0 && cur < INT64_MIN - offset)) return MAKTABASAUTI_E_OUT_OF_RANGE;   /* bez przepelnienia ze znakiem */
+        target = cur + offset;
+    }
+    else if (whence == 2) {
+        if (sz < 0) return MAKTABASAUTI_E_NOT_SEEKABLE;
+        if ((offset > 0 && sz > INT64_MAX - offset) || (offset < 0 && sz < INT64_MIN - offset)) return MAKTABASAUTI_E_OUT_OF_RANGE;
+        target = sz + offset;
+    }
     else return MAKTABASAUTI_E_INVALID_ARGUMENT;
     if (target < 0) return MAKTABASAUTI_E_OUT_OF_RANGE;
     if (r->mem) {
@@ -125,7 +137,7 @@ int64_t mks_reader_seek(mks_reader_t *r, int64_t offset, int whence) {
     if (!r->io.seek) return MAKTABASAUTI_E_NOT_SEEKABLE;
     {
         int64_t got = r->io.seek(r->io.user, target, 0);
-        if (got < 0) return got;
+        if (got < 0) return io_err(got);
         r->base = got; r->pos = 0; r->len = 0;
         return got;
     }
@@ -141,8 +153,10 @@ maktabasauti_result_t mks_reader_map(mks_reader_t *r, const uint8_t **data, size
         if (r->io.seek(r->io.user, 0, 0) < 0) return MAKTABASAUTI_E_NOT_SEEKABLE;
         r->base = 0; r->pos = 0; r->len = 0;
     }
-    cap = r->size >= 0 ? (size_t)r->size : MKS_READER_BUFFER * 4u;
     if (r->size >= 0 && (uint64_t)r->size > MKS_MAX_FULL_BUFFER) return MAKTABASAUTI_E_NO_MEMORY;
+    /* deklarowany rozmiar to tylko wskazowka (wejscie moze klamac): poczatkowa pojemnosc ograniczona, dalej podwajanie w miare faktycznie odczytanych danych */
+    cap = r->size >= 0 ? (size_t)r->size : MKS_READER_BUFFER * 4u;
+    if (cap > MKS_MAP_INITIAL_MAX) cap = MKS_MAP_INITIAL_MAX;
     if (cap < r->len) cap = r->len;
     if (cap == 0) cap = 1;
     mem = (uint8_t *)mks_alloc(r->alloc, cap);
@@ -159,8 +173,9 @@ maktabasauti_result_t mks_reader_map(mks_reader_t *r, const uint8_t **data, size
             mem = bigger; cap = ncap;
         }
         got = r->io.read(r->io.user, mem + used, cap - used);
-        if (got < 0) { mks_free(r->alloc, mem); return (maktabasauti_result_t)got; }
+        if (got < 0) { mks_free(r->alloc, mem); return (maktabasauti_result_t)io_err(got); }
         if (got == 0) break;
+        if ((uint64_t)got > (uint64_t)(cap - used)) { mks_free(r->alloc, mem); return MAKTABASAUTI_E_IO; }   /* naruszenie kontraktu wejscia */
         used += (size_t)got;
     }
     r->mem = mem; r->mem_size = used;

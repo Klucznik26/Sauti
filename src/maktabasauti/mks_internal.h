@@ -51,6 +51,7 @@ maktabasauti_result_t mks_reader_map(mks_reader_t *r, const uint8_t **data, size
 #define MKS_READER_BUFFER 16384u
 #define MKS_PROBE_BYTES 4096u
 #define MKS_MAX_FULL_BUFFER ((size_t)1 << 30)
+#define MKS_MAP_INITIAL_MAX ((size_t)64 << 20)   /* poczatkowa pojemnosc bufora calego wejscia: dalej rosnie tylko o faktycznie odczytane dane */
 
 /* ---- PCM ----------------------------------------------------------------------------------------------------------------------------------------------------- */
 typedef struct mks_dither { uint32_t state; uint32_t enabled; } mks_dither_t;

@@ -1,0 +1,177 @@
+diff --git a/dr_flac.h b/dr_flac.h
+index f811bcf..8e8e601 100644
+--- a/dr_flac.h
++++ b/dr_flac.h
+@@ -3031,38 +3031,38 @@ static DRFLAC_INLINE drflac_int32 drflac__calculate_prediction_32(drflac_uint32
+     /* VC++ optimizes this to a single jmp. I've not yet verified this for other compilers. */
+     switch (order)
+     {
+-    case 32: prediction += coefficients[31] * pDecodedSamples[-32];
+-    case 31: prediction += coefficients[30] * pDecodedSamples[-31];
+-    case 30: prediction += coefficients[29] * pDecodedSamples[-30];
+-    case 29: prediction += coefficients[28] * pDecodedSamples[-29];
+-    case 28: prediction += coefficients[27] * pDecodedSamples[-28];
+-    case 27: prediction += coefficients[26] * pDecodedSamples[-27];
+-    case 26: prediction += coefficients[25] * pDecodedSamples[-26];
+-    case 25: prediction += coefficients[24] * pDecodedSamples[-25];
+-    case 24: prediction += coefficients[23] * pDecodedSamples[-24];
+-    case 23: prediction += coefficients[22] * pDecodedSamples[-23];
+-    case 22: prediction += coefficients[21] * pDecodedSamples[-22];
+-    case 21: prediction += coefficients[20] * pDecodedSamples[-21];
+-    case 20: prediction += coefficients[19] * pDecodedSamples[-20];
+-    case 19: prediction += coefficients[18] * pDecodedSamples[-19];
+-    case 18: prediction += coefficients[17] * pDecodedSamples[-18];
+-    case 17: prediction += coefficients[16] * pDecodedSamples[-17];
+-    case 16: prediction += coefficients[15] * pDecodedSamples[-16];
+-    case 15: prediction += coefficients[14] * pDecodedSamples[-15];
+-    case 14: prediction += coefficients[13] * pDecodedSamples[-14];
+-    case 13: prediction += coefficients[12] * pDecodedSamples[-13];
+-    case 12: prediction += coefficients[11] * pDecodedSamples[-12];
+-    case 11: prediction += coefficients[10] * pDecodedSamples[-11];
+-    case 10: prediction += coefficients[ 9] * pDecodedSamples[-10];
+-    case  9: prediction += coefficients[ 8] * pDecodedSamples[- 9];
+-    case  8: prediction += coefficients[ 7] * pDecodedSamples[- 8];
+-    case  7: prediction += coefficients[ 6] * pDecodedSamples[- 7];
+-    case  6: prediction += coefficients[ 5] * pDecodedSamples[- 6];
+-    case  5: prediction += coefficients[ 4] * pDecodedSamples[- 5];
+-    case  4: prediction += coefficients[ 3] * pDecodedSamples[- 4];
+-    case  3: prediction += coefficients[ 2] * pDecodedSamples[- 3];
+-    case  2: prediction += coefficients[ 1] * pDecodedSamples[- 2];
+-    case  1: prediction += coefficients[ 0] * pDecodedSamples[- 1];
++    case 32: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[31]) * (drflac_uint32)(pDecodedSamples[-32]));
++    case 31: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[30]) * (drflac_uint32)(pDecodedSamples[-31]));
++    case 30: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[29]) * (drflac_uint32)(pDecodedSamples[-30]));
++    case 29: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[28]) * (drflac_uint32)(pDecodedSamples[-29]));
++    case 28: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[27]) * (drflac_uint32)(pDecodedSamples[-28]));
++    case 27: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[26]) * (drflac_uint32)(pDecodedSamples[-27]));
++    case 26: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[25]) * (drflac_uint32)(pDecodedSamples[-26]));
++    case 25: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[24]) * (drflac_uint32)(pDecodedSamples[-25]));
++    case 24: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[23]) * (drflac_uint32)(pDecodedSamples[-24]));
++    case 23: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[22]) * (drflac_uint32)(pDecodedSamples[-23]));
++    case 22: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[21]) * (drflac_uint32)(pDecodedSamples[-22]));
++    case 21: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[20]) * (drflac_uint32)(pDecodedSamples[-21]));
++    case 20: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[19]) * (drflac_uint32)(pDecodedSamples[-20]));
++    case 19: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[18]) * (drflac_uint32)(pDecodedSamples[-19]));
++    case 18: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[17]) * (drflac_uint32)(pDecodedSamples[-18]));
++    case 17: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[16]) * (drflac_uint32)(pDecodedSamples[-17]));
++    case 16: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[15]) * (drflac_uint32)(pDecodedSamples[-16]));
++    case 15: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[14]) * (drflac_uint32)(pDecodedSamples[-15]));
++    case 14: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[13]) * (drflac_uint32)(pDecodedSamples[-14]));
++    case 13: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[12]) * (drflac_uint32)(pDecodedSamples[-13]));
++    case 12: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[11]) * (drflac_uint32)(pDecodedSamples[-12]));
++    case 11: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[10]) * (drflac_uint32)(pDecodedSamples[-11]));
++    case 10: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[ 9]) * (drflac_uint32)(pDecodedSamples[-10]));
++    case  9: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[ 8]) * (drflac_uint32)(pDecodedSamples[- 9]));
++    case  8: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[ 7]) * (drflac_uint32)(pDecodedSamples[- 8]));
++    case  7: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[ 6]) * (drflac_uint32)(pDecodedSamples[- 7]));
++    case  6: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[ 5]) * (drflac_uint32)(pDecodedSamples[- 6]));
++    case  5: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[ 4]) * (drflac_uint32)(pDecodedSamples[- 5]));
++    case  4: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[ 3]) * (drflac_uint32)(pDecodedSamples[- 4]));
++    case  3: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[ 2]) * (drflac_uint32)(pDecodedSamples[- 3]));
++    case  2: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[ 1]) * (drflac_uint32)(pDecodedSamples[- 2]));
++    case  1: prediction = (drflac_int32)((drflac_uint32)prediction + (drflac_uint32)(coefficients[ 0]) * (drflac_uint32)(pDecodedSamples[- 1]));
+     }
+ 
+     return (drflac_int32)(prediction >> shift);
+@@ -3295,9 +3295,9 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__reference(drfla
+ 
+ 
+         if (drflac__use_64_bit_prediction(bitsPerSample, lpcOrder, lpcPrecision)) {
+-            pSamplesOut[i] = decodedRice + drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + i);
++            pSamplesOut[i] = (drflac_int32)((drflac_uint32)decodedRice + (drflac_uint32)drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + i));   /* SAUTI: wrap-defined (UBSan) */
+         } else {
+-            pSamplesOut[i] = decodedRice + drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + i);
++            pSamplesOut[i] = (drflac_int32)((drflac_uint32)decodedRice + (drflac_uint32)drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + i));   /* SAUTI: wrap-defined (UBSan) */
+         }
+     }
+ 
+@@ -3736,10 +3736,10 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__scalar(drflac_b
+             riceParamPart2  = (riceParamPart2 >> 1) ^ t[riceParamPart2 & 0x01];
+             riceParamPart3  = (riceParamPart3 >> 1) ^ t[riceParamPart3 & 0x01];
+ 
+-            pSamplesOut[0] = riceParamPart0 + drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + 0);
+-            pSamplesOut[1] = riceParamPart1 + drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + 1);
+-            pSamplesOut[2] = riceParamPart2 + drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + 2);
+-            pSamplesOut[3] = riceParamPart3 + drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + 3);
++            pSamplesOut[0] = (drflac_int32)((drflac_uint32)riceParamPart0 + (drflac_uint32)drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + 0));   /* SAUTI: wrap-defined (UBSan) */
++            pSamplesOut[1] = (drflac_int32)((drflac_uint32)riceParamPart1 + (drflac_uint32)drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + 1));   /* SAUTI: wrap-defined (UBSan) */
++            pSamplesOut[2] = (drflac_int32)((drflac_uint32)riceParamPart2 + (drflac_uint32)drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + 2));   /* SAUTI: wrap-defined (UBSan) */
++            pSamplesOut[3] = (drflac_int32)((drflac_uint32)riceParamPart3 + (drflac_uint32)drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + 3));   /* SAUTI: wrap-defined (UBSan) */
+ 
+             pSamplesOut += 4;
+         }
+@@ -3767,10 +3767,10 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__scalar(drflac_b
+             riceParamPart2  = (riceParamPart2 >> 1) ^ t[riceParamPart2 & 0x01];
+             riceParamPart3  = (riceParamPart3 >> 1) ^ t[riceParamPart3 & 0x01];
+ 
+-            pSamplesOut[0] = riceParamPart0 + drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + 0);
+-            pSamplesOut[1] = riceParamPart1 + drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + 1);
+-            pSamplesOut[2] = riceParamPart2 + drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + 2);
+-            pSamplesOut[3] = riceParamPart3 + drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + 3);
++            pSamplesOut[0] = (drflac_int32)((drflac_uint32)riceParamPart0 + (drflac_uint32)drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + 0));   /* SAUTI: wrap-defined (UBSan) */
++            pSamplesOut[1] = (drflac_int32)((drflac_uint32)riceParamPart1 + (drflac_uint32)drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + 1));   /* SAUTI: wrap-defined (UBSan) */
++            pSamplesOut[2] = (drflac_int32)((drflac_uint32)riceParamPart2 + (drflac_uint32)drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + 2));   /* SAUTI: wrap-defined (UBSan) */
++            pSamplesOut[3] = (drflac_int32)((drflac_uint32)riceParamPart3 + (drflac_uint32)drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + 3));   /* SAUTI: wrap-defined (UBSan) */
+ 
+             pSamplesOut += 4;
+         }
+@@ -3791,9 +3791,9 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__scalar(drflac_b
+ 
+         /* Sample reconstruction. */
+         if (drflac__use_64_bit_prediction(bitsPerSample, lpcOrder, lpcPrecision)) {
+-            pSamplesOut[0] = riceParamPart0 + drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + 0);
++            pSamplesOut[0] = (drflac_int32)((drflac_uint32)riceParamPart0 + (drflac_uint32)drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + 0));   /* SAUTI: wrap-defined (UBSan) */
+         } else {
+-            pSamplesOut[0] = riceParamPart0 + drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + 0);
++            pSamplesOut[0] = (drflac_int32)((drflac_uint32)riceParamPart0 + (drflac_uint32)drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + 0));   /* SAUTI: wrap-defined (UBSan) */
+         }
+ 
+         i += 1;
+@@ -4050,7 +4050,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__sse41_32(drflac
+         riceParamParts0  = (riceParamParts0 >> 1) ^ t[riceParamParts0 & 0x01];
+ 
+         /* Sample reconstruction. */
+-        pDecodedSamples[0] = riceParamParts0 + drflac__calculate_prediction_32(order, shift, coefficients, pDecodedSamples);
++        pDecodedSamples[0] = (drflac_int32)((drflac_uint32)riceParamParts0 + (drflac_uint32)drflac__calculate_prediction_32(order, shift, coefficients, pDecodedSamples));   /* SAUTI: wrap-defined (UBSan) */
+ 
+         i += 1;
+         pDecodedSamples += 1;
+@@ -4240,7 +4240,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__sse41_64(drflac
+         riceParamParts0  = (riceParamParts0 >> 1) ^ t[riceParamParts0 & 0x01];
+ 
+         /* Sample reconstruction. */
+-        pDecodedSamples[0] = riceParamParts0 + drflac__calculate_prediction_64(order, shift, coefficients, pDecodedSamples);
++        pDecodedSamples[0] = (drflac_int32)((drflac_uint32)riceParamParts0 + (drflac_uint32)drflac__calculate_prediction_64(order, shift, coefficients, pDecodedSamples));   /* SAUTI: wrap-defined (UBSan) */
+ 
+         i += 1;
+         pDecodedSamples += 1;
+@@ -4560,7 +4560,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__neon_32(drflac_
+         riceParamParts[0]  = (riceParamParts[0] >> 1) ^ t[riceParamParts[0] & 0x01];
+ 
+         /* Sample reconstruction. */
+-        pDecodedSamples[0] = riceParamParts[0] + drflac__calculate_prediction_32(order, shift, coefficients, pDecodedSamples);
++        pDecodedSamples[0] = (drflac_int32)((drflac_uint32)riceParamParts[0] + (drflac_uint32)drflac__calculate_prediction_32(order, shift, coefficients, pDecodedSamples));   /* SAUTI: wrap-defined (UBSan) */
+ 
+         i += 1;
+         pDecodedSamples += 1;
+@@ -4737,7 +4737,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__neon_64(drflac_
+         riceParamParts[0]  = (riceParamParts[0] >> 1) ^ t[riceParamParts[0] & 0x01];
+ 
+         /* Sample reconstruction. */
+-        pDecodedSamples[0] = riceParamParts[0] + drflac__calculate_prediction_64(order, shift, coefficients, pDecodedSamples);
++        pDecodedSamples[0] = (drflac_int32)((drflac_uint32)riceParamParts[0] + (drflac_uint32)drflac__calculate_prediction_64(order, shift, coefficients, pDecodedSamples));   /* SAUTI: wrap-defined (UBSan) */
+ 
+         i += 1;
+         pDecodedSamples += 1;
+@@ -4822,9 +4822,9 @@ static drflac_bool32 drflac__decode_samples_with_residual__unencoded(drflac_bs*
+         }
+ 
+         if (drflac__use_64_bit_prediction(bitsPerSample, lpcOrder, lpcPrecision)) {
+-            pSamplesOut[i] += drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + i);
++            pSamplesOut[i] = (drflac_int32)((drflac_uint32)pSamplesOut[i] + (drflac_uint32)drflac__calculate_prediction_64(lpcOrder, lpcShift, coefficients, pSamplesOut + i));   /* SAUTI: wrap-defined (UBSan) */
+         } else {
+-            pSamplesOut[i] += drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + i);
++            pSamplesOut[i] = (drflac_int32)((drflac_uint32)pSamplesOut[i] + (drflac_uint32)drflac__calculate_prediction_32(lpcOrder, lpcShift, coefficients, pSamplesOut + i));   /* SAUTI: wrap-defined (UBSan) */
+         }
+     }
+ 

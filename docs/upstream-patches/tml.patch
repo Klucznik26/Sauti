@@ -1,0 +1,22 @@
+diff --git a/tml.h b/tml.h
+index 3332873..e1c158c 100644
+--- a/tml.h
++++ b/tml.h
+@@ -225,7 +225,7 @@ TMLDEF tml_message* tml_load_filename(const char* filename)
+ #endif
+ 
+ struct tml_stream_memory { const char* buffer; unsigned int total, pos; };
+-static int tml_stream_memory_read(struct tml_stream_memory* m, void* ptr, unsigned int size) { if (size > m->total - m->pos) size = m->total - m->pos; TML_MEMCPY(ptr, m->buffer+m->pos, size); m->pos += size; return size; }
++static int tml_stream_memory_read(struct tml_stream_memory* m, void* ptr, unsigned int size) { if (size > m->total - m->pos) size = m->total - m->pos; if (ptr && size) TML_MEMCPY(ptr, m->buffer+m->pos, size); /* SAUTI: no memcpy(NULL, ..., 0) (UB) */ m->pos += size; return size; }
+ TMLDEF struct tml_message* tml_load_memory(const void* buffer, int size)
+ {
+ 	struct tml_stream stream = { TML_NULL, (int(*)(void*,void*,unsigned int))&tml_stream_memory_read };
+@@ -413,7 +413,7 @@ TMLDEF tml_message* tml_load(struct tml_stream* stream)
+ 			{ TML_WARN("Invalid MTrk header"); break; }
+ 
+ 		// Get size of track data and read into buffer (allocate bigger buffer if needed)
+-		track_length = track_header[7] | (track_header[6] << 8) | (track_header[5] << 16) | (track_header[4] << 24);
++		track_length = (int)((unsigned)track_header[7] | ((unsigned)track_header[6] << 8) | ((unsigned)track_header[5] << 16) | ((unsigned)track_header[4] << 24)); /* SAUTI: unsigned shifts (original: 255<<24 on int = UB); >= 2^31 becomes negative and is rejected below */
+ 		if (track_length < 0) { TML_WARN("Invalid MTrk header"); break; }
+ 		if (trackbufsize < track_length) { TML_FREE(trackbuf); trackbuf = (unsigned char*)TML_MALLOC(trackbufsize = track_length); }
+ 		if (stream->read(stream->data, trackbuf, track_length) != track_length) { TML_WARN("Unexpected end of file"); break; }
