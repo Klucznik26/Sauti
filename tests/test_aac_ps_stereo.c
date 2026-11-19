@@ -119,6 +119,30 @@ int main(void){
         assert(!sauti_aac_ps_mix_interpolated_apply(&sch,&mx,NULL,d,32u*71u,x,32u*71u,l,32u*71u,r,32u*71u));
         assert(!sauti_aac_ps_mix_interpolated_apply(&sch,&mx,prev,d,32u*71u,x,32u*71u,l,32u*71u,l,32u*71u));
     }
+    /* A 20 -> 34 and a 34 -> 20 band change: the previous end values are mapped to the new layout, so an unchanged matrix does not ramp again
+     * (an unmapped or zero start would show as a ramp over the first envelope). */
+    for(unsigned from=20u;from<=34u;from+=14u){
+        const unsigned to=from==20u?34u:20u,nf=from==20u?71u:91u,nt=to==20u?71u:91u;
+        SautiAacPsHybridSchedule sf,st;SautiAacPsComplexMatrix mf,mt;
+        SautiAacPsStereoState a={0},b={0};
+        prepare(&sf,&mf,from);prepare(&st,&mt,to);
+        for(unsigned frame=0;frame<3u;frame++){
+            for(unsigned sl=0;sl<38u;sl++)for(unsigned k=0;k<64u;k++){
+                const int z=(int)((frame*37u+sl*29u+k*23u)%127u)-63;
+                qmf[(size_t)sl*64u+k]=(SautiAacSbrComplex){z*0.006f,z*-0.005f};
+            }
+            const int change=frame==2u;
+            const SautiAacPsHybridSchedule *sc=change?&st:&sf;const SautiAacPsComplexMatrix *mx=change?&mt:&mf;
+            const unsigned nb=change?nt:nf;const size_t cnt=(size_t)32u*nb;
+            assert(sauti_aac_ps_qmf_bank_analyze(sc,qmf,38u*64u,&b.qmf_low,low,cnt));
+            assert(sauti_aac_ps_decorrelator_apply(sc,low,cnt,&b.decorrelator,diffuse,cnt));
+            assert(sauti_aac_ps_stereo_hybrid_apply(sc,mx,qmf,38u*64u,&a,left,cnt,right,cnt));
+            if(change){
+                for(size_t k=0;k<cnt;k++){assert(near_complex(left[k],low[k]));assert(near_complex(right[k],diffuse[k]));}
+                assert(a.previous_bands==to);
+            }
+        }
+    }
     puts("PASS AAC PS-3a: 20/34 QMF+decorrelator+complex mix, 3 frames, rollback; interpolated mix over two envelopes");
     return 0;
 }

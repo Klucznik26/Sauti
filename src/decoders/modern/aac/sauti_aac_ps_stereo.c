@@ -10,6 +10,37 @@ static int disjoint(const void *a,size_t n,const void *b,size_t m){
 static int finite_coeff(SautiAacPsComplexCoefficient c){
     return isfinite(c.re)&&isfinite(c.im);
 }
+/* Previous-envelope mixing values when the band layout changes (20 <-> 34 parameter bands): the same band mapping the parameters use
+ * (table 8.46 and its inverse), applied to every real and imaginary component of the four coefficients. */
+static void map_value_34_to_20(const float s[34],float d[34]){
+    d[0]=(2.0f*s[0]+s[1])*0.33333333f;d[1]=(s[1]+2.0f*s[2])*0.33333333f;
+    d[2]=(2.0f*s[3]+s[4])*0.33333333f;d[3]=(s[4]+2.0f*s[5])*0.33333333f;
+    d[4]=(s[6]+s[7])*0.5f;d[5]=(s[8]+s[9])*0.5f;d[6]=s[10];d[7]=s[11];
+    d[8]=(s[12]+s[13])*0.5f;d[9]=(s[14]+s[15])*0.5f;d[10]=s[16];d[11]=s[17];d[12]=s[18];d[13]=s[19];
+    d[14]=(s[20]+s[21])*0.5f;d[15]=(s[22]+s[23])*0.5f;d[16]=(s[24]+s[25])*0.5f;d[17]=(s[26]+s[27])*0.5f;
+    d[18]=(s[28]+s[29]+s[30]+s[31])*0.25f;d[19]=(s[32]+s[33])*0.5f;
+    for(unsigned i=20u;i<34u;i++)d[i]=0.0f;
+}
+static void map_value_20_to_34(const float s[34],float d[34]){
+    d[0]=s[0];d[1]=(s[0]+s[1])*0.5f;d[2]=s[1];d[3]=s[2];d[4]=(s[2]+s[3])*0.5f;d[5]=s[3];d[6]=s[4];d[7]=s[4];
+    d[8]=s[5];d[9]=s[5];d[10]=s[6];d[11]=s[7];d[12]=s[8];d[13]=s[8];d[14]=s[9];d[15]=s[9];d[16]=s[10];d[17]=s[11];
+    d[18]=s[12];d[19]=s[13];d[20]=s[14];d[21]=s[14];d[22]=s[15];d[23]=s[15];d[24]=s[16];d[25]=s[16];d[26]=s[17];d[27]=s[17];
+    d[28]=s[18];d[29]=s[18];d[30]=s[18];d[31]=s[18];d[32]=s[19];d[33]=s[19];
+}
+static void map_previous_layout(SautiAacPsComplexMatrixCoefficients prev[SAUTI_AAC_PS_MAX_PARAMETERS],unsigned from,unsigned to){
+    for(unsigned comp=0u;comp<8u;comp++){
+        float src[34],dst[34];
+        for(unsigned b=0u;b<34u;b++){
+            SautiAacPsComplexCoefficient *c[4]={&prev[b].h11,&prev[b].h12,&prev[b].h21,&prev[b].h22};
+            src[b]=(comp&1u)?c[comp>>1u]->im:c[comp>>1u]->re;
+        }
+        if(from==34u&&to==20u)map_value_34_to_20(src,dst);else map_value_20_to_34(src,dst);
+        for(unsigned b=0u;b<34u;b++){
+            SautiAacPsComplexCoefficient *c[4]={&prev[b].h11,&prev[b].h12,&prev[b].h21,&prev[b].h22};
+            if(comp&1u)c[comp>>1u]->im=dst[b];else c[comp>>1u]->re=dst[b];
+        }
+    }
+}
 int sauti_aac_ps_stereo_hybrid_apply(
     const SautiAacPsHybridSchedule *schedule,
     const SautiAacPsComplexMatrix *matrix,
@@ -49,16 +80,15 @@ int sauti_aac_ps_stereo_hybrid_apply(
     SautiAacSbrComplex direct[32u*91u],diffuse[32u*91u];
     SautiAacSbrComplex ltmp[32u*91u],rtmp[32u*91u];
     const size_t count=(size_t)32u*bands;
+    /* start of the stream: zero (the matrix ramps up); topology change 20 <-> 34: the previous end values are mapped to the new layout */
+    SautiAacPsComplexMatrixCoefficients start[SAUTI_AAC_PS_MAX_PARAMETERS];
+    memcpy(start,next.previous,sizeof(start));
+    if(next.previous_bands!=0u&&next.previous_bands!=pars)map_previous_layout(start,next.previous_bands,pars);
     if(!sauti_aac_ps_qmf_bank_analyze(schedule,qmf,qmf_count,&next.qmf_low,
                                       direct,count)||
        !sauti_aac_ps_decorrelator_apply(schedule,direct,count,
                                         &next.decorrelator,diffuse,count)||
-       !sauti_aac_ps_mix_interpolated_apply(
-           schedule,matrix,
-           /* start of the stream: zero (the matrix ramps up); topology change 20 <-> 34: the previous values are in the other band layout,
-            * start from the new first envelope instead */
-           (next.previous_bands==0u||next.previous_bands==pars)?next.previous:matrix->coefficient[0],
-           direct,count,diffuse,count,ltmp,count,rtmp,count))
+       !sauti_aac_ps_mix_interpolated_apply(schedule,matrix,start,direct,count,diffuse,count,ltmp,count,rtmp,count))
         return 0;
     for(unsigned b=0;b<pars;b++)next.previous[b]=matrix->coefficient[matrix->env_count-1u][b];
     next.previous_bands=pars;
