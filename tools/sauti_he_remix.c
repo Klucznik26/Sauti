@@ -147,6 +147,7 @@ static void sbr_payload(Bits *b,const SautiAacSbrTables *t,unsigned start,unsign
  * from the decoder's tables (sauti_aac_ps_huffman_codeword), so a wrong table would still show up against the other decoder.
  * Environment: SAUTI_REMIX_PS=1 switches it on; _IID_MODE/_ICC_MODE 0..5 (10/20/34 bands, coarse/fine IID); _IPD=1 sends IPD/OPD (extension id 0);
  * _CHANGE=n re-sends the header with random modes every n frames (the first frame after a change uses frequency coding only);
+ * SAUTI_REMIX_PS_CONST=1 with _IIDV/_ICCV/_IPDV/_OPDV: one fixed value of each parameter in every band and frame, a single envelope (for measuring one effect at a time);
  * _NODATA=p percent of the frames carry no PS data at all; _CLASS=0|1 forces fixed/variable frame class (default random);
  * _NOENV=p percent of the frames signal zero envelopes (frame class 0, num_env_idx 0).  Deterministic for the seed. */
 typedef struct {
@@ -156,6 +157,8 @@ typedef struct {
     unsigned started,need_df;                                           /* need_df: a topology change was not followed by coded values yet */
 } PsGen;
 static PsGen psg;
+#define PS_RANDOM (-1000)
+static int ps_const_iid=PS_RANDOM,ps_const_icc=PS_RANDOM,ps_const_ipd=PS_RANDOM,ps_const_opd=PS_RANDOM;   /* SAUTI_REMIX_PS_CONST=1: one value per parameter kind in every band and frame, one envelope, no delta coding */
 static unsigned ps_env_int(const char *name,unsigned def){const char *v=getenv(name);return v?(unsigned)atoi(v):def;}
 static void ps_put_vlc(Bits *b,SautiAacPsHuffmanTable t,unsigned symbol){
     uint32_t code;uint8_t width;
@@ -164,12 +167,13 @@ static void ps_put_vlc(Bits *b,SautiAacPsHuffmanTable t,unsigned symbol){
 }
 /* one parameter set group (IID or ICC) for `env` envelopes, `count` bands */
 static void ps_put_levels(Bits *b,unsigned env,unsigned count,int lo,int hi,int (*vals)[34],const int *last,
-                          unsigned force_df,SautiAacPsHuffmanTable df,SautiAacPsHuffmanTable dt,int offset,unsigned iid_step){
+                          unsigned force_df,SautiAacPsHuffmanTable df,SautiAacPsHuffmanTable dt,int offset,unsigned iid_step,int fixed){
     for(unsigned e=0;e<env;e++){
-        const unsigned use_dt=!force_df && (rnd()%3u)!=0u;
+        const unsigned use_dt=fixed!=PS_RANDOM?0u:(!force_df && (rnd()%3u)!=0u);
         const int *base=e?vals[e-1]:last;
         for(unsigned i=0;i<count;i++){
             int target;
+            if(fixed!=PS_RANDOM){vals[e][i]=fixed<lo?lo:fixed>hi?hi:fixed;continue;}
             const int prev=use_dt?base[i]:(i?vals[e][i-1]:0);
             if(rnd()%4u==0u)target=lo+(int)(rnd()%(unsigned)(hi-lo+1));
             else{target=(use_dt?base[i]:(i?vals[e][i-1]:0))+(int)(rnd()%5u)-2;if(target<lo)target=lo;if(target>hi)target=hi;}
@@ -184,9 +188,9 @@ static void ps_put_levels(Bits *b,unsigned env,unsigned count,int lo,int hi,int 
     }
 }
 /* IPD and OPD of one envelope: the standard interleaves them per envelope (ipd e, opd e, ipd e+1, ...) */
-static void ps_put_phase_env(Bits *b,unsigned count,int *vals,const int *base_dt,unsigned force_df,SautiAacPsHuffmanTable df,SautiAacPsHuffmanTable dt){
-    const unsigned use_dt=!force_df && (rnd()%3u)!=0u;
-    for(unsigned i=0;i<count;i++)vals[i]=(int)(rnd()&7u);
+static void ps_put_phase_env(Bits *b,unsigned count,int *vals,const int *base_dt,unsigned force_df,SautiAacPsHuffmanTable df,SautiAacPsHuffmanTable dt,int fixed){
+    const unsigned use_dt=fixed!=PS_RANDOM?0u:(!force_df && (rnd()%3u)!=0u);
+    for(unsigned i=0;i<count;i++)vals[i]=fixed!=PS_RANDOM?(fixed&7):(int)(rnd()&7u);
     put(b,1u,use_dt);
     for(unsigned i=0;i<count;i++){
         const int ref=use_dt?base_dt[i]:(i?vals[i-1]:0);
@@ -225,8 +229,13 @@ static void ps_extension(Bits *b,unsigned frame_no){
         put(&ps,1u,psg.icc_on);if(psg.icc_on)put(&ps,3u,psg.icc_mode);
         put(&ps,1u,psg.ext_on);
     }
+    if(getenv("SAUTI_REMIX_PS_CONST")){
+        ps_const_iid=(int)ps_env_int("SAUTI_REMIX_PS_IIDV",0);if(getenv("SAUTI_REMIX_PS_IIDNEG"))ps_const_iid=-ps_const_iid;
+        ps_const_icc=(int)ps_env_int("SAUTI_REMIX_PS_ICCV",0);ps_const_ipd=(int)ps_env_int("SAUTI_REMIX_PS_IPDV",0);ps_const_opd=(int)ps_env_int("SAUTI_REMIX_PS_OPDV",0);
+    }
     unsigned cls=ps_env_int("SAUTI_REMIX_PS_CLASS",2u);if(cls>1u)cls=rnd()&1u;
     unsigned idx=rnd()&3u;
+    if(ps_const_icc!=PS_RANDOM){cls=0u;idx=1u;}
     if(rnd()%100u<ps_env_int("SAUTI_REMIX_PS_NOENV",0)){cls=0;idx=0;}
     if(topology_changed && cls==0u && idx==0u)idx=1u;   /* a header that changes the band layout must come with values: with none, the new layout has no previous
                                                          * parameters and the standard does not say what a decoder uses (the reference decoder reads stale memory) */
@@ -250,11 +259,11 @@ static void ps_extension(Bits *b,unsigned frame_no){
     if(psg.iid_on){
         const unsigned fine=psg.iid_mode>2u,range=fine?15:7;
         ps_put_levels(&ps,num_env,par[psg.iid_mode],-range,range,psg.iid,psg.last_iid,force_df,
-                      fine?SAUTI_AAC_PS_IID_DF1:SAUTI_AAC_PS_IID_DF0,fine?SAUTI_AAC_PS_IID_DT1:SAUTI_AAC_PS_IID_DT0,fine?30:14,0);
+                      fine?SAUTI_AAC_PS_IID_DF1:SAUTI_AAC_PS_IID_DF0,fine?SAUTI_AAC_PS_IID_DT1:SAUTI_AAC_PS_IID_DT0,fine?30:14,0,ps_const_iid);
         if(num_env)memcpy(psg.last_iid,psg.iid[num_env-1u],sizeof(psg.last_iid));
     }else memset(psg.last_iid,0,sizeof(psg.last_iid));
     if(psg.icc_on){
-        ps_put_levels(&ps,num_env,par[psg.icc_mode],0,7,psg.icc,psg.last_icc,force_df,SAUTI_AAC_PS_ICC_DF,SAUTI_AAC_PS_ICC_DT,7,0);
+        ps_put_levels(&ps,num_env,par[psg.icc_mode],0,7,psg.icc,psg.last_icc,force_df,SAUTI_AAC_PS_ICC_DF,SAUTI_AAC_PS_ICC_DT,7,0,ps_const_icc);
         if(num_env)memcpy(psg.last_icc,psg.icc[num_env-1u],sizeof(psg.last_icc));
     }else memset(psg.last_icc,0,sizeof(psg.last_icc));
     if(psg.ext_on){
@@ -265,8 +274,8 @@ static void ps_extension(Bits *b,unsigned frame_no){
         if(ipd){
             const unsigned n=phase[psg.iid_mode];
             for(unsigned e=0;e<num_env;e++){
-                ps_put_phase_env(&ex,n,psg.ipd[e],e?psg.ipd[e-1u]:psg.last_ipd,force_df,SAUTI_AAC_PS_IPD_DF,SAUTI_AAC_PS_IPD_DT);
-                ps_put_phase_env(&ex,n,psg.opd[e],e?psg.opd[e-1u]:psg.last_opd,force_df,SAUTI_AAC_PS_OPD_DF,SAUTI_AAC_PS_OPD_DT);
+                ps_put_phase_env(&ex,n,psg.ipd[e],e?psg.ipd[e-1u]:psg.last_ipd,force_df,SAUTI_AAC_PS_IPD_DF,SAUTI_AAC_PS_IPD_DT,ps_const_ipd);
+                ps_put_phase_env(&ex,n,psg.opd[e],e?psg.opd[e-1u]:psg.last_opd,force_df,SAUTI_AAC_PS_OPD_DF,SAUTI_AAC_PS_OPD_DT,ps_const_opd);
             }
             if(num_env){memcpy(psg.last_ipd,psg.ipd[num_env-1u],sizeof(psg.last_ipd));memcpy(psg.last_opd,psg.opd[num_env-1u],sizeof(psg.last_opd));}
         }else{memset(psg.last_ipd,0,sizeof(psg.last_ipd));memset(psg.last_opd,0,sizeof(psg.last_opd));}

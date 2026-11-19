@@ -7598,3 +7598,22 @@ Jednostki po demuxie mają ten sam początek co jednostki tego samego enkodera w
 **Ustalenie 2: FFmpeg nie jest wzorcem dla PNS skorelowanego z M/S.** Strumień LC stereo 96 kb/s: lewy kanał 144 dB zgodny z FFmpeg, prawy tylko 30 dB, w 674 z 931 ramek. Cecha wspólna ramek: PNS w obu kanałach i `ms_used`. Norma (i referencyjny FAAD2: `r1_dep`/`r2_dep` w `pns.c`) każe w paśmie szumowym obu kanałów z `ms_used = 1` użyć **tego samego wektora losowego** dla obu kanałów (skalowanego osobno), a M/S w takim paśmie nie stosować. Sauti robi to (AAC-29C); FFmpeg generuje niezależny szum. Dlatego na strumieniach z takim PNS prawy kanał nie może zgadzać się z FFmpeg, a nie jest to błąd Sauti. Generator szumu w normie nie jest określony (FAAD2 ma inny niż FFmpeg i Sauti), więc FAAD2 zgadza się z obydwoma tylko na ~19 dB na PNS-ie. Strumienie do porównań z FFmpeg: bez PNS w obu kanałach naraz (np. 192 kb/s).
 
 **Granice.** Brak LATM bez ramowania LOAS (nie samosynchronizujący), brak PCE, jeden program. Gdy strumień zaczyna się od elementów bez konfiguracji (fdkaac przy domyślnym okresie nagłówka: 9 pierwszych elementów LC), Sauti pomija je, a FFmpeg wypełnia początek (osi czasu +9216 próbek i inny stan generatora szumu); długość wyjścia różni się wtedy o te elementy.
+
+### SBR-96 — znak fazy IPD/OPD rozstrzygnięty niezależnym dekoderem (FAAD2): Sauti ma rację, FFmpeg odbiega (2026-11-19)
+
+**Problem z SBR-89.** W pasmach hybrydowych, gdzie odwraca się znak części urojonej fazy (20 pasm: 0–1; 34 pasma: 9–13), Sauti odwracał oba końce interpolacji macierzy, FFmpeg tylko początek. Nie miałem trzeciego głosu: libfdk-aac nie rozumiał wygenerowanych strumieni, a na prawdziwych plikach różnił się od FFmpeg o ~24 dB z powodu innego dekorelatora.
+
+**Metoda.** Dekorelator wyłączam z gry: strumienie o **stałych parametrach** (`SAUTI_REMIX_PS_CONST=1`, `_IIDV/_ICCV/_IPDV/_OPDV`): ICC = 1 (indeks 0), więc wkład dekorelatora jest zerowy, jedna obwiednia, te same wartości w każdej ramce i paśmie. Rdzeń to suma sześciu tonów (40, 90, 180, 300, 700, 1500 Hz) zakodowana fdkaac, więc tony wpadają w najniższe pasma hybrydowe. Wzorzec: **FAAD2** (`libfaad.so.2` ładowany przez `dlopen`, `tools/sauti_faad_oracle.c`), czyli dekoder referencyjny, niezależny od FFmpeg i od Sauti. Opóźnienie i wzmocnienie różnią się między dekoderami, więc porównuję zespolony stosunek kanałów L/R na każdej częstotliwości oraz poziom każdego tonu względem tonu 700 Hz.
+
+**Wynik (56 strumieni: oba układy pasm, IPD 0,1,2,3,5,6,7, OPD 0 i 3, IID 0 i 3):**
+
+| dekoder | największa różnica względna od FAAD2 |
+|---|---|
+| **Sauti** | **0,0052** (0,5%), żaden przypadek powyżej 0,02 |
+| FFmpeg | do 0,3274 (33%) |
+
+Różnica fazy L/R jest we wszystkich trzech dekoderach spójna we wszystkich pasmach (to fizycznie poprawna rotacja), ale poziomy tonów w najniższych pasmach (40 i 90 Hz) u Sauti i FAAD2 są identyczne (np. przy IPD = 2: L/R = 1,29 / 0,98), a u FFmpeg inne (1,58 / 1,05). Czyli odwrócenie znaku obu końców interpolacji (spójne sprzężenie zespolone macierzy) jest prawidłowe, a FFmpeg ma tu błąd (odwraca tylko początek; sam kod FFmpeg komentuje to „Is this necessary?”). **Kod Sauti bez zmian.**
+
+**Powtarzalność.** `scripts/test_he_ps_phase_vs_faad2.sh` (próg 0,02; SKIP bez libfaad lub fdkaac). Pułapka: w skrypcie z `set -o pipefail` `ldconfig -p | grep -q` kończy się błędem przez SIGPIPE; użyć `grep … >/dev/null`.
+
+**Granice.** Fazę sprawdzono przy ICC = 1; kombinacja IPD/OPD z ICC < 1 (dekorelator aktywny) zależy od dekorelatora, który różni się między dekoderami (FAAD2 ~24 dB od FFmpeg), więc nie ma tam wzorca poza FFmpeg, który ma odwrotne błędy w niskich pasmach. Enkodery (w tym fdkaac) IPD/OPD nie emitują.
