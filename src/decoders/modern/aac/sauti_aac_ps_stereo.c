@@ -53,9 +53,15 @@ int sauti_aac_ps_stereo_hybrid_apply(
                                       direct,count)||
        !sauti_aac_ps_decorrelator_apply(schedule,direct,count,
                                         &next.decorrelator,diffuse,count)||
-       !sauti_aac_ps_mix_complex_apply(schedule,matrix,direct,count,
-                                       diffuse,count,ltmp,count,rtmp,count))
+       !sauti_aac_ps_mix_interpolated_apply(
+           schedule,matrix,
+           /* start of the stream: zero (the matrix ramps up); topology change 20 <-> 34: the previous values are in the other band layout,
+            * start from the new first envelope instead */
+           (next.previous_bands==0u||next.previous_bands==pars)?next.previous:matrix->coefficient[0],
+           direct,count,diffuse,count,ltmp,count,rtmp,count))
         return 0;
+    for(unsigned b=0;b<pars;b++)next.previous[b]=matrix->coefficient[matrix->env_count-1u][b];
+    next.previous_bands=pars;
     for(size_t i=0;i<count;i++)
         if(!isfinite(ltmp[i].re)||!isfinite(ltmp[i].im)||
            !isfinite(rtmp[i].re)||!isfinite(rtmp[i].im))return 0;

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SBR-82: mono HE-AAC (v1 or v2 core) through the channel decoder vs an instrumented FFmpeg on a REAL file.
 # usage: scripts/test_he_channel_vs_ffmpeg.sh FILE.aac [FRAMES=400]   (SAUTI_FFMPEG_INSTR=path to the instrumented ffmpeg)
+# HE_PS=1: HE-AAC v2 with parametric stereo, compared with the reference decoder's own stereo output (default: mono SBR output, PS skipped on both sides)
 # SKIP (exit 0, stated loudly) without the file or the instrumented FFmpeg: that is not a proof of agreement.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,6 +21,13 @@ while pos+7<=len(data) and cnt<n:
     out+=data[pos:pos+ln]; pos+=ln; cnt+=1
 open(sys.argv[3],'wb').write(out); print("ADTS frames: %d"%cnt)
 PY
+if [ "${HE_PS:-0}" = 1 ]; then
+  "$FF" -v error -y -i "$W/cut.aac" -f f32le -ac 2 "$W/ref.f32" >/dev/null 2>&1 || true
+  [ -s "$W/ref.f32" ] || { echo "SKIP: this FFmpeg produced no PCM"; exit 0; }
+  SAUTI_SBR82_PS=1 build/sauti_he_decode_cli "$W/cut.aac" "$W/ours.f32" "$FRAMES" || { echo "FAIL: decoder rejected the stream"; exit 1; }
+  python3 -I tools/sauti_he_pcm_vs_ffmpeg.py "$W/ref.f32" "$W/ours.f32" "${HE_MIN_HF_DB:-100}" "${HE_MIN_LOW_DB:-100}" stereo
+  exit $?
+fi
 # the instrumented FFmpeg skips parametric stereo when asked, so a v2 stream is compared on its mono SBR output
 SAUTI_SBR73_FFMPEG_SKIP_PS=1 "$FF" -v error -y -i "$W/cut.aac" -f f32le -ac 2 "$W/ref.f32" >/dev/null 2>&1 || true
 [ -s "$W/ref.f32" ] || { echo "SKIP: this FFmpeg produced no PCM"; exit 0; }

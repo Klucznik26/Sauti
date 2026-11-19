@@ -3,6 +3,7 @@
  * frame (record: u32 frame index + 32*64 complex float, header "SBQ1"), for comparison with another decoder's grid. */
 #include "sauti_aac_he_adts_mono.h"
 #include "sauti_aac_sbr_channel.h"
+#include "sauti_aac_he_ps_bridge.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +24,11 @@ int main(int argc,char **argv){
     const long max_frames=argc>3?atol(argv[3]):1000000;
     static SautiAacHeAdtsMonoState core_state;
     static SautiAacSbrChannel ch;
+    static SautiAacHePsBridgeState psb;
+    static SautiAacSbrComplex pending[SAUTI_AAC_SBR_CHANNEL_GRID];
+    static SautiAacSbrPayloadFrame pending_payload;
+    int have_pending=0;
+    const int ps_mode=getenv("SAUTI_SBR82_PS")!=NULL;        /* HE-AAC v2: render parametric stereo, output interleaved L/R */
     if(!sauti_aac_he_adts_mono_init(&core_state) || !sauti_aac_sbr_channel_init(&ch))return 2;
     size_t pos=0;long frames=0;
     while(pos+7<=(size_t)n && frames<max_frames){
@@ -48,8 +54,20 @@ int main(int argc,char **argv){
             printf("FLAGS frame %ld t_env %u envs %u harm_any %u prev_last_sine_bins %u smooth %u limiter %u gain %u kx %u m %u\n",frames,payload.transient_env,payload.grid.env_count,any,tones,payload.bs_smoothing_mode,payload.limiter_mode,payload.gain_mode,payload.tables.kx,payload.tables.m);
         }
         if(gf){const uint32_t ix=(uint32_t)frames;fwrite(&ix,4,1,gf);fwrite(grid,sizeof(grid[0]),SAUTI_AAC_SBR_CHANNEL_GRID,gf);}
-        if(!sauti_aac_sbr_channel_synthesize(&ch,grid,pcm)){fprintf(stderr,"frame %ld: synthesis rejected\n",frames);break;}
-        fwrite(pcm,sizeof(float),2048,out);
+        if(ps_mode){
+            if(have_pending){
+                static SautiAacSbrComplex qmf38[38u*64u];
+                memcpy(qmf38,pending,sizeof(pending));
+                memcpy(qmf38+32u*64u,grid,6u*64u*sizeof(grid[0]));   /* the six lookahead slots are the first slots of this frame */
+                float st[4096];
+                if(!sauti_aac_he_ps_bridge_render(&pending_payload,qmf38,38u*64u,&psb,st,4096u)){fprintf(stderr,"frame %ld: PS rejected\n",frames-1);break;}
+                fwrite(st,sizeof(float),4096,out);
+            }
+            memcpy(pending,grid,sizeof(pending));pending_payload=payload;have_pending=1;
+        }else{
+            if(!sauti_aac_sbr_channel_synthesize(&ch,grid,pcm)){fprintf(stderr,"frame %ld: synthesis rejected\n",frames);break;}
+            fwrite(pcm,sizeof(float),2048,out);
+        }
         pos+=len;frames++;
     }
     fclose(out);if(gf)fclose(gf);

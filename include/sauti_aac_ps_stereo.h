@@ -15,6 +15,8 @@
 typedef struct {
     SautiAacPsQmfLowState qmf_low;
     SautiAacPsDecorrelatorState decorrelator;
+    SautiAacPsComplexMatrixCoefficients previous[SAUTI_AAC_PS_MAX_PARAMETERS]; /* last envelope of the previous frame (zero at start) */
+    uint32_t previous_bands;                                                    /* 0, 20 or 34 */
 } SautiAacPsStereoState;
 
 int sauti_aac_ps_stereo_hybrid_apply(

@@ -7404,3 +7404,31 @@ Siatka QMF względem `Yfull` FFmpeg (wywołanie c = moja ramka c−1, bez przesu
 **Mutanty zabite (strumień `smoothing_mode = 0`, HF z ~121 dB do):** wygładzanie wyłączone 13,1 dB; wygładzanie także w obwiedniach przejściowych 19,7 dB; brak przelewania obwiedni do następnej ramki 27,8 dB; cztery zamiast pięciu odczepów filtra 32,7 dB. Strumienie z `smoothing_mode = 1` pozostają przy ~120 dB dla trzech pierwszych (te mutanty ich nie dotyczą), a „brak przelewania” gubi je także (28,4 dB). Różnica 10⁻¹⁴ w jednym współczynniku filtra jest równoważna (poniżej rozdzielczości `float`) i nie jest wykrywalna.
 
 **Granice.** Poziomy obwiedni są płaskie w częstotliwości (zerowe delty), więc nie sprawdza się kodowania delt różnych od zera ani kierunku czasowego (to część parsera, nie tego modułu, i jest już pokryta prawdziwymi strumieniami); `num_env = 1` pominięto (inne `amp_res` i tablice Huffmana); `freq_res` jest wspólne dla wszystkich obwiedni ramki; PS i stereo poza zakresem. Zmiana geometrii tabel w trakcie strumienia (nowy nagłówek) nie jest generowana.
+
+### SBR-84 — HE-AAC v2 (PS) stereo: brakująca interpolacja macierzy miksowania; zgodność z FFmpeg do zaokrągleń (2026-11-19)
+
+**Wyjściowy stan.** Moduł kanału SBR (SBR-82) jest dokładny, ale ten sam plik `Bogini_HEv2` po przepuszczeniu przez istniejący most PS dawał względem pełnego dekodowania FFmpeg tylko niskie pasmo 24,3 dB i HF 31,7 dB (korelacja 0,971, przesunięcie 0). Dźwięk szedł w dobrą stronę, ale wynik był wyraźnie niedokładny.
+
+**Metoda: porównanie etap po etapie z instrumentowanym FFmpeg.** `ff_ps_apply` (kopia zapasowa `aacps.c.pre-sbr84`) zapisuje przy `SAUTI_PS_FFMPEG_DUMP=plik` (nagłówek `SPD1`, tylko odczyt, wyjście PCM bez zmian bit w bit): wejście `L[2][38][64]`, wynik analizy hybrydowej, wynik dekorelacji, `L`/`R` po miksowaniu i wyjście QMF. `tools/sauti_ps_stage_probe.c` (`make build/sauti_ps_stage_probe`) podaje zapisane wejścia pojedynczym modułom PS Sauti i zapisuje wynik. Wejście PS FFmpeg w slotach 0–31 jest równe mojej siatce (SBR-82) do 3,5·10⁻¹⁴ (wywołanie c = moja ramka c−1); 6 slotów wyprzedzenia ma po stronie FFmpeg HF równe dokładnie zero, co jest nieszkodliwe (filtr hybrydowy dotyczy tylko najniższych pasm QMF, tam wyprzedzenie jest dokładne, a pasma wysokie przechodzą bez filtra).
+
+| etap PS | względem FFmpeg (błąd względny energii) |
+|---|---|
+| analiza hybrydowa (`sauti_aac_ps_qmf_bank_analyze`) | **4,1·10⁻¹⁵** (istniejący moduł) |
+| dekorelacja (przejściowe tłumienie + all-pass + opóźnienia) | **2,5·10⁻¹⁴** (istniejący moduł) |
+| miksowanie stereo, kod sprzed zmiany | 4,1·10⁻³ L, 4,3·10⁻³ R |
+| miksowanie stereo po zmianie | **3,7·10⁻¹⁴ L, 4,4·10⁻¹⁴ R** |
+
+Profil błędu miksowania wskazał przyczynę: największy w slocie 0 (1,2·10⁻²), malejący do zera przy slocie 30, w niemal wszystkich pasmach.
+
+**Przyczyna.** Macierz miksowania nie jest stała na obwiednię. Współczynniki rosną liniowo od wartości z **końca poprzedniej obwiedni** (dla pierwszej obwiedni ramki: z końca poprzedniej ramki, przed pierwszą ramką zero) do wartości bieżącej obwiedni, osiągając ją w ostatnim slocie: `h(n) = start + (n − first + 1)/len · (bieżąca − start)`. Moduły `ps_mix`/`ps_matrix` stosowały stałą macierz na całej obwiedni. Dodałem `sauti_aac_ps_mix_interpolated_apply` (C, podwójna precyzja; asm dla wersji stałej zostaje) i stan `previous` w `SautiAacPsStereoState`; przy zmianie topologii 20 ↔ 34 pasm start to wartość bieżąca zamiast mapowania poprzedniej (uproszczenie, nie weryfikowane).
+
+**Wynik końcowy (pełne dekodowanie HE-AAC v2 do stereo, porównanie z normalnym dekodowaniem FFmpeg, przesunięcie 0, korelacja 1,000000):**
+
+| plik | L: niskie / HF | R: niskie / HF | przed |
+|---|---|---|---|
+| `Bogini_HEv2`, 400 ramek | 136,4 / 119,6 dB | 136,0 / 119,7 dB | 24 / 32 dB |
+| drugi fragment (`fdkaac -p 29`) | 135,2 / 122,6 dB | 135,1 / 122,6 dB | — |
+
+**Testy.** `tests/test_aac_ps_stereo.c`: wcześniej zakładał stałą macierz tożsamościową od pierwszej ramki (zmieniony świadomie: ramka 0 narasta jak `(n+1)/32`, kolejne ramki płaskie, stany podrzędne porównywane osobno, `previous` sprawdzone), plus bezpośredni test interpolacji na dwóch obwiedniach (sloty 0–7 i 8–31) ze znakiem części urojonej w niskich pasmach. Cztery mutanty zabite: brak interpolacji, start od wartości bieżącej, przesunięcie o jeden slot, odwrócenie znaku tylko na początku. `test-aac-native`: 134 PASS. Skrypt `HE_PS=1 scripts/test_he_channel_vs_ffmpeg.sh PLIK.aac` (tryb stereo narzędzia `sauti_he_pcm_vs_ffmpeg.py`); `tools/sauti_he_decode_cli.c` ma tryb `SAUTI_SBR82_PS=1` (HE-AAC v2, interleaved L/R).
+
+**Co NIE jest sprawdzone.** (a) Oba strumienie `fdkaac` używają trybu 20 pasm bez IPD/OPD (nie sprawdziłem ich flag w ramkach), więc **34 pasma, IPD/OPD, interpolacja ze znakiem części urojonej i zmiana topologii nie mają jeszcze oracle**; w FFmpeg znak urojonych współczynników startowych w niskich pasmach jest odwracany tylko na początku obwiedni (komentarz w kodzie: „Is this necessary?”), u mnie na obu końcach, bo tak jest spójnie z wersją stałą; to dotyczy wyłącznie strumieni z `enable_ipdopd`. (b) Dekoder PS jest wywoływany z wyprzedzeniem z początku następnej ramki, więc **ostatnia ramka pliku nie jest wyprowadzana** (399 z 400 ramek), do czasu dopisania opróżnienia. (c) PS jest podpięty tylko w narzędziu CLI, nie w adapterze rejestru.
