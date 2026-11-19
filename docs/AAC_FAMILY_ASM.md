@@ -7214,3 +7214,41 @@ Skala konwersji jednostek Sauti→FFmpeg jest w etapie wzmocnienia **stała we w
 **Następny krok.** Porównać amplitudę szumu bezpośrednio z FFmpeg na poziomie `q_m` (instrumentacja `sbr_gain_calc`), zamiast wnioskować ze skali dopasowanej metodą najmniejszych kwadratów (przy spójności 0,8–0,9 dopasowanie zaniża skalę i miesza błąd amplitudy z błędem fazy). Dopiero po tym warto ruszać tonami.
 
 Narzędzia: `SAUTI_SBR76_TAIL=1`, `SAUTI_SBR76_BN=plik.csv` (zrzut `frame,env,k,boost,hf_gain,noise,sine` z pierścienia).
+
+### SBR-77 — punkt 4: wkład szumu ustalony co do jednej przyczyny; płaszczyzna Sauti dodaje szum sprzed limitera (2026-11-19)
+
+**Metoda.** Instrumentacja `sbr_gain_calc` w sklonowanym FFmpeg (`SAUTI_SBR76_FFMPEG_QM`) zapisuje dla każdego wywołania, obwiedni i binu: `Eorig, ecurr, Q, qm_before, qm_final, gain_final, sm_final, gain_boost, gain_max, smapped`. Dodatek szumu FFmpeg to `Yfull − Ygain` (zrzut `SAUTI_SBR73_FFMPEG_Y`), dodatek Sauti to płaszczyzna sumy minus płaszczyzna wzmocnienia z zrzutu siatki sondy (`SAUTI_SBR76_TAIL=1`, `SAUTI_SBR75_LPC=1`) razy `2^15`. Ramka Sauti `f` odpowiada wywołaniu FFmpeg `f+1`. Dane: pierwsze 400 ramek `Bogini_HEv2`, 379 ramek porównanych (8–390); w ostatniej tabeli tylko 148 ramek z jedną obwiednią, żeby nie mieszać obwiedni (zrzut jest kluczowany `(wywołanie, bin)`).
+
+**Co jest już identyczne z FFmpeg (wszystkie 379 ramek, biny 19–39, wszystkie 32 sloty):**
+
+| element | wynik |
+|---|---|
+| baza indeksu tablicy szumu `(slot·m_max + (k−kx) + 1) mod 512` | identyczna w 379/379 wywołań |
+| indeks (faza) per slot | zgodność 1,00 w każdym z 32 slotów (≈ 620–1520 próbek na slot); odchylenie kąta < 0,05 rad |
+| wyciek płaszczyzny wzmocnienia do dodatku | `|b| ≈ 5·10⁻⁶` (pomijalny); faza dopasowania mediana 0,0004° |
+| skala jednostek płaszczyzny | `2^15` (nie `2^30`, nie 45,5) |
+
+Wcześniejszy wniosek „indeksy w większości dobre, brakuje amplitudy” był słuszny co do kierunku, ale spójność 0,95 wynikała z mieszania binów o różnych skalach, nie z błędnych indeksów.
+
+**Przyczyna (jedna).** Stosunek `|dodatek Sauti| / |dodatek FFmpeg|` jest **stały w czasie** (identyczny we wszystkich slotach ramki) i zależy tylko od binu (np. ramka 30: biny 19–21 → 0,99; 23–27 → 0,87; 29 → 2,09; 30 → 4,31; 31 → 7,95; 32 → 10,03; 33–39 → 0,75–0,93). Przy małym `q_m` rośnie jak `1/q_m`, czyli amplituda Sauti jest tam stała (≈ 5). Porównanie z zrzutem FFmpeg:
+
+- amplituda Sauti / `qm_before` FFmpeg: percentyle 5/25/50/75/95 = **0,99995 / 0,99999 / 1,00000 / 1,00001 / 1,00004** (3108 próbek),
+- amplituda Sauti / `qm_final` FFmpeg: 0,65 / 0,79 / 0,95 / 1,06 / 3,85.
+
+Płaszczyzna szumu w sondzie używa więc `noise_frame.raw_amplitude` = `sqrt(E)·sqrt(Q/(1+Q))` (SBR-53f, **bez limitera**), a FFmpeg dodaje `q_m` po limiterze: `qm_final = min(qm_before, granica_limitera)·boost`. Przykład z wywołania 32: bin 23 `7,77 → 8,80` (×boost 1,133), bin 29 `4,62 → 1,77`, bin 30 `4,62 → 1,39`, bin 32 `4,62 → 0,50` (ograniczone limiterem; potem ×1,133). Wartość po limiterze `limited.band[k].noise_amplitude` jest w sondzie znana (to ona jest w pierścieniu `saved_noise`, stąd wcześniejszy wynik „szum w pierścieniu = `q_m` FFmpeg, 1,00”), ale **nie trafia do płaszczyzny sumy**. Mediana `qm_final/qm_before` w całym zrzucie FFmpeg: 1,02 (p1 0,09, p25 0,92, p75 1,14, p99 1,58), więc poprawka jest istotna głównie na pasmach z aktywnym limiterem.
+
+**Weryfikacja przyczyny (eksperyment w analizie, bez zmiany dekodera).** Dodatek Sauti przemnożony per `(wywołanie, bin)` przez `qm_final/qm_before` i porównany z dodatkiem FFmpeg na 148 ramkach z jedną obwiednią (biny 19–39, bez binów z sinusem):
+
+| dodatek Sauti | błąd względny: mediana | p95 |
+|---|---|---|
+| surowy (`qm_before`) | 0,2776 | 0,4037 |
+| × `qm_final/qm_before` | **3,0·10⁻⁵** | 3,5·10⁻⁵ |
+
+Błąd spada do poziomu precyzji `float`, więc **wkład szumu jest wyjaśniony w całości jednym czynnikiem** (dla ramek z jedną obwiednią, które są jednoznaczne w zrzucie). Dla ramek wieloobwiedniowych nie ma jeszcze takiego dopasowania, bo zrzut `(wywołanie, bin)` nadpisuje obwiednie ostatnią.
+
+**Czego to NIE rozstrzyga.**
+- Nic w dekoderze ani w sondzie nie zostało zmienione; domyślne wyjście jest bitowo identyczne. Poprawka (podmiana amplitudy szumu w płaszczyźnie na `limited.band[k].noise_amplitude` właściwej obwiedni) nie jest jeszcze zastosowana, więc **poprawa PCM nie jest zmierzona**.
+- Tony (sinusoidy): nie badane w tym wpisie. W SBR-76 bin 42 miał osobną ścieżkę (`indexsine`), biny 18 i 40–44 zostają otwarte, w tym wykryty tu błąd dodatku 497 na binie 42 i 0,64 na binie 32 przy surowym porównaniu (bin 32 ma w ramce 30 `q_m` 0,5, więc to ten sam czynnik limitera, nie osobny błąd).
+- Wynik dotyczy jednego pliku (`Bogini_HEv2`, 400 ramek).
+
+**Następny krok.** Podmienić w sondzie amplitudę szumu płaszczyzny na wartość po limiterze (eksperyment za zmienną środowiskową, domyślne wyjście bez zmian), z mapowaniem slot → obwiednia, i zmierzyć PCM >5,5 kHz względem FFmpeg (stan wyjściowy 21,2 dB); dopiero potem tony.
