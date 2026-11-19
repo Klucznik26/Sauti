@@ -2130,3 +2130,12 @@ test-aac-sbr-qmf-call-trace:
 test-aac-sbr-qmf-context-select:
 	python3 -m py_compile tools/sauti_ffmpeg_qmf_context_select.py
 	python3 tools/sauti_ffmpeg_qmf_context_select.py --self-test
+
+# MaktabaSauti public headers: C99 pedantic + C++17, struct layout and ABI constants (docs/MAKTABASAUTI_API.md)
+.PHONY: test-maktabasauti-headers
+test-maktabasauti-headers:
+	@mkdir -p $(OBJDIR)
+	$(CC) -std=c99 -pedantic -Wall -Wextra -Werror -Iinclude -o $(OBJDIR)/test_maktabasauti_headers tests/test_maktabasauti_headers.c
+	./$(OBJDIR)/test_maktabasauti_headers
+	$(CXX) -std=c++17 -pedantic -Wall -Wextra -Werror -Iinclude -o $(OBJDIR)/test_maktabasauti_headers_cpp tests/test_maktabasauti_headers_cpp.cpp
+	./$(OBJDIR)/test_maktabasauti_headers_cpp
