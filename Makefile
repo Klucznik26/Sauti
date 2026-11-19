@@ -2139,3 +2139,43 @@ test-maktabasauti-headers:
 	./$(OBJDIR)/test_maktabasauti_headers
 	$(CXX) -std=c++17 -pedantic -Wall -Wextra -Werror -Iinclude -o $(OBJDIR)/test_maktabasauti_headers_cpp tests/test_maktabasauti_headers_cpp.cpp
 	./$(OBJDIR)/test_maktabasauti_headers_cpp
+
+# ---- MaktabaSauti: rdzen (src/maktabasauti) + opakowania starszych dekoderow; docs/MAKTABASAUTI_API.md ----
+MKS_CORE_SRC := $(filter-out src/maktabasauti/mks_nolegacy.c,$(wildcard src/maktabasauti/*.c))
+MKS_LEGACY_SRC := src/decoders/modern/sauti_decoder_wav.c src/decoders/retro/pc/sauti_decoder_voc.c src/decoders/modern/sauti_decoder_aiff.c src/decoders/modern/sauti_decoder_vorbis.c \
+                  src/decoders/modern/sauti_decoder_midi.c src/decoders/modern/sauti_decoder_flac.c src/decoders/modern/sauti_decoder_mp3.c src/decoders/retro/atari/sauti_decoder_avr.c \
+                  src/decoders/retro/atari/sauti_decoder_dvsm.c src/decoders/retro/atari/sauti_decoder_dtm.c src/decoders/retro/atari/sauti_decoder_ym.c src/sauti_decoder.c
+MKS_DEPS = $(sort $(MKS_CORE_SRC) $(MKS_LEGACY_SRC) $(AAC_PLAYER_SRC) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_ASM))
+MKS_INC := -Iinclude -Isrc/maktabasauti -Ithird_party -Ithird_party/dr_libs -Ithird_party/stb -Ithird_party/tml
+
+# rdzen musi byc C99 bez rozszerzen (poza mostem do starszych dekoderow, ktory wlacza ich naglowki)
+.PHONY: check-maktabasauti-c99
+check-maktabasauti-c99:
+	@mkdir -p $(OBJDIR)
+	@for f in $(filter-out src/maktabasauti/mks_legacy.c,$(MKS_CORE_SRC)); do $(CC) -std=c99 -pedantic -Wall -Wextra -Werror -O2 $(MKS_INC) -c $$f -o $(OBJDIR)/c99check.o || exit 1; done
+	@$(CC) -std=c11 -Wall -Wextra -Werror -O2 $(MKS_INC) -c src/maktabasauti/mks_legacy.c -o $(OBJDIR)/c99check.o
+	@echo "PASS MaktabaSauti core: C99 -pedantic (bridge to legacy decoders: C11)"
+
+# testy rdzenia (ASan + UBSan)
+$(OBJDIR)/test_maktabasauti_core: tests/test_maktabasauti_core.c $(MKS_DEPS) include/maktabasauti/maktabasauti.h include/maktabasauti/maktabasauti_codec.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -DMKS_TEST_LEGACY -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_core.c $(MKS_DEPS) -lm -lpthread -no-pie
+$(OBJDIR)/test_maktabasauti_regression: tests/test_maktabasauti_regression.c $(MKS_DEPS) include/maktabasauti/maktabasauti.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_regression.c $(MKS_DEPS) -lm -lpthread -no-pie
+$(OBJDIR)/test_maktabasauti_threads_asan: tests/test_maktabasauti_threads.c $(MKS_DEPS) include/maktabasauti/maktabasauti.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_threads.c $(MKS_DEPS) -lm -lpthread -no-pie
+$(OBJDIR)/test_maktabasauti_threads_tsan: tests/test_maktabasauti_threads.c $(MKS_DEPS) include/maktabasauti/maktabasauti.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=thread $(MKS_INC) -o $@ tests/test_maktabasauti_threads.c $(MKS_DEPS) -lm -lpthread -no-pie
+
+.PHONY: test-maktabasauti-core test-maktabasauti-regression
+test-maktabasauti-core: check-maktabasauti-c99 $(OBJDIR)/test_maktabasauti_core
+	./$(OBJDIR)/test_maktabasauti_core
+test-maktabasauti-regression: $(OBJDIR)/test_maktabasauti_regression
+	./$(OBJDIR)/test_maktabasauti_regression tests/data/lc.aac tests/data/he1.aac tests/data/he2.aac tests/data/he1.m4a tests/data/he1.loas tests/data/he1.adif tests/data/m51.aac
+
+# rdzen bez opakowan starszych dekoderow: przenosna budowa (bez NASM, bez plikow starszych dekoderow), C99 pedantic; do CI na Windows/macOS/BSD/ARM64
+.PHONY: test-maktabasauti-core-portable
+test-maktabasauti-core-portable:
+	@mkdir -p $(OBJDIR)
+	$(CC) -std=c99 -pedantic -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -Iinclude -Isrc/maktabasauti -o $(OBJDIR)/test_maktabasauti_core_portable \
+	  tests/test_maktabasauti_core.c $(filter-out src/maktabasauti/mks_legacy.c,$(MKS_CORE_SRC)) src/maktabasauti/mks_nolegacy.c -lm
+	./$(OBJDIR)/test_maktabasauti_core_portable

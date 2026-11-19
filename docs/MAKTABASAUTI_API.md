@@ -1,6 +1,6 @@
 # MaktabaSauti: projekt publicznego API (2026-11-19)
 
-Nazwa: **MaktabaSauti** (swahili: „biblioteka dźwięku"). Status: **projekt do przeglądu**; ABI zostaje zamrożone w pierwszym wydaniu (`MAKTABASAUTI_ABI_VERSION 1`). Nagłówki: `include/maktabasauti/maktabasauti.h` (API aplikacji) i `maktabasauti_codec.h` (interfejs modułu kodeka). Plan całej biblioteki, licencje i pochodzenie danych: `BIBLIOTEKA_PLAN.md`, `POCHODZENIE_DANYCH.md`.
+Nazwa: **MaktabaSauti** (swahili: „biblioteka dźwięku"). Status: **wersja rozwojowa 0.1.0-dev; ABI niestabilne i niezamrożone** (`MAKTABASAUTI_ABI_VERSION 0`; po zamrożeniu stanie się 1 i będzie numerem SONAME). Wersja 1.0 i stabilne ABI nie są ogłaszane, dopóki rdzeń nie zostanie przetestowany z rzeczywistymi kodekami (decyzja właściciela projektu). Nagłówki: `include/maktabasauti/maktabasauti.h` (API aplikacji) i `maktabasauti_codec.h` (interfejs modułu kodeka). Plan całej biblioteki, licencje i pochodzenie danych: `BIBLIOTEKA_PLAN.md`, `POCHODZENIE_DANYCH.md`.
 
 ## 1. Nazwy i układ bibliotek
 
@@ -31,9 +31,16 @@ Jedna liczba całkowita: dodatnie = sukces z informacją (`MAKTABASAUTI_EOF`), `
 
 ## 4. Pamięć i własność
 
-- Wszystkie alokacje przez alokator (`maktabasauti_allocator_t`, `NULL` = libc), także w modułach (przez `host->alloc`). Brak stanu globalnego.
-- **Wejście przechodzi na własność biblioteki** przy `maktabasauti_decoder_open`, **zawsze, także po błędzie**: callback `close` zostanie wywołany dokładnie raz. Wywołujący nie musi osobno sprzątać po nieudanym otwarciu.
-- Biblioteka nie oddaje wskaźników do wewnętrznych buforów poza łańcuchami opisanymi w nagłówku (ważnymi do kolejnego wywołania na tym uchwycie lub zamknięcia). PCM zawsze trafia do bufora wywołującego.
+**Alokator (kontrakt, decyzja właściciela projektu).** Wszystkie alokacje przechodzą przez alokator (`NULL` = libc), także w modułach (przez `host->alloc/realloc/free`).
+- `alloc(size)`: `size > 0` (biblioteka nigdy nie prosi o 0 bajtów), wynik wyrównany co najmniej do 16 bajtów albo `NULL`.
+- `free(ptr)`: `ptr` pochodzi z `alloc`/`realloc` tego alokatora; biblioteka **nigdy nie woła `free(NULL)`**; `free` **nie dostaje rozmiaru**.
+- `realloc` jest **opcjonalny**. Gdy go nie ma, biblioteka **nie kopiuje starego bloku „na ślepo”**: każdy blok ma ukryty 16-bajtowy nagłówek z zamówionym rozmiarem, więc zastępcze `realloc` (alloc nowego, kopia dokładnie `min(stary, nowy)`, free starego) zna rozmiar, a alokator użytkownika nie musi znać żadnych rozmiarów. Cena: 16 B narzutu na blok i wymóg wyrównania 16 B. Host dostarcza modułom `realloc` zawsze.
+- Alokator jest kopiowany przy tworzeniu uchwytu (wskaźnik `user` musi żyć do jego zamknięcia); musi być bezpieczny wątkowo, jeśli używają go uchwyty w różnych wątkach. Pola poza `struct_size` krótszej struktury wywołującego są traktowane jako `NULL` (wymagane `alloc` i `free`).
+- Test: `tests/test_maktabasauti_core.c` używa alokatora **bez `realloc`**, który zatruwa świeże bloki, zlicza `alloc`/`free` i wykrywa `free(NULL)`; po każdym cyklu liczba żywych bloków musi wrócić do zera (rejestr, wejście z pamięci, pełny cykl dekodera, nieudane otwarcie, wczytanie całego wejścia przez most).
+
+**Własność wejścia (decyzja właściciela projektu, bez wyjątków).** Wejście przekazane do `maktabasauti_decoder_open()` przechodzi na własność biblioteki **wyłącznie po udanym otwarciu** (`MAKTABASAUTI_OK`): wtedy `maktabasauti_decoder_close()` wywoła `io.close` dokładnie raz. **Przy każdym błędzie** (`E_INVALID_ARGUMENT`, `E_ABI_MISMATCH`, `E_NO_MEMORY`, `E_UNSUPPORTED_FORMAT`, `E_NOT_SEEKABLE`, `E_IO`, …) wejście **zostaje własnością wywołującego**: biblioteka nie woła `close` ani nie zachowuje wskaźnika, zwalnia tylko to, co sama zajęła, a `*out == NULL`. Pozycja wejścia po błędzie jest nieokreślona (biblioteka mogła czytać). Każda ścieżka błędu w `mks_decoder.c` idzie przez `release_partial()`, która nie zna `io.close`; test sprawdza to dla każdego rodzaju błędu (licznik wywołań `close` musi pozostać 0).
+
+- Biblioteka nie oddaje wskaźników do wewnętrznych buforów poza łańcuchami opisanymi w nagłówku. PCM zawsze trafia do bufora wywołującego.
 - `maktabasauti_decoder_close(NULL)` i `maktabasauti_registry_destroy(NULL)` są bezpieczne.
 
 ## 5. Wejście strumieniowe i cykl życia dekodera
@@ -52,7 +59,12 @@ close: z każdego stanu (zamyka też wejście)
 
 - `open`: wykrycie kodeka po prefiksie (do 4096 B, bez czytania całości), niezależny stan, `get_info`.
 - `read(dst, ramki, format, &odczytano)`: konwersja formatu po stronie biblioteki (`U8/S16/S24/S32/F32/F64`, dither opcjonalny).
-- `seek(ramka, EXACT|APPROX, &faktyczna)`, `tell`; pozycje liczone po przycięciu gapless.
+- `seek(ramka, EXACT|APPROX, &faktyczna)`, `tell`; pozycje w **ramkach PCM po przycięciu gapless** (ramka 0 = pierwsza ramka, którą zwróci `read`; decyzja właściciela projektu). Dokładne zachowanie:
+  - **EXACT:** po `OK` następny `read` zaczyna dokładnie od `frame`, `*actual == frame`.
+  - **APPROX:** po `OK` następny `read` zaczyna od `*actual <= frame` (nigdy dalej niż zadano; różnica co najwyżej granulacja punktów dostępu kodeka; kodek bez punktów dostępu może zwrócić `*actual == frame`); `tell()` zwraca `*actual`.
+  - **Poza końcem, długość znana:** `frame == total_frames` jest dozwolone (`OK`, następny `read` daje EOF); `frame > total_frames` daje `E_OUT_OF_RANGE` i **nie zmienia stanu** (pozycji, błędu, EOF).
+  - **Poza końcem, długość nieznana:** `OK` na ostatniej istniejącej pozycji (`*actual` = koniec), następny `read` daje EOF.
+  - `E_INVALID_ARGUMENT` (złe flagi) i `E_NOT_SEEKABLE` nie zmieniają stanu; inny błąd w trakcie seek (np. `E_IO`, `E_CORRUPT_DATA`) zostawia dekoder w stanie błędu do następnego udanego `seek`/`reset`; udany seek czyści błąd i EOF.
 - `reset`: powrót na początek z pełnym wyczyszczeniem stanu. `flush`: porzucenie historii dekodera **bez przewijania wejścia** (wznowienie po nieciągłości w strumieniu na żywo).
 - `FORMAT_CHANGED`: parametry strumienia zmieniły się w środku (np. łańcuchowy Ogg); `get_info` zwraca nowe.
 
@@ -89,7 +101,7 @@ Brak stanu globalnego. Różne uchwyty (dekodery, rejestry, wejścia) są w peł
 ## 10. Plan wdrożenia etapami (bez utraty funkcjonalności)
 
 1. **Etap 0 (zrobiony):** projekt nagłówków, test układu ABI, usunięcie stanu współdzielonego z dekoderów AAC, wewnętrzne `sauti_legacy_decoder_*` jako warstwa starego API.
-2. **Etap 1:** rdzeń (`src/maktabasauti/`): wersje, kody błędów, alokator, wejścia z pamięci/pliku, bufor czytnika (peek/seek), rejestr, konwersje PCM i dither, `decoder_open/read/seek/reset/flush/close`. Most do starych dekoderów (`SautiDecoderOps`) jako moduły „legacy” (wymagają całego pliku, oznaczone w opisie), żeby cały dotychczasowy zestaw kodeków działał natychmiast przez nowe API; testy regresyjne: wynik bit w bit jak przez stare API.
+2. **Etap 1 (zrobiony w tej wersji rozwojowej; patrz § 12):** rdzeń `src/maktabasauti/` (wersje, kody błędów, alokator z ukrytym nagłówkiem, wejścia pamięć/plik, czytnik buforowany, rejestr, konwersje PCM z ditherem TPDF, `decoder_open/read/seek/tell/reset/flush/close`, tagi, zarezerwowany koder) i most do starych dekoderów jako opakowania `NEEDS_FULL_BUFFER`, z wynikiem PCM bit w bit jak w starym API.
 3. **Etap 2:** prawdziwe moduły strumieniowe: AAC (ADTS/LOAS najpierw), FLAC, DVS; każdy z testem wielowątkowym; wejście strumieniowe bez ładowania pliku.
 4. **Etap 3:** przejście odtwarzacza (SDL) na nowe API; stare API tylko wewnętrznie, potem usunięte.
 5. **Etap 4:** budowanie: CMake, biblioteki dzielone i statyczne, `pkg-config`, SONAME, pakiety; ścieżki C dla asm (Windows/ARM/BSD).
@@ -97,3 +109,20 @@ Brak stanu globalnego. Różne uchwyty (dekodery, rejestry, wejścia) są w peł
 ## 11. CI i wielowątkowość pod ThreadSanitizerem (wymaganie)
 
 Test `tests/test_aac_threads.c` ma dziś zapasowy wariant z ASan, bo na tej maszynie brakuje runtime TSan. **W CI TSan jest wymagany i brak jego runtime ma wywracać zadanie, nie pomijać go.** W tym celu: (a) fixtury strumieni w `tests/data/` (syntetyczny sygnał zakodowany raz, nie dane użytkownika), żeby test w CI **nie wymagał** fdkaac ani FFmpeg i nie mógł się „SKIP-nąć”; (b) zadanie CI `tsan` na Linuksie x86-64 z `libtsan` (instalowanym w zadaniu; brak = błąd), uruchamiające `test_aac_threads` pod `-fsanitize=thread`; (c) analogiczne zadania ASan/UBSan. Zadania dla Windows, ARM i BSD są dodawane razem z etapem 4 (do czasu ścieżek C zamiast asm nie zbudują się: oznaczone jako dozwolone niepowodzenie z komentarzem, nie ukryte).
+
+## 12. Stan etapu 1 (2026-11-19)
+
+**Zrobione i przetestowane:** rdzeń C99 (`-std=c99 -pedantic -Werror`; most do starych dekoderów w C11), 19 kodeków z repozytorium opakowanych w rejestrze domyślnym (AAC: 8 wejść ADTS/HE/MP4/LOAS/ADIF, DVS/AVR/DTM, FLAC, WAV/AIFF/VOC, Vorbis, MIDI, YM, MP3; bez opakowań opartych o FFmpeg i inne zewnętrzne biblioteki, zgodnie z niezależnością od FFmpeg). Testy (wszystkie pod ASan i UBSan):
+- `test_maktabasauti_core`: wersje, kody błędów, alokator **bez `realloc`** (zatruwanie, zliczanie, brak `free(NULL)`, powrót do zera), wejścia pamięć/plik, konwersje PCM (nasycenie, NaN, S24 pakowane, dither deterministyczny, rozłączność buforów), własność wejścia przy każdym rodzaju błędu, **syntetyczny kodek strumieniowy** (odczyt kilku ramek z 200 KB czyta tylko ułamek wejścia), `seek` EXACT/APPROX/na koniec/poza koniec/długość nieznana, lepkie błędy i ich czyszczenie, `reset`, `flush`, `E_FORMAT_CHANGED`, `E_WOULD_BLOCK` (widoczny i niewidoczny), wejście nieprzewijalne, most do starych dekoderów (WAV: PCM bit w bit jak w starym API, konwersja do S16 zgodna ze wzorem), lista kodekow wg modułów;
+- `test_maktabasauti_regression`: wszystkie fixtury AAC (LC, HE v1, HE v2, M4A, LOAS, ADIF, 5.1) nowym i starym API: **PCM identyczny bit w bit**, te same parametry, te same wyniki po 12 przewinięciach i po `reset`, dla wejścia z pamięci i z pliku;
+- `test_maktabasauti_threads`: 8 wątków × 7 plików × 3 formaty, własny alokator na wątek (po każdym cyklu liczba żywych bloków = 0), wspólne rejestry tylko do odczytu; w CI pod **ThreadSanitizerem (wymagane)**;
+- wariant **przenośny** rdzenia (bez mostu do starych dekoderów, bez NASM): CI na Linuksie x86-64 i ARM64, macOS, Windows (MinGW) i FreeBSD.
+
+**Ograniczenia tej wersji (świadomie opisane):**
+1. Opakowania starych dekoderów **nie są strumieniowe**: wczytują całe wejście do pamięci (flaga `NEEDS_FULL_BUFFER`), a każde otwarcie przez rejestr domyślny wczytuje plik, bo stare probe'y dostają cały plik. Strumieniowe moduły (AAC najpierw) zastępują opakowania w etapie 2; API i testy z syntetycznym kodekiem strumieniowym pokazują, że rdzeń to wspiera.
+2. Stare dekodery nie podają przyczyny niepowodzenia: błąd otwarcia mapuje się na `E_UNSUPPORTED_FEATURE`, a niepowodzenie `seek` też; `flush` nie jest dostępny (`E_NOT_IMPLEMENTED`); tagi niedostępne.
+3. Maska kanałów dla opakowanych dekoderów jest podawana tylko dla 1, 2, 6 i 8 kanałów (mono, stereo, 5.1, 7.1); w pozostałych przypadkach 0 (nie zgadujemy rozmieszczenia).
+4. Opakowane dekodery oddają `float` (`native_format = F32`); konwersja do `S16/S24/S32/U8/F64` po stronie biblioteki.
+5. Wczytanie całości jest ograniczone do 1 GiB (`E_NO_MEMORY` powyżej).
+6. Wejście z pliku na Windows (UTF-8 → UTF-16) i budowa na pozostałych platformach są weryfikowane dopiero w CI; lokalnie przetestowano Linux x86-64.
+7. Dynamiczne ładowanie modułów (`maktabasauti_module_entry`) i pakowanie (CMake, `.so.1`, `pkg-config`) to etapy 3 i 4.

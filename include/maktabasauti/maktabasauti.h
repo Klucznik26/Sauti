@@ -1,10 +1,10 @@
 /* MaktabaSauti: wspolne API do dekodowania (i, docelowo, kodowania) audio.  Jedno API dla wszystkich kodekow (AAC, DVS, FLAC, ...), ktore sa niezaleznymi modulami
  * (maktabasauti_aac, maktabasauti_dvs, maktabasauti_flac, ...); opcjonalna wspolna biblioteka libmaktabasauti laczy rdzen z modulami.
  *
- * STATUS: PROJEKT DO PRZEGLADU.  ABI zostaje zamrozone dopiero w pierwszym wydaniu (MAKTABASAUTI_ABI_VERSION 1); do tego czasu zmiany sa dozwolone.  Opis zasad:
- * docs/MAKTABASAUTI_API.md.
+ * STATUS: WERSJA ROZWOJOWA (0.x).  ABI NIE jest stabilne i nie jest zamrozone: kazda zmiana jest dozwolona, a biblioteka odrzuca niezgodne wersje (E_ABI_MISMATCH).
+ * Stabilnosc ABI i wersja 1.0 beda oglaszane dopiero po zaimplementowaniu i przetestowaniu rdzenia z prawdziwymi kodekami.  Opis zasad: docs/MAKTABASAUTI_API.md.
  *
- * Zasady ABI (obowiazuja po zamrozeniu):
+ * Zasady ABI (cel; obowiazuja od zamrozenia):
  *   - Kazda struktura publiczna zaczyna sie od `uint32_t struct_size` ustawianego przez wywolujacego na sizeof(struktury) z jego naglowka.  Biblioteka czyta z struktury
  *     wejsciowej tylko tyle bajtow, ile wskazuje struct_size (starsze programy dzialaja z nowsza biblioteka), a do struktury wyjsciowej zapisuje tylko tyle, ile zmiesci
  *     struct_size.  Nowe pola dopisuje sie wylacznie na koncu.
@@ -43,11 +43,13 @@ extern "C" {
 #endif
 
 /* ---- wersje -------------------------------------------------------------------------------------------------------------------------------------------- */
-#define MAKTABASAUTI_VERSION_MAJOR 1u
-#define MAKTABASAUTI_VERSION_MINOR 0u
+#define MAKTABASAUTI_VERSION_MAJOR 0u
+#define MAKTABASAUTI_VERSION_MINOR 1u
 #define MAKTABASAUTI_VERSION_PATCH 0u
-#define MAKTABASAUTI_VERSION_STRING "1.0.0"
-#define MAKTABASAUTI_ABI_VERSION 1u          /* zmienia sie tylko przy niezgodnej zmianie ABI; to samo co numer SONAME (libmaktabasauti_aac.so.1) */
+#define MAKTABASAUTI_VERSION_STRING "0.1.0-dev"
+/* ABI 0 = rozwojowe, niestabilne (kazda zmiana dozwolona).  Przy zamrozeniu stanie sie 1 i bedzie tym samym numerem co SONAME (libmaktabasauti_aac.so.1);
+ * od tego momentu zmienia sie tylko przy niezgodnej zmianie ABI. */
+#define MAKTABASAUTI_ABI_VERSION 0u
 
 MAKTABASAUTI_API uint32_t MAKTABASAUTI_CALL maktabasauti_abi_version(void);   /* wersja ABI biblioteki; porownac z MAKTABASAUTI_ABI_VERSION */
 MAKTABASAUTI_API void MAKTABASAUTI_CALL maktabasauti_version(uint32_t *major, uint32_t *minor, uint32_t *patch);
@@ -83,13 +85,22 @@ MAKTABASAUTI_API const char *MAKTABASAUTI_CALL maktabasauti_result_name(maktabas
 MAKTABASAUTI_API const char *MAKTABASAUTI_CALL maktabasauti_result_message(maktabasauti_result_t result);   /* krotki opis po angielsku; nigdy NULL */
 
 /* ---- pamiec -------------------------------------------------------------------------------------------------------------------------------------------- */
-/* Wszystkie alokacje biblioteki przechodza przez alokator.  NULL = malloc/realloc/free z libc.  Alokator musi byc zywy i bezpieczny watkowo dla uchwytow, ktore go uzywaja.
- * Biblioteka nie zwraca wskaznikow do swoich buforow wewnetrznych poza lancuchami opisanymi w tym pliku (waznymi do nastepnego wywolania na tym uchwycie lub do jego zamkniecia). */
+/* Wszystkie alokacje biblioteki (i modulow, przez host) przechodza przez alokator.  NULL = malloc/realloc/free z libc.  Kontrakt:
+ *   alloc(size): size > 0 (biblioteka nigdy nie prosi o 0 bajtow); zwraca blok o wyrownaniu co najmniej 16 bajtow albo NULL.
+ *   free(ptr): ptr pochodzi z alloc lub realloc tego samego alokatora; biblioteka nigdy nie wola free(NULL).  free NIE dostaje rozmiaru.
+ *   realloc: OPCJONALNY (moze byc NULL).  Gdy jest, ma semantyke realloc z libc dla ptr != NULL i size > 0 (zachowuje min(stary, nowy) bajtow, przy bledzie zwraca NULL
+ *            i stary blok zostaje wazny).  Gdy go NIE ma, biblioteka NIGDY nie kopiuje starego bloku "na slepo": zna jego rozmiar, bo przechowuje go w ukrytym naglowku
+ *            kazdego bloku (stad wymog wyrownania 16 B i narzut 16 B na blok), alokuje nowy blok przez alloc, kopiuje dokladnie min(stary, nowy) bajtow i zwalnia stary przez free.
+ *            Alokator wiec nie musi znac rozmiarow.
+ *   Watki: alokator uzywany przez uchwyty pracujace w roznych watkach musi byc bezpieczny watkowo.  Pola poza `struct_size` (u wywolujacego krotszego niz nasz naglowek)
+ *            traktowane sa jako NULL; alloc i free sa wymagane.
+ * Biblioteka nie zwraca wskaznikow do swoich buforow wewnetrznych poza lancuchami opisanymi w tym pliku (waznymi do nastepnego wywolania na tym uchwycie lub do jego
+ * zamkniecia).  Zywotnosc: alokator (struktura) jest kopiowany przy tworzeniu uchwytu; wskaznik `user` musi zyc do zamkniecia uchwytu. */
 typedef struct maktabasauti_allocator {
     uint32_t struct_size;
     void *user;
     void *(MAKTABASAUTI_CALL *alloc)(void *user, size_t size);                  /* NULL gdy brak pamieci */
-    void *(MAKTABASAUTI_CALL *realloc)(void *user, void *ptr, size_t size);     /* moze byc NULL: wtedy alloc+kopiowanie+free */
+    void *(MAKTABASAUTI_CALL *realloc)(void *user, void *ptr, size_t size);     /* opcjonalny */
     void (MAKTABASAUTI_CALL *free)(void *user, void *ptr);
 } maktabasauti_allocator_t;
 
@@ -100,8 +111,11 @@ typedef struct maktabasauti_allocator {
  * seek: whence jak w stdio (0 = poczatek, 1 = biezaca, 2 = koniec); zwraca nowa pozycje (>=0) albo MAKTABASAUTI_E_NOT_SEEKABLE/blad.  NULL = wejscie nieprzewijalne
  *       (tylko kodeki strumieniowe, brak seek/reset).
  * size: calkowity rozmiar w bajtach albo ujemna wartosc, gdy nieznany; moze byc NULL.
- * close: wolane dokladnie raz, gdy uchwyt (lub nieudane otwarcie) konczy zycie wejscia; moze byc NULL.
- * Wlasnosc: wejscie przekazane do maktabasauti_decoder_open() przechodzi na biblioteke zawsze (takze po bledzie): callback close zostanie wywolany. */
+ * close: wolane dokladnie raz, gdy uchwyt dekodera konczy zycie wejscia (maktabasauti_decoder_close); moze byc NULL.
+ * WLASNOSC (zasada bez wyjatkow): wejscie przekazane do maktabasauti_decoder_open() przechodzi na biblioteke WYLACZNIE po pomyslnym otwarciu (zwrocony kod OK).  Przy
+ * KAZDYM bledzie (w tym E_INVALID_ARGUMENT, E_ABI_MISMATCH, E_NO_MEMORY, E_UNSUPPORTED_FORMAT, E_IO) wejscie pozostaje wlasnoscia wywolujacego: biblioteka nie wola
+ * `close` i nie zachowuje wskaznika.  Po bledzie pozycja wejscia jest nieokreslona (biblioteka mogla czytac); wywolujacy moze wywolac seek(0), uzyc wejscia ponownie
+ * albo je zamknac sam. */
 typedef struct maktabasauti_io {
     uint32_t struct_size;
     void *user;
@@ -234,7 +248,7 @@ enum {                                              /* maktabasauti_open_params_
 typedef struct maktabasauti_open_params {
     uint32_t struct_size;
     uint32_t abi_version;                           /* ustaw MAKTABASAUTI_ABI_VERSION */
-    maktabasauti_io_t io;                           /* przechodzi na wlasnosc biblioteki (takze po bledzie) */
+    maktabasauti_io_t io;                           /* przechodzi na wlasnosc biblioteki WYLACZNIE po pomyslnym otwarciu; po bledzie zostaje u wywolujacego */
     const maktabasauti_allocator_t *allocator;      /* NULL = libc */
     const maktabasauti_registry_t *registry;        /* NULL = rejestr domyslny */
     uint32_t flags;                                 /* MAKTABASAUTI_OPEN_* */
@@ -249,7 +263,8 @@ typedef struct maktabasauti_open_params {
     int32_t reserved1;
 } maktabasauti_open_params_t;
 
-/* Otwiera dekoder: wykrywa kodek (po prefiksie danych, bez czytania calosci), tworzy niezalezny stan.  Zwraca E_UNSUPPORTED_FORMAT, gdy nikt nie rozpoznal danych. */
+/* Otwiera dekoder: wykrywa kodek (po prefiksie danych; kodeki oznaczone NEEDS_FULL_BUFFER, czyli opakowane starsze dekodery, wymagaja wczytania calego wejscia),
+ * tworzy niezalezny stan.  Zwraca E_UNSUPPORTED_FORMAT, gdy nikt nie rozpoznal danych.  Wlasnosc wejscia: patrz maktabasauti_io_t (przechodzi na biblioteke tylko przy OK). */
 MAKTABASAUTI_API maktabasauti_result_t MAKTABASAUTI_CALL maktabasauti_decoder_open(const maktabasauti_open_params_t *params, maktabasauti_decoder_t **out);
 MAKTABASAUTI_API void MAKTABASAUTI_CALL maktabasauti_decoder_close(maktabasauti_decoder_t *decoder);   /* NULL bezpieczne; zamyka tez wejscie */
 
@@ -262,9 +277,15 @@ MAKTABASAUTI_API maktabasauti_result_t MAKTABASAUTI_CALL maktabasauti_decoder_ge
 MAKTABASAUTI_API maktabasauti_result_t MAKTABASAUTI_CALL maktabasauti_decoder_read(maktabasauti_decoder_t *decoder, void *dst, size_t dst_frames,
                                                                                    maktabasauti_sample_format_t format, size_t *frames_read);
 
-/* Przewijanie do ramki `frame` (liczonej od poczatku odtwarzanego materialu, po przycieciu gapless).  MAKTABASAUTI_SEEK_EXACT: dokladnie do ramki (kodek dekoduje
- * od najblizszego punktu dostepu i odrzuca nadmiar); MAKTABASAUTI_SEEK_APPROX: moze wyladowac wczesniej, szybciej.  *actual (opcjonalny) = ramka, na ktorej
- * wyladowano.  frame == total_frames jest dozwolone (nastepny read daje EOF); wiecej: E_OUT_OF_RANGE.  Czysci stan bledu. */
+/* Przewijanie do ramki `frame`: liczonej w ramkach PCM od poczatku odtwarzanego materialu, PO przycieciu gapless (ramka 0 = pierwsza ramka, ktora zwroci read).
+ *   MAKTABASAUTI_SEEK_EXACT: po OK nastepny read zaczyna dokladnie od `frame` (kodek dekoduje od najblizszego punktu dostepu i odrzuca nadmiar); *actual == frame.
+ *   MAKTABASAUTI_SEEK_APPROX: po OK nastepny read zaczyna od ramki `*actual`, gdzie *actual <= frame (nigdy dalej niz zadano) i frame - *actual to co najwyzej
+ *     granulacja punktow dostepu kodeka; kodek bez punktow dostepu moze zwracac *actual == frame.  tell() po seek zwraca *actual.
+ *   Poza koncem: gdy total_frames jest znane: frame == total_frames jest dozwolone (OK, nastepny read daje EOF, *actual == total_frames); frame > total_frames daje
+ *     E_OUT_OF_RANGE i NIE zmienia stanu dekodera (pozycji, stanu bledu ani EOF).  Gdy dlugosc jest nieznana (UNKNOWN_LENGTH): przewiniecie za koniec konczy sie OK na
+ *     ostatniej istniejacej pozycji (*actual = koniec), nastepny read daje EOF.
+ *   Blad: E_INVALID_ARGUMENT (zle flagi) i E_NOT_SEEKABLE (strumien nieprzewijalny) nie zmieniaja stanu.  Inny blad w trakcie seek (np. E_IO, E_CORRUPT_DATA) pozostawia
+ *     dekoder w stanie bledu do nastepnego udanego seek/reset.  Udany seek czyści stan bledu i EOF.  *actual jest opcjonalny (NULL = niezapisywany). */
 enum { MAKTABASAUTI_SEEK_EXACT = 0, MAKTABASAUTI_SEEK_APPROX = 1 };
 MAKTABASAUTI_API maktabasauti_result_t MAKTABASAUTI_CALL maktabasauti_decoder_seek(maktabasauti_decoder_t *decoder, uint64_t frame, uint32_t flags, uint64_t *actual);
 MAKTABASAUTI_API maktabasauti_result_t MAKTABASAUTI_CALL maktabasauti_decoder_tell(const maktabasauti_decoder_t *decoder, uint64_t *frame);

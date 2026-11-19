@@ -36,7 +36,7 @@ _Static_assert(MAKTABASAUTI_FORMAT_U8 == 1 && MAKTABASAUTI_FORMAT_S16 == 2 && MA
 _Static_assert(MAKTABASAUTI_CH_FL == 1u && MAKTABASAUTI_CH_FR == 2u && MAKTABASAUTI_CH_FC == 4u && MAKTABASAUTI_CH_LFE == 8u && MAKTABASAUTI_CH_BL == 0x10u &&
                MAKTABASAUTI_CH_BR == 0x20u && MAKTABASAUTI_CH_SL == 0x200u && MAKTABASAUTI_CH_SR == 0x400u, "maska kanalow jak WAVEFORMATEXTENSIBLE");
 _Static_assert(MAKTABASAUTI_LAYOUT_5_1 == 0x3Fu && MAKTABASAUTI_LAYOUT_7_1 == 0x63Fu, "uklady");
-_Static_assert(MAKTABASAUTI_ABI_VERSION == 1u, "wersja ABI");
+_Static_assert(MAKTABASAUTI_ABI_VERSION == 0u, "ABI rozwojowe (0) do zamrozenia");
 
 int main(void){
     puts("PASS MaktabaSauti public headers: C99 -pedantic, struct layout, ABI constants");

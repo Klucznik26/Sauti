@@ -73,3 +73,8 @@ Dlatego kolejność prac jest następująca (zamiast tej z pierwszej wersji plan
 6. Dalsze dekodery wg SBR-99 (LD, ELD, 960, Main, LTP, USAC, …) i formaty pozostałe (DVSM ADPCM, itd.).
 
 Kolejność 1–4 poprzedza dalsze poszerzanie dekoderów, bo wada architektury (stan globalny, brak API) kosztuje tym więcej, im więcej kodu powstanie.
+
+
+## Stan wykonania (2026-11-19, etap 1 MaktabaSauti)
+
+Rdzeń MaktabaSauti (`src/maktabasauti/`, API w `include/maktabasauti/`) jest zaimplementowany i przetestowany w wersji rozwojowej 0.1.0-dev (ABI niestabilne, niezamrożone; wersja 1.0 nie jest ogłaszana do czasu sprawdzenia z rzeczywistymi, strumieniowymi kodekami). Opis, decyzje (własność wejścia tylko po sukcesie, `seek` po przycięciu gapless, kontrakt alokatora bez `realloc`) i ograniczenia: `MAKTABASAUTI_API.md` §4, §5, §12. Dotychczasowa funkcjonalność Sauti jest zachowana: PCM przez nowe API jest identyczny bit w bit ze starym na wszystkich fixturach AAC, a stare API zostaje jako warstwa `sauti_legacy_decoder_*`. CI wymaga ThreadSanitizera dla testów wielowątkowych starego i nowego API.

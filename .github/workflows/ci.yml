@@ -19,6 +19,12 @@ jobs:
         run: make test-aac-native
       - name: public headers (C99 pedantic, C++17, ABI layout)
         run: make test-maktabasauti-headers
+      - name: "MaktabaSauti core (C99 pedantic check, ASan+UBSan: allocator contract, ownership, streaming, seek, errors, legacy bridge)"
+        run: make test-maktabasauti-core
+      - name: MaktabaSauti regression (new API == legacy API, PCM bit for bit, memory and file input)
+        run: make test-maktabasauti-regression
+      - name: MaktabaSauti core, portable build without the legacy bridge
+        run: make test-maktabasauti-core-portable
 
   # WYMAGANE: ThreadSanitizer.  Brak libtsan => REQUIRE_TSAN=1 daje FAIL.
   tsan:
@@ -27,10 +33,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: toolchain (libtsan is required)
         run: sudo apt-get update && sudo apt-get install -y nasm gcc make libtsan2
-      - name: multi-thread re-entrancy under ThreadSanitizer
+      - name: multi-thread re-entrancy under ThreadSanitizer (AAC adapters, legacy API)
         env:
           REQUIRE_TSAN: "1"
         run: scripts/test_aac_threads.sh 8 4
+      - name: MaktabaSauti API, independent instances under ThreadSanitizer (own allocator per thread, shared read-only registries)
+        env:
+          REQUIRE_TSAN: "1"
+        run: scripts/test_maktabasauti_threads.sh 8 4
 
   asan-ubsan-threads:
     runs-on: ubuntu-24.04
@@ -41,6 +51,10 @@ jobs:
         run: |
           make build/test_aac_threads_asan
           build/test_aac_threads_asan 8 4 tests/data/lc.aac tests/data/he1.aac tests/data/he2.aac tests/data/he1.m4a tests/data/he1.loas tests/data/he1.adif tests/data/m51.aac
+      - name: MaktabaSauti API threads under AddressSanitizer + UBSan
+        run: |
+          make build/test_maktabasauti_threads_asan
+          build/test_maktabasauti_threads_asan 8 4 tests/data/lc.aac tests/data/he1.aac tests/data/he2.aac tests/data/he1.m4a tests/data/he1.loas tests/data/he1.adif tests/data/m51.aac
 
   # naglowki publiczne na wszystkich docelowych platformach (sam naglowek nie ma asm ani zaleznosci od systemu)
   headers:
@@ -55,6 +69,11 @@ jobs:
         run: |
           cc  -std=c99   -pedantic -Wall -Wextra -Werror -Iinclude tests/test_maktabasauti_headers.c     -o t_c   && ./t_c
           c++ -std=c++17 -pedantic -Wall -Wextra -Werror -Iinclude tests/test_maktabasauti_headers_cpp.cpp -o t_cpp && ./t_cpp
+      - name: MaktabaSauti core (portable, no legacy bridge, C99 pedantic)
+        run: |
+          cc -std=c99 -pedantic -Wall -Wextra -Werror -O1 -Iinclude -Isrc/maktabasauti tests/test_maktabasauti_core.c \
+            src/maktabasauti/mks_alloc.c src/maktabasauti/mks_core.c src/maktabasauti/mks_decoder.c src/maktabasauti/mks_io.c src/maktabasauti/mks_pcm.c \
+            src/maktabasauti/mks_reader.c src/maktabasauti/mks_registry.c src/maktabasauti/mks_nolegacy.c -lm -o t_core && ./t_core
 
   headers-windows:
     runs-on: windows-latest
@@ -71,6 +90,11 @@ jobs:
         run: |
           gcc -std=c99   -pedantic -Wall -Wextra -Werror -Iinclude tests/test_maktabasauti_headers.c     -o t_c.exe   && ./t_c.exe
           g++ -std=c++17 -pedantic -Wall -Wextra -Werror -Iinclude tests/test_maktabasauti_headers_cpp.cpp -o t_cpp.exe && ./t_cpp.exe
+      - name: MaktabaSauti core (portable, no legacy bridge, C99 pedantic, MinGW)
+        run: |
+          gcc -std=c99 -pedantic -Wall -Wextra -Werror -O1 -Iinclude -Isrc/maktabasauti tests/test_maktabasauti_core.c \
+            src/maktabasauti/mks_alloc.c src/maktabasauti/mks_core.c src/maktabasauti/mks_decoder.c src/maktabasauti/mks_io.c src/maktabasauti/mks_pcm.c \
+            src/maktabasauti/mks_reader.c src/maktabasauti/mks_registry.c src/maktabasauti/mks_nolegacy.c -lm -o t_core.exe && ./t_core.exe
 
   headers-freebsd:
     runs-on: ubuntu-24.04
@@ -81,6 +105,9 @@ jobs:
           run: |
             cc  -std=c99   -pedantic -Wall -Wextra -Werror -Iinclude tests/test_maktabasauti_headers.c     -o t_c   && ./t_c
             c++ -std=c++17 -pedantic -Wall -Wextra -Werror -Iinclude tests/test_maktabasauti_headers_cpp.cpp -o t_cpp && ./t_cpp
+            cc -std=c99 -pedantic -Wall -Wextra -Werror -O1 -Iinclude -Isrc/maktabasauti tests/test_maktabasauti_core.c \
+              src/maktabasauti/mks_alloc.c src/maktabasauti/mks_core.c src/maktabasauti/mks_decoder.c src/maktabasauti/mks_io.c src/maktabasauti/mks_pcm.c \
+              src/maktabasauti/mks_reader.c src/maktabasauti/mks_registry.c src/maktabasauti/mks_nolegacy.c -lm -o t_core && ./t_core
 
   # pelna budowa dekoderow na Windows/ARM/BSD wymaga sciezek C zamiast asm NASM (BIBLIOTEKA_PLAN.md, etap 4): do tego czasu nie moze byc wymagana
   portable-build-pending:
