@@ -35,6 +35,23 @@ static size_t finish(Bits *b,uint8_t *frame,unsigned config,int crc){
     memcpy(frame+hdr,b->b,b->bits/8);
     return total;
 }
+/* PCE z dowolnym ukladem: kolejno przod, bok, tyl (maska bitow: bit i = element i jest CPE), liczba LFE, liczba CCE */
+static void pce_layout(Bits *b,unsigned nf,unsigned cf,unsigned ns,unsigned cs,unsigned nb,unsigned cb,unsigned nl,unsigned ncc){
+    put(b,3,5); put(b,4,0); put(b,2,1); put(b,4,4); put(b,4,nf); put(b,4,ns); put(b,4,nb); put(b,2,nl); put(b,3,0); put(b,4,ncc);
+    put(b,1,0); put(b,1,0); put(b,1,0);
+    for(unsigned i=0;i<nf;i++){put(b,1,(cf>>i)&1u);put(b,4,i);}
+    for(unsigned i=0;i<ns;i++){put(b,1,(cs>>i)&1u);put(b,4,i);}
+    for(unsigned i=0;i<nb;i++){put(b,1,(cb>>i)&1u);put(b,4,i);}
+    for(unsigned i=0;i<nl;i++)put(b,4,i);
+    for(unsigned i=0;i<ncc;i++){put(b,1,0);put(b,4,i);}
+    while(b->bits%8)put(b,1,0);
+    put(b,8,0);
+}
+static int scan(const Bits *src,unsigned config,SautiAacLcLayout *l){
+    Bits b=*src; uint8_t frame[600];
+    const size_t n=finish(&b,frame,config,0);
+    return sauti_aac_lc_multi_scan_pce(frame,n,l);
+}
 static int run(unsigned config,const Bits *src,SautiAacLcMulti *st,float *pcm,SautiAacReason *rs,int crc){
     Bits b=*src; uint8_t frame[600];
     const size_t n=finish(&b,frame,config,crc);
@@ -90,6 +107,46 @@ int main(void){
     memset(&b,0,sizeof b); sce(&b,0); cpe(&b);
     assert(run(3,&b,&zero,pcm,&rs,0)==-1 && rs==SAUTI_AAC_REASON_UNSUPPORTED_HISTORY);
     assert(sauti_aac_lc_adts_multi_decode_ex(NULL,0,&st,pcm,&rs)==0 && sauti_aac_lc_adts_multi_decode_ex((const uint8_t *)"",0,&st,pcm,NULL)==0);
-    puts("PASS AAC-LC multi: mapy, SCE/CPE/LFE, DSE/PCE/FIL, niezgodnosc kanalow, CCE i CRC odrzucone, atomowosc");
+    /* channel_configuration 0: uklad z PCE */
+    {
+        SautiAacLcLayout l; Bits p;
+        memset(&p,0,sizeof p); pce_layout(&p,2,0x2,0,0,1,0x1,1,0);                  /* przod SCE+CPE, tyl CPE, LFE = 5.1 */
+        assert(scan(&p,0,&l)==1 && l.channels==6);
+        static const uint8_t m51[6]={1,2,0,5,3,4};
+        assert(memcmp(l.map,m51,6)==0);
+        memset(&p,0,sizeof p); pce_layout(&p,2,0x2,0,0,2,0x3,1,0);                  /* przod SCE+CPE, DWIE pary tylne, LFE (fdk 7.1) */
+        assert(scan(&p,0,&l)==1 && l.channels==8);
+        static const uint8_t m71[8]={1,2,0,7,5,6,3,4};                              /* pierwsza para tylna = SL SR, druga = BL BR */
+        assert(memcmp(l.map,m71,8)==0);
+        memset(&p,0,sizeof p); pce_layout(&p,2,0x2,1,0x1,1,0x1,1,0);                /* przod SCE+CPE, bok CPE, tyl CPE, LFE */
+        assert(scan(&p,0,&l)==1 && l.channels==8);
+        static const uint8_t m71b[8]={1,2,0,7,5,6,3,4};
+        assert(memcmp(l.map,m71b,8)==0);
+        memset(&p,0,sizeof p); pce_layout(&p,1,0x1,0,0,0,0,0,0);                    /* sam stereo przod */
+        assert(scan(&p,0,&l)==1 && l.channels==2 && l.map[0]==0 && l.map[1]==1);
+        /* odrzucenia: CCE, dwa SCE przodu, ponad 8 kanalow, brak PCE, PCE przy konfiguracji != 0 */
+        memset(&p,0,sizeof p); pce_layout(&p,1,0x1,0,0,0,0,0,1);
+        assert(scan(&p,0,&l)==-1);
+        memset(&p,0,sizeof p); pce_layout(&p,2,0x0,0,0,0,0,0,0);
+        assert(scan(&p,0,&l)==-1);
+        memset(&p,0,sizeof p); pce_layout(&p,3,0x7,0,0,0,0,0,0);
+        assert(scan(&p,0,&l)==-1);
+        memset(&p,0,sizeof p); sce(&p,0);
+        assert(scan(&p,0,&l)==0);
+        memset(&p,0,sizeof p); pce_layout(&p,1,0x1,0,0,0,0,0,0);
+        assert(scan(&p,2,&l)==0);                                                     /* ADTS mowi stereo, nie PCE */
+        /* dekodowanie ramki z PCE: stan z ukladu, cisza w poprawnej liczbie kanalow */
+        SautiAacLcMulti st; SautiAacLcLayout l6;
+        memset(&p,0,sizeof p); pce_layout(&p,2,0x2,0,0,1,0x1,1,0); assert(scan(&p,0,&l6)==1);
+        sce(&p,0); cpe(&p); cpe(&p); sce(&p,3);
+        assert(sauti_aac_lc_multi_init_layout(&st,&l6,0) && st.config==0 && st.channels==6);
+        for(unsigned i=0;i<6144;i++)pcm[i]=7.0f;
+        assert(run(0,&p,&st,pcm,&rs,0)==1);
+        for(unsigned i=0;i<6144;i++)assert(pcm[i]==0.0f);
+        assert(run(3,&p,&st,pcm,&rs,0)==-1);                                          /* ADTS 3 przy stanie z PCE */
+        SautiAacLcLayout bad=l6; bad.channels=9;
+        assert(!sauti_aac_lc_multi_init_layout(&st,&bad,0) && !sauti_aac_lc_multi_init_layout(&st,NULL,0));
+    }
+    puts("PASS AAC-LC multi: mapy, SCE/CPE/LFE, DSE/PCE/FIL, uklad z PCE (config 0), niezgodnosc kanalow, CCE i CRC odrzucone, atomowosc");
     return 0;
 }

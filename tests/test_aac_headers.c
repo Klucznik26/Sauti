@@ -37,8 +37,13 @@ static void test_adts(void){
     p[2]=(uint8_t)((p[2]&0xc3)| (15u<<2));
     assert(!sauti_aac_adts_parse_asm(p,sizeof(p),&out));
     adts_make(p,sizeof(p),4,2,0,1);
-    p[2]&=(uint8_t)~1u;p[3]&=0x3f;
-    assert(!sauti_aac_adts_parse_asm(p,sizeof(p),&out));
+    p[2]&=(uint8_t)~1u;p[3]&=0x3f;                       /* channel_configuration 0: uklad w PCE, parser zwraca core_channels=0 (czyta sauti_aac_lc_multi) */
+    assert(sauti_aac_adts_parse_asm(p,sizeof(p),&out) && out.core_channels==0u);
+    for(unsigned cfg=1;cfg<=7;cfg++){                      /* 1..7: standardowe uklady od mono do 7.1 */
+        adts_make(p,sizeof(p),4,2,0,1);
+        p[2]=(uint8_t)((p[2]&0xfe)|((cfg>>2)&1u));p[3]=(uint8_t)((p[3]&0x3f)|((cfg&3u)<<6));
+        assert(sauti_aac_adts_parse_asm(p,sizeof(p),&out) && out.core_channels==cfg);
+    }
     assert(!sauti_aac_adts_parse_asm(NULL,sizeof(p),&out));
     assert(!sauti_aac_adts_parse_asm(p,sizeof(p),NULL));
 }

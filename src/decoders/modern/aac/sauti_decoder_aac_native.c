@@ -694,6 +694,8 @@ typedef struct {
     size_t next_frame;
     uint64_t position;
     unsigned channels;
+    unsigned config;                    /* channel_configuration ADTS (0 = uklad z PCE) */
+    SautiAacLcLayout layout;            /* tylko config 0 */
     SautiAacLcMulti history;
     float cache[SAUTI_AAC_LC_MULTI_MAX*1024];
     size_t cache_frame;
@@ -705,11 +707,12 @@ static int multi_probe(const uint8_t *data,size_t size){
     SautiAacAdts h={0};
     return data && size>=7 &&
            sauti_aac_adts_parse_asm(data,size,&h) &&
-           h.core_aot==2u && h.core_channels>=3u && h.core_channels<=7u &&
+           h.core_aot==2u && (h.core_channels==0u || (h.core_channels>=3u && h.core_channels<=7u)) &&
            h.raw_blocks==1u && !h.crc_present;
 }
 static int multi_reset(NativeMultiAac *s,unsigned config){
-    if(!sauti_aac_lc_multi_init(&s->history,config,0))return 0;
+    if(config==0u){ if(!sauti_aac_lc_multi_init_layout(&s->history,&s->layout,0))return 0; }
+    else if(!sauti_aac_lc_multi_init(&s->history,config,0))return 0;
     s->next_frame=0;
     s->cache_frame=1024;
     return 1;
@@ -748,7 +751,7 @@ static void *multi_open_native(const uint8_t *data,size_t length,SautiPcmInfo *i
         SautiAacAdts h={0};
         if(!sauti_aac_adts_parse_asm(data+offset,length-offset,&h) ||
            h.frame_bytes<7 || h.frame_bytes>length-offset ||
-           h.core_aot!=2u || h.core_channels<3u || h.core_channels>7u ||
+           h.core_aot!=2u || h.core_channels==1u || h.core_channels==2u || h.core_channels>7u ||
            h.raw_blocks!=1u || h.crc_present)goto fail;
         if(!count){rate=h.core_sample_rate;config=h.core_channels;}
         if(rate!=h.core_sample_rate || config!=h.core_channels)goto fail;
@@ -769,7 +772,11 @@ static void *multi_open_native(const uint8_t *data,size_t length,SautiPcmInfo *i
     if(!s)goto fail;
     s->bytes=data;s->bytes_length=length;
     s->offsets=offsets;s->frame_count=count;
-    s->channels=sauti_aac_lc_multi_config_channels(config);
+    s->config=config;
+    if(config==0u){                                        /* uklad z PCE w pierwszej ramce (fdk-aac 7.1 itp.) */
+        if(sauti_aac_lc_multi_scan_pce(data+offsets[0],offsets[1]-offsets[0],&s->layout)!=1){multi_release(s);return NULL;}
+        s->channels=s->layout.channels;
+    }else s->channels=sauti_aac_lc_multi_config_channels(config);
     if(!s->channels || !multi_reset(s,config)){multi_release(s);return NULL;}
     s->checkpoint_count=count/AAC_CHECKPOINT_FRAMES+1u;
     if(s->checkpoint_count>SIZE_MAX/sizeof(*s->checkpoints)){

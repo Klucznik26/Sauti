@@ -70,6 +70,99 @@ static int skip_pce(const uint8_t *raw,size_t length,size_t *pos){
     *pos+=(size_t)v*8u;
     return 1;
 }
+/* Pozycje wyjsciowe (kolejnosc bitow ukladu FFmpeg): FL0 FR1 FC2 LFE3 BL4 BR5 FLC6 FRC7 BC8 SL9 SR10. */
+enum { POS_FL=0,POS_FR=1,POS_FC=2,POS_LFE=3,POS_BL=4,POS_BR=5,POS_FLC=6,POS_FRC=7,POS_BC=8,POS_SL=9,POS_SR=10 };
+/* PCE -> uklad.  Zwraca 1 (ok), 0 (bledne/ucieta) albo -1 (uklad nieobslugiwany). */
+static int parse_pce_layout(const uint8_t *raw,size_t length,size_t *pos,SautiAacLcLayout *out){
+    uint32_t v,front,side,back,lfe,assoc,cc;
+    if(!get(raw,length,pos,4,&v)||!get(raw,length,pos,2,&v)||!get(raw,length,pos,4,&v)||
+       !get(raw,length,pos,4,&front)||!get(raw,length,pos,4,&side)||!get(raw,length,pos,4,&back)||
+       !get(raw,length,pos,2,&lfe)||!get(raw,length,pos,3,&assoc)||!get(raw,length,pos,4,&cc))return 0;
+    for(unsigned k=0;k<2;k++){
+        if(!get(raw,length,pos,1,&v))return 0;
+        if(v&&!get(raw,length,pos,4,&v))return 0;
+    }
+    if(!get(raw,length,pos,1,&v))return 0;
+    if(v&&(!get(raw,length,pos,2,&v)||!get(raw,length,pos,1,&v)))return 0;
+    uint8_t cls[16],cpe[16];unsigned n=0;
+    const uint32_t counts[3]={front,side,back};
+    for(unsigned c=0;c<3;c++)for(uint32_t i=0;i<counts[c];i++){
+        uint32_t is_cpe,tag;
+        if(!get(raw,length,pos,1,&is_cpe)||!get(raw,length,pos,4,&tag))return 0;
+        if(n>=16u)return -1;
+        cls[n]=(uint8_t)c;cpe[n]=(uint8_t)is_cpe;n++;
+    }
+    for(uint32_t i=0;i<lfe;i++){uint32_t tag;if(!get(raw,length,pos,4,&tag))return 0;if(n>=16u)return -1;cls[n]=3;cpe[n]=0;n++;}
+    for(uint32_t i=0;i<assoc;i++)if(!get(raw,length,pos,4,&v))return 0;
+    for(uint32_t i=0;i<cc;i++)if(!get(raw,length,pos,1,&v)||!get(raw,length,pos,4,&v))return 0;
+    while(*pos&7u)if(!get(raw,length,pos,1,&v))return 0;
+    if(!get(raw,length,pos,8,&v))return 0;
+    if(v>(length*8u-*pos)/8u)return 0;
+    *pos+=(size_t)v*8u;
+    if(cc)return -1;                                    /* CCE */
+    /* kanaly dekodowane w kolejnosci elementow; kazdemu przypisujemy pozycje wyjsciowa */
+    int8_t position[16];unsigned channels=0;
+    unsigned front_pairs=0,front_sce=0,back_pairs=0,back_sce=0,side_pairs=0,lfes=0,back_cpe_total=0;
+    for(unsigned e=0;e<n;e++)if(cls[e]==2u&&cpe[e])back_cpe_total++;
+    const unsigned second_back_pair=back_cpe_total==2u;
+    for(unsigned e=0;e<n;e++){
+        const unsigned need=cpe[e]?2u:1u;
+        if(channels+need>SAUTI_AAC_LC_MULTI_MAX)return -1;
+        if(cls[e]==0){
+            if(cpe[e]){ if(front_pairs>=2u)return -1; position[channels]=front_pairs?POS_FLC:POS_FL; position[channels+1u]=front_pairs?POS_FRC:POS_FR; front_pairs++; }
+            else { if(front_sce)return -1; position[channels]=POS_FC; front_sce=1u; }
+        }else if(cls[e]==1){
+            if(!cpe[e]||side_pairs)return -1;
+            position[channels]=POS_SL; position[channels+1u]=POS_SR; side_pairs=1u;
+        }else if(cls[e]==2){
+            if(cpe[e]){
+                /* dwie pary w klasie "back" bez pary bocznej (fdk-aac 7.1): pierwsza = boczna, druga = tylna, jak w FFmpeg */
+                if(back_pairs>=2u||(back_pairs==1u&&side_pairs&&!second_back_pair))return -1;
+                const int as_side=(back_pairs==0u&&!side_pairs&&second_back_pair);
+                position[channels]=as_side?POS_SL:POS_BL; position[channels+1u]=as_side?POS_SR:POS_BR;
+                back_pairs++;
+            }
+            else { if(back_sce)return -1; position[channels]=POS_BC; back_sce=1u; }
+        }else{
+            if(lfes)return -1;
+            position[channels]=POS_LFE; lfes=1u;
+        }
+        channels+=need;
+    }
+    if(!channels)return -1;
+    SautiAacLcLayout l;memset(&l,0,sizeof(l));l.channels=channels;
+    unsigned o=0;
+    for(int bit=0;bit<=POS_SR;bit++)for(unsigned c=0;c<channels;c++)if(position[c]==bit)l.map[o++]=(uint8_t)c;
+    if(o!=channels)return -1;
+    *out=l;
+    return 1;
+}
+int sauti_aac_lc_multi_scan_pce(const uint8_t *frame,size_t length,SautiAacLcLayout *layout){
+    SautiAacAdts adts={0};
+    if(!frame||!layout||!sauti_aac_adts_parse_asm(frame,length,&adts)||adts.frame_bytes>length||adts.header_bytes>adts.frame_bytes||
+       adts.core_channels!=0u)return 0;
+    const uint8_t *raw=frame+adts.header_bytes;const size_t raw_length=adts.frame_bytes-adts.header_bytes;
+    size_t pos=0;
+    for(;;){
+        uint32_t id=0;
+        if(!get(raw,raw_length,&pos,3,&id))return 0;
+        if(id==5u)return parse_pce_layout(raw,raw_length,&pos,layout);
+        if(id==4u){if(!skip_dse(raw,raw_length,&pos))return 0;continue;}
+        if(id==6u){if(sauti_aac_fill_skip_non_sbr(raw,raw_length,&pos,NULL)!=1)return 0;continue;}
+        return 0;                                       /* element kanalowy albo END przed PCE */
+    }
+}
+int sauti_aac_lc_multi_init_layout(SautiAacLcMulti *state,const SautiAacLcLayout *layout,unsigned previous_shape){
+    if(!state||!layout||layout->channels<1u||layout->channels>SAUTI_AAC_LC_MULTI_MAX)return 0;
+    SautiAacLcMulti next;memset(&next,0,sizeof(next));
+    next.channels=layout->channels;next.config=0;
+    memcpy(next.map,layout->map,sizeof(next.map));
+    for(unsigned i=0;i<next.channels;i++)
+        if(!sauti_aac_lc_synthesis_init(&next.ch[i],previous_shape))return 0;
+    next.pns_seed=next.ch[0].pns_seed;
+    *state=next;
+    return 1;
+}
 static int scale_out(float *dst,const float *src,size_t stride,size_t n){
     for(size_t i=0;i<n;i++){
         const float v=ldexpf(src[i],-16);                   /* 2^-16: konwencja jednostek wewnetrznych jak w mono/stereo */
@@ -159,7 +252,8 @@ int sauti_aac_lc_adts_multi_decode_ex(const uint8_t *frame,size_t length,
     if(pos!=raw_length*8u||used!=next.channels){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
     next.pns_seed=shared_pns;
     uint8_t map[SAUTI_AAC_LC_MULTI_MAX];
-    if(!sauti_aac_lc_multi_output_map(next.config,map)){*reason=SAUTI_AAC_REASON_UNSUPPORTED_ADTS;return -1;}
+    if(next.config==0u)memcpy(map,next.map,sizeof(map));
+    else if(!sauti_aac_lc_multi_output_map(next.config,map)){*reason=SAUTI_AAC_REASON_UNSUPPORTED_ADTS;return -1;}
     float out[SAUTI_AAC_LC_MULTI_MAX*1024];
     for(unsigned c=0;c<next.channels;c++)
         for(unsigned i=0;i<1024u;i++)out[(size_t)i*next.channels+c]=stage[map[c]][i];
