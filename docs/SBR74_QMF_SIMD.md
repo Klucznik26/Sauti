@@ -105,3 +105,9 @@ modulation output. The benchmark remains separate from this correctness test.
 ## Acceptance criteria
 
 Do **not** claim a speedup from source inspection alone. Collect median and tail times per 40-slot frame on the actual CPU (plus full HE-AAC playback under load), verify the intended CPU branch is used, compare pre-PS PCM on real fixtures, and run sanitizer tests. FMA or a DCT/FFT rewrite would be a separate, numerically revalidated change. This branch does not change the SBR envelope/noise/PS reconstruction.
+
+## Bit-identical AVX2 modulation (2026-11-19)
+
+The first AVX2 modulation kernel summed the 64 products per output in 8-lane groups, which changed the low bits relative to SSE2 (the old test allowed 3e-6 relative error). On hybrid Intel CPUs the dispatch is evaluated per batch and picks AVX2 on P-cores and SSE2 on E-cores, so a thread migrating between core types changed individual decoded samples. `test_aac_ps_pcm_stereo` and `test_aac_he_ps_bridge` (which compare calls bit for bit) failed in about 30 % of runs on an i7-12700H when unpinned, and never when pinned to one core, with the SSE2-forced build, or with the C11 build.
+
+The AVX2 kernel now keeps the SSE2 summation tree exactly: `ymm0=[acc0|acc1]`, `ymm1=[acc2|acc3]` (and two more for the imaginary part) so lane j of accumulator a still sums k = 16m+4a+j for m = 0..3 in order, and the reduction repeats (acc0+acc1)+(acc2+acc3), lanes 2,3 into 0,1, lane 1 into lane 0. The window kernel was already bit-identical. `test_aac_qmf_simd` now requires `memcmp == 0` between the SSE2 and AVX2 modulation outputs; the QMF PCM parity gate reports RMS error 0. Result: 0/200 failures of both PS tests unpinned (was ~30 %), full `make test-aac-native` PASS.

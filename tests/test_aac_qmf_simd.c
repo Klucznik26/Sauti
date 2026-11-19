@@ -65,13 +65,11 @@ static void test_modulation(void) {
         sauti_aac_sbr_qmf_synth_mod_slot_avx2(optimized,bands);
         assert(baseline[128]==optimized[128] && baseline[129]==optimized[129]);
         assert(baseline[128]==12345.0f && baseline[129]==-23456.0f);
-        for (unsigned n=0;n<128;n++) {
-            double a=baseline[n], b=optimized[n];
-            assert(isfinite(a) && isfinite(b));
-            /* AVX2 sums the same 64 float products in wider groups.
-             * Different summation order permits limited roundoff. */
-            assert(fabs(a-b)<=3e-6*fmax(1.0,fabs(a)));
-        }
+        for (unsigned n=0;n<128;n++) assert(isfinite(baseline[n]) && isfinite(optimized[n]));
+        /* The AVX2 kernel uses the SSE2 summation tree, so the output is BIT-identical.  This is required: on hybrid
+         * CPUs the dispatch picks AVX2 on P-cores and SSE2 on E-cores, and a thread migrating between them must not
+         * change a single decoded sample (the PS tests compare calls bit for bit and flaked ~30 % when it could). */
+        assert(memcmp(baseline,optimized,128*sizeof(float))==0);
     }
     puts("PASS QMF AVX2 modulation vs SSE2 (48 input sets, 128 samples)");
 }
