@@ -37,6 +37,16 @@ static void run(size_t n){
     for(size_t t=0;t<2*n;t++)
         if(n==128 || t%113u==0 || t==2*n-1)
             near(y[t],reference(x,n,t));
+    /* Every one of the 2N outputs of several random spectra (including a single-bin and an all-equal spectrum) against the O(N^2) cosine sum. */
+    unsigned seed=12345u+(unsigned)n;
+    for(unsigned round=0;round<4u;round++){
+        for(size_t k=0;k<n;k++){
+            seed=seed*1664525u+1013904223u;
+            x[k]=round==2u?(k==n/3u?3.0f:0.0f):round==3u?0.5f:((float)((int)(seed>>16)%2001-1000))/250.0f;
+        }
+        assert(sauti_aac_imdct(x,n,y));
+        for(size_t t=0;t<2*n;t++)near(y[t],reference(x,n,t));
+    }
     float previous[2048];
     memcpy(previous,y,sizeof(previous));
     x[1]=NAN;

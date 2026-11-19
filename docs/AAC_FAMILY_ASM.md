@@ -7548,3 +7548,13 @@ Dotąd sprzężenie było sprawdzone tylko pośrednio (strumienie fdkaac 64 kb/s
 | 48 kb/s | 139,0 / 139,1 dB | 121,7 / 121,9 dB | 200 skoków, 0 błędów |
 
 Sprzężona dekwantyzacja (poziom + balans), wspólna siatka czasowa i inverse filtering kanału 0 są więc sprawdzone na ~9600 ramkach prawdziwej muzyki. **Granice:** strumienie pochodzą z jednego enkodera (fdkaac) i jednego utworu; generator `sauti_he_remix` pozostaje mono (nie ma generatora CPE ze sprzężeniem dla cech, których fdkaac nie emituje, np. sprzężone klasy siatki inne niż FIXFIX/zwykłe).
+
+### SBR-93 — wydajność: IMDCT jako DCT-IV przez FFT N/2 punktów (2026-11-19)
+
+**Pomiar (gprof, HE-AAC v1 stereo 32 kb/s, 76 s, adapter publiczny).** Całość 2,69 s (28× czasu rzeczywistego); IMDCT 44%, TNS 32%, analiza QMF 7%, budowa drzew Huffmana 4%, a **cały SBR ok. 15%**. Wąskim gardłem był więc rdzeń LC, nie SBR.
+
+**IMDCT.** Stara wersja liczyła FFT o 8N punktach (8192) w podwójnej precyzji z `calloc` przy każdym wywołaniu i `cos`/`sin` w każdym etapie, a twiddle'y przez rekurencję. Nowa (`sauti_aac_imdct.c`): DCT-IV przez jedną zespoloną FFT długości N/2 (pre-twiddle `e^{-iπ(4n+1)/(4N)}`, post-twiddle `e^{-iπk/N}`), rozwinięcie do 2N próbek z symetrii jądra, tablice twiddle'i liczone **bezpośrednio** (nie rekurencją) raz na rozmiar (atomowy stan budowy), bez alokacji. Wzory sprawdziłem numerycznie względem sumy kosinusów przed napisaniem kodu. Wynik: N = 1024: **0,211 → 0,016 ms** (13×), N = 128: 0,020 → 0,002 ms (10×); sumy kontrolne benchmarku bez zmian. Test (`test_aac_imdct.c`): wszystkie 2N próbek czterech losowych/szczególnych widm względem sumy O(N²), zepsuty znak post-twiddle'u (mutant) pada.
+
+**Dokładność bez zmian na prawdziwych plikach** (względem FFmpeg, pełne utwory): HE-AAC v1 stereo ze sprzężeniem 139,2 dB niskie / 120,3–120,9 dB HF; M4A HE-AAC v2 135,3 / 121,4 dB; `test-aac-native` przechodzi. Czas: 2,69 → **1,76 s** (43× czasu rzeczywistego, kolejny profil: TNS 57%, analiza QMF 13%, drzewa Huffmana 7%, IMDCT 3%).
+
+**Czego nie ruszam i dlaczego.** TNS (28 µs/wywołanie) to filtr wszystkobiegunowy w float32; kolejność odejmowań k = 1..rząd musi pozostać taka sama (zmiana kolejności zmienia zaokrąglenia, a norma i FFmpeg liczą tak, jak jest: zapis w kodzie, że wersja podwójna się rozjeżdża), a każda próbka zależy od poprzedniej, więc łańcuch zależności jest nieusuwalny bez utraty zgodności. Zostają: analiza QMF 32-pasmowa (C, 13%) i budowa drzew Huffmana co ramkę (7%, do zbuforowania) jako możliwe dalsze kroki; asm dla SBR (założenie projektu) nie jest dziś uzasadniony pomiarem, bo SBR to ok. 15% czasu.
