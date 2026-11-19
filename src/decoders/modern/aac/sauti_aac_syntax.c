@@ -306,21 +306,20 @@ static int ps_decode_parameters(const uint8_t *data,size_t size,size_t *pos,
     }
     return 1;
 }
+/* One envelope of IPD or OPD values (the standard interleaves them: ipd of envelope e, then opd of envelope e, then envelope e+1). */
 static int ps_decode_phase(const uint8_t *data,size_t size,size_t *pos,
-                           const PsBook books[2],unsigned count,unsigned env,
+                           const PsBook books[2],unsigned count,unsigned e,
                            const int8_t previous[],
                            int8_t output[][SAUTI_AAC_PS_MAX_PHASE_PARAMETERS]){
     if(!data||!pos||!books||!previous||!output||
-       count>SAUTI_AAC_PS_MAX_PHASE_PARAMETERS||env>4u)return 0;
-    for(unsigned e=0;e<env;e++){
-        uint32_t dt=0;int delta=0;
-        if(!read(data,size,pos,1u,&dt)||!ps_symbol(data,size,pos,&books[dt],&delta))return 0;
-        const int8_t *base=dt?(e?output[e-1u]:previous):NULL;int value=0;
-        for(unsigned b=0;b<count;b++){
-            if(b&& !ps_symbol(data,size,pos,&books[dt],&delta))return 0;
-            value=((dt?base[b]:value)+delta)&7;
-            output[e][b]=(int8_t)value;
-        }
+       count>SAUTI_AAC_PS_MAX_PHASE_PARAMETERS||e>=4u)return 0;
+    uint32_t dt=0;int delta=0;
+    if(!read(data,size,pos,1u,&dt)||!ps_symbol(data,size,pos,&books[dt],&delta))return 0;
+    const int8_t *base=dt?(e?output[e-1u]:previous):NULL;int value=0;
+    for(unsigned b=0;b<count;b++){
+        if(b&& !ps_symbol(data,size,pos,&books[dt],&delta))return 0;
+        value=((dt?base[b]:value)+delta)&7;
+        output[e][b]=(int8_t)value;
     }
     return 1;
 }
@@ -387,11 +386,12 @@ int sauti_aac_ps_frame_parse(const uint8_t *data,size_t size,
                  * bands, rather than the 10/20/34 IID band count. */
                 next.ipdopd_count=(uint8_t)ps_phase_parameter_count(
                     next.header.iid_mode);
-                if(!next.header.enable_iid || !next.ipdopd_count ||
-                   !ps_decode_phase(data,size,&pos,ps_ipd_book,next.ipdopd_count,
-                                    next.num_env,next_state.ipd_last,next.ipd) ||
-                   !ps_decode_phase(data,size,&pos,ps_opd_book,next.ipdopd_count,
-                                    next.num_env,next_state.opd_last,next.opd))return 0;
+                if(!next.header.enable_iid || !next.ipdopd_count)return 0;
+                for(unsigned e=0u;e<next.num_env;e++)
+                    if(!ps_decode_phase(data,size,&pos,ps_ipd_book,next.ipdopd_count,
+                                        e,next_state.ipd_last,next.ipd) ||
+                       !ps_decode_phase(data,size,&pos,ps_opd_book,next.ipdopd_count,
+                                        e,next_state.opd_last,next.opd))return 0;
             }
             if(!read(data,size,&pos,1u,&reserved)||reserved)return 0;
             const size_t used=pos-before;

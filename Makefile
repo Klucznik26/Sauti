@@ -1235,7 +1235,7 @@ $(OBJDIR)/sauti_he_decode_cli: tools/sauti_he_decode_cli.c include/sauti_aac_sbr
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_decode_cli.c $(sort $(AAC_SBR_CHANNEL_CLI_SRC)) -lm -no-pie
 
 $(OBJDIR)/sauti_he_remix: tools/sauti_he_remix.c $(AAC_SBR_CHANNEL_CLI_SRC) | $(OBJDIR)
-	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_remix.c $(AAC_SBR_CHANNEL_CLI_SRC) -lm -no-pie
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_remix.c $(sort $(AAC_SBR_CHANNEL_CLI_SRC)) -lm -no-pie
 
 .PHONY: he-remix
 he-remix: $(OBJDIR)/sauti_he_remix

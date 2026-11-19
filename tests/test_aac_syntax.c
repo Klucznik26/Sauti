@@ -227,6 +227,23 @@ static void test_ps(void){
     assert(pos==b.bit&&f.ipd[0][0]==1&&f.ipd[0][4]==0&&
            state.ipd_last[0]==1&&f.opd[0][0]==0);
 
+    /* IPD and OPD are interleaved per envelope (ipd e, opd e, ipd e+1, opd e+1), not all IPD first: two envelopes with distinct first values. */
+    b=(Bits){0};put(&b,1,1);put(&b,1,1);put(&b,3,0);
+    put(&b,1,0);put(&b,1,1);put(&b,1,0);put(&b,2,2);     /* header, fixed class, two envelopes */
+    for(unsigned e=0u;e<2u;e++){put(&b,1,0);for(unsigned i=0u;i<10u;i++)put(&b,1,0);} /* IID df zero */
+    put(&b,4,5);put(&b,2,0);put(&b,1,1);                 /* PS ext: 5 bytes, id 0, on */
+    put(&b,1,0);put(&b,4,4);for(unsigned i=1u;i<5u;i++)put(&b,1,1);   /* env 0 IPD df: first value 3 (code 0100) */
+    put(&b,1,0);for(unsigned i=0u;i<5u;i++)put(&b,1,1);                /* env 0 OPD df: all 0 */
+    put(&b,1,0);put(&b,4,6);for(unsigned i=1u;i<5u;i++)put(&b,1,1);   /* env 1 IPD df: first value 2 (code 0110) */
+    put(&b,1,0);put(&b,4,4);for(unsigned i=1u;i<5u;i++)put(&b,1,1);   /* env 1 OPD df: first value 3 (code 0100) */
+    put(&b,1,0);                                         /* reserved_ps */
+    for(unsigned i=0u;i<3u;i++)put(&b,1,0);              /* 37 bits used of 40 */
+    state=(SautiAacPsHeaderState){0};pos=0;
+    assert(sauti_aac_ps_frame_parse(b.bytes,sizeof(b.bytes),&pos,&state,&f));
+    assert(pos==b.bit&&f.num_env==2u&&f.enable_ipdopd&&
+           f.ipd[0][0]==3&&f.opd[0][0]==0&&f.ipd[1][0]==2&&f.opd[1][0]==3&&
+           f.ipd[1][4]==2&&f.opd[1][4]==3);
+
     /* The two high-resolution IID modes select 11 and 17 phase parameters.
      * All phase delta-zero codewords are the single bit one. */
     const unsigned phase_modes[2]={1u,2u};

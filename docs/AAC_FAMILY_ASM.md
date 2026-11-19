@@ -7494,3 +7494,19 @@ FFmpeg raportuje mono HE-AAC v1 w M4A jako stereo (przy sygnalizacji bez jawnych
 **Wynik.** 14 400 iteracji + 2 400 wcześniejszych na 8–10 plikach ziarnach (HE-AAC v1 mono/stereo ADTS i M4A, HE-AAC v2, LC, 32/48/64/96 kHz): **0 raportów ASan/UBSan, 0 zawieszeń, 0 próbek nieskończonych**; około 45% mutantów otwiera się (reszta odrzucona przy sondowaniu), ok. 130 M ramek na kampanię zdekodowane. Pokrycie (gcov, 300 iteracji): `sauti_aac_sbr_channel.c` 100% linii, `ps_stereo` 98%, `ps_render` 93%, `he_adts_cpe` 75%, `lc_frame` 64%; niewykonane funkcje `sauti_aac_sbr_payload.c` to ścieżki badawcze (temporal_plan, make_hf, sce_parse) nieużywane przez adaptery.
 
 **Granice.** Fuzzing losowy, nie sterowany pokryciem (brak libFuzzer/AFL w tym środowisku): głębokie rzadkie gałęzie parsera (np. sprzężenie bs_coupling, rzadkie klasy siatki) mogły nie zostać trafione; ziarna to wyłącznie strumienie fdkaac. Test nie sprawdza poprawności dekodowania uszkodzonych danych, tylko brak awarii. Pliki ziarna nie są w repozytorium.
+
+### SBR-89 — generator ładunków PS (HE-AAC v2) i błąd kolejności IPD/OPD w parserze (2026-11-19)
+
+**Narzędzie.** `tools/sauti_he_remix.c` z `SAUTI_REMIX_PS=1` wstawia do prawdziwego rdzenia LC wygenerowane `ps_data()` w rozszerzeniu SBR (id 2), napisane wg składni normy; z dekodera pochodzą tylko kody Huffmana (`sauti_aac_ps_huffman_codeword`), więc błędna tablica wyszłaby w porównaniu z FFmpeg. Opcje (zmienne środowiskowe): `_IID_MODE`/`_ICC_MODE` 0..5 (10/20/34 pasma, IID zgrubny/drobny), `_IPD=1` (IPD/OPD, rozszerzenie id 0), `_CHANGE=n` (nowy nagłówek z losowymi trybami co n ramek, pierwsza ramka po zmianie topologii tylko kodowana w częstotliwości), `_NODATA=p` (p% ramek bez danych PS), `_NOENV=p` (p% ramek bez obwiedni), `_CLASS=0|1`, `_TRACE=1`. Porównanie: 200 ramek, rdzeń `m64.aac`, wyjście stereo vs FFmpeg (HF/LOW dB):
+
+| przypadek | wynik |
+|---|---|
+| IID/ICC 10, 20, 34 pasm; IID drobny (3, 4, 5); IID 20 + ICC 34 | **zgodne**, 113–126 dB |
+| klasa stała, klasa zmienna, ramki bez obwiedni (30%) | **zgodne**, 114–124 dB |
+| IPD/OPD (tryby 0, 1, 2) po poprawce parsera | HF 117–122 dB, **LOW 60–66 dB: otwarte** |
+| zmiana trybu w trakcie (`_CHANGE`) | otwarte (~30 dB) |
+| ramki bez danych PS (`_NODATA`) | otwarte: CLI badawcze odrzuca ramkę, adapter używa poprzednich parametrów; FFmpeg inaczej |
+
+**Znaleziony błąd (naprawiony).** W `ps_extension` norma (i FFmpeg) przeplata IPD i OPD **w każdej obwiedni** (ipd e, opd e, ipd e+1, …), a parser Sauti czytał najpierw IPD wszystkich obwiedni, potem OPD. Przy jednej obwiedni różnicy nie widać (stąd wszystkie dotychczasowe testy przechodziły), przy wielu strumień był źle odczytany. Mój generator najpierw skopiował tę błędną kolejność z parsera; ujawnił ją dopiero komunikat FFmpeg „ps extension overflow”. Poprawka: `ps_decode_phase` czyta jedną obwiednię, pętla po obwiedniach woła IPD potem OPD. Test `test_aac_syntax.c` (dwie obwiednie, różne wartości początkowe) pada na starej kolejności (mutant sprawdzony). `test-aac-native` przechodzi.
+
+**Otwarte (nierozstrzygnięte, nie zgaduję).** (1) Niskie pasmo z IPD/OPD: błąd skupia się w pasmach hybrydowych 0–1 (tryb 20 pasm) i 9–13 (tryb 34), gdzie odwraca się znak części urojonej fazy. Sauti odwraca oba końce interpolacji, FFmpeg tylko początek (cel zostaje bez odwrócenia; komentarz w jego kodzie: „Is this necessary?”), co daje nieciągłość na granicy obwiedni. Rozstrzygnięcie wymaga drugiego, niezależnego dekodera (zainstalowane: libfdk-aac, libfaad) albo tekstu normy; nie zmieniam Sauti pod FFmpeg bez tego. (2) Zmiana trybu w trakcie strumienia i ramki bez PS: semantyka parametrów po zmianie topologii i bez danych; sprawdzić tym samym sposobem. (3) Generator nie ma pary stereo (sprzężenie SBR).

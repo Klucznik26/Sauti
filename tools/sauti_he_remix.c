@@ -9,6 +9,7 @@
  * usage: sauti_he_remix IN.aac OUT.aac SEED SMOOTHING(0|1) [MAX_FRAMES] [ENVS(2|4|0=random)] [ALL_CLASSES(0|1)]
  * IN must be a mono 24 kHz-core ADTS stream without CRC (fdkaac -f 2 output). */
 #include "sauti_aac_lc_frame.h"
+#include "sauti_aac_syntax.h"
 #include "sauti_aac_sbr_limits.h"
 #include "sauti_aac_sbr_master.h"
 #include "sauti_aac_sbr_patch.h"
@@ -49,7 +50,8 @@ static int pick_header(unsigned *start,unsigned *stop,SautiAacSbrTables *tab,uns
 }
 
 static unsigned prev_trail=16u;
-static void sbr_payload(Bits *b,const SautiAacSbrTables *t,unsigned start,unsigned stop,unsigned smoothing,unsigned header,unsigned envs_opt,unsigned all_classes){
+static void ps_extension(Bits *b,unsigned frame_no);
+static void sbr_payload(Bits *b,const SautiAacSbrTables *t,unsigned start,unsigned stop,unsigned smoothing,unsigned header,unsigned envs_opt,unsigned all_classes,unsigned frame_no){
     *b=(Bits){{0},0};
     put(b,4u,13u);                                   /* EXT_SBR_DATA */
     put(b,1u,header);
@@ -136,8 +138,140 @@ static void sbr_payload(Bits *b,const SautiAacSbrTables *t,unsigned start,unsign
     const unsigned harm=(rnd()%3u)==0u;
     put(b,1u,harm);
     if(harm)for(unsigned i=0;i<t->n_high;i++)put(b,1u,(rnd()%5u)==0u);
-    put(b,1u,0u);                                    /* no extended data */
+    if(getenv("SAUTI_REMIX_PS"))ps_extension(b,frame_no);
+    else put(b,1u,0u);                               /* no extended data */
     while(b->bit&7u)put(b,1u,0u);
+}
+
+/* SBR-89: generated parametric-stereo data (ps_data() of the SBR extension, id 2).  Written from the syntax of the standard; only the VLC codewords come
+ * from the decoder's tables (sauti_aac_ps_huffman_codeword), so a wrong table would still show up against the other decoder.
+ * Environment: SAUTI_REMIX_PS=1 switches it on; _IID_MODE/_ICC_MODE 0..5 (10/20/34 bands, coarse/fine IID); _IPD=1 sends IPD/OPD (extension id 0);
+ * _CHANGE=n re-sends the header with random modes every n frames (the first frame after a change uses frequency coding only);
+ * _NODATA=p percent of the frames carry no PS data at all; _CLASS=0|1 forces fixed/variable frame class (default random);
+ * _NOENV=p percent of the frames signal zero envelopes (frame class 0, num_env_idx 0).  Deterministic for the seed. */
+typedef struct {
+    int iid[5][34],icc[5][34],ipd[5][17],opd[5][17];                       /* values of the frame being written */
+    int last_iid[34],last_icc[34],last_ipd[17],last_opd[17];              /* last envelope of the previous frame */
+    unsigned iid_mode,icc_mode,iid_on,icc_on,ext_on;
+    unsigned started,need_df;                                           /* need_df: a topology change was not followed by coded values yet */
+} PsGen;
+static PsGen psg;
+static unsigned ps_env_int(const char *name,unsigned def){const char *v=getenv(name);return v?(unsigned)atoi(v):def;}
+static void ps_put_vlc(Bits *b,SautiAacPsHuffmanTable t,unsigned symbol){
+    uint32_t code;uint8_t width;
+    if(!sauti_aac_ps_huffman_codeword(t,symbol,&code,&width)){fprintf(stderr,"ps vlc table %d symbol %u missing\n",(int)t,symbol);exit(3);}
+    put(b,width,code);
+}
+/* one parameter set group (IID or ICC) for `env` envelopes, `count` bands */
+static void ps_put_levels(Bits *b,unsigned env,unsigned count,int lo,int hi,int (*vals)[34],const int *last,
+                          unsigned force_df,SautiAacPsHuffmanTable df,SautiAacPsHuffmanTable dt,int offset,unsigned iid_step){
+    for(unsigned e=0;e<env;e++){
+        const unsigned use_dt=!force_df && (rnd()%3u)!=0u;
+        const int *base=e?vals[e-1]:last;
+        for(unsigned i=0;i<count;i++){
+            int target;
+            const int prev=use_dt?base[i]:(i?vals[e][i-1]:0);
+            if(rnd()%4u==0u)target=lo+(int)(rnd()%(unsigned)(hi-lo+1));
+            else{target=(use_dt?base[i]:(i?vals[e][i-1]:0))+(int)(rnd()%5u)-2;if(target<lo)target=lo;if(target>hi)target=hi;}
+            (void)prev;(void)iid_step;
+            vals[e][i]=target;
+        }
+        put(b,1u,use_dt);
+        for(unsigned i=0;i<count;i++){
+            const int ref=use_dt?base[i]:(i?vals[e][i-1]:0);
+            ps_put_vlc(b,use_dt?dt:df,(unsigned)(vals[e][i]-ref+offset));
+        }
+    }
+}
+/* IPD and OPD of one envelope: the standard interleaves them per envelope (ipd e, opd e, ipd e+1, ...) */
+static void ps_put_phase_env(Bits *b,unsigned count,int *vals,const int *base_dt,unsigned force_df,SautiAacPsHuffmanTable df,SautiAacPsHuffmanTable dt){
+    const unsigned use_dt=!force_df && (rnd()%3u)!=0u;
+    for(unsigned i=0;i<count;i++)vals[i]=(int)(rnd()&7u);
+    put(b,1u,use_dt);
+    for(unsigned i=0;i<count;i++){
+        const int ref=use_dt?base_dt[i]:(i?vals[i-1]:0);
+        ps_put_vlc(b,use_dt?dt:df,(unsigned)((vals[i]-ref)&7));
+    }
+}
+/* Appends the SBR extension (extended_data flag + byte count + id 2 + ps_data) to b. */
+static void ps_extension(Bits *b,unsigned frame_no){
+    static const unsigned par[6]={10,20,34,10,20,34},phase[6]={5,11,17,5,11,17};
+    if(ps_env_int("SAUTI_REMIX_PS_NODATA",0)>0 && frame_no>0 && rnd()%100u<ps_env_int("SAUTI_REMIX_PS_NODATA",0)){put(b,1u,0u);return;}
+    const unsigned change=ps_env_int("SAUTI_REMIX_PS_CHANGE",0);
+    unsigned send_header=!psg.started,topology_changed=0;
+    if(!psg.started){
+        psg.iid_on=1;psg.icc_on=1;psg.iid_mode=ps_env_int("SAUTI_REMIX_PS_IID_MODE",1);psg.icc_mode=ps_env_int("SAUTI_REMIX_PS_ICC_MODE",1);
+        psg.ext_on=ps_env_int("SAUTI_REMIX_PS_IPD",0)?1u:0u;
+    }else if(change && frame_no%change==0){
+        send_header=1;
+        const unsigned im=rnd()%6u,cm=rnd()%6u;
+        topology_changed=par[im]!=par[psg.iid_mode]||par[cm]!=par[psg.icc_mode]||(im>2u)!=(psg.iid_mode>2u);
+        psg.iid_mode=im;psg.icc_mode=cm;
+    }
+    Bits ps={{0},0};
+    put(&ps,1u,send_header);
+    if(send_header){
+        put(&ps,1u,psg.iid_on);if(psg.iid_on)put(&ps,3u,psg.iid_mode);
+        put(&ps,1u,psg.icc_on);if(psg.icc_on)put(&ps,3u,psg.icc_mode);
+        put(&ps,1u,psg.ext_on);
+    }
+    unsigned cls=ps_env_int("SAUTI_REMIX_PS_CLASS",2u);if(cls>1u)cls=rnd()&1u;
+    unsigned idx=rnd()&3u;
+    if(rnd()%100u<ps_env_int("SAUTI_REMIX_PS_NOENV",0)){cls=0;idx=0;}
+    const unsigned num_env=cls?idx+1u:(const unsigned[4]){0,1,2,4}[idx];
+    put(&ps,1u,cls);put(&ps,2u,idx);
+    if(cls){
+        /* num_env strictly ascending borders in 0..31, the last one at 31 a quarter of the time */
+        unsigned chosen[4],n=0;
+        while(n<num_env){
+            const unsigned v=rnd()%32u;unsigned dup=0;
+            for(unsigned i=0;i<n;i++)if(chosen[i]==v)dup=1;
+            if(!dup)chosen[n++]=v;
+        }
+        for(unsigned i=0;i<num_env;i++)for(unsigned j=i+1;j<num_env;j++)if(chosen[j]<chosen[i]){const unsigned t=chosen[i];chosen[i]=chosen[j];chosen[j]=t;}
+        if(rnd()%4u==0u && chosen[num_env-1u]!=31u && (num_env<2u || chosen[num_env-2u]<31u))chosen[num_env-1u]=31u;
+        for(unsigned i=0;i<num_env;i++)put(&ps,5u,chosen[i]);
+    }
+    const unsigned force_df=topology_changed||!psg.started||psg.need_df;
+    if(force_df)psg.need_df=num_env==0u;      /* a frame without envelopes leaves the new topology without a reference */
+    if(getenv("SAUTI_REMIX_PS_TRACE"))fprintf(stderr,"PS frame %u header %u iid_mode %u icc_mode %u changed %u class %u env %u\n",frame_no,send_header,psg.iid_mode,psg.icc_mode,topology_changed,cls,num_env);
+    if(psg.iid_on){
+        const unsigned fine=psg.iid_mode>2u,range=fine?15:7;
+        ps_put_levels(&ps,num_env,par[psg.iid_mode],-range,range,psg.iid,psg.last_iid,force_df,
+                      fine?SAUTI_AAC_PS_IID_DF1:SAUTI_AAC_PS_IID_DF0,fine?SAUTI_AAC_PS_IID_DT1:SAUTI_AAC_PS_IID_DT0,fine?30:14,0);
+        if(num_env)memcpy(psg.last_iid,psg.iid[num_env-1u],sizeof(psg.last_iid));
+    }else memset(psg.last_iid,0,sizeof(psg.last_iid));
+    if(psg.icc_on){
+        ps_put_levels(&ps,num_env,par[psg.icc_mode],0,7,psg.icc,psg.last_icc,force_df,SAUTI_AAC_PS_ICC_DF,SAUTI_AAC_PS_ICC_DT,7,0);
+        if(num_env)memcpy(psg.last_icc,psg.icc[num_env-1u],sizeof(psg.last_icc));
+    }else memset(psg.last_icc,0,sizeof(psg.last_icc));
+    if(psg.ext_on){
+        Bits ex={{0},0};
+        put(&ex,2u,0u);                                              /* ps_extension_id 0: IPD/OPD */
+        const unsigned ipd=psg.iid_on && ps_env_int("SAUTI_REMIX_PS_IPD",0);
+        put(&ex,1u,ipd);
+        if(ipd){
+            const unsigned n=phase[psg.iid_mode];
+            for(unsigned e=0;e<num_env;e++){
+                ps_put_phase_env(&ex,n,psg.ipd[e],e?psg.ipd[e-1u]:psg.last_ipd,force_df,SAUTI_AAC_PS_IPD_DF,SAUTI_AAC_PS_IPD_DT);
+                ps_put_phase_env(&ex,n,psg.opd[e],e?psg.opd[e-1u]:psg.last_opd,force_df,SAUTI_AAC_PS_OPD_DF,SAUTI_AAC_PS_OPD_DT);
+            }
+            if(num_env){memcpy(psg.last_ipd,psg.ipd[num_env-1u],sizeof(psg.last_ipd));memcpy(psg.last_opd,psg.opd[num_env-1u],sizeof(psg.last_opd));}
+        }else{memset(psg.last_ipd,0,sizeof(psg.last_ipd));memset(psg.last_opd,0,sizeof(psg.last_opd));}
+        put(&ex,1u,0u);                                              /* reserved */
+        const unsigned cnt=(unsigned)((ex.bit+7u)/8u);
+        if(cnt<15u)put(&ps,4u,cnt);else{put(&ps,4u,15u);put(&ps,8u,cnt-15u);}
+        for(size_t i=0;i<ex.bit;i++)put(&ps,1u,(ex.bytes[i/8u]>>(7u-(unsigned)(i&7u)))&1u);
+        for(size_t i=ex.bit;i<(size_t)cnt*8u;i++)put(&ps,1u,0u);
+    }
+    psg.started=1;
+    /* the SBR extension: byte count of [extension id (2) + ps_data], padded with zero bits */
+    const unsigned cnt=(unsigned)((2u+ps.bit+7u)/8u);
+    put(b,1u,1u);
+    if(cnt<15u)put(b,4u,cnt);else{put(b,4u,15u);put(b,8u,cnt-15u);}
+    put(b,2u,2u);
+    for(size_t i=0;i<ps.bit;i++)put(b,1u,(ps.bytes[i/8u]>>(7u-(unsigned)(i&7u)))&1u);
+    for(size_t i=2u+ps.bit;i<(size_t)cnt*8u;i++)put(b,1u,0u);
 }
 
 int main(int argc,char **argv){
@@ -167,7 +301,7 @@ int main(int argc,char **argv){
         if(!sauti_aac_lc_mono_parse(raw,raw_len,&bit,6u,&data)){fprintf(stderr,"frame %ld: SCE parse failed\n",frames);break;}
         Bits nb={{0},0};
         for(size_t i=0;i<bit;i++)put(&nb,1u,(raw[i/8u]>>(7u-(unsigned)(i&7u)))&1u);
-        Bits pl;sbr_payload(&pl,&tab,start,stop,smoothing,frames==0,envs_opt,all_classes);
+        Bits pl;sbr_payload(&pl,&tab,start,stop,smoothing,frames==0,envs_opt,all_classes,(unsigned)frames);
         const unsigned cnt=(unsigned)(pl.bit/8u);
         put(&nb,3u,6u);                                                     /* ID_FIL */
         if(cnt<15u)put(&nb,4u,cnt);else{put(&nb,4u,15u);put(&nb,8u,cnt-14u);}
