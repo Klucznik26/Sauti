@@ -93,6 +93,14 @@ int main(void){
             w[i].re=re*(0.2f+0.05f*(float)(i%BANDS));
             w[i].im=im*(0.2f+0.05f*(float)(i%BANDS));
         }
+        for(unsigned t=0u;t<HIST;t++){          /* band 5: a pure tone, singular without the 1/1.000001 term */
+            w[t*BANDS+5u].re=(float)(0.5*cos(0.7*(double)t));
+            w[t*BANDS+5u].im=(float)(0.5*sin(0.7*(double)t));
+        }
+        for(unsigned t=0u;t<HIST;t++){          /* band 9: growth x5 per slot, |alpha|^2 >= 16 before the validity guard */
+            const float g=(float)(1e-20*pow(5.0,(double)t));
+            w[t*BANDS+9u].re=g;w[t*BANDS+9u].im=0.5f*g;
+        }
         SautiAacSbrLpcCoeffs c38,c32;
         assert(sauti_aac_sbr_lpc_estimate_2(w,HIST*BANDS,EQ,&c38));
         assert(sauti_aac_sbr_lpc_estimate_2(w+(HIST-34u)*BANDS,34u*BANDS,32u,&c32));
@@ -106,10 +114,17 @@ int main(void){
                 spp+=conj(pv)*pv;sqq+=conj(qv)*qv;spq+=conj(pv)*qv;
                 sxp+=conj(pv)*x;sxq+=conj(qv)*x;
             }
-            /* [spp spq; conj(spq) sqq] [a0;a1] = -[sxp;sxq] */
-            const double complex det=spp*sqq-spq*conj(spq);
-            const double complex a0=(-sxp*sqq+spq*sxq)/det;
-            const double complex a1=(-spp*sxq+conj(spq)*sxp)/det;
+            /* ISO 14496-3 / FFmpeg, in this test's notation (spp=phi11r, sqq=phi22r, spq=conj(phi11c), sxp=phi00c, sxq=phi01c):
+             *   dk = sqq*spp - |spq|^2/1.000001;  a1 = (sxp*conj(spq) - sxq*spp)/dk;  a0 = -(sxp + a1*spq)/spp. */
+            const double complex det=sqq*spp-spq*conj(spq)/1.000001;
+            double complex a0=0,a1=0;
+            if(det!=0.0){
+                a1=(sxp*conj(spq)-sxq*spp)/det;
+                a0=-(sxp+a1*spq)/spp;
+            }
+            const int guarded=cabs(a0)*cabs(a0)>=16.0 || cabs(a1)*cabs(a1)>=16.0;
+            if(k==9u)assert(guarded);        /* the band really exercises the validity guard */
+            if(guarded)a0=a1=0;
             const double e0=cabs(a0-(c38.alpha0[k].re+I*(double)c38.alpha0[k].im));
             const double e1=cabs(a1-(c38.alpha1[k].re+I*(double)c38.alpha1[k].im));
             if(e0>worst)worst=e0;
@@ -118,7 +133,8 @@ int main(void){
                                 I*((double)c38.alpha0[k].im-(double)c32.alpha0[k].im));
             if(d>diff_window)diff_window=d;
         }
-        assert(worst<2e-4);          /* independent closed form, ridge 1e-7 only */
+        assert(worst<1e-5);          /* independent closed form incl. the standard's regularization */
+        assert(fabs((double)c38.alpha0[5u].re)+fabs((double)c38.alpha0[5u].im)>0.0);   /* the tone band is not silently zeroed */
         assert(diff_window>1e-3);    /* the 38-equation window is not the old 32-equation one */
         printf("SBR-78: 38-equation FFmpeg window vs closed form, worst |dalpha|=%.2e; window matters (max |alpha0 38-32|=%.3f) PASS\n",worst,diff_window);
     }

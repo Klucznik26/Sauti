@@ -1233,6 +1233,12 @@ test-aac-he-preview-compare:
 probe-he-aac test-aac-he-probe-build: $(OBJDIR)/sauti_he_aac_probe
 	@echo "HE-AAC real ADTS probe ready: ./$(OBJDIR)/sauti_he_aac_probe FILE.aac [MAX_FRAMES]"
 
+# SBR-78: LPC/chirp sondy kontra instrumentowany FFmpeg na prawdziwym pliku HE-AAC z filtrowaniem odwrotnym.  Poza test-aac-native (wymaga
+# zewnetrznego FFmpeg i pliku): make test-aac-he-lpc-ffmpeg HE_FILE=/sciezka/plik.aac [HE_FRAMES=400] [SAUTI_FFMPEG_INSTR=.../ffmpeg]
+.PHONY: test-aac-he-lpc-ffmpeg
+test-aac-he-lpc-ffmpeg: $(OBJDIR)/sauti_he_aac_probe
+	bash scripts/test_he_lpc_vs_ffmpeg.sh "$(HE_FILE)" $(or $(HE_FRAMES),400)
+
 .PHONY: test-aac-he-probe-smoke
 test-aac-he-probe-smoke: $(OBJDIR)/sauti_he_aac_probe $(OBJDIR)/test_aac_sbr_adts_qmf
 	@set -eu; fixture=$(mktemp --suffix=.aac); \

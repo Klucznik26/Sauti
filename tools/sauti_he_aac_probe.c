@@ -2492,7 +2492,9 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         SautiAacSbrComplex lpc_in40[40u*32u];
         memcpy(lpc_in40,lpc_prev8,sizeof(lpc_prev8));
         memcpy(lpc_in40+8u*32u,low_qmf,32u*32u*sizeof(low_qmf[0]));
-        const int lpc40=getenv("SAUTI_SBR75_LPC40")!=NULL;     /* okno estymacji jak FFmpeg: 38 rownan na 40 slotach */
+        /* SBR-78: okno estymacji jak FFmpeg (38 rownan na 40 slotach) to teraz domyslne takze tutaj, zeby statystyki SBR-54g i zrzut alpha opisywaly
+         * ten sam LPC, ktory dostaje tor podstawiony u zrodla.  SAUTI_SBR75_LEGACY=1 wraca do 32 rownan na 34 slotach. */
+        const int lpc40=getenv("SAUTI_SBR75_LEGACY")==NULL;
         if(!(lpc40?sauti_aac_sbr_lpc_estimate_2(lpc_in40,40u*32u,38u,&lpc_coeff)
                   :sauti_aac_sbr_lpc_estimate_2(lpc_input,34u*32u,32u,&lpc_coeff)) ||
            !sauti_aac_sbr_chirp_update(
@@ -2568,6 +2570,18 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                             (double)lpc_coeff.alpha0[hp].re,(double)lpc_coeff.alpha0[hp].im,
                             (double)lpc_coeff.alpha1[hp].re,(double)lpc_coeff.alpha1[hp].im);
                 fflush(alpha_out);
+            }
+        }
+        if(getenv("SAUTI_SBR78_BW")){             /* zrzut chirpu do porownania z kolumna bw z SAUTI_SBR73_FFMPEG_HFGEN: frame,k,bw (bin HF k, pasmo szumu b) */
+            static FILE *bw_out;
+            if(!bw_out){bw_out=fopen(getenv("SAUTI_SBR78_BW"),"wb");
+                if(bw_out)fprintf(bw_out,"frame,k,bw\n");}
+            const SautiAacSbrTables *bt=&temporal_history.current.tables;
+            if(bw_out){
+                for(unsigned b=0u;b<bt->n_noise && b<SAUTI_AAC_SBR_MAX_NOISE_BANDS;b++)
+                    for(unsigned k=bt->noise[b];k<bt->noise[b+1u];k++)
+                        fprintf(bw_out,"%zu,%u,%.9g\n",i,k,(double)next_chirp.bw[b]);
+                fflush(bw_out);
             }
         }
         memcpy(lpc_previous_low,low_qmf+30u*32u,
