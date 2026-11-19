@@ -1511,6 +1511,11 @@ static int sbr73_assemble_shifted_tone(
  * table, the post-boost hf_gain, and this frame's pre-gain HF are
  * always kept for the experimental tone scale and the shifted gain.
  * The CSV is written only when SAUTI_SBR73_SAUTI_LIMIT=/path.csv. */
+/* Previous frame's carrier as the limiter's e_curr window sees it (6 slots of look-back).  File scope so that the SBR-76 tail
+ * correction can patch slots 26..31 here too; before SBR-79 this copy kept the uncorrected carrier. */
+static int sbr73_limit_have_prev;
+static SautiAacSbrComplex sbr73_limit_prev[32u*64u];
+
 static int sbr73_trace_limit(
     uint64_t frame,
     const SautiAacSbrTemporalHistory *history,
@@ -1518,8 +1523,7 @@ static int sbr73_trace_limit(
     const char *path=getenv("SAUTI_SBR73_SAUTI_LIMIT");
     static FILE *out;
     static int header_done;
-    static int have_prev;
-    static SautiAacSbrComplex prev[32u*64u];
+    SautiAacSbrComplex *prev=sbr73_limit_prev;
     if(!history || !hf || !history->ready)return 0;
     if(path && !out){
         out=fopen(path,"wb");
@@ -1529,7 +1533,7 @@ static int sbr73_trace_limit(
         }
     }
     if(path && !header_done){
-        if(fprintf(out,"frame,envelope,delta,k,group,boost,sm,g\n")<0)
+        if(fprintf(out,"frame,envelope,delta,k,group,boost,sm,g,ecurr_raw,E_raw,Q\n")<0)
             return 0;
         header_done=1;
     }
@@ -1562,11 +1566,11 @@ static int sbr73_trace_limit(
            payload->energy.freq_res[env]>1u ||
            payload->attack[env]>1u)
             return 0;
-        if((int)start-6<0 && !have_prev)continue;
+        if((int)start-6<0 && !sbr73_limit_have_prev)continue;
         double window[64];
         if(!sauti_aac_sbr_temporal_power_hfgen_window(
                hf,32u*64u,
-               have_prev?prev:NULL,have_prev?32u*64u:0u,
+               sbr73_limit_have_prev?prev:NULL,sbr73_limit_have_prev?32u*64u:0u,
                start,end,kx,k2,window))
             return 0;
         const unsigned fine=payload->energy.freq_res[env];
@@ -1629,7 +1633,7 @@ static int sbr73_trace_limit(
         /* attack[0] stays clear when no onset was signaled, so a
          * one-envelope frame keeps delta=1. A real pointer sets
          * attack on that envelope only. */
-        const unsigned delta=payload->attack[env]?0u:1u;
+        const unsigned delta=sauti_aac_sbr_env_delta(payload,env,history->has_previous?&history->previous:NULL);
         SautiAacSbrGainLimitedFrame limited;
         if(!sauti_aac_sbr_gain_limit_partition_flags(
                energy,ec,noise,center,mapped,bands.edges,
@@ -1655,14 +1659,14 @@ static int sbr73_trace_limit(
             saved_noise[env][k]=q;
             saved_sine[env][k]=sm>0.0?1u:0u;
             band_ok[env][k]=1u;
-            if(path && fprintf(out,"%llu,%u,%u,%u,%d,%.9g,%.9g,%.9g\n",
+            if(path && fprintf(out,"%llu,%u,%u,%u,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g\n",
                        (unsigned long long)frame,env,delta,k,group,
-                       boost,sm,g)<0)
+                       boost,sm,g,ec[k],energy[k],noise[k])<0)
                 return 0;
         }
     }
-    memcpy(prev,hf,sizeof(prev));
-    have_prev=1;
+    memcpy(prev,hf,sizeof(sbr73_limit_prev));
+    sbr73_limit_have_prev=1;
     sbr73_boost_remember(frame,payload->grid.env_count,
                          band_ok,saved_sine,payload->attack,
                          saved_boost,saved_gain,
@@ -2377,7 +2381,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             }
             /* SBR-76: sloty 26..31 POPRZEDNIEJ ramki sa slyszane jako sloty 0..5 tej ramki; FFmpeg generuje ich nosnik danymi BIEZACEJ ramki (alpha, bw, mapa lat).
              * Przeliczamy je i podmieniamy WE WSZYSTKICH miejscach, gdzie nosnik poprzedniej ramki jest trzymany. */
-            if(getenv("SAUTI_SBR76_TAIL") && i>0u){
+            if(!getenv("SAUTI_SBR76_NOTAIL") && i>0u){   /* SBR-79: domyslnie wlaczone; SAUTI_SBR76_NOTAIL=1 wylacza (porownania) */
                 SautiAacSbrComplex tail[6u*64u];
                 int tail_ok=1;
                 for(unsigned s6=0u;s6<6u && tail_ok;s6++){
@@ -2390,6 +2394,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
                     Sbr73BoostSaved *ring=(Sbr73BoostSaved *)sbr73_boost_find(i-1u);
                     for(unsigned s6=0u;s6<6u;s6++){
                         const unsigned row=(26u+s6)*64u;
+                        memcpy(sbr73_limit_prev+row,tail+s6*64u,64u*sizeof(tail[0]));   /* the limiter's e_curr window look-back (SBR-79) */
                         if(ring)memcpy(ring->baseline+row,tail+s6*64u,64u*sizeof(tail[0]));
                         memcpy(ref_prev_hf+row,tail+s6*64u,64u*sizeof(tail[0]));
                         memcpy(temporal_apply.held+row,tail+s6*64u,64u*sizeof(tail[0]));

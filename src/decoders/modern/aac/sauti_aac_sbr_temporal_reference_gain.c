@@ -17,6 +17,7 @@
 
 static int build_one(
     const SautiAacSbrPayloadFrame *f,
+    const SautiAacSbrPayloadFrame *before,
     const SautiAacSbrTemporalPowerEnvelope *power,
     const SautiAacSbrTemporalGainEnvelope *legacy,
     unsigned source,
@@ -131,7 +132,7 @@ static int build_one(
      * SBR-79: that is attack[env], not env==transient_env.  The payload parser stores transient_env=0 for "no transient"
      * (attack[0] stays clear), so comparing the index made envelope 0 of every FIXFIX / transient-free VARFIX frame a
      * transient (delta=0) where FFmpeg has delta=1: the limiter then ran with the wrong delta and the gain came out
-     * ~25 % too large on one-envelope frames.  FFmpeg's cross-frame e_a[0] history is still not represented.
+     * ~25 % too large on one-envelope frames.  The carried-over onset e_a[0] comes from the frame before (`before`).
      * Square sums below stay on the unscaled mean power. */
     double raw_e[64]={0},raw_c[64]={0};
     for(unsigned k=kx;k<k2;k++){
@@ -140,7 +141,7 @@ static int build_one(
         if(!isfinite(raw_e[k]) || raw_e[k]<0.0 ||
            !isfinite(raw_c[k]) || raw_c[k]<0.0)return 0;
     }
-    const unsigned delta=f->attack[env]?0u:1u;
+    const unsigned delta=sauti_aac_sbr_env_delta(f,env,before);
     SautiAacSbrGainLimitedFrame limited;
     if(!sauti_aac_sbr_gain_limit_partition_flags(
            raw_e,raw_c,q,active_sine,sine_mapped,
@@ -199,7 +200,10 @@ int sauti_aac_sbr_temporal_reference_gain_calculate(
             p->source==0u?older_hf:previous_hf;
         const size_t older_n=
             p->source==0u?older_count:previous_count;
-        if(!build_one(f,p,&baseline.completed[i],p->source,
+        /* frame before f: for a current-frame envelope that is history->previous; an inherited envelope's predecessor is not kept */
+        const SautiAacSbrPayloadFrame *before=
+            (p->source==1u && history->has_previous)?&history->previous:NULL;
+        if(!build_one(f,before,p,&baseline.completed[i],p->source,
                       grid,grid_count,older,older_n,row))
             return 0;
         next.group_count+=row->limited.groups;

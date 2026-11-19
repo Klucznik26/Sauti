@@ -24,7 +24,7 @@ static void make_frame(SautiAacSbrPayloadFrame *f,double energy){
     f->env_edges[0]=0u;f->env_edges[1]=32u;
     f->noise_edges[0]=0u;f->noise_edges[1]=32u;
     f->limiter_mode=0u;f->gain_mode=3u;
-    f->transient_env=1u; /* no transient in this one-env frame */
+    f->transient_env=0u; /* no onset: the parser's convention (attack[0] clear); env_count would mean an onset carried into the next frame */
     f->harmonic[0]=1u;
     /* build_one lifts envelope energy by 2^30. Store the normalized
      * value the probe passes after SBR-60, not the raw quantizer. */
@@ -179,9 +179,10 @@ static void run(unsigned tail){
 }
 /* SBR-79: the parser stores transient_env=0 for "no signaled onset" and leaves attack[0] clear.  That must give delta=1 (FFmpeg
  * e_a[1]=-1), not delta=0 as the old env==transient_env rule did.  Returns the delta of the new owner's envelope. */
-static unsigned new_owner_delta(unsigned attack0,unsigned transient_env){
+static unsigned new_owner_delta(unsigned attack0,unsigned transient_env,unsigned before_transient){
     SautiAacSbrPayloadFrame before,now;
     make_frame(&before,64.0);extend(&before,6u);
+    before.transient_env=before_transient;
     make_frame(&now,144.0);follow(&now,6u);
     now.transient_env=transient_env;
     now.attack[0]=(uint8_t)attack0;
@@ -207,10 +208,33 @@ static unsigned new_owner_delta(unsigned attack0,unsigned transient_env){
 }
 int main(void){
     run(2u);run(6u);
-    assert(new_owner_delta(0u,0u)==1u);   /* no onset: parser gives transient_env=0, attack[0]=0 */
-    assert(new_owner_delta(1u,0u)==0u);   /* signaled onset */
-    assert(new_owner_delta(0u,1u)==1u);   /* transient_env past the last envelope = none */
-    puts("SBR-79: delta follows attack[env], transient_env=0 means no onset PASS");
+    assert(new_owner_delta(0u,0u,0u)==1u);   /* no onset: parser gives transient_env=0, attack[0]=0 */
+    assert(new_owner_delta(1u,0u,0u)==0u);   /* signaled onset */
+    assert(new_owner_delta(0u,1u,0u)==1u);   /* transient_env of the NEW frame past its last envelope does not change its own envelope 0 */
+    /* e_a[0]: the previous frame's onset index equals its envelope count (1) -> it falls in this frame's envelope 0 -> delta=0,
+     * although attack[0] is clear.  FFmpeg: e_a[0] = -(e_a[1] != bs_num_env_old). */
+    assert(new_owner_delta(0u,0u,1u)==0u);
+    assert(new_owner_delta(0u,0u,0u)==1u);   /* same frame without the carried onset */
+    {   /* sauti_aac_sbr_env_delta on a 3-envelope frame: the carried onset reaches envelope 0 only */
+        SautiAacSbrPayloadFrame f,prev;
+        memset(&f,0,sizeof(f));memset(&prev,0,sizeof(prev));
+        f.grid.env_count=3u;prev.grid.env_count=3u;
+        prev.transient_env=3u;                                    /* previous onset index == its envelope count */
+        assert(sauti_aac_sbr_env_delta(&f,0u,&prev)==0u);
+        assert(sauti_aac_sbr_env_delta(&f,1u,&prev)==1u);
+        assert(sauti_aac_sbr_env_delta(&f,2u,&prev)==1u);
+        assert(sauti_aac_sbr_env_delta(&f,0u,NULL)==1u);          /* predecessor unknown: nothing carried */
+        prev.transient_env=2u;                                    /* an onset inside the previous frame is not carried */
+        assert(sauti_aac_sbr_env_delta(&f,0u,&prev)==1u);
+        prev.transient_env=4u;                                    /* out of range (the parser never emits it): not a carried onset */
+        assert(sauti_aac_sbr_env_delta(&f,0u,&prev)==1u);
+        prev.grid.env_count=0u;prev.transient_env=0u;             /* empty predecessor must not look like a carried onset */
+        assert(sauti_aac_sbr_env_delta(&f,0u,&prev)==1u);
+        f.attack[1]=1u;
+        assert(sauti_aac_sbr_env_delta(&f,1u,NULL)==0u);
+        assert(sauti_aac_sbr_env_delta(&f,2u,NULL)==1u);
+    }
+    puts("SBR-79: delta follows attack[env] and the carried onset e_a[0]; transient_env=0 means no onset PASS");
     puts("PASS SBR-54l real-envelope gain partition adapter (NO PCM)");
     return 0;
 }

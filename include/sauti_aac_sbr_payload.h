@@ -251,4 +251,18 @@ int sauti_aac_sbr_temporal_hf_targets(
     const SautiAacSbrTemporalHistory *history,
     SautiAacSbrTemporalHfTargets *out);
 
+/* SBR-79: delta of the gain limiter for envelope `env` of frame `f` (FFmpeg: delta = !(e==e_a[1] || e==e_a[0])).
+ * e_a[1] is this frame's own onset, stored as attack[env] (the parser keeps transient_env=0 and attack[0]=0 for "no onset").
+ * e_a[0] is the carried-over onset: 0 when the PREVIOUS frame's onset index equalled its envelope count, i.e. it falls in this
+ * frame's first envelope.  `prev` is the frame before `f`, or NULL when unknown (startup, or an envelope inherited from the
+ * previous frame whose predecessor is not kept); then no carried onset is assumed. */
+static inline unsigned sauti_aac_sbr_env_delta(const SautiAacSbrPayloadFrame *f,
+                                               unsigned env,
+                                               const SautiAacSbrPayloadFrame *prev){
+    if(f->attack[env])return 0u;
+    if(env==0u && prev && prev->grid.env_count>0u &&
+       prev->transient_env==prev->grid.env_count)return 0u;
+    return 1u;
+}
+
 #endif
