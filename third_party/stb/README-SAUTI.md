@@ -21,5 +21,8 @@ the unmodified file fails those tests (invalid `free()`, heap overflow, leaks, u
    (NULL dereference on that error path).
 5. `get32_packet` uses unsigned shifts (`get8_packet` returns `EOP = -1` at the end of a packet; shifting a negative `int` is undefined behaviour).
 
+6. `crc_table` is a compile-time constant (`static const`); `crc32_init()` is empty. The original filled a global table on every open: a data race when two threads open Ogg
+   files at once (found by ThreadSanitizer in CI, 2026-11-20).
+
 Behaviour for valid files is unchanged (bit-identical PCM: `make test-maktabasauti-regression`, thread tests, hardening test opens the unmodified fixture).
 Upstream status: not reported yet; the patch is in `docs/upstream-patches/stb_vorbis.patch` (diff against the imported v1.22), ready to propose to nothings/stb.

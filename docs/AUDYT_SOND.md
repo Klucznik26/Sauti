@@ -65,6 +65,7 @@ Numeracja: F = znaleziony i naprawiony błąd, R = ryzyko opisane (niezmieniane)
 | F10 | rdzeń `mks_reader.c` `fill`/`read`/`mks_reader_map` | `io.read` zwracający więcej niż zażądano zwiększał `len`/`used` ponad pojemność bufora | **przepełnienie sterty** (odczyt/zapis poza buforem), dalej nieskończona pętla przy `INT64_MAX` | kontrola `got <= zażądano`, w przeciwnym razie `E_IO` | `test_maktabasauti_hostile_io` (na starym kodzie ASan: heap-buffer-overflow) |
 | F11 | rdzeń `mks_reader.c` | ujemny kod z `io.read/seek` rzutowany na `maktabasauti_result_t` (`INT64_MIN` → 0 = `OK`); `mks_reader_map` zwracał `OK` z niezainicjowanymi `data/size` | błędne „powodzenie” otwarcia, użycie niezainicjowanych wskaźników | `io_err()`: tylko znane `E_*`, reszta `E_IO` | hostile-io |
 | F12 | rdzeń `mks_reader_seek` | `cur + offset`, `sz + offset` bez kontroli przepełnienia ze znakiem | UB przy skrajnym `offset` z modułu | kontrola przed dodaniem, `E_OUT_OF_RANGE` | hostile-io (`seek` `INT64_MIN/MAX`, każdy `whence`), UBSan |
+| F14 | stb_vorbis `crc32_init` | globalna tablica CRC wypełniana przy każdym otwarciu (oryginalny komentarz: „always init it, to avoid multithread race conditions”) | **wyścig danych** przy równoległym otwieraniu plików Ogg; znalazł go ThreadSanitizer w CI dopiero po dodaniu równoległego rozpoznawania (wcześniej żaden test wielowątkowy nie otwierał Vorbis) | tablica stała w czasie kompilacji (`static const`), `crc32_init` puste | `scripts/test_maktabasauti_threads.sh` pod TSan (CI, wymagany) |
 | F13 | rdzeń `mks_reader_map` | pojemność początkowa = deklarowany rozmiar (do 1 GiB) bez pokrycia w danych | niekontrolowana alokacja zależna od `io.size` | początkowo ≤ 64 MiB, dalej podwajanie wg faktycznie odczytanych danych | hostile-io (żadne pojedyncze żądanie > 64 MiB + 4 KiB dla kilkukilobajtowego wejścia) |
 
 Zmiany wyłącznie w kodzie bibliotek zewnętrznych są opisane osobno w `third_party/<biblioteka>/README-SAUTI.md`; łatki do zgłoszenia upstream: `docs/upstream-patches/`
@@ -84,6 +85,9 @@ Zmiany wyłącznie w kodzie bibliotek zewnętrznych są opisane osobno w `third_
   z `malloc` jest zatruwana tylko w buildzie testów rdzenia.
 - **R6: moduły zewnętrzne** (przyszłe) mogą naruszyć zasady sondy; rdzeń nie izoluje sondy (brak sandboxa), tylko obcina wynik. Sonda dostaje `const` bufor, ale dla całego wejścia jest to kopia
   rdzenia, więc złośliwa sonda mogłaby ją zmodyfikować; do rozważenia kopia obronna przy włączaniu modułów dynamicznych (etap 3).
+- **R8: inicjalizacja możliwości procesora w dr_flac** (`drflac__init_cpu_caps`: trzy globalne flagi zapisywane leniwie, idempotentnie) jest oznaczona przez autora `DRFLAC_NO_THREAD_SANITIZE`, więc
+  ThreadSanitizer jej nie raportuje; formalnie to wyścig danych o jednakowej wartości zapisu. Pozostałe statyczne dane zapisywalne w dekoderach (tablice AAC `standard_trie`, plany IMDCT) mają
+  inicjalizację atomową i są objęte testem TSan dla AAC. Skan: `nm` obiektów rdzenia i dekoderów (symbole `b/B/d/D`), 2026-11-20.
 - **R7: TSan** nie działa lokalnie (brak libtsan); wynik wielowątkowy lokalnie to ASan/UBSan + porównanie bit w bit; wymagany przebieg TSan jest w CI.
 
 ## 5. Jak uruchomić
