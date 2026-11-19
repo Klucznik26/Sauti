@@ -14,7 +14,8 @@ static void ics_body(Bits *b){                      /* global_gain..gain_control
     put(b,1,0); put(b,1,0); put(b,1,0);                                         /* pulse, tns, gain control */
 }
 static void sce(Bits *b,unsigned id){ put(b,3,id); put(b,4,0); ics_body(b); }
-static void cpe(Bits *b){ put(b,3,1); put(b,4,0); put(b,1,0); ics_body(b); ics_body(b); }
+static void cpe_tag(Bits *b,unsigned tag){ put(b,3,1); put(b,4,tag); put(b,1,0); ics_body(b); ics_body(b); }
+static void cpe(Bits *b){ cpe_tag(b,0); }
 static void dse(Bits *b,unsigned bytes){ put(b,3,4); put(b,4,0); put(b,1,1); put(b,8,bytes); while(b->bits%8)put(b,1,0); for(unsigned i=0;i<bytes;i++)put(b,8,0xA5); }
 static void pce(Bits *b){                           /* 1 front (SCE), 0 side/back/lfe, bez mixdownow, komentarz 3 bajty */
     put(b,3,5); put(b,4,0); put(b,2,1); put(b,4,4); put(b,4,1); put(b,4,0); put(b,4,0); put(b,2,0); put(b,3,0); put(b,4,0);
@@ -138,12 +139,24 @@ int main(void){
         /* dekodowanie ramki z PCE: stan z ukladu, cisza w poprawnej liczbie kanalow */
         SautiAacLcMulti st; SautiAacLcLayout l6;
         memset(&p,0,sizeof p); pce_layout(&p,2,0x2,0,0,1,0x1,1,0); assert(scan(&p,0,&l6)==1);
-        sce(&p,0); cpe(&p); cpe(&p); sce(&p,3);
+        sce(&p,0); cpe_tag(&p,1); cpe_tag(&p,0); sce(&p,3);                           /* tagi jak w PCE: przod CPE = 1, tyl CPE = 0 */
+        assert(l6.n_elements==4u && l6.elem_type[1]==1u && l6.elem_tag[1]==1u && l6.elem_slot[1]==1u && l6.elem_slot[2]==3u);
         assert(sauti_aac_lc_multi_init_layout(&st,&l6,0) && st.config==0 && st.channels==6);
         for(unsigned i=0;i<6144;i++)pcm[i]=7.0f;
         assert(run(0,&p,&st,pcm,&rs,0)==1);
         for(unsigned i=0;i<6144;i++)assert(pcm[i]==0.0f);
         assert(run(3,&p,&st,pcm,&rs,0)==-1);                                          /* ADTS 3 przy stanie z PCE */
+        /* kolejnosc elementow w strumieniu inna niz na liscie PCE (tyl przed przodem): nadal poprawnie, miejsce wg (typ, tag) */
+        { Bits q; memset(&q,0,sizeof q); sce(&q,0); cpe_tag(&q,0); cpe_tag(&q,1); sce(&q,3);
+          assert(run(0,&q,&st,pcm,&rs,0)==1); }
+        /* element spoza PCE (tag 5) albo ten sam element dwa razy: odrzucenie, stan bez zmian */
+        { Bits q; SautiAacLcMulti keep=st; memset(&q,0,sizeof q); sce(&q,0); cpe_tag(&q,1); cpe_tag(&q,5); sce(&q,3);
+          assert(run(0,&q,&st,pcm,&rs,0)==-1 && memcmp(&keep,&st,sizeof st)==0);
+          memset(&q,0,sizeof q); sce(&q,0); cpe_tag(&q,1); cpe_tag(&q,1); sce(&q,3);
+          assert(run(0,&q,&st,pcm,&rs,0)==-1 && memcmp(&keep,&st,sizeof st)==0); }
+        /* powtorzone (typ, tag) w PCE: zostaje kolejnosc w strumieniu (n_elements = 0) */
+        { Bits q; SautiAacLcLayout dup; memset(&q,0,sizeof q); pce_layout(&q,2,0x2,0,0,2,0x3,1,0);
+          assert(scan(&q,0,&dup)==1 && dup.n_elements==0u); }
         SautiAacLcLayout bad=l6; bad.channels=9;
         assert(!sauti_aac_lc_multi_init_layout(&st,&bad,0) && !sauti_aac_lc_multi_init_layout(&st,NULL,0));
     }

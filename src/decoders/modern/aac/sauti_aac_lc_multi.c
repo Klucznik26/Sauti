@@ -136,8 +136,9 @@ static int parse_pce_layout(const uint8_t *raw,size_t length,size_t *pos,SautiAa
     if(n>SAUTI_AAC_LC_MULTI_MAX)return -1;
     l.n_elements=n;
     for(unsigned e=0;e<n;e++){l.elem_type[e]=cls[e]==3u?3u:(cpe[e]?1u:0u);l.elem_tag[e]=etag[e];l.elem_slot[e]=slot_of[e];}
+    /* powtorzone (typ, tag) w PCE: elementow nie da sie rozroznic po tagu, wtedy zostaje kolejnosc w strumieniu (n_elements = 0) */
     for(unsigned a=0;a<n;a++)for(unsigned b2=a+1u;b2<n;b2++)
-        if(l.elem_type[a]==l.elem_type[b2]&&l.elem_tag[a]==l.elem_tag[b2])return -1;      /* (typ, tag) musi byc jednoznaczne */
+        if(l.elem_type[a]==l.elem_type[b2]&&l.elem_tag[a]==l.elem_tag[b2])l.n_elements=0;
     unsigned o=0;
     for(int bit=0;bit<=POS_SR;bit++)for(unsigned c=0;c<channels;c++)if(position[c]==bit)l.map[o++]=(uint8_t)c;
     if(o!=channels)return -1;
@@ -210,7 +211,7 @@ int sauti_aac_lc_adts_multi_decode_ex(const uint8_t *frame,size_t length,
         if(!get(raw,raw_length,&probe,3,&id)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
         if(id==7u){pos=probe;break;}
         unsigned slot=used;
-        if(next.config==0u&&(id==0u||id==1u||id==3u)){        /* PCE: miejsce kanalu wg (typ, element_instance_tag) */
+        if(next.config==0u&&next.n_elements&&(id==0u||id==1u||id==3u)){   /* PCE: miejsce kanalu wg (typ, element_instance_tag) */
             size_t tp=probe;uint32_t tag=0;int found=-1;
             if(!get(raw,raw_length,&tp,4,&tag)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
             for(unsigned e=0;e<next.n_elements;e++)
