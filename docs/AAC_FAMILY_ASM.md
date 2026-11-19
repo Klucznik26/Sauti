@@ -7617,3 +7617,18 @@ Różnica fazy L/R jest we wszystkich trzech dekoderach spójna we wszystkich pa
 **Powtarzalność.** `scripts/test_he_ps_phase_vs_faad2.sh` (próg 0,02; SKIP bez libfaad lub fdkaac). Pułapka: w skrypcie z `set -o pipefail` `ldconfig -p | grep -q` kończy się błędem przez SIGPIPE; użyć `grep … >/dev/null`.
 
 **Granice.** Fazę sprawdzono przy ICC = 1; kombinacja IPD/OPD z ICC < 1 (dekorelator aktywny) zależy od dekorelatora, który różni się między dekoderami (FAAD2 ~24 dB od FFmpeg), więc nie ma tam wzorca poza FFmpeg, który ma odwrotne błędy w niskich pasmach. Enkodery (w tym fdkaac) IPD/OPD nie emitują.
+
+### SBR-97 — warianty kontenera M4A/MOV: QuickTime `wave`, `stz2`, DASH, ASC z rozszerzeniem (2026-11-19)
+
+Nie mam plików z enkoderów Apple i Nero, więc sprawdziłem **warianty strukturalne**, którymi się różnią, na plikach zrobionych FFmpegiem z tych samych strumieni HE-AAC i na fixturach w teście.
+
+| wariant | stan | wynik względem FFmpeg (pełne dekodowanie, 200 skoków bit w bit) |
+|---|---|---|
+| **DASH**: segment inicjujący (`ftyp`+`moov`) sklejony z 7 segmentami (`styp`+`sidx`+`moof`+`mdat`), HE-AAC v1 stereo | działał (nieznane pudełka są pomijane) | 138,7 / 124,3 dB |
+| **QuickTime** (`ftyp qt`, `-f mov`): wpis `mp4a` wersji 1 z `esds` w pudełku `wave` (HE-AAC v2, v1 stereo, v1 mono) | **odrzucany, naprawione**: `esds` jest szukany także w `wave` | 135,3–139,0 / 121,3–124,3 dB |
+| rozmiary jednostek w **`stz2`** (4, 8, 16 bitów na wpis) | **brak obsługi, dodane** (tabela zwarta jest wybierana, gdy nie ma `stsz`) | fixtura w teście (FFmpeg nie zapisuje `stz2`) |
+| ASC z rozszerzeniem zgodnym wstecz (AOT 2 + 0x2B7 + SBR, jak w plikach Nero) | działał (z ASC czytane są tylko AOT, częstotliwość rdzenia i kanały), dodany test | fixtura w teście |
+
+Testy (`test_aac_mp4.c`): `stz2` w trzech szerokościach (4-bitowy z rozmiarami na przemian 4 i 5, żeby kolejność półbajtów miała znaczenie), `esds` w `wave` przy wpisie wersji 1, ASC rozszerzony; trzy mutanty (kolejność półbajtów, brak szukania w `wave`, zły odczyt 16 bitów) padają. Fuzzing ASan na plikach DASH i QuickTime: 1800 iteracji, 0 raportów. `test-aac-native` przechodzi.
+
+**Granice.** Nie mam prawdziwych plików Apple/Nero: sprawdzone jest to, co dają FFmpeg i fixtury, a nie realne rozmieszczenie pudełek tych enkoderów (np. `chan`, `sbgp`, wiele ścieżek, rozdziały M4B z osobną ścieżką tekstową są pomijane przez wybór pierwszej ścieżki `soun`+`mp4a`). Lista edycji z pustą pierwszą edycją (opóźnienie na początku) jest pomijana jak dotąd.

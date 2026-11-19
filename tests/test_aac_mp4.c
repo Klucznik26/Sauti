@@ -31,6 +31,9 @@ typedef struct {
     int elst;                      /* 1 = dodaj liste edycji */
     uint32_t elst_media_time, elst_duration;
     int codec_alac, drop_stco, big_au, stsz_truncated, stco_far, version1_mvhd;
+    unsigned stz2;                 /* 4, 8 albo 16: rozmiary w stz2 zamiast stsz */
+    int qt_wave;                   /* wersja 1 wpisu mp4a (QuickTime), esds w pudelku wave */
+    int asc_ext;                   /* ASC z rozszerzeniem zgodnym wstecz (AOT 2 + 0x2B7 + SBR), jak w plikach Nero */
     unsigned frag;                 /* > 0: fragmentowany MP4, tyle fragmentow po samples/frag AU; stbl bez probek */
     unsigned frag_variant;         /* 0 = base_data_offset + rozmiary w trun; 1 = default_base_is_moof + default_sample_size w tfhd; 2 = rozmiar z trex */
     const char *smpb;              /* tekst iTunSMPB (NULL = brak) */
@@ -53,14 +56,35 @@ static void build(Buf *f,const Spec *sp){
     {   size_t sd=open_box(f,"stsd");u32(f,0);u32(f,1);
         size_t en=open_box(f,sp->codec_alac?"alac":"mp4a");
         for(int i=0;i<6;i++){u8(f,0);}
-        u16(f,1);u16(f,0);u16(f,0);u32(f,0);u16(f,sp->channel_config?sp->channel_config:1);u16(f,16);u16(f,0);u16(f,0);u32(f,48000u<<16);
+        u16(f,1);u16(f,sp->qt_wave?1u:0u);u16(f,0);u32(f,0);u16(f,sp->channel_config?sp->channel_config:1);u16(f,16);u16(f,0);u16(f,0);u32(f,48000u<<16);
+        if(sp->qt_wave){u32(f,1024);u32(f,0);u32(f,0);u32(f,0);}                          /* QuickTime wersja 1: 16 bajtow rozszerzenia */
+        size_t wv=0;
+        if(sp->qt_wave){wv=open_box(f,"wave");size_t fr=open_box(f,"frma");raw(f,"mp4a",4);close_box(f,fr);}
         size_t es=open_box(f,"esds");u32(f,0);
-        const uint8_t asc[2]={(uint8_t)((2u<<3)|(sp->rate_index>>1)),(uint8_t)(((sp->rate_index&1u)<<7)|(sp->channel_config<<3))};
-        u8(f,0x03);u8(f,25);u16(f,0);u8(f,0);                                   /* ES_Descriptor */
-        u8(f,0x04);u8(f,17);u8(f,0x40);u8(f,0x15);u8(f,0);u16(f,0);u32(f,0);u32(f,0);   /* DecoderConfigDescriptor */
-        u8(f,0x05);u8(f,2);raw(f,asc,2);u8(f,0x06);u8(f,1);u8(f,2);
+        uint8_t asc[8]={0};unsigned asc_len=2;
+        if(sp->asc_ext){
+            /* AOT 2, czestotliwosc rdzenia 24 kHz (indeks 6), kanaly, GASpecificConfig 000, sync 0x2B7, AOT 5, SBR 1, czestotliwosc 48 kHz (indeks 3) */
+            Buf t;memset(&t,0,sizeof t);
+            #define TB(wd,v) do{for(int k_=(wd)-1;k_>=0;k_--){if(((v)>>k_)&1u)t.b[t.n/8u]|=(uint8_t)(0x80u>>(t.n%8u));t.n++;}}while(0)
+            TB(5,2u);TB(4,6u);TB(4,sp->channel_config);TB(3,0u);TB(11,0x2b7u);TB(5,5u);TB(1,1u);TB(4,3u);
+            #undef TB
+            asc_len=(unsigned)((t.n+7u)/8u);memcpy(asc,t.b,asc_len);
+        }else{
+            asc[0]=(uint8_t)((2u<<3)|(sp->rate_index>>1));asc[1]=(uint8_t)(((sp->rate_index&1u)<<7)|(sp->channel_config<<3));
+        }
+        u8(f,0x03);u8(f,23u+asc_len);u16(f,0);u8(f,0);                                   /* ES_Descriptor */
+        u8(f,0x04);u8(f,15u+asc_len);u8(f,0x40);u8(f,0x15);u8(f,0);u16(f,0);u32(f,0);u32(f,0);   /* DecoderConfigDescriptor */
+        u8(f,0x05);u8(f,asc_len);raw(f,asc,asc_len);u8(f,0x06);u8(f,1);u8(f,2);
+        close_box(f,es);
+        if(sp->qt_wave){size_t tm=open_box(f,"\0\0\0\0");close_box(f,tm);close_box(f,wv);}
         close_box(f,es);close_box(f,en);close_box(f,sd); }
-    { size_t sz=open_box(f,"stsz");u32(f,0);u32(f,sp->big_au?9000u:0u);u32(f,sp->frag?0u:sp->samples);
+    if(sp->stz2&&!sp->big_au&&!sp->frag){
+        size_t sz=open_box(f,"stz2");u32(f,0);u32(f,sp->stz2);u32(f,sp->samples);                 /* reserved(3) + field_size */
+        for(unsigned i=0;i<sp->samples;i++){
+            if(sp->stz2==16u)u16(f,4);else if(sp->stz2==8u)u8(f,4);else if(i&1u)f->b[f->n-1]=(uint8_t)(f->b[f->n-1]|5u);else u8(f,4u<<4);   /* 4 bity: rozmiary na przemian 4 i 5 (starszy polbajt = parzysta jednostka) */
+        }
+        close_box(f,sz);
+    }else{ size_t sz=open_box(f,"stsz");u32(f,0);u32(f,sp->big_au?9000u:0u);u32(f,sp->frag?0u:sp->samples);
       if(!sp->big_au&&!sp->frag){for(unsigned i=0;i<(sp->stsz_truncated?sp->samples/2u:sp->samples);i++)u32(f,4);}
       close_box(f,sz); }
     { size_t sc=open_box(f,"stsc");u32(f,0);u32(f,1);u32(f,1);u32(f,sp->samples);u32(f,1);close_box(f,sc); }
@@ -106,7 +130,7 @@ static void build(Buf *f,const Spec *sp){
     size_t md=open_box(f,"mdat");
     const size_t data_at=f->n;
     if(sp->big_au){for(unsigned i=0;i<9000;i++){u8(f,0);}}
-    else{for(unsigned i=0;i<sp->samples;i++){raw(f,au,4);}}
+    else{for(unsigned i=0;i<sp->samples;i++){raw(f,au,4);if(sp->stz2==4u&&(i&1u))u8(f,0);}}
     close_box(f,md);
     if(!sp->drop_stco){ uint32_t off=sp->stco_far?0x7fffff00u:(uint32_t)data_at;f->b[stco_at]=(uint8_t)(off>>24);f->b[stco_at+1]=(uint8_t)(off>>16);f->b[stco_at+2]=(uint8_t)(off>>8);f->b[stco_at+3]=(uint8_t)off; }
 }
@@ -197,6 +221,19 @@ int main(void){
         for(size_t at=12u;at+8u<bad.n;at++)
             if(memcmp(bad.b+at,"trun",4)==0){const size_t o=at+4u+8u;bad.b[o]=0x7f;bad.b[o+1]=0xff;bad.b[o+2]=0xff;bad.b[o+3]=0xf0;if(variant==0u)break;}
         adts=NULL;assert(sauti_aac_mp4_to_adts(bad.b,bad.n,&adts,&al,&info)==0);
+    }
+    /* zwarte rozmiary (stz2: 4, 8, 16 bitow), esds w pudelku wave (QuickTime), ASC z rozszerzeniem SBR (Nero): ten sam wynik co zwykly plik */
+    for(unsigned variant=0;variant<5;variant++){
+        Spec g;memset(&g,0,sizeof g);g.samples=6;g.rate_index=3;g.channel_config=1;
+        if(variant<3)g.stz2=variant==0?4u:variant==1?8u:16u;
+        if(variant==3)g.qt_wave=1;
+        if(variant==4){g.asc_ext=1;g.rate_index=6;}
+        build(&f,&g);adts=NULL;
+        assert(sauti_aac_mp4_to_adts(f.b,f.n,&adts,&al,&info)==1&&info.sample_count==6u&&al==(variant==0?3u*11u+3u*12u:6u*11u));
+        const unsigned ri=variant==4?6u:3u;
+        for(unsigned i=0,at=0;i<6;i++){uint8_t au[4];make_au(au);const uint8_t *h=adts+at;assert(((h[2]>>2)&15u)==ri&&memcmp(h+7,au,4)==0);at+=(variant==0&&(i&1u))?12u:11u;}
+        if(variant==4)assert(info.aot==2u&&info.sample_rate==24000u);
+        free(adts);
     }
     puts("PASS AAC MP4: demuxer ISO BMFF -> ADTS, lista edycji, adapter (dekodowanie, przyciecie, seek), odrzucenia");
     return 0;

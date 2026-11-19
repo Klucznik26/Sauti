@@ -169,20 +169,34 @@ int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t 
         if(children>e.end)continue;
         View esds_parent={stsd.p+children,e.end-children},esds;
         uint8_t asc[64];size_t asc_len=0;
-        if(!find_child(esds_parent,FOURCC('e','s','d','s'),&esds)||!parse_esds(esds,asc,&asc_len))continue;
+        /* esds jest dzieckiem wpisu mp4a; QuickTime (wersja 1/2 wpisu, stare M4A/MOV) chowa go w pudelku `wave` (frma, mp4a, esds, terminator) */
+        int have_esds=find_child(esds_parent,FOURCC('e','s','d','s'),&esds);
+        if(!have_esds){
+            View wave;
+            have_esds=find_child(esds_parent,FOURCC('w','a','v','e'),&wave)&&find_child(wave,FOURCC('e','s','d','s'),&esds);
+        }
+        if(!have_esds||!parse_esds(esds,asc,&asc_len))continue;
         SautiAacMp4Info inf;memset(&inf,0,sizeof(inf));
         if(!parse_asc(asc,asc_len,&inf))continue;
         /* Lista jednostek dostepu: z tablic probek (stbl) i z fragmentow (moof/trun) - plik moze miec jedno, drugie albo oba. */
         Sample *list=NULL;size_t nlist=0,caplist=0;
         {
             View stsz,stsc,stco;int co64=0;
-            if(find_child(stbl,FOURCC('s','t','s','z'),&stsz)&&find_child(stbl,FOURCC('s','t','s','c'),&stsc)&&
+            /* rozmiary jednostek: stsz (staly albo tabela 32-bitowa) albo stz2 (zwarta: 4, 8 albo 16 bitow na wpis, Nero i inne) */
+            uint32_t fixed=0,count=0,field=32;int have_sizes=0;View table={NULL,0};
+            if(find_child(stbl,FOURCC('s','t','s','z'),&stsz)&&stsz.n>=12u){
+                fixed=be32(stsz.p+4);count=be32(stsz.p+8);table.p=stsz.p+12;table.n=stsz.n-12u;have_sizes=1;
+                if(!fixed&&(size_t)count>table.n/4u)have_sizes=0;
+            }else if(find_child(stbl,FOURCC('s','t','z','2'),&stsz)&&stsz.n>=12u){
+                field=stsz.p[7];count=be32(stsz.p+8);table.p=stsz.p+12;table.n=stsz.n-12u;
+                have_sizes=(field==4u||field==8u||field==16u)&&(size_t)count<=table.n*8u/field;
+            }
+            if(have_sizes&&find_child(stbl,FOURCC('s','t','s','c'),&stsc)&&
                (find_child(stbl,FOURCC('s','t','c','o'),&stco)||(find_child(stbl,FOURCC('c','o','6','4'),&stco)&&(co64=1)))&&
-               stsz.n>=12u&&stsc.n>=8u&&stco.n>=8u){
-                const uint32_t fixed=be32(stsz.p+4),count=be32(stsz.p+8);
+               stsc.n>=8u&&stco.n>=8u){
                 const uint32_t stsc_n=be32(stsc.p+4),chunks=be32(stco.p+4);
                 const size_t esz=co64?8u:4u;
-                if(count>0u&&count<=MAX_SAMPLES&&(fixed||(size_t)count<=(stsz.n-12u)/4u)&&
+                if(count>0u&&count<=MAX_SAMPLES&&
                    stsc_n>0u&&(size_t)stsc_n<=(stsc.n-8u)/12u&&chunks>0u&&(size_t)chunks<=(stco.n-8u)/esz){
                     uint32_t sample=0;int ok=1;
                     for(uint32_t g=0;g<stsc_n&&ok&&sample<count;g++){
@@ -192,7 +206,13 @@ int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t 
                         for(uint32_t c=first;c<last&&ok&&sample<count;c++){
                             uint64_t off=co64?be64(stco.p+8+(size_t)(c-1u)*8u):be32(stco.p+8+(size_t)(c-1u)*4u);
                             for(uint32_t s2=0;s2<per&&sample<count;s2++,sample++){
-                                const uint32_t sz=fixed?fixed:be32(stsz.p+12+(size_t)sample*4u);
+                                uint32_t sz=fixed;
+                                if(!fixed){
+                                    if(field==32u)sz=be32(table.p+(size_t)sample*4u);
+                                    else if(field==16u)sz=be16(table.p+(size_t)sample*2u);
+                                    else if(field==8u)sz=table.p[sample];
+                                    else sz=(sample&1u)?(table.p[sample/2u]&15u):(table.p[sample/2u]>>4);
+                                }
                                 if(!add_sample(&list,&nlist,&caplist,off,sz)){ok=0;break;}
                                 off+=sz;
                             }
