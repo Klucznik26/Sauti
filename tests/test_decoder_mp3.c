@@ -4,6 +4,33 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+/* Regresja: minimp3 (mp3dec_detect_cb) uzywal niezainicjowanego free_format_bytes; wartosc ze stosu, ujemna i duza, dawala odczyt przed poczatkiem bufora
+ * (SEGV w hdr_valid, wykryty przez TSan po tym, jak nowy rdzen zaczal sondowac WSZYSTKIE kodeki na kazdym pliku).  Test zasmieca stos i sonduje bufor o dokladnym
+ * rozmiarze zawierajacy naglowek "free format" (bitrate 0). */
+#if defined(__GNUC__)
+__attribute__((noinline))
+#endif
+static void poison_stack(unsigned char value){
+    volatile unsigned char scratch[32768];
+    memset((void *)scratch,value,sizeof(scratch));
+}
+
+static void probe_with_poisoned_stack(const SautiDecoderOps *ops){
+    static const unsigned char values[]={0x80,0xFF,0xC0,0x7F,0x00};
+    for(size_t v=0;v<sizeof(values);v++){
+        const size_t sizes[]={64,1000,2000,5000};
+        for(size_t k=0;k<sizeof(sizes)/sizeof(sizes[0]);k++){
+            uint8_t *buf=calloc(1,sizes[k]);
+            assert(buf);
+            buf[0]=0xFF;buf[1]=0xFB;buf[2]=0x00;buf[3]=0x00;  /* MPEG-1 layer III, free format */
+            poison_stack(values[v]);
+            (void)ops->probe(buf,sizes[k]);                  /* wynik nieistotny: ma nie czytac poza buforem */
+            free(buf);
+        }
+    }
+}
 
 int main(int argc,char **argv){
     const SautiDecoderOps *reg[]={&sauti_decoder_mp3_ops};
@@ -12,6 +39,7 @@ int main(int argc,char **argv){
     float samples[4096]={0};
     assert(sauti_legacy_decoder_ops_valid(reg[0]));
     assert(!reg[0]->probe(bad,sizeof(bad)));
+    probe_with_poisoned_stack(reg[0]);
     assert(!sauti_legacy_decoder_open(&dec,reg,1,bad,sizeof(bad)));
     assert(sauti_legacy_decoder_read(&dec,samples,4)==0);
     sauti_legacy_decoder_close(&dec);
