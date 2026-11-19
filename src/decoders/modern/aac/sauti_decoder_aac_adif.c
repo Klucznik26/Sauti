@@ -14,7 +14,7 @@ static int adif_probe(const uint8_t *data,size_t size){return sauti_aac_adif_pro
 static void adif_close(void *ctx){
     AdifAac *s=ctx;
     if(!s)return;
-    sauti_decoder_close(&s->inner);
+    sauti_legacy_decoder_close(&s->inner);
     free(s->adts);
     free(s);
 }
@@ -28,17 +28,17 @@ static void *adif_open(const uint8_t *data,size_t length,SautiPcmInfo *info){
     const SautiDecoderOps *const inner[]={&sauti_decoder_aac_native_ops,&sauti_decoder_aac_mono_native_ops,
                                           &sauti_decoder_aac_multi_native_ops,&sauti_decoder_aac_he_native_ops,
                                           &sauti_decoder_aac_he_cpe_native_ops};
-    if(!sauti_decoder_open(&s->inner,inner,sizeof(inner)/sizeof(inner[0]),adts,adts_len)){adif_close(s);return NULL;}
+    if(!sauti_legacy_decoder_open(&s->inner,inner,sizeof(inner)/sizeof(inner[0]),adts,adts_len)){adif_close(s);return NULL;}
     *info=s->inner.info;
     return s;
 }
 static size_t adif_read(void *ctx,float *out,size_t frames){
     AdifAac *s=ctx;
-    return s&&out&&frames?sauti_decoder_read(&s->inner,out,frames):0u;
+    return s&&out&&frames?sauti_legacy_decoder_read(&s->inner,out,frames):0u;
 }
 static int adif_seek(void *ctx,uint64_t position){
     AdifAac *s=ctx;
-    return s&&sauti_decoder_seek(&s->inner,position);
+    return s&&sauti_legacy_decoder_seek(&s->inner,position);
 }
 const SautiDecoderOps sauti_decoder_aac_adif_native_ops={
     "aac-native-adif",adif_probe,adif_open,adif_read,adif_seek,adif_close

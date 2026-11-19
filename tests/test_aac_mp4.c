@@ -157,14 +157,14 @@ int main(void){
     sp.elst_duration=60;                                  /* 60 ms = 2880 probek */
     build(&f,&sp);
     {   SautiDecoder dec;const SautiDecoderOps *const reg[]={&sauti_decoder_aac_mp4_native_ops};
-        assert(sauti_decoder_open(&dec,reg,1,f.b,f.n));
+        assert(sauti_legacy_decoder_open(&dec,reg,1,f.b,f.n));
         assert(dec.info.channels==1 && dec.info.sample_rate==48000 && dec.info.total_frames==2880);
         static float pcm[8192];size_t got=0,all=0;
-        while((got=sauti_decoder_read(&dec,pcm,1000))>0){for(size_t i=0;i<got;i++)assert(pcm[i]==0.0f);all+=got;}
+        while((got=sauti_legacy_decoder_read(&dec,pcm,1000))>0){for(size_t i=0;i<got;i++)assert(pcm[i]==0.0f);all+=got;}
         assert(all==2880);
-        assert(sauti_decoder_seek(&dec,100)&&sauti_decoder_read(&dec,pcm,5000)==2780);
-        assert(!sauti_decoder_seek(&dec,2881) && sauti_decoder_seek(&dec,2880) && sauti_decoder_read(&dec,pcm,10)==0);
-        sauti_decoder_close(&dec);
+        assert(sauti_legacy_decoder_seek(&dec,100)&&sauti_legacy_decoder_read(&dec,pcm,5000)==2780);
+        assert(!sauti_legacy_decoder_seek(&dec,2881) && sauti_legacy_decoder_seek(&dec,2880) && sauti_legacy_decoder_read(&dec,pcm,10)==0);
+        sauti_legacy_decoder_close(&dec);
     }
     /* iTunSMPB bez listy edycji: wartosci w probkach rdzenia, adapter skaluje (tu LC: 1:1).  5 AU = 5120 probek; priming 0x400 = 1024, dlugosc 0xBB8 = 3000. */
     {   Spec g=sp;g.elst=0;g.smpb=" 00000000 00000400 00000100 0000000000000BB8 00000000 00000000";
@@ -172,12 +172,12 @@ int main(void){
         assert(sauti_aac_mp4_to_adts(f.b,f.n,&adts,&al,&info)==1 && info.gapless==1u && info.gapless_priming==1024u && info.gapless_samples==3000u &&
                info.skip_samples==0u && info.duration_samples==0u);free(adts);
         SautiDecoder dec;const SautiDecoderOps *const reg[]={&sauti_decoder_aac_mp4_native_ops};
-        assert(sauti_decoder_open(&dec,reg,1,f.b,f.n));
+        assert(sauti_legacy_decoder_open(&dec,reg,1,f.b,f.n));
         assert(dec.info.total_frames==3000);
         static float pcm[8192];size_t got=0,all=0;
-        while((got=sauti_decoder_read(&dec,pcm,1000))>0)all+=got;
+        while((got=sauti_legacy_decoder_read(&dec,pcm,1000))>0)all+=got;
         assert(all==3000);
-        sauti_decoder_close(&dec);
+        sauti_legacy_decoder_close(&dec);
         /* a lista edycji ma pierwszenstwo (dotychczasowe zachowanie, zwalidowane na korpusie): iTunSMPB jest wtedy ignorowany */
         g.elst=1;g.elst_media_time=1024;g.elst_duration=60;
         build(&f,&g);adts=NULL;
@@ -202,7 +202,7 @@ int main(void){
     for(size_t cut=8;cut<f.n;cut+=37){assert(sauti_aac_mp4_to_adts(f.b,cut,&adts,&al,&info)==0||adts);free(adts);adts=NULL;}   /* uciecia: bez awarii (ASan) */
     memset(&f.b[4],'x',4);assert(!sauti_aac_mp4_probe(f.b,f.n));
     { SautiDecoder dec;const SautiDecoderOps *const reg[]={&sauti_decoder_aac_mp4_native_ops};
-      assert(!sauti_decoder_open(&dec,reg,1,f.b,f.n)); }
+      assert(!sauti_legacy_decoder_open(&dec,reg,1,f.b,f.n)); }
     /* fragmentowany MP4 (moov bez probek + moof/traf/trun): trzy sposoby opisu rozmiarow i podstawy offsetow, kilka fragmentow */
     for(unsigned variant=0;variant<3u;variant++){
         Spec g;memset(&g,0,sizeof g);g.samples=6;g.rate_index=3;g.channel_config=1;g.frag=3;g.frag_variant=variant;
@@ -211,8 +211,8 @@ int main(void){
         for(unsigned i=0;i<6;i++){uint8_t au[4];make_au(au);assert(memcmp(adts+i*11u+7u,au,4)==0);}
         free(adts);
         SautiDecoder dec;const SautiDecoderOps *const reg[]={&sauti_decoder_aac_mp4_native_ops};
-        assert(sauti_decoder_open(&dec,reg,1,f.b,f.n)&&dec.info.total_frames==6u*1024u);
-        sauti_decoder_close(&dec);
+        assert(sauti_legacy_decoder_open(&dec,reg,1,f.b,f.n)&&dec.info.total_frames==6u*1024u);
+        sauti_legacy_decoder_close(&dec);
         /* ucieta koncowka (ostatni fragment niepelny): kompletne fragmenty zostaja, jak w odtwarzaczach; 6 AU w 3 fragmentach po 2 */
         Buf cut=f;cut.n=f.n-30u;
         adts=NULL;assert(sauti_aac_mp4_to_adts(cut.b,cut.n,&adts,&al,&info)==1 && info.sample_count==4u && al==4u*11u);free(adts);

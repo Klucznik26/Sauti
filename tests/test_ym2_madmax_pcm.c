@@ -22,7 +22,7 @@ static void fixture(uint8_t *p,int triggers){
 }
 static void init(SautiDecoder *d,const uint8_t *ym){
  const SautiDecoderOps *ops[]={&sauti_decoder_ym_ops};
- assert(sauti_decoder_open(d,ops,1,ym,4+14*FRAMES));
+ assert(sauti_legacy_decoder_open(d,ops,1,ym,4+14*FRAMES));
 }
 int main(void){
  uint8_t ym[4+14*FRAMES],none[sizeof(ym)],pcm[4096];
@@ -34,22 +34,22 @@ int main(void){
  fixture(ym,1);fixture(none,0);
  init(&d,ym);init(&ctrl,none);
  assert(sauti_decoder_ym2_set_bank(&d,bank,2));
- assert(sauti_decoder_read(&d,a,TOTAL)==TOTAL);
- assert(sauti_decoder_read(&ctrl,b,TOTAL)==TOTAL);
+ assert(sauti_legacy_decoder_read(&d,a,TOTAL)==TOTAL);
+ assert(sauti_legacy_decoder_read(&ctrl,b,TOTAL)==TOTAL);
  assert(memcmp(a,b,5*882*sizeof(float))==0);
  int different=0;
  for(unsigned i=5*882;i<6*882;i++)if(a[i]!=b[i])different=1;
  assert(different);
- assert(sauti_decoder_seek(&d,5*882+123));
+ assert(sauti_legacy_decoder_seek(&d,5*882+123));
  float replay[1024];
- assert(sauti_decoder_read(&d,replay,1024)==1024);
+ assert(sauti_legacy_decoder_read(&d,replay,1024)==1024);
  assert(memcmp(replay,a+5*882+123,sizeof(replay))==0);
- assert(sauti_decoder_seek(&d,0));
- assert(sauti_decoder_read(&d,replay,1024)==1024);
+ assert(sauti_legacy_decoder_seek(&d,0));
+ assert(sauti_legacy_decoder_read(&d,replay,1024)==1024);
  assert(memcmp(replay,a,sizeof(replay))==0);
  /* Edge cases: absent sample ID, zero timer, short sample exhaustion,
   * re-trigger, and sample-accurate rewind after both events. */
- sauti_decoder_close(&d);sauti_decoder_close(&ctrl);
+ sauti_legacy_decoder_close(&d);sauti_legacy_decoder_close(&ctrl);
  {
   uint8_t fx[sizeof(ym)],short_pcm[3]={255,0,255};
   const SautiYm2Sample tiny_bank[2]={{NULL,0},{short_pcm,3}};
@@ -61,8 +61,8 @@ int main(void){
   init(&d,fx);init(&ctrl,none);
   assert(sauti_decoder_ym2_set_bank(&d,tiny_bank,2));
   assert(!sauti_decoder_ym2_set_bank(&d,tiny_bank,129));
-  assert(sauti_decoder_read(&d,a,TOTAL)==TOTAL);
-  assert(sauti_decoder_read(&ctrl,b,TOTAL)==TOTAL);
+  assert(sauti_legacy_decoder_read(&d,a,TOTAL)==TOTAL);
+  assert(sauti_legacy_decoder_read(&ctrl,b,TOTAL)==TOTAL);
   assert(memcmp(a,b,5*882*sizeof(float))==0);
   /* At the trigger sample a short PCM8 bank contributes exactly 127/384.
    * The next output consumes its final byte before exhaustion. */
@@ -75,13 +75,13 @@ int main(void){
   assert(a[6*882+2]==b[6*882+2]);
   /* Unknown index and zero divisor must never start a sample. */
   assert(memcmp(a+7*882,b+7*882,2*882*sizeof(float))==0);
-  assert(sauti_decoder_seek(&d,6*882));
-  assert(sauti_decoder_read(&d,replay,1024)==1024);
+  assert(sauti_legacy_decoder_seek(&d,6*882));
+  assert(sauti_legacy_decoder_read(&d,replay,1024)==1024);
   assert(memcmp(replay,a+6*882,sizeof(replay))==0);
-  assert(sauti_decoder_seek(&d,0));
-  assert(sauti_decoder_read(&d,replay,1024)==1024);
+  assert(sauti_legacy_decoder_seek(&d,0));
+  assert(sauti_legacy_decoder_read(&d,replay,1024)==1024);
   assert(memcmp(replay,a,sizeof(replay))==0);
-  sauti_decoder_close(&d);sauti_decoder_close(&ctrl);
+  sauti_legacy_decoder_close(&d);sauti_legacy_decoder_close(&ctrl);
  }
 
  /* While a Mad Max sample plays on C, PSG voice C must not leak.
@@ -94,14 +94,14 @@ int main(void){
   init(&d,c_loud);init(&ctrl,c_quiet);
   assert(sauti_decoder_ym2_set_bank(&d,bank,2));
   assert(sauti_decoder_ym2_set_bank(&ctrl,bank,2));
-  assert(sauti_decoder_read(&d,a,TOTAL)==TOTAL);
-  assert(sauti_decoder_read(&ctrl,b,TOTAL)==TOTAL);
+  assert(sauti_legacy_decoder_read(&d,a,TOTAL)==TOTAL);
+  assert(sauti_legacy_decoder_read(&ctrl,b,TOTAL)==TOTAL);
   assert(memcmp(a+6*882,b+6*882,300*sizeof(float))==0);
   int returns=0;
   for(unsigned i=7*882;i<8*882;i++)
    if(a[i]!=b[i]){returns=1;break;}
   assert(returns);
-  sauti_decoder_close(&d);sauti_decoder_close(&ctrl);
+  sauti_legacy_decoder_close(&d);sauti_legacy_decoder_close(&ctrl);
  }
  free(a);free(b);
  puts("PASS: YM2 Mad Max PCM trigger, exact sample, exhaustion, retrigger, invalid ID/timer, voice C override, seek");

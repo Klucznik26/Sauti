@@ -23,7 +23,7 @@ static void chunk(File *f,const char *tag,const uint8_t *data,size_t n){
 static void finish(File *f){put32(f->b+4,(uint32_t)(f->n-8u));}
 static int open_decoder(SautiDecoder *d,const File *f){
     const SautiDecoderOps *list[]={&sauti_decoder_aiff_ops};
-    return sauti_decoder_open(d,list,1,f->b,f->n);
+    return sauti_legacy_decoder_open(d,list,1,f->b,f->n);
 }
 static void mono(void){
     File f;begin(&f,0);
@@ -36,11 +36,11 @@ static void mono(void){
     SautiDecoder d={0};float pcm[2]={0};
     assert(open_decoder(&d,&f));
     assert(d.info.channels==1&&d.info.sample_rate==44100&&d.info.total_frames==2);
-    assert(sauti_decoder_read(&d,pcm,2)==2);
+    assert(sauti_legacy_decoder_read(&d,pcm,2)==2);
     assert(pcm[0]==-1.f&&pcm[1]>0.999f);
-    assert(sauti_decoder_seek(&d,1));
-    assert(sauti_decoder_read(&d,pcm,1)==1&&pcm[0]>0.999f);
-    assert(!sauti_decoder_seek(&d,3));sauti_decoder_close(&d);
+    assert(sauti_legacy_decoder_seek(&d,1));
+    assert(sauti_legacy_decoder_read(&d,pcm,1)==1&&pcm[0]>0.999f);
+    assert(!sauti_legacy_decoder_seek(&d,3));sauti_legacy_decoder_close(&d);
     f.b[4]=0xff;assert(!open_decoder(&d,&f));
 }
 static void stereo_aifc(void){
@@ -52,9 +52,9 @@ static void stereo_aifc(void){
     SautiDecoder d={0};float pcm[4];
     assert(open_decoder(&d,&f));
     assert(d.info.channels==2 && d.info.total_frames==2);
-    assert(sauti_decoder_read(&d,pcm,2)==2);
+    assert(sauti_legacy_decoder_read(&d,pcm,2)==2);
     assert(pcm[0]==-1.f && pcm[1]>0.999f && pcm[2]==0.f && pcm[3]==0.5f);
-    sauti_decoder_close(&d);
+    sauti_legacy_decoder_close(&d);
     /* Unsupported AIFC compression may never be mistaken for PCM. */
     memcpy(f.b+12+8+18,"ima4",4);assert(!open_decoder(&d,&f));
 }

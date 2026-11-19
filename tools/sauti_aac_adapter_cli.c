@@ -23,19 +23,19 @@ int main(int argc, char **argv) {
     bytes = (uint8_t *)malloc((size_t)end);
     if (!bytes || fread(bytes, 1, (size_t)end, f) != (size_t)end) { fclose(f); free(bytes); return 2; }
     fclose(f);
-    if (!sauti_decoder_open(&dec, registry, sizeof registry / sizeof registry[0], bytes, (size_t)end)) { puts("REJECT"); free(bytes); return 1; }
+    if (!sauti_legacy_decoder_open(&dec, registry, sizeof registry / sizeof registry[0], bytes, (size_t)end)) { puts("REJECT"); free(bytes); return 1; }
     out = fopen(argv[2], "wb");
-    if (!out) { sauti_decoder_close(&dec); free(bytes); return 2; }
+    if (!out) { sauti_legacy_decoder_close(&dec); free(bytes); return 2; }
     pcm = (float *)malloc(4096U * (size_t)(dec.info.channels ? dec.info.channels : 1U) * sizeof(float));
-    if (!pcm) { fclose(out); sauti_decoder_close(&dec); free(bytes); return 2; }
-    while ((got = sauti_decoder_read(&dec, pcm, 4096U)) > 0U) {
+    if (!pcm) { fclose(out); sauti_legacy_decoder_close(&dec); free(bytes); return 2; }
+    while ((got = sauti_legacy_decoder_read(&dec, pcm, 4096U)) > 0U) {
         fwrite(pcm, sizeof(float) * dec.info.channels, got, out);
         total += got;
     }
     printf("ADAPTER %s rate=%u channels=%u frames=%zu\n", dec.ops->name, dec.info.sample_rate, dec.info.channels, total);
     fclose(out);
     free(pcm);
-    sauti_decoder_close(&dec);
+    sauti_legacy_decoder_close(&dec);
     free(bytes);
     return 0;
 }

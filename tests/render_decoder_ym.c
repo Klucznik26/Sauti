@@ -45,7 +45,7 @@ int main(int argc,char **argv){
  if(archive_result==1)
    fprintf(stderr,"SAUTI YM: LHA unpacked %ld -> %zu bytes\\n",size,decoded_size);
  const SautiDecoderOps *ops[]={&sauti_decoder_ym_ops};
- if(!sauti_decoder_open(&d,ops,1,unpacked?unpacked:bytes,decoded_size)){
+ if(!sauti_legacy_decoder_open(&d,ops,1,unpacked?unpacked:bytes,decoded_size)){
    fprintf(stderr,"YM2/YM3/YM5/YM6 unsupported or compressed: %s\n",argv[1]);goto done;
  }
  if(d.info.channels!=1||d.info.sample_rate==0||
@@ -61,7 +61,7 @@ int main(int argc,char **argv){
  while(total<d.info.total_frames){
   size_t want=(d.info.total_frames-total)<2048?
               (size_t)(d.info.total_frames-total):2048;
-  size_t got=sauti_decoder_read(&d,pcm,want);
+  size_t got=sauti_legacy_decoder_read(&d,pcm,want);
   if(!got||got>want){fprintf(stderr,"decoder ended early\n");goto done;}
   for(size_t i=0;i<got;i++){
    float v=pcm[i];
@@ -83,7 +83,7 @@ done:
  if(in)fclose(in);
  if(out&&fclose(out)!=0)ok=0;
  if(!ok&&created)remove(argv[2]);
- sauti_decoder_close(&d);
+ sauti_legacy_decoder_close(&d);
  free(bytes);
  free(unpacked);
  return ok?0:1;

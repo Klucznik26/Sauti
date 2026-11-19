@@ -12,11 +12,11 @@ static void invalid(void){
     const uint8_t not_audio[]={'R','I','F','F',0,0,0,0,'W','A','V','E'};
     const uint8_t fake_mp4[]={0,0,0,12,'f','t','y','p','M','4','A',' '};
     const uint8_t fake_ebml[]={0x1a,0x45,0xdf,0xa3,0,0,0,0};
-    for(size_t i=0;i<3;i++)assert(sauti_decoder_ops_valid(decoders[i]));
+    for(size_t i=0;i<3;i++)assert(sauti_legacy_decoder_ops_valid(decoders[i]));
     SautiDecoder d={0};
-    assert(!sauti_decoder_open(&d,decoders,3,not_audio,sizeof(not_audio)));
-    assert(!sauti_decoder_open(&d,decoders,3,fake_mp4,sizeof(fake_mp4)));
-    assert(!sauti_decoder_open(&d,decoders,3,fake_ebml,sizeof(fake_ebml)));
+    assert(!sauti_legacy_decoder_open(&d,decoders,3,not_audio,sizeof(not_audio)));
+    assert(!sauti_legacy_decoder_open(&d,decoders,3,fake_mp4,sizeof(fake_mp4)));
+    assert(!sauti_legacy_decoder_open(&d,decoders,3,fake_ebml,sizeof(fake_ebml)));
 }
 int main(int argc,char **argv){
     invalid();
@@ -39,11 +39,11 @@ int main(int argc,char **argv){
     if(got!=(size_t)len){free(bytes);return 1;}
     SautiDecoder d={0};
     const SautiDecoderOps *registry[]={codec};
-    assert(sauti_decoder_open(&d,registry,1,bytes,got));
+    assert(sauti_legacy_decoder_open(&d,registry,1,bytes,got));
     assert(d.info.channels>=1 && d.info.channels<=2);
     assert(d.info.sample_rate>=8000 && d.info.total_frames>=1000);
     float buffer[1024*2]={0};
-    size_t frames=sauti_decoder_read(&d,buffer,1024);
+    size_t frames=sauti_legacy_decoder_read(&d,buffer,1024);
     assert(frames>0);
     float peak=0.f;
     for(size_t i=0;i<frames*d.info.channels;i++){
@@ -52,14 +52,14 @@ int main(int argc,char **argv){
     }
     assert(peak>0.001f && peak<2.f);
     uint64_t midpoint=d.info.total_frames/2;
-    assert(sauti_decoder_seek(&d,midpoint));
-    assert(sauti_decoder_read(&d,buffer,128)>0);
-    assert(sauti_decoder_seek(&d,d.info.total_frames));
-    assert(sauti_decoder_read(&d,buffer,128)==0);
-    assert(!sauti_decoder_seek(&d,d.info.total_frames+1));
+    assert(sauti_legacy_decoder_seek(&d,midpoint));
+    assert(sauti_legacy_decoder_read(&d,buffer,128)>0);
+    assert(sauti_legacy_decoder_seek(&d,d.info.total_frames));
+    assert(sauti_legacy_decoder_read(&d,buffer,128)==0);
+    assert(!sauti_legacy_decoder_seek(&d,d.info.total_frames+1));
     printf("PASS %s: %u Hz, %u ch, %llu frames, seek\n",
            codec->name,d.info.sample_rate,d.info.channels,
            (unsigned long long)d.info.total_frames);
-    sauti_decoder_close(&d);free(bytes);
+    sauti_legacy_decoder_close(&d);free(bytes);
     return 0;
 }

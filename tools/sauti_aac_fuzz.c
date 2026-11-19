@@ -53,23 +53,23 @@ int main(int argc,char **argv){
         if(rnd()&1u&&n>64u)memcpy(m,seed[si],32u);
         SautiDecoder d;
         alarm(20);
-        if(sauti_decoder_open(&d,registry,sizeof registry/sizeof registry[0],m,n)){
+        if(sauti_legacy_decoder_open(&d,registry,sizeof registry/sizeof registry[0],m,n)){
             opened++;
             const unsigned ch=d.info.channels;
             size_t got,total=0;
-            while((got=sauti_decoder_read(&d,buf,2048u))>0u){
+            while((got=sauti_legacy_decoder_read(&d,buf,2048u))>0u){
                 for(size_t i=0;i<got*ch;i++)if(!isfinite(buf[i])){fprintf(stderr,"FUZZ NONFINITE sample, iteration %ld seed %s kind %u\n",it,argv[3+si],kind);return 4;}
                 total+=got;frames_read+=got;
                 if(total>(size_t)40u*1000u*1000u)break;
             }
             for(int s=0;s<3;s++){
                 const uint64_t pos=d.info.total_frames?(rnd()%(d.info.total_frames+1u)):0u;
-                if(sauti_decoder_seek(&d,pos)){
-                    got=sauti_decoder_read(&d,buf,2048u);
+                if(sauti_legacy_decoder_seek(&d,pos)){
+                    got=sauti_legacy_decoder_read(&d,buf,2048u);
                     for(size_t i=0;i<got*ch;i++)if(!isfinite(buf[i])){fprintf(stderr,"FUZZ NONFINITE sample after seek, iteration %ld\n",it);return 4;}
                 }
             }
-            sauti_decoder_close(&d);
+            sauti_legacy_decoder_close(&d);
         }else rejected++;
         alarm(0);
         free(m);

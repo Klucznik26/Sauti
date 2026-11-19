@@ -18,14 +18,14 @@ int main(int argc,char **argv){
     const SautiDecoderOps *const registry[]={&sauti_decoder_aac_native_ops,&sauti_decoder_aac_mono_native_ops,&sauti_decoder_aac_multi_native_ops,
         &sauti_decoder_aac_mp4_native_ops,&sauti_decoder_aac_latm_native_ops,&sauti_decoder_aac_adif_native_ops,&sauti_decoder_aac_he_native_ops,&sauti_decoder_aac_he_cpe_native_ops};
     SautiDecoder d;
-    if(!sauti_decoder_open(&d,registry,sizeof registry/sizeof registry[0],bytes,(size_t)n)){puts("REJECT");return 1;}
+    if(!sauti_legacy_decoder_open(&d,registry,sizeof registry/sizeof registry[0],bytes,(size_t)n)){puts("REJECT");return 1;}
     const unsigned ch=d.info.channels;
     const uint64_t total=d.info.total_frames;
     float *all=malloc((size_t)total*ch*sizeof(float));
     if(!all)return 2;
     size_t got=0,k;
     static float buf[4096*8];
-    while((k=sauti_decoder_read(&d,buf,4096u))>0u){memcpy(all+got*ch,buf,k*ch*sizeof(float));got+=k;}
+    while((k=sauti_legacy_decoder_read(&d,buf,4096u))>0u){memcpy(all+got*ch,buf,k*ch*sizeof(float));got+=k;}
     if(got!=total){printf("FAIL: sequential read gave %zu of %llu frames\n",got,(unsigned long long)total);return 1;}
     const int seeks=argc>2?atoi(argv[2]):200;
     unsigned bad=0;unsigned long long rng=0x9e3779b97f4a7c15ull;
@@ -40,12 +40,12 @@ int main(int argc,char **argv){
             default:pos=((rng>>20)%(total/256u+1u))*256u+((rng>>12)&255u);break;
         }
         size_t want=1500u;if(pos+want>total)want=(size_t)(total-pos);
-        if(!sauti_decoder_seek(&d,pos)){printf("FAIL: seek(%llu) refused\n",(unsigned long long)pos);bad++;continue;}
-        size_t r=sauti_decoder_read(&d,buf,want);
+        if(!sauti_legacy_decoder_seek(&d,pos)){printf("FAIL: seek(%llu) refused\n",(unsigned long long)pos);bad++;continue;}
+        size_t r=sauti_legacy_decoder_read(&d,buf,want);
         if(r!=want || memcmp(buf,all+pos*ch,want*ch*sizeof(float))!=0){printf("FAIL: pos %llu read %zu of %zu, samples differ\n",(unsigned long long)pos,r,want);bad++;}
     }
-    if(sauti_decoder_seek(&d,total)==0 || sauti_decoder_read(&d,buf,16u)!=0u){puts("FAIL: seek to the end");bad++;}
+    if(sauti_legacy_decoder_seek(&d,total)==0 || sauti_legacy_decoder_read(&d,buf,16u)!=0u){puts("FAIL: seek to the end");bad++;}
     printf("%s: %llu frames, %u channels, %d seeks, %u failures\n",d.ops->name,(unsigned long long)total,ch,seeks,bad);
-    sauti_decoder_close(&d);
+    sauti_legacy_decoder_close(&d);
     return bad?1:0;
 }

@@ -16,7 +16,7 @@ static int mp4_probe(const uint8_t *data,size_t size){return sauti_aac_mp4_probe
 static void mp4_close(void *ctx){
     Mp4Aac *s=ctx;
     if(!s)return;
-    sauti_decoder_close(&s->inner);
+    sauti_legacy_decoder_close(&s->inner);
     free(s->adts);
     free(s);
 }
@@ -32,7 +32,7 @@ static void *mp4_open(const uint8_t *data,size_t length,SautiPcmInfo *info){
     const SautiDecoderOps *const inner[]={&sauti_decoder_aac_native_ops,&sauti_decoder_aac_mono_native_ops,
                                           &sauti_decoder_aac_multi_native_ops,&sauti_decoder_aac_he_native_ops,
                                           &sauti_decoder_aac_he_cpe_native_ops};
-    if(!sauti_decoder_open(&s->inner,inner,sizeof(inner)/sizeof(inner[0]),adts,adts_len)){mp4_close(s);return NULL;}
+    if(!sauti_legacy_decoder_open(&s->inner,inner,sizeof(inner)/sizeof(inner[0]),adts,adts_len)){mp4_close(s);return NULL;}
     /* skip/duration z elst sa w probkach rdzenia; HE podwaja czestotliwosc wyjscia */
     const uint64_t out_rate=s->inner.info.sample_rate;
     const uint64_t scale_num=out_rate,scale_den=mi.sample_rate;
@@ -53,7 +53,7 @@ static void *mp4_open(const uint8_t *data,size_t length,SautiPcmInfo *info){
         const uint64_t d=mi.gapless_samples*scale_num/scale_den;
         if(d&&d<available)available=d;
     }
-    if(skip&&!sauti_decoder_seek(&s->inner,skip)){mp4_close(s);return NULL;}
+    if(skip&&!sauti_legacy_decoder_seek(&s->inner,skip)){mp4_close(s);return NULL;}
     s->skip=skip;s->total=available;s->position=0;
     *info=s->inner.info;
     info->total_frames=available;
@@ -63,14 +63,14 @@ static size_t mp4_read(void *ctx,float *out,size_t frames){
     Mp4Aac *s=ctx;
     if(!s||!out||!frames||s->position>=s->total)return 0;
     if((uint64_t)frames>s->total-s->position)frames=(size_t)(s->total-s->position);
-    const size_t got=sauti_decoder_read(&s->inner,out,frames);
+    const size_t got=sauti_legacy_decoder_read(&s->inner,out,frames);
     s->position+=got;
     return got;
 }
 static int mp4_seek(void *ctx,uint64_t position){
     Mp4Aac *s=ctx;
     if(!s||position>s->total)return 0;
-    if(!sauti_decoder_seek(&s->inner,position+s->skip))return 0;
+    if(!sauti_legacy_decoder_seek(&s->inner,position+s->skip))return 0;
     s->position=position;
     return 1;
 }

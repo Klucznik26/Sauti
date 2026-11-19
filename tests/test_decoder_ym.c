@@ -24,19 +24,19 @@ int main(void){
  memcpy(b+34+3+32,"End!",4);
  const SautiDecoderOps *registry[]={&sauti_decoder_ym_ops};
  SautiDecoder d={0};float out[882]={0};
- assert(sauti_decoder_open(&d,registry,1,b,sizeof(b)));
+ assert(sauti_legacy_decoder_open(&d,registry,1,b,sizeof(b)));
  assert(d.info.sample_rate==44100&&d.info.channels==1&&d.info.total_frames==1764);
- assert(sauti_decoder_read(&d,out,882)==882);
+ assert(sauti_legacy_decoder_read(&d,out,882)==882);
  float lo=1.0f,hi=-1.0f;
  for(size_t i=0;i<882;i++){if(out[i]<lo)lo=out[i];if(out[i]>hi)hi=out[i];}
  assert(lo<0.0f&&hi>0.0f);
- assert(sauti_decoder_seek(&d,100));
+ assert(sauti_legacy_decoder_seek(&d,100));
  float at100[64]={0};
- assert(sauti_decoder_read(&d,at100,64)==64);
+ assert(sauti_legacy_decoder_read(&d,at100,64)==64);
  assert(memcmp(at100,out+100,sizeof(at100))==0);
- assert(!sauti_decoder_seek(&d,1765));
- assert(sauti_decoder_seek(&d,0));
- sauti_decoder_close(&d);
+ assert(!sauti_legacy_decoder_seek(&d,1765));
+ assert(sauti_legacy_decoder_seek(&d,0));
+ sauti_legacy_decoder_close(&d);
  /* Free-running 32-bit tone phase survives period changes. The
   * reference increment is (master_clock_div8_q16 << 15)/period. */
  {
@@ -70,33 +70,33 @@ int main(void){
  /* Noise-only channel A: tone disabled and noise enabled, B/C muted. */
  b[34+3+7]=0x37;b[34+3+6]=1;
  b[34+3+16+7]=0x37;b[34+3+16+6]=1;
- assert(sauti_decoder_open(&d,registry,1,b,sizeof(b)));
- assert(sauti_decoder_read(&d,out,882)==882);
+ assert(sauti_legacy_decoder_open(&d,registry,1,b,sizeof(b)));
+ assert(sauti_legacy_decoder_read(&d,out,882)==882);
  lo=1.0f;hi=-1.0f;
  for(size_t i=0;i<882;i++){if(out[i]<lo)lo=out[i];if(out[i]>hi)hi=out[i];}
  assert(lo<0.0f&&hi>0.0f);
- assert(sauti_decoder_seek(&d,0));
+ assert(sauti_legacy_decoder_seek(&d,0));
  float first[64]={0},again[64]={0};
- assert(sauti_decoder_read(&d,first,64)==64);
- assert(sauti_decoder_seek(&d,0));
- assert(sauti_decoder_read(&d,again,64)==64);
+ assert(sauti_legacy_decoder_read(&d,first,64)==64);
+ assert(sauti_legacy_decoder_seek(&d,0));
+ assert(sauti_legacy_decoder_read(&d,again,64)==64);
  assert(memcmp(first,again,sizeof(first))==0);
- sauti_decoder_close(&d);
+ sauti_legacy_decoder_close(&d);
  b[34+3+7]=0x3e;b[34+3+16+7]=0x3e;
 
  b[34+3+7]=0x3e;b[34+3+8]=0x1f;
- assert(sauti_decoder_open(&d,registry,1,b,sizeof(b))); /* envelope now supported */
- assert(sauti_decoder_read(&d,out,882)==882);
- sauti_decoder_close(&d);
+ assert(sauti_legacy_decoder_open(&d,registry,1,b,sizeof(b))); /* envelope now supported */
+ assert(sauti_legacy_decoder_read(&d,out,882)==882);
+ sauti_legacy_decoder_close(&d);
  /* Inert R15 data is legal when no timer effect is enabled. */
  b[34+3+8]=15;b[34+3+15]=1;
- assert(sauti_decoder_open(&d,registry,1,b,sizeof(b)));
- sauti_decoder_close(&d);
+ assert(sauti_legacy_decoder_open(&d,registry,1,b,sizeof(b)));
+ sauti_legacy_decoder_close(&d);
  /* With a timer effect enabled, an invalid prescaler must be rejected. */
  b[34+3+1]=0x10;
- assert(!sauti_decoder_open(&d,registry,1,b,sizeof(b)));
+ assert(!sauti_legacy_decoder_open(&d,registry,1,b,sizeof(b)));
  b[34+3+1]=0;
- b[34+3+15]=0;b[34+3+32]='X';assert(!sauti_decoder_open(&d,registry,1,b,sizeof(b)));
+ b[34+3+15]=0;b[34+3+32]='X';assert(!sauti_legacy_decoder_open(&d,registry,1,b,sizeof(b)));
  /* YM6 with one embedded digi-drum sample but no active effect commands.
   * Verify the sample block is skipped before metadata and register planes. */
  {
@@ -112,18 +112,18 @@ int main(void){
    song[base+13*2+f]=0xff;
   }
   memcpy(song+base+32,"End!",4);
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
   assert(d.info.total_frames==1764);
-  assert(sauti_decoder_read(&d,out,882)==882);
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_read(&d,out,882)==882);
+  sauti_legacy_decoder_close(&d);
   w32(song+34,1000); /* truncated sample data must be rejected */
-  assert(!sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(!sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
   w32(song+34,3);
   song[base+14*2]=1; /* inert port byte is valid without an effect */
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  sauti_legacy_decoder_close(&d);
   song[base+1*2]=0x50; /* activate a drum: invalid prescaler/timer */
-  assert(!sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(!sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
  }
  /* Full YM6 digidrum event through decoded register frames. */
  {
@@ -140,21 +140,21 @@ int main(void){
   song[base+1*2+1]=0;
   song[base+7*2+1]=0x3f;
   memcpy(song+base+32,"End!",4);
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
   float pcm[1764]={0};
-  assert(sauti_decoder_read(&d,pcm,1764)==1764);
+  assert(sauti_legacy_decoder_read(&d,pcm,1764)==1764);
   assert(pcm[0]>0.3f);
   assert(pcm[4]<-0.3f); /* advancing through alternating drum bytes */
-  assert(sauti_decoder_seek(&d,0));
+  assert(sauti_legacy_decoder_seek(&d,0));
   float rewind[32];
-  assert(sauti_decoder_read(&d,rewind,32)==32);
+  assert(sauti_legacy_decoder_read(&d,rewind,32)==32);
   assert(memcmp(pcm,rewind,sizeof(rewind))==0);
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
   song[base+1*2]=0xd0; /* sync-buzzer is now supported */
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  sauti_legacy_decoder_close(&d);
   song[base+14*2]=0; /* active timer effect without timer count */
-  assert(!sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(!sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
  }
  /* Two YM6 effect slots: concurrent drums on channels A and B. */
  {
@@ -174,26 +174,26 @@ int main(void){
   song[base+7*2]=0x3f;
   song[base+7*2+1]=0x3f;
   memcpy(song+base+32,"End!",4);
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
   float pcm[1764]={0},replay[128];
-  assert(sauti_decoder_read(&d,pcm,1764)==1764);
+  assert(sauti_legacy_decoder_read(&d,pcm,1764)==1764);
   assert(pcm[0]<0.01f && pcm[0]>-0.01f); /* opposite drums cancel */
-  assert(sauti_decoder_seek(&d,0));
-  assert(sauti_decoder_read(&d,replay,128)==128);
+  assert(sauti_legacy_decoder_seek(&d,0));
+  assert(sauti_legacy_decoder_read(&d,replay,128)==128);
   assert(memcmp(pcm,replay,sizeof(replay))==0);
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
   /* Both slots on A: one physical voice, not two summed drums.
    * Slot 1 retriggers after slot 0 and wins the collision. */
   song[base+3*2]=0x50;
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,pcm,1764)==1764);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,pcm,1764)==1764);
   assert(pcm[0]>0.30f && pcm[0]<0.35f);
-  assert(sauti_decoder_seek(&d,0));
-  assert(sauti_decoder_read(&d,replay,128)==128);
+  assert(sauti_legacy_decoder_seek(&d,0));
+  assert(sauti_legacy_decoder_read(&d,replay,128)==128);
   assert(memcmp(pcm,replay,sizeof(replay))==0);
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
   song[base+15*2]=0;
-  assert(!sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(!sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
  }
  /* YM6 retriggers across VBLs: slot 0 changes voice while playing,
   * then slot 1 interrupts it on the new voice. Seek must reconstruct both. */
@@ -222,9 +222,9 @@ int main(void){
   song[BASE+14*FRAMES+1]=28;
   song[BASE+15*FRAMES+2]=28;
   memcpy(song+BASE+16*FRAMES,"End!",4);
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
   float full[2646]={0},replay[96]={0};
-  assert(sauti_decoder_read(&d,full,2646)==2646);
+  assert(sauti_legacy_decoder_read(&d,full,2646)==2646);
   assert(full[0]>0.30f); /* first sample, drum 0 */
   assert(full[882]<-0.30f); /* slot 0 retriggers drum 1 */
   assert(full[1764]<-0.30f); /* slot 1 takes B from slot 0 */
@@ -232,11 +232,11 @@ int main(void){
   for(unsigned k=0;k<sizeof(offsets)/sizeof(offsets[0]);k++){
    unsigned at=offsets[k],count=2646-at;
    if(count>96)count=96;
-   assert(sauti_decoder_seek(&d,at));
-   assert(sauti_decoder_read(&d,replay,count)==count);
+   assert(sauti_legacy_decoder_seek(&d,at));
+   assert(sauti_legacy_decoder_read(&d,replay,count)==count);
    assert(memcmp(full+at,replay,count*sizeof(float))==0);
   }
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
  }
  /* Basic SID: volume changes at MFP timer rate; seeking is deterministic. */
  {
@@ -253,19 +253,19 @@ int main(void){
   song[base+14*2]=50; /* around 983 Hz */
   song[base+13*2]=0xff;song[base+13*2+1]=0xff;
   memcpy(song+base+32,"End!",4);
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
   float pcm[1764]={0},replay[96]={0};
-  assert(sauti_decoder_read(&d,pcm,1764)==1764);
+  assert(sauti_legacy_decoder_read(&d,pcm,1764)==1764);
   int saw_zero=0,saw_signal=0;
   for(unsigned i=0;i<882;i++){
    if(pcm[i]==0.0f)saw_zero=1;
    if(pcm[i]>0.01f||pcm[i]<-0.01f)saw_signal=1;
   }
   assert(saw_zero&&saw_signal);
-  assert(sauti_decoder_seek(&d,200));
-  assert(sauti_decoder_read(&d,replay,96)==96);
+  assert(sauti_legacy_decoder_seek(&d,200));
+  assert(sauti_legacy_decoder_read(&d,replay,96)==96);
   assert(memcmp(replay,pcm+200,sizeof(replay))==0);
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
  }
  /* Cross-type conflict: slot 1 digi-drum preempts slot 0 SID on A.
   * The mixed output must equal a drum-only reference. */
@@ -285,18 +285,18 @@ int main(void){
   song[BASE+13*2]=0xff;song[BASE+13*2+1]=0xff;
   memcpy(song+BASE+32,"End!",4);
   float both[1764],reference[1764],replay[96];
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,both,1764)==1764);
-  assert(sauti_decoder_seek(&d,881));
-  assert(sauti_decoder_read(&d,replay,96)==96);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,both,1764)==1764);
+  assert(sauti_legacy_decoder_seek(&d,881));
+  assert(sauti_legacy_decoder_read(&d,replay,96)==96);
   assert(memcmp(replay,both+881,sizeof(replay))==0);
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
   song[BASE+1*2]=0; /* no SID, keep drum */
   song[BASE+14*2]=0;
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,reference,1764)==1764);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,reference,1764)==1764);
   assert(memcmp(both,reference,sizeof(reference))==0);
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
  }
  /* Sinus-SID (type 2) controls the YM voice with an 8-step shape.
   * It must vary smoothly through intermediate amplitudes and replay exactly
@@ -315,8 +315,8 @@ int main(void){
   song[base+13*2]=0xff;song[base+13*2+1]=0xff;
   memcpy(song+base+32,"End!",4);
   float pcm[1764]={0},replay[96]={0};
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,pcm,1764)==1764);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,pcm,1764)==1764);
   int zero=0,low=0,high=0;
   for(unsigned i=0;i<882;i++){
    float v=pcm[i]<0?-pcm[i]:pcm[i];
@@ -325,10 +325,10 @@ int main(void){
    if(v>0.30f)high=1;
   }
   assert(zero&&low&&high);
-  assert(sauti_decoder_seek(&d,881));
-  assert(sauti_decoder_read(&d,replay,96)==96);
+  assert(sauti_legacy_decoder_seek(&d,881));
+  assert(sauti_legacy_decoder_read(&d,replay,96)==96);
   assert(memcmp(replay,pcm+881,sizeof(replay))==0);
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
  }
  /* YM6 sync-buzzer (type 3): repeated envelope restart via MFP.
   * Compare against non-buzzer envelope and verify seek replay. */
@@ -347,16 +347,16 @@ int main(void){
   song[base+14*2]=50; /* about 983 Hz envelope reset */
   memcpy(song+base+32,"End!",4);
   float buzzer[1764]={0},plain[1764]={0},replay[96]={0};
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,buzzer,1764)==1764);
-  assert(sauti_decoder_seek(&d,881));
-  assert(sauti_decoder_read(&d,replay,96)==96);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,buzzer,1764)==1764);
+  assert(sauti_legacy_decoder_seek(&d,881));
+  assert(sauti_legacy_decoder_read(&d,replay,96)==96);
   assert(memcmp(buzzer+881,replay,sizeof(replay))==0);
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
   song[base+1*2]=0; song[base+14*2]=0; /* no timer effect */
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,plain,1764)==1764);
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,plain,1764)==1764);
+  sauti_legacy_decoder_close(&d);
   int different=0;
   for(unsigned i=0;i<882;i++)if(buzzer[i]!=plain[i]){different=1;break;}
   assert(different);
@@ -383,13 +383,13 @@ int main(void){
   song[base+1*2+1]=0x10; /* frame 1: SID on same slot */
   memcpy(song+base+32,"End!",4);
   float switched[1764],reference[1764];
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,switched,1764)==1764);
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,switched,1764)==1764);
+  sauti_legacy_decoder_close(&d);
   song[base+1*2]=0; song[base+14*2]=0; /* no buzzer in frame 0 */
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,reference,1764)==1764);
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,reference,1764)==1764);
+  sauti_legacy_decoder_close(&d);
   assert(memcmp(switched+882,reference+882,882*sizeof(float))==0);
  }
  /* Replacing SID with sync-buzzer in the SAME slot must stop SID.
@@ -412,13 +412,13 @@ int main(void){
   song[base+1*2+1]=0xd0; /* sync-buzzer on A in VBL 1 */
   memcpy(song+base+32,"End!",4);
   float transitioned[1764],reference[1764];
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,transitioned,1764)==1764);
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,transitioned,1764)==1764);
+  sauti_legacy_decoder_close(&d);
   song[base+1*2]=0;song[base+14*2]=0; /* no SID in VBL 0 */
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,reference,1764)==1764);
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,reference,1764)==1764);
+  sauti_legacy_decoder_close(&d);
   assert(memcmp(transitioned+882,reference+882,882*sizeof(float))==0);
  }
  /* MFP /4, count=1: ~13.93 timer ticks per PCM sample. SID must
@@ -439,8 +439,8 @@ int main(void){
   song[base+14*2]=1; /* 614400 ticks/s, above PCM rate */
   memcpy(song+base+32,"End!",4);
   float pcm[512]={0},replay[80]={0};
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,pcm,512)==512);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,pcm,512)==512);
   for(unsigned i=0;i<512;i++){
    /* State at sample i is determined by ticks in the first i samples. */
    uint64_t numerator=(uint64_t)i*614400u;
@@ -449,10 +449,10 @@ int main(void){
    if(ticks&1u)assert(pcm[i]==0.0f);
    else assert(pcm[i]>0.01f);
   }
-  assert(sauti_decoder_seek(&d,217));
-  assert(sauti_decoder_read(&d,replay,80)==80);
+  assert(sauti_legacy_decoder_seek(&d,217));
+  assert(sauti_legacy_decoder_read(&d,replay,80)==80);
   assert(memcmp(replay,pcm+217,sizeof(replay))==0);
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
  }
  /* NASM digi-drum PCM conversion: unsigned/signed 8-bit and ST nibble. */
  {
@@ -548,13 +548,13 @@ int main(void){
   song[34+3+16+11]=200; song[34+3+16+12]=0; song[34+3+16+13]=0xff;
   memcpy(song+34+3+32,"End!",4);
   float no_write[1764]={0}, retrigger[1764]={0};
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,no_write,1764)==1764);
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,no_write,1764)==1764);
+  sauti_legacy_decoder_close(&d);
   song[34+3+16+13]=0x0a;
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,retrigger,1764)==1764);
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,retrigger,1764)==1764);
+  sauti_legacy_decoder_close(&d);
   /* First 882 samples are unchanged; subsequent envelope differs. */
   assert(memcmp(no_write,retrigger,882*sizeof(float))==0);
   int different=0;
@@ -597,12 +597,12 @@ int main(void){
   legacy[4+7*2+0]=0x3e;legacy[4+7*2+1]=0x3e;
   legacy[4+8*2+0]=15; legacy[4+8*2+1]=15;
   legacy[4+13*2+0]=0xff;legacy[4+13*2+1]=0xff;
-  assert(sauti_decoder_open(&d,registry,1,legacy,sizeof(legacy)));
+  assert(sauti_legacy_decoder_open(&d,registry,1,legacy,sizeof(legacy)));
   assert(d.info.sample_rate==44100&&d.info.channels==1&&
          d.info.total_frames==1764);
   float old[1764]={0};
-  assert(sauti_decoder_read(&d,old,1764)==1764);
-  assert(sauti_decoder_read(&d,old,1)==0);
+  assert(sauti_legacy_decoder_read(&d,old,1764)==1764);
+  assert(sauti_legacy_decoder_read(&d,old,1)==0);
   float a=old[0],min=1.0f,max=-1.0f;
   for(size_t i=0;i<1764;i++){
    if(old[i]<min)min=old[i];
@@ -610,14 +610,14 @@ int main(void){
   }
   (void)a;
   assert(min<0.0f&&max>0.0f);
-  assert(sauti_decoder_seek(&d,0));
+  assert(sauti_legacy_decoder_seek(&d,0));
   float replay[64]={0};
-  assert(sauti_decoder_read(&d,replay,64)==64);
+  assert(sauti_legacy_decoder_read(&d,replay,64)==64);
   assert(memcmp(replay,old,sizeof(replay))==0);
-  sauti_decoder_close(&d);
-  assert(!sauti_decoder_open(&d,registry,1,legacy,sizeof(legacy)-1));
+  sauti_legacy_decoder_close(&d);
+  assert(!sauti_legacy_decoder_open(&d,registry,1,legacy,sizeof(legacy)-1));
   legacy[0]='X';
-  assert(!sauti_decoder_open(&d,registry,1,legacy,sizeof(legacy)));
+  assert(!sauti_legacy_decoder_open(&d,registry,1,legacy,sizeof(legacy)));
  }
  /* YM2/YM3 nonzero seek: state-replay PCM must match uninterrupted
   * rendering, including crossing the 50 Hz VBL transition and EOF. */
@@ -633,13 +633,13 @@ int main(void){
    song[4+13*4+f]=(f==1)?0xff:0x0a;
   }
   float continuous[3528],from_seek[96];
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&d,continuous,3528)==3528);
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&d,continuous,3528)==3528);
   static const unsigned offsets[]={1,100,881,882,883,1759,1764,2599,3432};
   for(size_t k=0;k<sizeof(offsets)/sizeof(offsets[0]);k++){
    unsigned at=offsets[k];
-   assert(sauti_decoder_seek(&d,at));
-   assert(sauti_decoder_read(&d,from_seek,96)==
+   assert(sauti_legacy_decoder_seek(&d,at));
+   assert(sauti_legacy_decoder_read(&d,from_seek,96)==
           (at+96<=3528?96:3528-at));
    size_t cmp=(at+96<=3528?96:3528-at);
    assert(memcmp(from_seek,continuous+at,cmp*sizeof(float))==0);
@@ -648,14 +648,14 @@ int main(void){
   static const unsigned jumps[]={2600,100,3432,882,1759,2599,1,1764};
   for(size_t j=0;j<sizeof(jumps)/sizeof(jumps[0]);j++){
    unsigned at=jumps[j];
-   assert(sauti_decoder_seek(&d,at));
-   assert(sauti_decoder_read(&d,from_seek,96)==96);
+   assert(sauti_legacy_decoder_seek(&d,at));
+   assert(sauti_legacy_decoder_read(&d,from_seek,96)==96);
    assert(memcmp(from_seek,continuous+at,sizeof(from_seek))==0);
   }
-  assert(sauti_decoder_seek(&d,3528));
-  assert(sauti_decoder_read(&d,from_seek,1)==0);
-  assert(!sauti_decoder_seek(&d,3529));
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_seek(&d,3528));
+  assert(sauti_legacy_decoder_read(&d,from_seek,1)==0);
+  assert(!sauti_legacy_decoder_seek(&d,3529));
+  sauti_legacy_decoder_close(&d);
  }
  /* YM3b: identical 14 register planes, plus big-endian trailing loop frame.
   * Decode stops at EOF because the PCM API has no loop metadata yet. */
@@ -669,24 +669,24 @@ int main(void){
    song[4+13*3+f]=0xff;
   }
   w32(song+sizeof(song)-4,1);
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
   assert(d.info.total_frames==2646);
   uint64_t loop=UINT64_MAX;
   assert(sauti_decoder_ym_loop_start(&d,&loop)&&loop==882);
   float whole[2646],section[96];
-  assert(sauti_decoder_read(&d,whole,2646)==2646);
-  assert(sauti_decoder_read(&d,section,1)==0);
-  assert(sauti_decoder_seek(&d,882));
-  assert(sauti_decoder_read(&d,section,96)==96);
+  assert(sauti_legacy_decoder_read(&d,whole,2646)==2646);
+  assert(sauti_legacy_decoder_read(&d,section,1)==0);
+  assert(sauti_legacy_decoder_seek(&d,882));
+  assert(sauti_legacy_decoder_read(&d,section,96)==96);
   assert(memcmp(section,whole+882,sizeof(section))==0);
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
   assert(!sauti_decoder_ym_loop_start(&d,&loop));
   w32(song+sizeof(song)-4,3); /* loop target past the last valid frame */
-  assert(!sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(!sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
   w32(song+sizeof(song)-4,1);
-  assert(!sauti_decoder_open(&d,registry,1,song,sizeof(song)-1));
+  assert(!sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)-1));
   song[0]='X';
-  assert(!sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(!sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
  }
  /* Playback checkpoint boundaries must be independent of read chunk size.
   * Rewind across 5s checkpoints and compare with uninterrupted decoding. */
@@ -702,23 +702,23 @@ int main(void){
    planes[8*FRAMES+f]=15;
    planes[13*FRAMES+f]=0xff;
   }
-  assert(sauti_decoder_open(&d,registry,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_open(&d,registry,1,song,sizeof(song)));
   unsigned offset=0;
   while(offset<TOTAL){
    unsigned chunk=(offset%3u==0)?377u:2048u;
    if(chunk>TOTAL-offset)chunk=TOTAL-offset;
-   assert(sauti_decoder_read(&d,expected+offset,chunk)==chunk);
+   assert(sauti_legacy_decoder_read(&d,expected+offset,chunk)==chunk);
    offset+=chunk;
   }
   static const unsigned seeks[]={220500,441000,132300,440999,220499,352800,0,528900};
   float samples[117];
   for(unsigned j=0;j<sizeof(seeks)/sizeof(seeks[0]);j++){
    unsigned at=seeks[j];
-   assert(sauti_decoder_seek(&d,at));
-   assert(sauti_decoder_read(&d,samples,117)==117);
+   assert(sauti_legacy_decoder_seek(&d,at));
+   assert(sauti_legacy_decoder_read(&d,samples,117)==117);
    assert(memcmp(samples,expected+at,sizeof(samples))==0);
   }
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
  }
  /* Ten-second YM6 checkpoint stress: both SID and sync-buzzer share
   * normal playback, variable buffer sizes and zig-zag seeks. Compare
@@ -746,27 +746,27 @@ int main(void){
   memcpy(song+BASE+16*FRAMES,"End!",4);
   const SautiDecoderOps *ym_ops[]={&sauti_decoder_ym_ops};
   SautiDecoder a={0},b={0};
-  assert(sauti_decoder_open(&a,ym_ops,1,song,sizeof(song)));
-  assert(sauti_decoder_open(&b,ym_ops,1,song,sizeof(song)));
-  assert(sauti_decoder_read(&a,continuous,TOTAL)==TOTAL);
+  assert(sauti_legacy_decoder_open(&a,ym_ops,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_open(&b,ym_ops,1,song,sizeof(song)));
+  assert(sauti_legacy_decoder_read(&a,continuous,TOTAL)==TOTAL);
   float piece[301];
   unsigned at=0;
   while(at<TOTAL){
    unsigned n=at%2?301:127;
    if(n>TOTAL-at)n=TOTAL-at;
-   assert(sauti_decoder_read(&b,piece,n)==n);
+   assert(sauti_legacy_decoder_read(&b,piece,n)==n);
    assert(memcmp(piece,continuous+at,n*sizeof(float))==0);
    at+=n;
   }
   static const unsigned offsets[]={352800,88200,220500,0,440883,132300,4410,264600,352799};
   for(unsigned j=0;j<sizeof(offsets)/sizeof(offsets[0]);j++){
    at=offsets[j];
-   assert(sauti_decoder_seek(&b,at));
-   assert(sauti_decoder_read(&b,piece,117)==117);
+   assert(sauti_legacy_decoder_seek(&b,at));
+   assert(sauti_legacy_decoder_read(&b,piece,117)==117);
    assert(memcmp(piece,continuous+at,117*sizeof(float))==0);
   }
-  sauti_decoder_close(&a);
-  sauti_decoder_close(&b);
+  sauti_legacy_decoder_close(&a);
+  sauti_legacy_decoder_close(&b);
  }
  /* YM2 ANCOOL1 layout: 64,404 raw bytes -> exactly 4600 VBL frames. */
  {
@@ -776,9 +776,9 @@ int main(void){
   memset(ancool_shape+4+7*frames,0x3e,frames);
   memset(ancool_shape+4+8*frames,15,frames);
   memset(ancool_shape+4+13*frames,0xff,frames);
-  assert(sauti_decoder_open(&d,registry,1,ancool_shape,sizeof(ancool_shape)));
+  assert(sauti_legacy_decoder_open(&d,registry,1,ancool_shape,sizeof(ancool_shape)));
   assert(d.info.total_frames==4600u*882u);
-  sauti_decoder_close(&d);
+  sauti_legacy_decoder_close(&d);
  }
  puts("PASS: YM2/YM3/YM3b/YM6 tone/noise/envelope NASM; 16 shapes, nonlinear DAC, R13, seek and 500Hz regressions");
  return 0;

@@ -10,11 +10,11 @@ int main(int argc,char **argv){
     const uint8_t bad[]={'R','I','F','F',0,0,0,0};
     SautiDecoder dec={0};
     float samples[4096]={0};
-    assert(sauti_decoder_ops_valid(reg[0]));
+    assert(sauti_legacy_decoder_ops_valid(reg[0]));
     assert(!reg[0]->probe(bad,sizeof(bad)));
-    assert(!sauti_decoder_open(&dec,reg,1,bad,sizeof(bad)));
-    assert(sauti_decoder_read(&dec,samples,4)==0);
-    sauti_decoder_close(&dec);
+    assert(!sauti_legacy_decoder_open(&dec,reg,1,bad,sizeof(bad)));
+    assert(sauti_legacy_decoder_read(&dec,samples,4)==0);
+    sauti_legacy_decoder_close(&dec);
 
     /* Optional real-file integration test; file I/O is test-only. */
     if(argc<2)return 0;
@@ -28,16 +28,16 @@ int main(int argc,char **argv){
     size_t n=fread(bytes,1,(size_t)size,f);
     fclose(f);
     if(n!=(size_t)size){free(bytes);return 1;}
-    int success=sauti_decoder_open(&dec,reg,1,bytes,n);
+    int success=sauti_legacy_decoder_open(&dec,reg,1,bytes,n);
     if(success){
         printf("MP3: %u Hz, %u channels, %llu frames\n",
                dec.info.sample_rate,dec.info.channels,
                (unsigned long long)dec.info.total_frames);
-        size_t frames=sauti_decoder_read(&dec,samples,4096/dec.info.channels);
+        size_t frames=sauti_legacy_decoder_read(&dec,samples,4096/dec.info.channels);
         printf("MP3: decoded %zu frames\n",frames);
-        success=frames>0 && sauti_decoder_seek(&dec,0) &&
-                sauti_decoder_read(&dec,samples,4096/dec.info.channels)>0;
-        sauti_decoder_close(&dec);
+        success=frames>0 && sauti_legacy_decoder_seek(&dec,0) &&
+                sauti_legacy_decoder_read(&dec,samples,4096/dec.info.channels)>0;
+        sauti_legacy_decoder_close(&dec);
     }
     free(bytes);
     return success?0:1;

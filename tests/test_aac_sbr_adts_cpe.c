@@ -101,22 +101,22 @@ static void test_cpe_adts_crc_bridge(void){
     memcpy(stream,frame,bytes);memcpy(stream+bytes,frame,bytes);
     const SautiDecoderOps *registry[]={&sauti_decoder_aac_he_cpe_native_ops};
     SautiDecoder decoder={0};
-    assert(sauti_decoder_open(&decoder,registry,1u,stream,2u*bytes));
+    assert(sauti_legacy_decoder_open(&decoder,registry,1u,stream,2u*bytes));
     assert(decoder.ops==&sauti_decoder_aac_he_cpe_native_ops);
     assert(decoder.info.sample_rate==48000u && decoder.info.channels==2u &&
            decoder.info.total_frames==4096u);
     float expected[8192],replayed[1554];
-    assert(sauti_decoder_read(&decoder,expected,4096u)==4096u);
+    assert(sauti_legacy_decoder_read(&decoder,expected,4096u)==4096u);
     for(unsigned i=0u;i<8192u;i++)assert(isfinite(expected[i]));
-    assert(sauti_decoder_seek(&decoder,1231u));
-    assert(sauti_decoder_read(&decoder,replayed,777u)==777u);
+    assert(sauti_legacy_decoder_seek(&decoder,1231u));
+    assert(sauti_legacy_decoder_read(&decoder,replayed,777u)==777u);
     assert(memcmp(replayed,expected+2u*1231u,sizeof(replayed))==0);
-    sauti_decoder_close(&decoder);
+    sauti_legacy_decoder_close(&decoder);
     Bits plain={0};
     cpe_core_silence(&plain);put(&plain,3u,7u);align_byte(&plain);
     const size_t plain_bytes=adts_stereo(stream,&plain);
     assert(sauti_decoder_aac_he_cpe_native_ops.probe(stream,plain_bytes));
-    assert(!sauti_decoder_open(&decoder,registry,1u,stream,plain_bytes));
+    assert(!sauti_legacy_decoder_open(&decoder,registry,1u,stream,plain_bytes));
 
     /* The separate uncoupled ordering must traverse the complete ADTS,
      * CPE, QMF and public-API route, not just the side-data parser. */
@@ -142,10 +142,10 @@ static void test_cpe_adts_crc_bridge(void){
     for(unsigned i=0u;i<4096u;i++)assert(isfinite(pcm_2x[i]));
     memcpy(stream,frame,uncoupled_bytes);
     memcpy(stream+uncoupled_bytes,frame,uncoupled_bytes);
-    assert(sauti_decoder_open(&decoder,registry,1u,stream,2u*uncoupled_bytes));
-    assert(sauti_decoder_read(&decoder,expected,4096u)==4096u);
+    assert(sauti_legacy_decoder_open(&decoder,registry,1u,stream,2u*uncoupled_bytes));
+    assert(sauti_legacy_decoder_read(&decoder,expected,4096u)==4096u);
     for(unsigned i=0u;i<8192u;i++)assert(isfinite(expected[i]));
-    sauti_decoder_close(&decoder);
+    sauti_legacy_decoder_close(&decoder);
 
     /* Restore the coupled fixture before the CRC-rollback assertion. */
     memcpy(frame,coupled_frame,sizeof(frame));

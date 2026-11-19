@@ -18,8 +18,8 @@ static double elapsed(clock_t start){return (double)(clock()-start)/CLOCKS_PER_S
 static int use_seek(SautiDecoder *d,uint64_t offset,double *seconds){
  float buffer[CHUNK];
  clock_t start=clock();
- if(!sauti_decoder_seek(d,offset))return 0;
- if(sauti_decoder_read(d,buffer,CHUNK)!=CHUNK)return 0;
+ if(!sauti_legacy_decoder_seek(d,offset))return 0;
+ if(sauti_legacy_decoder_read(d,buffer,CHUNK)!=CHUNK)return 0;
  *seconds=elapsed(start);
  for(size_t j=0;j<CHUNK;j++)sink+=(double)buffer[j];
  return 1;
@@ -38,7 +38,7 @@ int main(void){
  }
  const SautiDecoderOps *registry[]={&sauti_decoder_ym_ops};
  SautiDecoder decoder={0};
- if(!sauti_decoder_open(&decoder,registry,1,song,sizeof(song))){
+ if(!sauti_legacy_decoder_open(&decoder,registry,1,song,sizeof(song))){
   fputs("Cannot open synthetic YM3 fixture\n",stderr);return 1;
  }
  float buffer[CHUNK];
@@ -49,12 +49,12 @@ int main(void){
  if(!use_seek(&decoder,target,&warm)){fputs("warm seek failed\n",stderr);return 1;}
  if(!use_seek(&decoder,105u*PCM_RATE,&backward)){fputs("backward seek failed\n",stderr);return 1;}
  /* Exercise normal playback and automatic checkpoints separately. */
- if(!sauti_decoder_seek(&decoder,0)){fputs("rewind failed\n",stderr);return 1;}
+ if(!sauti_legacy_decoder_seek(&decoder,0)){fputs("rewind failed\n",stderr);return 1;}
  clock_t start=clock();
  uint64_t remaining=30u*PCM_RATE;
  while(remaining){
   size_t n=remaining<CHUNK?(size_t)remaining:CHUNK;
-  if(sauti_decoder_read(&decoder,buffer,n)!=n){fputs("stream failed\n",stderr);return 1;}
+  if(sauti_legacy_decoder_read(&decoder,buffer,n)!=n){fputs("stream failed\n",stderr);return 1;}
   sink+=(double)buffer[0];
   remaining-=n;
  }
@@ -68,6 +68,6 @@ int main(void){
  printf("Stream 30s:         %.6f\n",streaming);
  printf("Seek into 20s:      %.6f\n",replay);
  printf("PCM checksum: %.8f\n",(double)sink);
- sauti_decoder_close(&decoder);
+ sauti_legacy_decoder_close(&decoder);
  return 0;
 }

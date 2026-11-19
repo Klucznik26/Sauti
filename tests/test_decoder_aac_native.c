@@ -53,17 +53,17 @@ static void real_stream(const char *path){
     fclose(f);
     const SautiDecoderOps *registry[]={&sauti_decoder_aac_native_ops};
     SautiDecoder decoder={0};
-    assert(sauti_decoder_open(&decoder,registry,1,bytes,(size_t)len));
+    assert(sauti_legacy_decoder_open(&decoder,registry,1,bytes,(size_t)len));
     assert(decoder.info.channels==2 && decoder.info.total_frames>=2048);
     const uint64_t target=decoder.info.total_frames/2u+13u;
     float a[512],b[512];
-    assert(sauti_decoder_seek(&decoder,target));
-    assert(sauti_decoder_read(&decoder,a,256)==256);
-    assert(sauti_decoder_seek(&decoder,0));
+    assert(sauti_legacy_decoder_seek(&decoder,target));
+    assert(sauti_legacy_decoder_read(&decoder,a,256)==256);
+    assert(sauti_legacy_decoder_seek(&decoder,0));
     float trash[512];
-    assert(sauti_decoder_read(&decoder,trash,256)==256);
-    assert(sauti_decoder_seek(&decoder,target));
-    assert(sauti_decoder_read(&decoder,b,256)==256);
+    assert(sauti_legacy_decoder_read(&decoder,trash,256)==256);
+    assert(sauti_legacy_decoder_seek(&decoder,target));
+    assert(sauti_legacy_decoder_read(&decoder,b,256)==256);
     assert(memcmp(a,b,sizeof(a))==0);
     double energy=0;
     for(unsigned i=0;i<512;i++){
@@ -74,7 +74,7 @@ static void real_stream(const char *path){
     printf("PASS native AAC-LC real ADTS: %u Hz, %llu PCM frames, repeatable seek\n",
            decoder.info.sample_rate,
            (unsigned long long)decoder.info.total_frames);
-    sauti_decoder_close(&decoder);
+    sauti_legacy_decoder_close(&decoder);
     free(bytes);
 }
 
@@ -108,34 +108,34 @@ static void mono_adapter(void){
     for(unsigned i=0;i<3;i++)memcpy(stream+i*n,f,n);
     const SautiDecoderOps *mono[]={&sauti_decoder_aac_mono_native_ops};
     const SautiDecoderOps *all[]={&sauti_decoder_aac_native_ops,&sauti_decoder_aac_mono_native_ops,&sauti_decoder_aac_he_native_ops};
-    assert(sauti_decoder_ops_valid(mono[0]));
+    assert(sauti_legacy_decoder_ops_valid(mono[0]));
     SautiDecoder d={0};
-    assert(sauti_decoder_open(&d,mono,1,stream,3*n));
+    assert(sauti_legacy_decoder_open(&d,mono,1,stream,3*n));
     assert(d.info.channels==1 && d.info.sample_rate==44100 && d.info.total_frames==3072);
     float pcm[4096];
-    assert(sauti_decoder_read(&d,pcm,1500)==1500);
+    assert(sauti_legacy_decoder_read(&d,pcm,1500)==1500);
     for(unsigned i=0;i<1500;i++)assert(pcm[i]==0.0f);
-    assert(sauti_decoder_seek(&d,2047));
-    assert(sauti_decoder_read(&d,pcm,2000)==1025);          /* do konca: 3072 - 2047 */
-    assert(sauti_decoder_read(&d,pcm,1)==0);
-    assert(!sauti_decoder_seek(&d,3073));
-    sauti_decoder_close(&d);
+    assert(sauti_legacy_decoder_seek(&d,2047));
+    assert(sauti_legacy_decoder_read(&d,pcm,2000)==1025);          /* do konca: 3072 - 2047 */
+    assert(sauti_legacy_decoder_read(&d,pcm,1)==0);
+    assert(!sauti_legacy_decoder_seek(&d,3073));
+    sauti_legacy_decoder_close(&d);
     /* rejestr z wszystkimi adapterami: mono LC trafia do adaptera mono, nie do stereo ani HE */
-    assert(sauti_decoder_open(&d,all,3,stream,3*n));
+    assert(sauti_legacy_decoder_open(&d,all,3,stream,3*n));
     assert(d.ops==&sauti_decoder_aac_mono_native_ops && d.info.channels==1);
-    sauti_decoder_close(&d);
+    sauti_legacy_decoder_close(&d);
     /* HE-AAC mono (FIL z SBR, typ 13/14): rdzen LC go nie pomija, adapter nie otwiera strumienia */
     for(unsigned t=13;t<=14;t++){
         uint8_t he[64];
         const size_t hn=make_mono_frame(he,t,3);
-        assert(!sauti_decoder_open(&d,mono,1,he,hn));
+        assert(!sauti_legacy_decoder_open(&d,mono,1,he,hn));
     }
     /* stereo nie jest mono: adapter mono nie probuje stereo */
     uint8_t st[64]={0};
     const size_t sn=make_frame(st);
-    assert(!sauti_decoder_open(&d,mono,1,st,sn));
+    assert(!sauti_legacy_decoder_open(&d,mono,1,st,sn));
     /* ucieta ramka w srodku strumienia: otwarcie odrzucone (naglowki sprawdzane w calosci) */
-    assert(!sauti_decoder_open(&d,mono,1,stream,3*n-2));
+    assert(!sauti_legacy_decoder_open(&d,mono,1,stream,3*n-2));
 }
 
 int main(int argc,char **argv){
@@ -146,25 +146,25 @@ int main(int argc,char **argv){
     memcpy(bytes+n,bytes,n);
     const SautiDecoderOps *registry[]={&sauti_decoder_aac_native_ops};
     SautiDecoder decoder={0};
-    assert(sauti_decoder_ops_valid(registry[0]));
-    assert(sauti_decoder_open(&decoder,registry,1,bytes,2*n));
+    assert(sauti_legacy_decoder_ops_valid(registry[0]));
+    assert(sauti_legacy_decoder_open(&decoder,registry,1,bytes,2*n));
     assert(decoder.info.channels==2);
     assert(decoder.info.sample_rate==44100);
     assert(decoder.info.total_frames==2048);
     float pcm[4096];
-    assert(sauti_decoder_read(&decoder,pcm,37)==37);
+    assert(sauti_legacy_decoder_read(&decoder,pcm,37)==37);
     for(unsigned i=0;i<74;i++)assert(pcm[i]==0);
-    assert(sauti_decoder_seek(&decoder,1023));
-    assert(sauti_decoder_read(&decoder,pcm,3)==3);
+    assert(sauti_legacy_decoder_seek(&decoder,1023));
+    assert(sauti_legacy_decoder_read(&decoder,pcm,3)==3);
     for(unsigned i=0;i<6;i++)assert(pcm[i]==0);
-    assert(sauti_decoder_seek(&decoder,0));
-    assert(sauti_decoder_read(&decoder,pcm,2048)==2048);
+    assert(sauti_legacy_decoder_seek(&decoder,0));
+    assert(sauti_legacy_decoder_read(&decoder,pcm,2048)==2048);
     for(unsigned i=0;i<4096;i++)assert(pcm[i]==0);
-    assert(sauti_decoder_read(&decoder,pcm,1)==0);
-    assert(sauti_decoder_seek(&decoder,2048));
-    assert(sauti_decoder_read(&decoder,pcm,1)==0);
-    assert(!sauti_decoder_seek(&decoder,2049));
-    sauti_decoder_close(&decoder);
+    assert(sauti_legacy_decoder_read(&decoder,pcm,1)==0);
+    assert(sauti_legacy_decoder_seek(&decoder,2048));
+    assert(sauti_legacy_decoder_read(&decoder,pcm,1)==0);
+    assert(!sauti_legacy_decoder_seek(&decoder,2049));
+    sauti_legacy_decoder_close(&decoder);
 
     /* Exercise the 64-frame state checkpoint boundary, both directions,
      * with a 130-frame ADTS stream. Seeking must reconstruct bit-identical
@@ -174,27 +174,27 @@ int main(int argc,char **argv){
         uint8_t *long_adts=malloc(COUNT*n);
         assert(long_adts);
         for(unsigned i=0;i<COUNT;i++)memcpy(long_adts+i*n,bytes,n);
-        assert(sauti_decoder_open(&decoder,registry,1,long_adts,COUNT*n));
+        assert(sauti_legacy_decoder_open(&decoder,registry,1,long_adts,COUNT*n));
         float chunk[4096];
         for(unsigned i=0;i<COUNT;i++)
-            assert(sauti_decoder_read(&decoder,chunk,1024)==1024);
-        assert(sauti_decoder_seek(&decoder,64u*1024u+511u));
-        assert(sauti_decoder_read(&decoder,chunk,2048)==2048);
+            assert(sauti_legacy_decoder_read(&decoder,chunk,1024)==1024);
+        assert(sauti_legacy_decoder_seek(&decoder,64u*1024u+511u));
+        assert(sauti_legacy_decoder_read(&decoder,chunk,2048)==2048);
         for(unsigned i=0;i<4096;i++)assert(chunk[i]==0);
-        assert(sauti_decoder_seek(&decoder,129u*1024u+100u));
-        assert(sauti_decoder_read(&decoder,chunk,924)==924);
+        assert(sauti_legacy_decoder_seek(&decoder,129u*1024u+100u));
+        assert(sauti_legacy_decoder_read(&decoder,chunk,924)==924);
         for(unsigned i=0;i<1848;i++)assert(chunk[i]==0);
-        assert(sauti_decoder_seek(&decoder,0));
-        assert(sauti_decoder_read(&decoder,chunk,1024)==1024);
-        sauti_decoder_close(&decoder);
+        assert(sauti_legacy_decoder_seek(&decoder,0));
+        assert(sauti_legacy_decoder_read(&decoder,chunk,1024)==1024);
+        sauti_legacy_decoder_close(&decoder);
         free(long_adts);
     }
 
     /* Strict fail closed: truncated second ADTS or invalid tool must
      * not produce a partially playable decoder. */
-    assert(!sauti_decoder_open(&decoder,registry,1,bytes,2*n-1));
+    assert(!sauti_legacy_decoder_open(&decoder,registry,1,bytes,2*n-1));
     bytes[n]=0;
-    assert(!sauti_decoder_open(&decoder,registry,1,bytes,2*n));
+    assert(!sauti_legacy_decoder_open(&decoder,registry,1,bytes,2*n));
     if(argc==2)real_stream(argv[1]);
     puts("PASS AAC-LC native adapter: complete ADTS, read, seek, EOF, fail-closed");
     return 0;

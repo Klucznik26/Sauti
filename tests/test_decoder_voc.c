@@ -26,7 +26,7 @@ static void block(Fixture *f, unsigned type, const uint8_t *body, size_t n) {
 static void end(Fixture *f) { f->bytes[f->size++] = 0; }
 static int open_voc(SautiDecoder *d, const Fixture *f) {
     const SautiDecoderOps *registry[] = {&sauti_decoder_voc_ops};
-    return sauti_decoder_open(d, registry, 1, f->bytes, f->size);
+    return sauti_legacy_decoder_open(d, registry, 1, f->bytes, f->size);
 }
 static void test_mono_and_seek(void) {
     Fixture f; init(&f);
@@ -44,16 +44,16 @@ static void test_mono_and_seek(void) {
     assert(d.info.sample_rate == 8000 && d.info.channels == 1 &&
            d.info.total_frames == 7);
     float v[8]={0};
-    assert(sauti_decoder_read(&d,v,7)==7);
+    assert(sauti_legacy_decoder_read(&d,v,7)==7);
     assert(v[0] == -1.0f && v[1] == 0.0f && v[2] == 127.0f/128.0f);
     assert(v[3] == -0.5f && v[4] == 0.5f);
     assert(v[5] == 0.0f && v[6] == 0.0f);
-    assert(sauti_decoder_read(&d,v,1)==0);
-    assert(sauti_decoder_seek(&d,4));
-    assert(sauti_decoder_read(&d,v,3)==3 && v[0]==0.5f && v[1]==0.f);
-    assert(!sauti_decoder_seek(&d,8));
-    assert(sauti_decoder_seek(&d,7) && !sauti_decoder_read(&d,v,1));
-    sauti_decoder_close(&d);
+    assert(sauti_legacy_decoder_read(&d,v,1)==0);
+    assert(sauti_legacy_decoder_seek(&d,4));
+    assert(sauti_legacy_decoder_read(&d,v,3)==3 && v[0]==0.5f && v[1]==0.f);
+    assert(!sauti_legacy_decoder_seek(&d,8));
+    assert(sauti_legacy_decoder_seek(&d,7) && !sauti_legacy_decoder_read(&d,v,1));
+    sauti_legacy_decoder_close(&d);
 }
 static void test_stereo_s16(void) {
     Fixture f; init(&f);
@@ -66,11 +66,11 @@ static void test_stereo_s16(void) {
     assert(open_voc(&d,&f));
     assert(d.info.sample_rate==44100 && d.info.channels==2 &&
            d.info.total_frames==2);
-    assert(sauti_decoder_read(&d,v,2)==2);
+    assert(sauti_legacy_decoder_read(&d,v,2)==2);
     assert(v[0]==-1.f && v[1]>0.999f && v[2]==0.f && v[3]==0.5f);
-    assert(sauti_decoder_seek(&d,1));
-    assert(sauti_decoder_read(&d,v,1)==1 && v[0]==0.f && v[1]==0.5f);
-    sauti_decoder_close(&d);
+    assert(sauti_legacy_decoder_seek(&d,1));
+    assert(sauti_legacy_decoder_read(&d,v,1)==1 && v[0]==0.f && v[1]==0.5f);
+    sauti_legacy_decoder_close(&d);
 }
 static void test_stereo_extended(void) {
     Fixture f;init(&f);
@@ -82,9 +82,9 @@ static void test_stereo_extended(void) {
     assert(open_voc(&d,&f));
     assert(d.info.channels==2 && d.info.sample_rate==8000 &&
            d.info.total_frames==2);
-    assert(sauti_decoder_read(&d,v,2)==2);
+    assert(sauti_legacy_decoder_read(&d,v,2)==2);
     assert(v[0]==-1.f && v[1]==0.f && v[2]>0.99f && v[3]==-0.5f);
-    sauti_decoder_close(&d);
+    sauti_legacy_decoder_close(&d);
 }
 static void test_rejections(void) {
     Fixture f;SautiDecoder d={0};
@@ -114,8 +114,8 @@ static void test_rejections(void) {
     init(&f);const uint8_t silent[]={1,0,131};
     block(&f,3,silent,sizeof(silent));end(&f);
     assert(open_voc(&d,&f));
-    float v[2]={1,1};assert(sauti_decoder_read(&d,v,2)==2);
-    assert(v[0]==0.f && v[1]==0.f);sauti_decoder_close(&d);
+    float v[2]={1,1};assert(sauti_legacy_decoder_read(&d,v,2)==2);
+    assert(v[0]==0.f && v[1]==0.f);sauti_legacy_decoder_close(&d);
 }
 int main(void) {
     test_mono_and_seek();

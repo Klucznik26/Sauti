@@ -135,13 +135,13 @@ int main(void){
     /* adapter: dekoduje (cisza), seek */
     n=build(f,&s);
     {   SautiDecoder dec;const SautiDecoderOps *const reg[]={&sauti_decoder_aac_latm_native_ops};
-        assert(sauti_decoder_open(&dec,reg,1,f,n));
+        assert(sauti_legacy_decoder_open(&dec,reg,1,f,n));
         assert(dec.info.channels==1&&dec.info.sample_rate==48000u&&dec.info.total_frames==5u*1024u&&dec.ops==&sauti_decoder_aac_latm_native_ops);
         static float pcm[8192];size_t got,all=0;
-        while((got=sauti_decoder_read(&dec,pcm,1000))>0){for(size_t i=0;i<got;i++)assert(pcm[i]==0.0f);all+=got;}
+        while((got=sauti_legacy_decoder_read(&dec,pcm,1000))>0){for(size_t i=0;i<got;i++)assert(pcm[i]==0.0f);all+=got;}
         assert(all==5u*1024u);
-        assert(sauti_decoder_seek(&dec,1500)&&sauti_decoder_read(&dec,pcm,8000)==5u*1024u-1500u);
-        sauti_decoder_close(&dec);
+        assert(sauti_legacy_decoder_seek(&dec,1500)&&sauti_legacy_decoder_read(&dec,pcm,8000)==5u*1024u-1500u);
+        sauti_legacy_decoder_close(&dec);
     }
     puts("PASS AAC LATM: LOAS -> ADTS, wersje 0/1, subramki, powtorzona konfiguracja, otherData/CRC, HE jawne i niejawne, odrzucenia, adapter");
     return 0;

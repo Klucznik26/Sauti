@@ -10,13 +10,13 @@ static void be32(uint8_t *p,uint32_t n){p[0]=n>>24;p[1]=n>>16;p[2]=n>>8;p[3]=n;}
 static int open_ym(const uint8_t *p,size_t n){
  SautiDecoder d={0};
  const SautiDecoderOps *ops[]={&sauti_decoder_ym_ops};
- int ok=sauti_decoder_open(&d,ops,1,p,n);
+ int ok=sauti_legacy_decoder_open(&d,ops,1,p,n);
  if(ok){
   float pcm[128];
   assert(d.info.channels==1 && d.info.sample_rate==44100);
-  assert(sauti_decoder_read(&d,pcm,128)<=128);
-  assert(sauti_decoder_seek(&d,0));
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_read(&d,pcm,128)<=128);
+  assert(sauti_legacy_decoder_seek(&d,0));
+  sauti_legacy_decoder_close(&d);
  }
  return ok;
 }

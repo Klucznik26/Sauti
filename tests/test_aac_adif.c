@@ -106,13 +106,13 @@ int main(void){
     /* adapter: dekoduje (cisza), seek */
     {   Spec v=s;v.stereo=1;n=build(f,&v);
         SautiDecoder dec;const SautiDecoderOps *const reg[]={&sauti_decoder_aac_adif_native_ops};
-        assert(sauti_decoder_open(&dec,reg,1,f,n));
+        assert(sauti_legacy_decoder_open(&dec,reg,1,f,n));
         assert(dec.info.channels==2&&dec.info.sample_rate==48000u&&dec.info.total_frames==5u*1024u&&dec.ops==&sauti_decoder_aac_adif_native_ops);
         static float pcm[16384];size_t got,all=0;
-        while((got=sauti_decoder_read(&dec,pcm,1000))>0){for(size_t i=0;i<got*2u;i++)assert(pcm[i]==0.0f);all+=got;}
+        while((got=sauti_legacy_decoder_read(&dec,pcm,1000))>0){for(size_t i=0;i<got*2u;i++)assert(pcm[i]==0.0f);all+=got;}
         assert(all==5u*1024u);
-        assert(sauti_decoder_seek(&dec,1500)&&sauti_decoder_read(&dec,pcm,8000)==5u*1024u-1500u);
-        sauti_decoder_close(&dec);
+        assert(sauti_legacy_decoder_seek(&dec,1500)&&sauti_legacy_decoder_read(&dec,pcm,8000)==5u*1024u-1500u);
+        sauti_legacy_decoder_close(&dec);
     }
     puts("PASS AAC ADIF: naglowek i PCE, granice blokow przez parsowanie (SCE/CPE/FIL/DSE/END), CBR/VBR, odrzucenia, adapter");
     return 0;

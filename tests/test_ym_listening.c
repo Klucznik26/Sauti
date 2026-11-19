@@ -37,19 +37,19 @@ int main(void){
  be32(song+size-4,50);
  const SautiDecoderOps *registry[]={&sauti_decoder_ym_ops};
  SautiDecoder d={0};
- assert(sauti_decoder_open(&d,registry,1,song,size));
+ assert(sauti_legacy_decoder_open(&d,registry,1,song,size));
  assert(d.info.total_frames==TOTAL);
  uint64_t loop=0;
  assert(sauti_decoder_ym_loop_start(&d,&loop)&&loop==50u*RATE/50u);
- assert(sauti_decoder_read(&d,baseline,TOTAL)==TOTAL);
- assert(sauti_decoder_read(&d,replayed,1)==0);
+ assert(sauti_legacy_decoder_read(&d,baseline,TOTAL)==TOTAL);
+ assert(sauti_legacy_decoder_read(&d,replayed,1)==0);
  /* Explicitly replay past multiple VBL boundaries with varied request sizes. */
- assert(sauti_decoder_seek(&d,0));
+ assert(sauti_legacy_decoder_seek(&d,0));
  size_t pos=0;
  while(pos<TOTAL){
   size_t want=1+((pos*37u+17u)%4096u);
   if(want>TOTAL-pos)want=TOTAL-pos;
-  assert(sauti_decoder_read(&d,replayed+pos,want)==want);
+  assert(sauti_legacy_decoder_read(&d,replayed+pos,want)==want);
   pos+=want;
  }
  assert(memcmp(replayed,baseline,TOTAL*sizeof(float))==0);
@@ -57,19 +57,19 @@ int main(void){
                          88200,100,132299,22050,0,44101,132300};
  for(size_t k=0;k<sizeof(seeks)/sizeof(seeks[0]);k++){
   unsigned at=seeks[k];
-  assert(sauti_decoder_seek(&d,at));
+  assert(sauti_legacy_decoder_seek(&d,at));
   float window[96]={0};
   size_t count=TOTAL-at<96?TOTAL-at:96;
-  assert(sauti_decoder_read(&d,window,96)==count);
+  assert(sauti_legacy_decoder_read(&d,window,96)==count);
   assert(memcmp(window,baseline+at,count*sizeof(float))==0);
  }
- assert(sauti_decoder_seek(&d,TOTAL));
- assert(sauti_decoder_read(&d,replayed,1)==0);
- assert(sauti_decoder_seek(&d,loop));
- assert(sauti_decoder_read(&d,replayed,4096)==4096);
+ assert(sauti_legacy_decoder_seek(&d,TOTAL));
+ assert(sauti_legacy_decoder_read(&d,replayed,1)==0);
+ assert(sauti_legacy_decoder_seek(&d,loop));
+ assert(sauti_legacy_decoder_read(&d,replayed,4096)==4096);
  assert(memcmp(replayed,baseline+loop,4096*sizeof(float))==0);
- assert(!sauti_decoder_seek(&d,TOTAL+1u));
- sauti_decoder_close(&d);
+ assert(!sauti_legacy_decoder_seek(&d,TOTAL+1u));
+ sauti_legacy_decoder_close(&d);
  /* YM5/YM6 header loop points, including default zero, must be honored.
   * The SDL player uses this metadata to repeat instead of stopping. */
  for(unsigned version=5;version<=6;version++){
@@ -86,27 +86,27 @@ int main(void){
   memcpy(ext+37+48,"End!",4);
   for(unsigned loop_index=0;loop_index<3;loop_index+=2){
    be32(ext+28,loop_index);
-   assert(sauti_decoder_open(&d,registry,1,ext,sizeof(ext)));
+   assert(sauti_legacy_decoder_open(&d,registry,1,ext,sizeof(ext)));
    assert(sauti_decoder_ym_loop_start(&d,&loop));
    assert(loop==(uint64_t)loop_index*RATE/50u);
    float full[3*RATE/50u],resume[3*RATE/50u];
-   assert(sauti_decoder_read(&d,full,3*RATE/50u)==3*RATE/50u);
-   assert(sauti_decoder_seek(&d,loop));
+   assert(sauti_legacy_decoder_read(&d,full,3*RATE/50u)==3*RATE/50u);
+   assert(sauti_legacy_decoder_seek(&d,loop));
    size_t remaining=3*RATE/50u-(size_t)loop;
-   assert(sauti_decoder_read(&d,resume,remaining)==remaining);
+   assert(sauti_legacy_decoder_read(&d,resume,remaining)==remaining);
    assert(memcmp(resume,full+loop,remaining*sizeof(float))==0);
-   sauti_decoder_close(&d);
+   sauti_legacy_decoder_close(&d);
   }
   /* Nonzero R14/R15 values without an effect are inert and legal.
    * High bits in R1/R3 alone must not activate an invalid timer. */
   be32(ext+28,0);
   ext[37+14]=0x7f;ext[37+15]=0x91;
   ext[37+1]=0xc0;ext[37+3]=0x80;
-  assert(sauti_decoder_open(&d,registry,1,ext,sizeof(ext)));
-  assert(sauti_decoder_read(&d,replayed,64)==64);
-  sauti_decoder_close(&d);
+  assert(sauti_legacy_decoder_open(&d,registry,1,ext,sizeof(ext)));
+  assert(sauti_legacy_decoder_read(&d,replayed,64)==64);
+  sauti_legacy_decoder_close(&d);
   be32(ext+28,3);
-  assert(!sauti_decoder_open(&d,registry,1,ext,sizeof(ext)));
+  assert(!sauti_legacy_decoder_open(&d,registry,1,ext,sizeof(ext)));
  }
  free(replayed);free(baseline);free(song);
  puts("PASS: YM3b/YM5/YM6 loops, VBL restart, chunk-independent playback, rewind/seek");

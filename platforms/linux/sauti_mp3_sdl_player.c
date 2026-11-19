@@ -57,7 +57,7 @@ static int aac_seek_worker(void *userdata){
         const uint64_t frame=p->seek_request;
         p->seek_pending=0;
         SDL_UnlockMutex(p->seek_mutex);
-        const int ok=sauti_decoder_seek(&p->decoder,frame);
+        const int ok=sauti_legacy_decoder_seek(&p->decoder,frame);
         SDL_LockMutex(p->seek_mutex);
         if(p->seek_pending){
             /* Slider was moved again while this seek was running.
@@ -164,7 +164,7 @@ SautiMp3SdlPlayer *sauti_mp3_sdl_open(const char *path){
         &sauti_decoder_sndh_ops,
 #endif
         &sauti_decoder_wav_ops,&sauti_decoder_voc_ops,&sauti_decoder_aiff_ops,&sauti_decoder_aac_native_ops,&sauti_decoder_aac_mono_native_ops,&sauti_decoder_aac_multi_native_ops,&sauti_decoder_aac_he_native_ops,&sauti_decoder_aac_he_cpe_native_ops,&sauti_decoder_aac_mp4_native_ops,&sauti_decoder_aac_latm_native_ops,&sauti_decoder_aac_adif_native_ops,&sauti_decoder_aac_ops,&sauti_decoder_alac_ops,&sauti_decoder_webm_ops,&sauti_decoder_opus_ops,&sauti_decoder_vorbis_ops,&sauti_decoder_midi_ops,&sauti_decoder_flac_ops,&sauti_decoder_wavpack_ops,&sauti_decoder_avr_ops,&sauti_decoder_dvsm_ops,&sauti_decoder_dtm_ops,&sauti_decoder_ym_ops,&sauti_decoder_mp3_ops};
-    if(!sauti_decoder_open(&p->decoder,decoders,sizeof(decoders)/sizeof(decoders[0]),p->bytes,len)){
+    if(!sauti_legacy_decoder_open(&p->decoder,decoders,sizeof(decoders)/sizeof(decoders[0]),p->bytes,len)){
         sauti_mp3_sdl_destroy(p);return NULL;
     }
     /* Only YM2 with actual Mad Max triggers needs an external PCM8 bank. */
@@ -241,7 +241,7 @@ void sauti_mp3_sdl_destroy(SautiMp3SdlPlayer *p){
     aac_seek_join(p);
     if(p->seek_mutex)SDL_DestroyMutex(p->seek_mutex);
     if(p->device)SDL_CloseAudioDevice(p->device);
-    sauti_decoder_close(&p->decoder);
+    sauti_legacy_decoder_close(&p->decoder);
     for(unsigned id=0;id<128;id++)free(p->ym2_owned[id]);
     free(p->bytes);
     free(p);
@@ -262,12 +262,12 @@ void sauti_mp3_sdl_pump(SautiMp3SdlPlayer *p){
                          (p->seek_mutex?2u:1u)/ (p->seek_mutex?1u:2u);
     float pcm[4096];
     while(queued_frames(p)<limit){
-        size_t frames=sauti_decoder_read(&p->decoder,pcm,
+        size_t frames=sauti_legacy_decoder_read(&p->decoder,pcm,
                                          4096/p->decoder.info.channels);
         if(!frames){
-            if(p->has_loop && sauti_decoder_seek(&p->decoder,p->loop_start)){
+            if(p->has_loop && sauti_legacy_decoder_seek(&p->decoder,p->loop_start)){
                 /* The first traversal plays the intro, later ones loop. */
-                frames=sauti_decoder_read(&p->decoder,pcm,
+                frames=sauti_legacy_decoder_read(&p->decoder,pcm,
                                           4096/p->decoder.info.channels);
             }
             if(!frames){p->ended=1;break;}
@@ -298,7 +298,7 @@ void sauti_mp3_sdl_pump(SautiMp3SdlPlayer *p){
 void sauti_mp3_sdl_play(SautiMp3SdlPlayer *p){
     if(!p)return;
     if(p->ended && !p->active){
-        sauti_decoder_seek(&p->decoder,0);
+        sauti_legacy_decoder_seek(&p->decoder,0);
         p->submitted=0;p->ended=0;
     }
     fprintf(stderr,"Sauti PCM: PLAY requested, codec=%s, device=%u, queued=%u bytes\n",
@@ -321,7 +321,7 @@ void sauti_mp3_sdl_stop(SautiMp3SdlPlayer *p){
     aac_seek_join(p);
     SDL_PauseAudioDevice(p->device,1);
     SDL_ClearQueuedAudio(p->device);
-    sauti_decoder_seek(&p->decoder,0);
+    sauti_legacy_decoder_seek(&p->decoder,0);
     p->submitted=0;p->active=0;p->paused=0;p->ended=0;p->diagnosed=0;
 }
 void sauti_mp3_sdl_seek(SautiMp3SdlPlayer *p,double sec){
@@ -356,7 +356,7 @@ void sauti_mp3_sdl_seek(SautiMp3SdlPlayer *p,double sec){
         return;
     }
     SDL_ClearQueuedAudio(p->device);
-    if(sauti_decoder_seek(&p->decoder,frame)){
+    if(sauti_legacy_decoder_seek(&p->decoder,frame)){
         p->submitted=frame;p->ended=0;
         if(p->active && !p->paused)sauti_mp3_sdl_pump(p);
     }

@@ -14,7 +14,7 @@ static int latm_probe(const uint8_t *data,size_t size){return sauti_aac_latm_pro
 static void latm_close(void *ctx){
     LatmAac *s=ctx;
     if(!s)return;
-    sauti_decoder_close(&s->inner);
+    sauti_legacy_decoder_close(&s->inner);
     free(s->adts);
     free(s);
 }
@@ -28,17 +28,17 @@ static void *latm_open(const uint8_t *data,size_t length,SautiPcmInfo *info){
     const SautiDecoderOps *const inner[]={&sauti_decoder_aac_native_ops,&sauti_decoder_aac_mono_native_ops,
                                           &sauti_decoder_aac_multi_native_ops,&sauti_decoder_aac_he_native_ops,
                                           &sauti_decoder_aac_he_cpe_native_ops};
-    if(!sauti_decoder_open(&s->inner,inner,sizeof(inner)/sizeof(inner[0]),adts,adts_len)){latm_close(s);return NULL;}
+    if(!sauti_legacy_decoder_open(&s->inner,inner,sizeof(inner)/sizeof(inner[0]),adts,adts_len)){latm_close(s);return NULL;}
     *info=s->inner.info;
     return s;
 }
 static size_t latm_read(void *ctx,float *out,size_t frames){
     LatmAac *s=ctx;
-    return s&&out&&frames?sauti_decoder_read(&s->inner,out,frames):0u;
+    return s&&out&&frames?sauti_legacy_decoder_read(&s->inner,out,frames):0u;
 }
 static int latm_seek(void *ctx,uint64_t position){
     LatmAac *s=ctx;
-    return s&&sauti_decoder_seek(&s->inner,position);
+    return s&&sauti_legacy_decoder_seek(&s->inner,position);
 }
 const SautiDecoderOps sauti_decoder_aac_latm_native_ops={
     "aac-native-latm",latm_probe,latm_open,latm_read,latm_seek,latm_close

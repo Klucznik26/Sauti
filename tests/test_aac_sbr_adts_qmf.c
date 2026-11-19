@@ -217,19 +217,19 @@ static void test_public_experimental_he_adapter(void){
     }
     const SautiDecoderOps *registry[]={&sauti_decoder_aac_he_native_ops};
     SautiDecoder decoder={0};
-    assert(sauti_decoder_open(&decoder,registry,1u,stream,stream_bytes));
+    assert(sauti_legacy_decoder_open(&decoder,registry,1u,stream,stream_bytes));
     assert(decoder.ops==&sauti_decoder_aac_he_native_ops);
     assert(decoder.info.sample_rate==48000u && decoder.info.channels==1u &&
            decoder.info.total_frames==4096u);
     float expected[4096],replayed[777];
-    assert(sauti_decoder_read(&decoder,expected,4096u)==4096u);
+    assert(sauti_legacy_decoder_read(&decoder,expected,4096u)==4096u);
     for(unsigned i=0;i<4096u;i++)assert(isfinite(expected[i]));
-    assert(sauti_decoder_seek(&decoder,1231u));
-    assert(sauti_decoder_read(&decoder,replayed,777u)==777u);
+    assert(sauti_legacy_decoder_seek(&decoder,1231u));
+    assert(sauti_legacy_decoder_read(&decoder,replayed,777u)==777u);
     assert(memcmp(replayed,expected+1231u,sizeof(replayed))==0);
-    assert(sauti_decoder_seek(&decoder,4096u));
-    assert(sauti_decoder_read(&decoder,replayed,1u)==0u);
-    sauti_decoder_close(&decoder);
+    assert(sauti_legacy_decoder_seek(&decoder,4096u));
+    assert(sauti_legacy_decoder_read(&decoder,replayed,1u)==0u);
+    sauti_legacy_decoder_close(&decoder);
 
     /* Header-only probing is intentionally not enough: an ordinary mono
      * LC frame must never acquire a false HE sample rate/output label. */
@@ -237,7 +237,7 @@ static void test_public_experimental_he_adapter(void){
     sce_silence(&raw);put(&raw,3u,7u);pad(&raw);
     const size_t plain_bytes=adts(plain,&raw,1u);
     assert(sauti_decoder_aac_he_native_ops.probe(plain,plain_bytes));
-    assert(!sauti_decoder_open(&decoder,registry,1u,plain,plain_bytes));
+    assert(!sauti_legacy_decoder_open(&decoder,registry,1u,plain,plain_bytes));
     puts("SBR-61: public HE adapter accepts CRC type 14, has exact read/seek replay and rejects non-SBR AAC-LC");
 }
 

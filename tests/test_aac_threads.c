@@ -18,16 +18,16 @@ static uint64_t fnv(uint64_t h,const void *p,size_t n){const uint8_t *b=p;for(si
 /* decode the whole file; second hash: seek to the middle after 3 blocks and decode 4 blocks */
 static int decode(const File *f,uint64_t *hash,uint64_t *seek_hash,uint64_t *total,unsigned *channels){
     SautiDecoder d;
-    if(!sauti_decoder_open(&d,registry,sizeof registry/sizeof registry[0],f->bytes,f->n))return 0;
+    if(!sauti_legacy_decoder_open(&d,registry,sizeof registry/sizeof registry[0],f->bytes,f->n))return 0;
     static __thread float buf[4096*8];
     uint64_t h=1469598103934665603ull,t=0;size_t got;
-    while((got=sauti_decoder_read(&d,buf,2048u))>0u){h=fnv(h,buf,got*d.info.channels*sizeof(float));t+=got;}
+    while((got=sauti_legacy_decoder_read(&d,buf,2048u))>0u){h=fnv(h,buf,got*d.info.channels*sizeof(float));t+=got;}
     uint64_t sh=1469598103934665603ull;
     const uint64_t mid=d.info.total_frames/2u;
-    if(!sauti_decoder_seek(&d,mid)){sauti_decoder_close(&d);return 0;}
-    for(int i=0;i<4&&(got=sauti_decoder_read(&d,buf,2048u))>0u;i++)sh=fnv(sh,buf,got*d.info.channels*sizeof(float));
+    if(!sauti_legacy_decoder_seek(&d,mid)){sauti_legacy_decoder_close(&d);return 0;}
+    for(int i=0;i<4&&(got=sauti_legacy_decoder_read(&d,buf,2048u))>0u;i++)sh=fnv(sh,buf,got*d.info.channels*sizeof(float));
     *hash=h;*seek_hash=sh;*total=t;*channels=d.info.channels;
-    sauti_decoder_close(&d);
+    sauti_legacy_decoder_close(&d);
     return 1;
 }
 typedef struct { const File *files; int nfiles,rounds,id; int failures; } Job;

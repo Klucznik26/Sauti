@@ -18,15 +18,15 @@ static void header(unsigned char *p,size_t n,unsigned ch,unsigned bits,unsigned 
 static void check(unsigned char *p,size_t n,unsigned ch,uint64_t frames,float expected0,float expected1){
     const SautiDecoderOps *registry[]={&sauti_decoder_avr_ops};
     SautiDecoder d={0};float out[8]={0};
-    assert(sauti_decoder_open(&d,registry,1,p,n));
+    assert(sauti_legacy_decoder_open(&d,registry,1,p,n));
     assert(d.info.sample_rate==48000&&d.info.channels==ch&&d.info.total_frames==frames);
-    assert(sauti_decoder_read(&d,out,frames)==frames);
+    assert(sauti_legacy_decoder_read(&d,out,frames)==frames);
     assert(out[0]==expected0 && out[1]==expected1);
-    assert(sauti_decoder_read(&d,out,1)==0);
-    assert(sauti_decoder_seek(&d,1));
-    assert(sauti_decoder_read(&d,out,1)==1);
-    assert(!sauti_decoder_seek(&d,frames+1));
-    sauti_decoder_close(&d);
+    assert(sauti_legacy_decoder_read(&d,out,1)==0);
+    assert(sauti_legacy_decoder_seek(&d,1));
+    assert(sauti_legacy_decoder_read(&d,out,1)==1);
+    assert(!sauti_legacy_decoder_seek(&d,frames+1));
+    sauti_legacy_decoder_close(&d);
 }
 int main(void){
     unsigned char p[144];
@@ -45,12 +45,12 @@ int main(void){
     header(p,sizeof(p),1,8,0,2);
     const SautiDecoderOps *reg[]={&sauti_decoder_avr_ops};
     SautiDecoder d={0};
-    assert(!sauti_decoder_open(&d,reg,1,p,129)); /* truncated */
-    p[0]='X';assert(!sauti_decoder_open(&d,reg,1,p,130));
-    p[0]='2';be16(p+14,12);assert(!sauti_decoder_open(&d,reg,1,p,130));
-    be16(p+14,8);be16(p+12,2);be32(p+26,3);assert(!sauti_decoder_open(&d,reg,1,p,130));
-    be16(p+12,0);be32(p+26,2);be16(p+40,1);assert(!sauti_decoder_open(&d,reg,1,p,130));
-    be16(p+40,0);be32(p+22,0xff000000);assert(!sauti_decoder_open(&d,reg,1,p,130));
+    assert(!sauti_legacy_decoder_open(&d,reg,1,p,129)); /* truncated */
+    p[0]='X';assert(!sauti_legacy_decoder_open(&d,reg,1,p,130));
+    p[0]='2';be16(p+14,12);assert(!sauti_legacy_decoder_open(&d,reg,1,p,130));
+    be16(p+14,8);be16(p+12,2);be32(p+26,3);assert(!sauti_legacy_decoder_open(&d,reg,1,p,130));
+    be16(p+12,0);be32(p+26,2);be16(p+40,1);assert(!sauti_legacy_decoder_open(&d,reg,1,p,130));
+    be16(p+40,0);be32(p+22,0xff000000);assert(!sauti_legacy_decoder_open(&d,reg,1,p,130));
     /* Partial reads, exact seek-to-EOF, and valid AVR loop metadata. */
     header(p,sizeof(p),1,8,0,4);
     p[128]=0;p[129]=64;p[130]=128;p[131]=255;
@@ -59,31 +59,31 @@ int main(void){
     {
         SautiDecoder part={0};
         float one[4]={0};
-        assert(sauti_decoder_open(&part,reg,1,p,132));
+        assert(sauti_legacy_decoder_open(&part,reg,1,p,132));
         assert(part.info.total_frames==4);
-        assert(sauti_decoder_read(&part,one,1)==1 && one[0]==-1.0f);
-        assert(sauti_decoder_read(&part,one,2)==2);
+        assert(sauti_legacy_decoder_read(&part,one,1)==1 && one[0]==-1.0f);
+        assert(sauti_legacy_decoder_read(&part,one,2)==2);
         assert(one[0]==-0.5f && one[1]==0.0f);
-        assert(sauti_decoder_seek(&part,3));
-        assert(sauti_decoder_read(&part,one,2)==1);
+        assert(sauti_legacy_decoder_seek(&part,3));
+        assert(sauti_legacy_decoder_read(&part,one,2)==1);
         assert(one[0]==127.0f/128.0f);
-        assert(sauti_decoder_seek(&part,4));
-        assert(sauti_decoder_read(&part,one,1)==0);
-        assert(sauti_decoder_seek(&part,0));
-        assert(sauti_decoder_read(&part,one,4)==4);
-        sauti_decoder_close(&part);
+        assert(sauti_legacy_decoder_seek(&part,4));
+        assert(sauti_legacy_decoder_read(&part,one,1)==0);
+        assert(sauti_legacy_decoder_seek(&part,0));
+        assert(sauti_legacy_decoder_read(&part,one,4)==4);
+        sauti_legacy_decoder_close(&part);
     }
     /* Explicitly reject unsupported bit depths, compression and bad stereo
        sample-unit counts instead of interpreting them as PCM noise. */
     header(p,sizeof(p),1,12,0,2);
-    assert(!sauti_decoder_open(&d,reg,1,p,132));
+    assert(!sauti_legacy_decoder_open(&d,reg,1,p,132));
     header(p,sizeof(p),1,14,0,2);
-    assert(!sauti_decoder_open(&d,reg,1,p,132));
+    assert(!sauti_legacy_decoder_open(&d,reg,1,p,132));
     header(p,sizeof(p),1,8,0,2);
     be16(p+40,1);
-    assert(!sauti_decoder_open(&d,reg,1,p,132));
+    assert(!sauti_legacy_decoder_open(&d,reg,1,p,132));
     header(p,sizeof(p),2,8,0,3);
-    assert(!sauti_decoder_open(&d,reg,1,p,132));
+    assert(!sauti_legacy_decoder_open(&d,reg,1,p,132));
     puts("PASS: Atari AVR ASM PCM 8/16-bit mono/stereo, seek/EOF, loop metadata, malformed headers");
     return 0;
 }

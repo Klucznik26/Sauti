@@ -28,10 +28,10 @@ typedef struct {
     SautiPcmInfo info;
 } SautiDecoder;
 
-int sauti_decoder_ops_valid(const SautiDecoderOps *ops);
-int sauti_decoder_open(SautiDecoder *out,const SautiDecoderOps *const *registry,
+int sauti_legacy_decoder_ops_valid(const SautiDecoderOps *ops);
+int sauti_legacy_decoder_open(SautiDecoder *out,const SautiDecoderOps *const *registry,
                        size_t count,const uint8_t *data,size_t length);
-size_t sauti_decoder_read(SautiDecoder *decoder,float *samples,size_t frames);
-int sauti_decoder_seek(SautiDecoder *decoder,uint64_t frame);
-void sauti_decoder_close(SautiDecoder *decoder);
+size_t sauti_legacy_decoder_read(SautiDecoder *decoder,float *samples,size_t frames);
+int sauti_legacy_decoder_seek(SautiDecoder *decoder,uint64_t frame);
+void sauti_legacy_decoder_close(SautiDecoder *decoder);
 #endif

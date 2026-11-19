@@ -16,11 +16,11 @@ int main(void){
     assert(!sauti_decoder_dtm_ops.probe((const uint8_t *)"DTM!",4));
     assert(!sauti_decoder_dtm_ops.probe((const uint8_t *)"D.T.",3));
     assert(!sauti_decoder_dtm_ops.probe(NULL,0));
-    assert(!sauti_decoder_open(&d,ops,1,buffer,sizeof(buffer)));
+    assert(!sauti_legacy_decoder_open(&d,ops,1,buffer,sizeof(buffer)));
     memcpy(buffer,"D.T.",4);
-    assert(!sauti_decoder_open(&d,ops,1,buffer,sizeof(buffer)));
+    assert(!sauti_legacy_decoder_open(&d,ops,1,buffer,sizeof(buffer)));
     memcpy(buffer,"SONG",4);
-    assert(!sauti_decoder_open(&d,ops,1,buffer,sizeof(buffer)));
+    assert(!sauti_legacy_decoder_open(&d,ops,1,buffer,sizeof(buffer)));
     /* A valid signature alone must not make a malformed module playable. */
     puts("PASS: Atari DTM Digital Tracker magic and malformed module rejection");
     return 0;

@@ -81,7 +81,7 @@ int main(int argc,char **argv){
     SautiDecoder decoder={0};
     SautiPcmOutput output={0};
     SdlSink sink={0};
-    int ok=sauti_decoder_open(&decoder,decoders,1,bytes,(size_t)len);
+    int ok=sauti_legacy_decoder_open(&decoder,decoders,1,bytes,(size_t)len);
     if(ok){
         SautiPcmFormat format={decoder.info.sample_rate,decoder.info.channels};
         ok=sauti_pcm_output_open(&output,&sink,&sink_ops,format);
@@ -102,7 +102,7 @@ int main(int argc,char **argv){
                 SDL_Delay(10);
                 continue;
             }
-            size_t frames=sauti_decoder_read(&decoder,pcm,4096/decoder.info.channels);
+            size_t frames=sauti_legacy_decoder_read(&decoder,pcm,4096/decoder.info.channels);
             if(!frames)break;
             if(sauti_pcm_output_write(&output,pcm,frames)!=frames){
                 fprintf(stderr,"PCM queue failed: %s\n",SDL_GetError());
@@ -114,7 +114,7 @@ int main(int argc,char **argv){
               (Sint32)(SDL_GetTicks()-deadline)<0)SDL_Delay(20);
     }
     sauti_pcm_output_close(&output);
-    sauti_decoder_close(&decoder);
+    sauti_legacy_decoder_close(&decoder);
     SDL_Quit();
     free(bytes);
     return ok?0:1;
