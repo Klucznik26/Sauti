@@ -15,6 +15,11 @@ typedef struct {
     uint64_t sample_count;        /* liczba jednostek dostepu (po 1024 probki rdzenia) */
     uint64_t skip_samples;        /* z elst: probki do pominiecia na poczatku (czestotliwosc rdzenia) */
     uint64_t duration_samples;    /* z elst: dlugosc po przycieciu (0 = bez ograniczenia) */
+    /* iTunSMPB (informacja "gapless" iTunes) w moov, uzyta tylko gdy nie ma listy edycji: wartosci w probkach RDZENIA jak w pliku (dla HE-AAC 24 kHz plik ma 2048 / 768 /
+     * 288000, FFmpeg podwaja je do 4096 / 1536 / 576000): adapter skaluje je jak liste edycji. */
+    uint32_t gapless;             /* 1 = jest iTunSMPB */
+    uint64_t gapless_priming;     /* probki do pominiecia na poczatku */
+    uint64_t gapless_samples;     /* dlugosc po przycieciu (0 = bez ograniczenia) */
 } SautiAacMp4Info;
 
 /* 1 = zbudowano strumien ADTS (`*adts` z malloc, zwolnic free()), 0 = nie dotyczy / nieobslugiwane / bledne. */

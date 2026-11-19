@@ -7468,3 +7468,21 @@ Skoki w `sauti_aac_seek_check` obejmują dowolne pozycje, początki ramek, pozyc
 **Testy.** Istniejące testy adapterów (`test-aac-sbr-adts-qmf`, `test-aac-sbr-adts-cpe`, `test-aac-native-adapter`: otwarcie, dokładne powtórzenie po przewinięciu, EOF, odrzucenie AAC-LC bez SBR, CRC typu 14) przechodzą na nowej implementacji bez zmian. `test-aac-native`: 134 PASS. Powtarzalna kontrola względem FFmpeg wymaga instrumentowanego FFmpeg i pliku (`SKIP` jawny).
 
 **Czego to nie zamyka.** (a) **MP4/M4A z HE-AAC** (konfiguracja ASC, sygnalizacja SBR/PS jawna i niejawna) nadal nie jest podłączona: ADTS tylko. (b) Brak strumienia referencyjnego dla PS w trybie 34 pasm, z IPD/OPD i dla ramek PS bez danych. (c) Przewijanie sprawdzone na trzech plikach z jednego utworu; adapter nie ma testu jednostkowego dla PS w repozytorium (bez fixtury PS), tylko skrypt na prawdziwym pliku. (d) Dekoder SBR jest w C (asm-first dotyczy dziś tylko QMF i miksera PS).
+
+### SBR-87 — HE-AAC w MP4/M4A: adapter MP4 wpuszcza HE, odczyt `iTunSMPB` (2026-11-19)
+
+**Zmiany.** (1) Adapter MP4 (`sauti_decoder_aac_mp4.c`) oddawał HE-AAC FFmpegowi („adaptery HE nie są zwalidowane”); po SBR-82…86 wpuszcza adaptery HE (SBR mono, HE-AAC v2 z PS, stereo CPE) obok adapterów LC. Demuxer już parsował ASC z AOT 5 i 29 (jawny SBR/PS) i owijał jednostki dostępu w ADTS, więc nie wymagał zmian poza (2). (2) **`iTunSMPB`**: pliki z `fdkaac -f 0` nie mają listy edycji, tylko znacznik gapless iTunes w `moov/udta/meta/ilst/----/(mean,name,data)`, z którego FFmpeg przycina początek (priming) i koniec ("Parsed iTunSMPB: priming 4096, remainder 1536 samples 576000"). Wartości w pliku są w **próbkach rdzenia** (24 kHz: 2048 / 768 / 288000), FFmpeg podwaja je dla HE; adapter skaluje je jak listę edycji (częstotliwość wyjściowa / rdzenia). Pierwsza wersja używała ich wprost i dawała dokładnie połowę długości (288 000 zamiast 576 000), co ujawniło jednostki. Znacznik jest czytany **tylko wtedy, gdy nie ma listy edycji** (dotychczasowa walidacja LC na korpusie opierała się na niej), wartości nieprawdopodobne (priming > 2^20) lub uszkodzony tekst są ignorowane zamiast ciąć dźwięk.
+
+**Wynik względem FFmpeg (te same pliki M4A, przycięcie po obu stronach):**
+
+| plik M4A (`fdkaac -f 0`) | wyjście | próbki vs FFmpeg | niskie / HF | przewijanie |
+|---|---|---|---|---|
+| HE-AAC v1 mono (`-p 5 -b 48`) | mono | 576 000 = 576 000 | 139,0 / 121,3 dB | 100–200 skoków, 0 błędów |
+| HE-AAC v1 stereo (`-p 5 -b 64`) | stereo | 576 000 = 576 000 | 138,7 / 124,3 dB (oba kanały) | 100 skoków, 0 błędów |
+| HE-AAC v2 (`-p 29 -b 48`) | stereo (PS) | 576 000 = 576 000 | 135,5 / 121,4 dB (L), 135,3 / 121,4 dB (R) | 200 skoków, 0 błędów |
+
+FFmpeg raportuje mono HE-AAC v1 w M4A jako stereo (przy sygnalizacji bez jawnych PS zakłada możliwe PS i dubluje kanał); adapter zwraca mono, zgodnie z konfiguracją kanałów, a porównanie robiłem z lewym kanałem referencji. To różnica układu kanałów, nie wartości.
+
+**Testy.** `tests/test_aac_mp4.c`: iTunSMPB bez listy edycji (priming 1024, długość 3000 → adapter daje 3000 próbek), pierwszeństwo listy edycji (iTunSMPB ignorowany), odrzucenie nieprawdopodobnego primingu i uszkodzonego tekstu. Skalowanie 2× dla HE nie ma testu jednostkowego (jednostkowa fixtura MP4 jest LC): chroni je `scripts/test_he_adapter_vs_ffmpeg.sh PLIK.m4a`, który porównuje liczbę próbek z FFmpeg. `test-aac-native`: 134 PASS.
+
+**Granice.** Pliki M4A z jawnym SBR (AOT 5) i niejawnym (AOT 2 + SBR w strumieniu) przetestowałem tylko tym, co produkuje `fdkaac` (nie sprawdziłem, której sygnalizacji użył); MP4 z innymi enkoderami (Apple, Nero), fragmentowane MP4 (`moof`) i pliki z listą edycji dla HE nie mają referencji w tym teście.

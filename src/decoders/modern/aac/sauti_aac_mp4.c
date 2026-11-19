@@ -95,6 +95,36 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cc;
     return 1;
 }
+/* iTunSMPB: ----/mean/name("iTunSMPB")/data(text): " 00000000 <priming> <remainder> <samples> ..." (hex fields).  Searched as bytes inside moov, bounded. */
+static int hex_field(const uint8_t *p,size_t n,size_t *pos,uint64_t *out){
+    while(*pos<n&&p[*pos]==' ')(*pos)++;
+    uint64_t v=0;unsigned digits=0;
+    while(*pos<n&&digits<17u){
+        const uint8_t c=p[*pos];unsigned d;
+        if(c>='0'&&c<='9')d=(unsigned)(c-'0');else if(c>='a'&&c<='f')d=(unsigned)(c-'a'+10);else if(c>='A'&&c<='F')d=(unsigned)(c-'A'+10);else break;
+        v=(v<<4)|d;digits++;(*pos)++;
+    }
+    if(!digits||digits>16u)return 0;
+    *out=v;return 1;
+}
+static void gapless_parse(View moov,SautiAacMp4Info *inf){
+    static const char key[]="iTunSMPB";
+    for(size_t i=0;i+sizeof(key)+24u<moov.n;i++){
+        if(memcmp(moov.p+i,key,sizeof(key)-1u))continue;
+        for(size_t j=i+8u;j+16u<moov.n&&j<i+8u+48u;j++){
+            if(memcmp(moov.p+j,"data",4))continue;
+            size_t pos=j+4u+8u;                                   /* 'data': version+flags(4), locale(4), then the text */
+            uint64_t zero,priming,remainder,samples;
+            if(!hex_field(moov.p,moov.n,&pos,&zero)||!hex_field(moov.p,moov.n,&pos,&priming)||
+               !hex_field(moov.p,moov.n,&pos,&remainder)||!hex_field(moov.p,moov.n,&pos,&samples))return;
+            (void)zero;(void)remainder;
+            if(priming>(1u<<20))return;                           /* not plausible: ignore rather than cut audio */
+            inf->gapless=1u;inf->gapless_priming=priming;inf->gapless_samples=samples;
+            return;
+        }
+        return;
+    }
+}
 int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t *adts_length,SautiAacMp4Info *info){
     if(!data||!adts||!adts_length||!info||!sauti_aac_mp4_probe(data,size))return 0;
     *adts=NULL;*adts_length=0;
@@ -190,6 +220,7 @@ int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t 
                 break;
             }
         }
+        if(!inf.skip_samples&&!inf.duration_samples)gapless_parse(moov,&inf);
         *adts=out;*adts_length=w;*info=inf;
         return 1;
     }

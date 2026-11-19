@@ -31,6 +31,7 @@ typedef struct {
     int elst;                      /* 1 = dodaj liste edycji */
     uint32_t elst_media_time, elst_duration;
     int codec_alac, drop_stco, big_au, stsz_truncated, stco_far, version1_mvhd;
+    const char *smpb;              /* tekst iTunSMPB (NULL = brak) */
 } Spec;
 static void build(Buf *f,const Spec *sp){
     uint8_t au[4];make_au(au);
@@ -62,7 +63,16 @@ static void build(Buf *f,const Spec *sp){
     { size_t sc=open_box(f,"stsc");u32(f,0);u32(f,1);u32(f,1);u32(f,sp->samples);u32(f,1);close_box(f,sc); }
     size_t stco_at=0;
     if(!sp->drop_stco){ size_t co=open_box(f,"stco");u32(f,0);u32(f,1);stco_at=f->n;u32(f,0);close_box(f,co); }
-    close_box(f,stbl);close_box(f,minf);close_box(f,mdia);close_box(f,trak);close_box(f,moov);
+    close_box(f,stbl);close_box(f,minf);close_box(f,mdia);close_box(f,trak);
+    if(sp->smpb){                                                               /* moov/udta/meta/ilst/----/{mean,name,data} */
+        size_t ud=open_box(f,"udta"),me=open_box(f,"meta");u32(f,0);
+        size_t il=open_box(f,"ilst"),dd=open_box(f,"----");
+        { size_t m=open_box(f,"mean");u32(f,0);raw(f,"com.apple.iTunes",16);close_box(f,m); }
+        { size_t n=open_box(f,"name");u32(f,0);raw(f,"iTunSMPB",8);close_box(f,n); }
+        { size_t d=open_box(f,"data");u32(f,1);u32(f,0);raw(f,sp->smpb,strlen(sp->smpb));close_box(f,d); }
+        close_box(f,dd);close_box(f,il);close_box(f,me);close_box(f,ud);
+    }
+    close_box(f,moov);
     size_t md=open_box(f,"mdat");
     const size_t data_at=f->n;
     if(sp->big_au){for(unsigned i=0;i<9000;i++){u8(f,0);}}
@@ -101,6 +111,30 @@ int main(void){
         assert(sauti_decoder_seek(&dec,100)&&sauti_decoder_read(&dec,pcm,5000)==2780);
         assert(!sauti_decoder_seek(&dec,2881) && sauti_decoder_seek(&dec,2880) && sauti_decoder_read(&dec,pcm,10)==0);
         sauti_decoder_close(&dec);
+    }
+    /* iTunSMPB bez listy edycji: wartosci w probkach rdzenia, adapter skaluje (tu LC: 1:1).  5 AU = 5120 probek; priming 0x400 = 1024, dlugosc 0xBB8 = 3000. */
+    {   Spec g=sp;g.elst=0;g.smpb=" 00000000 00000400 00000100 0000000000000BB8 00000000 00000000";
+        build(&f,&g);adts=NULL;
+        assert(sauti_aac_mp4_to_adts(f.b,f.n,&adts,&al,&info)==1 && info.gapless==1u && info.gapless_priming==1024u && info.gapless_samples==3000u &&
+               info.skip_samples==0u && info.duration_samples==0u);free(adts);
+        SautiDecoder dec;const SautiDecoderOps *const reg[]={&sauti_decoder_aac_mp4_native_ops};
+        assert(sauti_decoder_open(&dec,reg,1,f.b,f.n));
+        assert(dec.info.total_frames==3000);
+        static float pcm[8192];size_t got=0,all=0;
+        while((got=sauti_decoder_read(&dec,pcm,1000))>0)all+=got;
+        assert(all==3000);
+        sauti_decoder_close(&dec);
+        /* a lista edycji ma pierwszenstwo (dotychczasowe zachowanie, zwalidowane na korpusie): iTunSMPB jest wtedy ignorowany */
+        g.elst=1;g.elst_media_time=1024;g.elst_duration=60;
+        build(&f,&g);adts=NULL;
+        assert(sauti_aac_mp4_to_adts(f.b,f.n,&adts,&al,&info)==1 && info.gapless==0u && info.skip_samples==1024u);free(adts);
+        /* nieprawdopodobny priming (> 2^20) albo uszkodzony tekst: ignorowane, bez ciecia dzwieku */
+        g.elst=0;g.smpb=" 00000000 7FFFFFFF 00000100 0000000000000BB8";
+        build(&f,&g);adts=NULL;
+        assert(sauti_aac_mp4_to_adts(f.b,f.n,&adts,&al,&info)==1 && info.gapless==0u);free(adts);
+        g.smpb=" 00000000 zzzz 00000100";
+        build(&f,&g);adts=NULL;
+        assert(sauti_aac_mp4_to_adts(f.b,f.n,&adts,&al,&info)==1 && info.gapless==0u);free(adts);
     }
     /* odrzucenia: kazde daje 0 / NULL bez efektow ubocznych */
     Spec bad;

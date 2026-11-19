@@ -27,9 +27,11 @@ static void *mp4_open(const uint8_t *data,size_t length,SautiPcmInfo *info){
     Mp4Aac *s=calloc(1,sizeof(*s));
     if(!s){free(adts);return NULL;}
     s->adts=adts;
-    /* Tylko LC (zwalidowane wzgledem FFmpeg).  HE/HEv2 w MP4: adaptery HE nie sa jeszcze zwalidowane na prawdziwych plikach (patrz docs), wiec open() = NULL i rejestr oddaje plik FFmpegowi. */
+    /* LC (zwalidowane wzgledem FFmpeg) oraz HE-AAC: SBR mono/stereo i HE-AAC v2 z PS (SBR-82..86, zgodnosc z FFmpeg do zaokraglen float).  Adaptery HE otwieraja
+     * tylko strumien, ktorego pierwsza ramka dekoduje sie z SBR, wiec zwykle LC trafia do adapterow LC; reszta konfiguracji dalej oddaje plik rejestrowi (FFmpeg). */
     const SautiDecoderOps *const inner[]={&sauti_decoder_aac_native_ops,&sauti_decoder_aac_mono_native_ops,
-                                          &sauti_decoder_aac_multi_native_ops};
+                                          &sauti_decoder_aac_multi_native_ops,&sauti_decoder_aac_he_native_ops,
+                                          &sauti_decoder_aac_he_cpe_native_ops};
     if(!sauti_decoder_open(&s->inner,inner,sizeof(inner)/sizeof(inner[0]),adts,adts_len)){mp4_close(s);return NULL;}
     /* skip/duration z elst sa w probkach rdzenia; HE podwaja czestotliwosc wyjscia */
     const uint64_t out_rate=s->inner.info.sample_rate;
@@ -40,6 +42,15 @@ static void *mp4_open(const uint8_t *data,size_t length,SautiPcmInfo *info){
     uint64_t available=total-skip;
     if(mi.duration_samples){
         const uint64_t d=mi.duration_samples*scale_num/scale_den;
+        if(d&&d<available)available=d;
+    }
+    /* no edit list: iTunSMPB. Its values are in samples of the CORE stream (a 24 kHz HE-AAC file stores 2048 / 768 / 288000 for 4096 / 1536 / 576000 output
+     * samples, and FFmpeg doubles them the same way), so they scale like the edit list. */
+    if(mi.gapless&&!mi.skip_samples&&!mi.duration_samples){
+        skip=mi.gapless_priming*scale_num/scale_den;
+        if(skip>=total){mp4_close(s);return NULL;}
+        available=total-skip;
+        const uint64_t d=mi.gapless_samples*scale_num/scale_den;
         if(d&&d<available)available=d;
     }
     if(skip&&!sauti_decoder_seek(&s->inner,skip)){mp4_close(s);return NULL;}
