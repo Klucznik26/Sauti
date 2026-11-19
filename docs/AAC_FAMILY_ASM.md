@@ -7577,3 +7577,24 @@ Sprzężona dekwantyzacja (poziom + balans), wspólna siatka czasowa i inverse f
 **Pułapka testowa.** `ffmpeg -c copy -bsf:a aac_adtstoasc -movflags empty_moov` z ADTS zapisuje `esds` **bez ASC** (nagłówek powstaje przed pierwszym pakietem): plik jest wadliwy (FFmpeg raportuje 96000 Hz), więc nie jest fixturą; fragmentowane pliki do testów powstają z zwykłego MP4 (`-i plik.mp4 -c copy`), który ma ASC.
 
 **Granice.** Nie sprawdzone: wiele ścieżek audio w jednym pliku (pierwsza AAC), `sidx`/DASH z `styp` (pudełka nieznane są pomijane, ale bez testu), kilka `traf` tej samej ścieżki w jednym `moof`, lista edycji i `iTunSMPB` w plikach fragmentowanych (ten sam kod co w zwykłych), pliki z enkoderów innych niż fdkaac/FFmpeg (Apple, Nero).
+
+### SBR-95 — LOAS/LATM i dwa ustalenia przy okazji: rejestr odtwarzacza bez HE, PNS skorelowany (2026-11-19)
+
+**LOAS/LATM (nowe, `sauti_aac_latm.c` + adapter `aac-native-latm`).** Transport z DAB+/DVB i plików `.loas`/`.latm`: `AudioSyncStream` (0x2B7 + 13 bitów długości) z `AudioMuxElement`. Demuxer czyta `StreamMuxConfig` (audioMuxVersion 0 i 1, jeden program i warstwa, `allStreamsSameTimeFraming = 1`, `frameLengthType 0`, dowolna liczba subramek, `useSameStreamMux`, `otherData`, CRC), `AudioSpecificConfig` AAC-LC / AOT 5 / AOT 29 jawnie i **niejawnie** (rozszerzenie 0x2B7 / 0x548) i przepisuje każdą jednostkę dostępu **z przesunięciem bitowym** do granicy bajtu (konfiguracja nie ma długości w bajtach, więc ładunek zaczyna się w dowolnym bicie) do ADTS; dalej działają bez zmian adaptery ADTS (LC, HE, HE v2). Odrzuca (bez PCM zastępczego): inne AOT, ramkę 960, `channelConfiguration 0` (PCE), wiele programów/warstw, CELP/HVXC, zmianę konfiguracji w trakcie; ucięty ostatni element jest pomijany, początek strumienia przed pierwszą konfiguracją też.
+
+**Wynik względem FFmpeg (strumienie `fdkaac -f 10`, 20 s, adapter publiczny):**
+
+| strumień | niskie / HF | przewijanie |
+|---|---|---|
+| HE-AAC v1 stereo 32 kb/s; z konfiguracją w każdym elemencie | 139,3–139,4 / 120,4–120,7 dB | 100 skoków, 0 błędów |
+| HE-AAC v2 48 kb/s | 136,3 / 119,8 dB | 100 skoków, 0 błędów |
+| HE-AAC v1 mono 40 kb/s | 139,2 / 119,4 dB | — |
+| AAC-LC stereo 192 kb/s (konfiguracja w każdym elemencie) | 144,3–144,4 / 124,6–124,9 dB | 100 skoków, 0 błędów |
+
+Jednostki po demuxie mają ten sam początek co jednostki tego samego enkodera w ADTS (różnią się tylko dopełnieniem na końcu, które enkoder LATM dodaje). Testy (`test_aac_latm.c`, ASan/UBSan): fixtura składana bit po bicie, wersje 0/1, subramki, powtórzona konfiguracja, `otherData`/CRC, początek bez konfiguracji, HE jawne i niejawne, odrzucenia (AOT 17, `frameLengthType 1`, PCE, 960, zmiana konfiguracji), ucięcie, losowe dane, adapter z przewijaniem; pięć mutantów (zła kolejność bitów, sprawdzenie konfiguracji, rozszerzenie SBR, ramka 960, `frameLengthType`) padają. Fuzzing ASan: 2100 iteracji na 5 strumieniach LOAS, 0 raportów.
+
+**Ustalenie 1: rejestr prawdziwego odtwarzacza nie zawierał adapterów HE-AAC.** Wcześniej opisywane „podłączenie” dotyczyło rejestrów narzędzi i adaptera MP4; w `sauti_mp3_sdl_player.c` surowe pliki ADTS HE-AAC trafiałyby do FFmpeg. Dopisane `aac-he-native-adts`, `aac-he-cpe-native-adts` oraz `aac-native-latm` (i do listy adapterów wymagających wątku roboczego przy przewijaniu). Odtwarzacz buduje się.
+
+**Ustalenie 2: FFmpeg nie jest wzorcem dla PNS skorelowanego z M/S.** Strumień LC stereo 96 kb/s: lewy kanał 144 dB zgodny z FFmpeg, prawy tylko 30 dB, w 674 z 931 ramek. Cecha wspólna ramek: PNS w obu kanałach i `ms_used`. Norma (i referencyjny FAAD2: `r1_dep`/`r2_dep` w `pns.c`) każe w paśmie szumowym obu kanałów z `ms_used = 1` użyć **tego samego wektora losowego** dla obu kanałów (skalowanego osobno), a M/S w takim paśmie nie stosować. Sauti robi to (AAC-29C); FFmpeg generuje niezależny szum. Dlatego na strumieniach z takim PNS prawy kanał nie może zgadzać się z FFmpeg, a nie jest to błąd Sauti. Generator szumu w normie nie jest określony (FAAD2 ma inny niż FFmpeg i Sauti), więc FAAD2 zgadza się z obydwoma tylko na ~19 dB na PNS-ie. Strumienie do porównań z FFmpeg: bez PNS w obu kanałach naraz (np. 192 kb/s).
+
+**Granice.** Brak LATM bez ramowania LOAS (nie samosynchronizujący), brak PCE, jeden program. Gdy strumień zaczyna się od elementów bez konfiguracji (fdkaac przy domyślnym okresie nagłówka: 9 pierwszych elementów LC), Sauti pomija je, a FFmpeg wypełnia początek (osi czasu +9216 próbek i inny stan generatora szumu); długość wyjścia różni się wtedy o te elementy.

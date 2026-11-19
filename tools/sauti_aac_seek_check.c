@@ -16,7 +16,7 @@ int main(int argc,char **argv){
     if(!bytes || fread(bytes,1,(size_t)n,f)!=(size_t)n)return 2;
     fclose(f);
     const SautiDecoderOps *const registry[]={&sauti_decoder_aac_native_ops,&sauti_decoder_aac_mono_native_ops,&sauti_decoder_aac_multi_native_ops,
-        &sauti_decoder_aac_mp4_native_ops,&sauti_decoder_aac_he_native_ops,&sauti_decoder_aac_he_cpe_native_ops};
+        &sauti_decoder_aac_mp4_native_ops,&sauti_decoder_aac_latm_native_ops,&sauti_decoder_aac_he_native_ops,&sauti_decoder_aac_he_cpe_native_ops};
     SautiDecoder d;
     if(!sauti_decoder_open(&d,registry,sizeof registry/sizeof registry[0],bytes,(size_t)n)){puts("REJECT");return 1;}
     const unsigned ch=d.info.channels;
