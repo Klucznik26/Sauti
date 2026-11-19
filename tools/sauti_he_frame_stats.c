@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
             if (sauti_aac_he_adts_mono_temporal_diagnose_ex(b + off, len, &t, pcm, &p, &r, &stage, &seen) == 1) { ok_temp++; st = t; }
             else { neither++; st = t; off += len; continue; }
         }
-        if (per_frame) printf("F %u class=%u env=%u noise=%u last_border=%u invf0=%u invf_any=%u\n", frames - 1u, (unsigned)p.grid.frame_class, (unsigned)p.grid.env_count, (unsigned)p.grid.noise_count, (unsigned)p.grid.env_border[p.grid.env_count], (unsigned)p.control.invf_mode[0], ({ unsigned any = 0; for (unsigned q = 0; q < p.control.noise_band_count && q < SAUTI_AAC_SBR_MAX_NOISE_BANDS; q++) any |= p.control.invf_mode[q]; any; }));
+        if (per_frame) printf("F %u class=%u env=%u noise=%u last_border=%u invf0=%u invf_any=%u smooth=%u limiter=%u gain=%u\n", frames - 1u, (unsigned)p.grid.frame_class, (unsigned)p.grid.env_count, (unsigned)p.grid.noise_count, (unsigned)p.grid.env_border[p.grid.env_count], (unsigned)p.control.invf_mode[0], ({ unsigned any = 0; for (unsigned q = 0; q < p.control.noise_band_count && q < SAUTI_AAC_SBR_MAX_NOISE_BANDS; q++) any |= p.control.invf_mode[q]; any; }), (unsigned)p.bs_smoothing_mode, (unsigned)p.limiter_mode, (unsigned)p.gain_mode);
         if (p.has_ps) ps++;
         cls[p.grid.frame_class & 3u]++;
         if (p.grid.env_border[p.grid.env_count] > 16u) over++;

@@ -2151,6 +2151,7 @@ static void diagnose_core_sequence(const char *path,size_t limit,
     SautiAacSbrTemporalNoiseState temporal_noise={0};
     SautiAacSbrQmfAnalysisState temporal_analysis={0};
     SautiAacSbrComplex lpc_previous_low[2u*32u]={0};
+    SautiAacSbrComplex lpc_prev8[8u*32u]={0};   /* SBR-75: 8 slotow historii jak t_HFGen w FFmpeg */
     SautiAacSbrChirp lpc_previous_chirp={0};
     size_t lpc_estimated_frames=0u,lpc_changed_bins=0u;
     size_t lpc_active_bins=0u,lpc_nonzero_coeffs=0u;
@@ -2321,6 +2322,35 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             break;
         }
         qmf_prepared_frames++;
+        /* SBR-75 (eksperyment jednoczynnikowy, SAUTI_SBR75_LPC=1): HF generator z LPC i chirpem JAK W FFMPEG (okno 8+32 slotow, 38 rownan)
+         * zamiast zwyklej transpozycji, podstawiony ZANIM jakikolwiek dalszy etap (limiter, moc, wzmocnienie, ton) zobaczy HF.  Stan LPC/chirp
+         * posuwa dalej blok SBR-54g nizej; tu tylko liczymy. */
+        if(getenv("SAUTI_SBR75_LPC")){
+            SautiAacSbrTemporalHfTargets t75;
+            SautiAacSbrComplex in40[40u*32u],in34[34u*32u];
+            SautiAacSbrLpcCoeffs c75;
+            SautiAacSbrChirp ch75=lpc_previous_chirp;
+            memcpy(in40,lpc_prev8,sizeof(lpc_prev8));
+            memcpy(in40+8u*32u,low_qmf,32u*32u*sizeof(low_qmf[0]));
+            memcpy(in34,lpc_previous_low,sizeof(lpc_previous_low));
+            memcpy(in34+2u*32u,low_qmf,32u*32u*sizeof(low_qmf[0]));
+            if(ch75.ready && ch75.count!=temporal_history.current.tables.n_noise)memset(&ch75,0,sizeof(ch75));
+            if(!sauti_aac_sbr_temporal_hf_targets(&temporal_history,&t75) ||
+               !sauti_aac_sbr_lpc_estimate_2(in40,40u*32u,38u,&c75) ||
+               !sauti_aac_sbr_chirp_update(temporal_history.current.control.invf_mode,temporal_history.current.tables.n_noise,&ch75)){
+                printf("  ramka %zu: SBR-75 LPC/chirp odrzucone\n",i);
+                break;
+            }
+            for(unsigned t=0u;t<32u;t++){
+                const SautiAacSbrTemporalHfSlot *ow=&t75.slot[t];
+                const SautiAacSbrPayloadFrame *f=ow->source==0u?&temporal_history.previous:&temporal_history.current;
+                const SautiAacSbrChirp *chirp=ow->source==0u?&lpc_previous_chirp:&ch75;
+                if(!sauti_aac_sbr_hf_predict(&f->patches,&f->tables,in34+t*32u,3u*32u,1u,&c75,chirp,baseline_hf+t*64u,64u)){
+                    printf("  ramka %zu: SBR-75 predykcja odrzucona\n",i);
+                    t=99u;break;
+                }
+            }
+        }
         if(!sbr73_trace_x(i,baseline_hf)){
             printf("  ramka %zu: SBR-73 pre-gain X trace odrzucony\n",i);
             break;
@@ -2424,8 +2454,12 @@ static void diagnose_core_sequence(const char *path,size_t limit,
         if(next_chirp.ready &&
            next_chirp.count!=temporal_history.current.tables.n_noise)
             memset(&next_chirp,0,sizeof(next_chirp));
-        if(!sauti_aac_sbr_lpc_estimate_2(
-               lpc_input,34u*32u,32u,&lpc_coeff) ||
+        SautiAacSbrComplex lpc_in40[40u*32u];
+        memcpy(lpc_in40,lpc_prev8,sizeof(lpc_prev8));
+        memcpy(lpc_in40+8u*32u,low_qmf,32u*32u*sizeof(low_qmf[0]));
+        const int lpc40=getenv("SAUTI_SBR75_LPC40")!=NULL;     /* okno estymacji jak FFmpeg: 38 rownan na 40 slotach */
+        if(!(lpc40?sauti_aac_sbr_lpc_estimate_2(lpc_in40,40u*32u,38u,&lpc_coeff)
+                  :sauti_aac_sbr_lpc_estimate_2(lpc_input,34u*32u,32u,&lpc_coeff)) ||
            !sauti_aac_sbr_chirp_update(
                temporal_history.current.control.invf_mode,
                temporal_history.current.tables.n_noise,
@@ -2489,8 +2523,21 @@ static void diagnose_core_sequence(const char *path,size_t limit,
             printf("  ramka %zu: SBR-54g niepoprawna energia roznicy QMF\n",i);
             break;
         }
+        if(getenv("SAUTI_SBR75_ALPHA")){          /* zrzut do porownania z SAUTI_SBR73_FFMPEG_HFGEN: frame,hp,a0r,a0i,a1r,a1i,bw(pasmo szumu) */
+            static FILE *alpha_out;
+            if(!alpha_out){alpha_out=fopen(getenv("SAUTI_SBR75_ALPHA"),"wb");
+                if(alpha_out)fprintf(alpha_out,"frame,hp,a0r,a0i,a1r,a1i\n");}
+            if(alpha_out){
+                for(unsigned hp=0u;hp<32u;hp++)
+                    fprintf(alpha_out,"%zu,%u,%.9g,%.9g,%.9g,%.9g\n",i,hp,
+                            (double)lpc_coeff.alpha0[hp].re,(double)lpc_coeff.alpha0[hp].im,
+                            (double)lpc_coeff.alpha1[hp].re,(double)lpc_coeff.alpha1[hp].im);
+                fflush(alpha_out);
+            }
+        }
         memcpy(lpc_previous_low,low_qmf+30u*32u,
                sizeof(lpc_previous_low));
+        memcpy(lpc_prev8,low_qmf+24u*32u,sizeof(lpc_prev8));
         lpc_previous_chirp=next_chirp;
         lpc_estimated_frames++;
 
