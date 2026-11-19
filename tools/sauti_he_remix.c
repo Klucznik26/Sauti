@@ -218,6 +218,8 @@ static void ps_extension(Bits *b,unsigned frame_no){
     unsigned cls=ps_env_int("SAUTI_REMIX_PS_CLASS",2u);if(cls>1u)cls=rnd()&1u;
     unsigned idx=rnd()&3u;
     if(rnd()%100u<ps_env_int("SAUTI_REMIX_PS_NOENV",0)){cls=0;idx=0;}
+    if(topology_changed && cls==0u && idx==0u)idx=1u;   /* a header that changes the band layout must come with values: with none, the new layout has no previous
+                                                         * parameters and the standard does not say what a decoder uses (the reference decoder reads stale memory) */
     const unsigned num_env=cls?idx+1u:(const unsigned[4]){0,1,2,4}[idx];
     put(&ps,1u,cls);put(&ps,2u,idx);
     if(cls){

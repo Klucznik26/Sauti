@@ -78,6 +78,13 @@ int main(int argc,char **argv){
             if(!pl->has_ps){fprintf(stderr,"call %u: payload without PS\n",h[0]);continue;}
             static SautiAacPsRenderPlan plan;
             if(!sauti_aac_ps_render_plan_build(&pl->ps,&rstate,&plan)){fprintf(stderr,"call %u: render plan rejected\n",h[0]);break;}
+            if(getenv("SAUTI_PS90_CALL") && (unsigned)atoi(getenv("SAUTI_PS90_CALL"))==h[0]){
+                fprintf(stderr,"PS90S call %u bands %u prev_bands %u num_env %u borders",h[0],plan.complex_matrix.bands,sstate.previous_bands,plan.complex_matrix.env_count);
+                for(unsigned q=0;q<plan.complex_matrix.env_count;q++)fprintf(stderr," %u",pl->ps.border_position[q]);
+                fprintf(stderr,"\nPS90S previous h11.re:");for(unsigned q=0;q<20;q++)fprintf(stderr," %.5f",sstate.previous[q].h11.re);
+                for(unsigned e=0;e<plan.complex_matrix.env_count;e++){fprintf(stderr,"\nPS90S H11[%u]:",e);for(unsigned q=12;q<=21;q++)fprintf(stderr," %.5f",plan.complex_matrix.coefficient[e][q].h11.re);}
+                fprintf(stderr,"\n");
+            }
             static SautiAacSbrComplex qmf[38*64],lres[32*91],rres[32*91];
             for(unsigned s2=0;s2<38;s2++)for(unsigned k=0;k<64;k++){qmf[s2*64+k].re=lin[s2*64+k];qmf[s2*64+k].im=lin[38*64+s2*64+k];}
             if(!sauti_aac_ps_stereo_hybrid_apply(&plan.schedule,&plan.complex_matrix,qmf,38u*64u,&sstate,lres,32u*nr,rres,32u*nr)){fprintf(stderr,"call %u: stereo rejected\n",h[0]);break;}

@@ -60,6 +60,13 @@ int main(void){
         memset(&state,0,sizeof(state));
         assert(sauti_aac_ps_qmf_low_analyze(&s,input,38u*64u,&state,out,32u*bands));
         assert(state.history[0][5].re==1.0f);
+        /* The history of all five low bands is kept in every layout (a 20-band frame is followed by a 34-band one, whose filters need bands 3
+         * and 4), including the two bands the 20-band layout does not split. */
+        input[31u*64u+4u]=(SautiAacSbrComplex){7,0};input[26u*64u+3u]=(SautiAacSbrComplex){3,0};
+        memset(&state,0,sizeof(state));
+        assert(sauti_aac_ps_qmf_low_analyze(&s,input,38u*64u,&state,out,32u*bands));
+        assert(state.history[4][5].re==7.0f&&state.history[3][0].re==3.0f);
+        input[31u*64u+4u].re=0;input[26u*64u+3u].re=0;
         /* The lookahead [32..37] does NOT become next-frame history. */
         input[31u*64u].re=0;
         input[37u*64u].re=5.0f;

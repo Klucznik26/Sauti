@@ -89,12 +89,15 @@ int sauti_aac_ps_qmf_low_analyze(const SautiAacPsHybridSchedule *schedule,
     for(unsigned i=0;i<bands;i++)
         if(schedule->hybrid_to_parameter[i]>=schedule->parameter_bands)return 0;
     /* Validate every sample that participates in the FIR and future history. */
-    for(unsigned t=0;t<38u;t++)for(unsigned b=0;b<source_bands;b++){
+    /* The history of all five low QMF bands is kept in every layout: a 20-band frame splits only three of them, but the next frame may be a
+     * 34-band one, whose filters need the preceding slots of bands 3 and 4 (the reference decoders keep them, too). */
+    (void)source_bands;
+    for(unsigned t=0;t<38u;t++)for(unsigned b=0;b<5u;b++){
         const SautiAacSbrComplex x=qmf[t*64u+b];
         if(!isfinite(x.re)||!isfinite(x.im))return 0;
     }
     if(state->initialized)
-        for(unsigned b=0;b<source_bands;b++)for(unsigned h=0;h<6u;h++){
+        for(unsigned b=0;b<5u;b++)for(unsigned h=0;h<6u;h++){
             const SautiAacSbrComplex x=state->history[b][h];
             if(!isfinite(x.re)||!isfinite(x.im))return 0;
         }
@@ -126,7 +129,7 @@ int sauti_aac_ps_qmf_low_analyze(const SautiAacPsHybridSchedule *schedule,
             if(!isfinite(dst[k].re)||!isfinite(dst[k].im))return 0;
     }
     /* Retain the six samples preceding NEXT frame, not the lookahead tail. */
-    for(unsigned b=0;b<source_bands;b++)for(unsigned h=0;h<6u;h++)
+    for(unsigned b=0;b<5u;b++)for(unsigned h=0;h<6u;h++)
         next.history[b][h]=qmf[(26u+h)*64u+b];
     next.initialized=1u;
     memcpy(low,tmp,output_samples*sizeof(*low));
