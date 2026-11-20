@@ -139,8 +139,6 @@ LEGACY(aiff,   sauti_decoder_aiff_ops,              "aiff-pcm",                 
 LEGACY(vorbis, sauti_decoder_vorbis_ops,            "ogg-vorbis-stb",               "Ogg Vorbis",                           "maktabasauti_legacy", "vorbis", "ogg",   "",         0, 0u);
 LEGACY(midi,   sauti_decoder_midi_ops,              "midi-basic-synth",             "MIDI (basic synthesiser)",             "maktabasauti_legacy", "midi",   "midi",  "",         0, MAKTABASAUTI_CODEC_FLAG_EXPERIMENTAL);
 LEGACY(flac,   sauti_decoder_flac_ops,              "flac-drflac",                  "FLAC",                                 "maktabasauti_flac",   "flac",   "flac",  "",         1, 0u);
-LEGACY(avr,    sauti_decoder_avr_ops,               "atari-avr-pcm",                "Atari AVR PCM",                        "maktabasauti_dvs",    "pcm",    "avr",   "",         1, 0u);
-LEGACY(dvsm,   sauti_decoder_dvsm_ops,              "atari-falcon-dvsm-pcm",        "Atari Falcon DVSM (PCM, Pack-2, Pack-4)", "maktabasauti_dvs", "dvs",    "dvs",   "",         0, 0u);
 LEGACY(dtm,    sauti_decoder_dtm_ops,               "atari-falcon-digital-tracker", "Atari Falcon Digital Tracker",         "maktabasauti_dvs",    "dtm",    "dtm",   "",         0, 0u);
 LEGACY(ym,     sauti_decoder_ym_ops,                "atari-ym2149-experimental",    "Atari YM2149 music (experimental)",    "maktabasauti_legacy", "ym",     "ym",    "",         0, MAKTABASAUTI_CODEC_FLAG_EXPERIMENTAL);
 LEGACY(mp3,    sauti_decoder_mp3_ops,               "mp3-minimp3",                  "MPEG audio layer III",                 "maktabasauti_legacy", "mp3",    "mp3",   "",         0, 0u);
@@ -149,9 +147,11 @@ extern const maktabasauti_codec_t maktabasauti_aac_adts_desc;
 extern const maktabasauti_codec_t maktabasauti_aac_loas_desc;
 extern const maktabasauti_codec_t maktabasauti_aac_adif_desc;
 extern const maktabasauti_codec_t maktabasauti_aac_mp4_desc;
+extern const maktabasauti_codec_t maktabasauti_dvs_avr_desc;    /* AVR i DVSM: moduly strumieniowe (src/decoders/retro/atari/maktabasauti_dvs.c); DTM zostaje adapterem z calym buforem (format modulowy) */
+extern const maktabasauti_codec_t maktabasauti_dvs_dvsm_desc;
 static const maktabasauti_codec_t *const legacy_ptrs[] = {
     &codec_wav, &codec_voc, &codec_aiff, &maktabasauti_aac_adts_desc /* ADTS: modul strumieniowy (src/decoders/modern/aac/maktabasauti_aac_adts.c) */, &maktabasauti_aac_mp4_desc /* MP4: modul indeksowany */, &maktabasauti_aac_loas_desc /* LOAS: modul strumieniowy */, &maktabasauti_aac_adif_desc /* ADIF: modul strumieniowy */,
-    &codec_vorbis, &codec_midi, &codec_flac, &codec_avr, &codec_dvsm, &codec_dtm, &codec_ym, &codec_mp3
+    &codec_vorbis, &codec_midi, &codec_flac, &maktabasauti_dvs_avr_desc, &maktabasauti_dvs_dvsm_desc, &codec_dtm, &codec_ym, &codec_mp3
 };
 
 const maktabasauti_codec_t *const *mks_legacy_codecs(size_t *count) {

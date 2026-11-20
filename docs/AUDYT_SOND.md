@@ -83,7 +83,7 @@ Zmiany wyłącznie w kodzie bibliotek zewnętrznych są opisane osobno w `third_
   `NEEDS_FULL_BUFFER`; plik jest mapowany do pamięci dopiero w `open()` wybranego legacy kodeka (`host->map`), a bufor czytnika z prefiksem jest ponownie używany. Nieznany plik nie jest już
   wczytywany. Różnica semantyczna względem starych sond (przyjęta, opisana): sondy VOC (`rozmiar naglowka <= n`) i MP3 (okno detekcji skrócone przez znaczniki na końcu pliku) oceniają
   prefiks, nie cały plik; dotyczy plików, w których nagłówek VOC ma > 16 KiB albo plik MP3 jest o mniej niż rozmiar znaczników dłuższy od okna. Adaptery legacy pozostają oznaczone
-  `NEEDS_FULL_BUFFER` (jawne pełne buforowanie w `open`). Strumieniowy moduł AAC ADTS nie mapuje niczego (`docs/MAKTABASAUTI_API.md` §14).
+  `NEEDS_FULL_BUFFER` (jawne pełne buforowanie w `open`). Strumieniowy moduł AAC ADTS nie mapuje niczego (`docs/MAKTABASAUTI_API.md` §14). Od 2026-11-20 nie mapują też AVR i DVSM (moduł strumieniowy `maktabasauti_dvs`); `NEEDS_FULL_BUFFER` zostaje tylko tam, gdzie format tego z natury wymaga (DTM) albo dekoder jeszcze nie ma modułu strumieniowego (WAV, AIFF, VOC, Vorbis, MIDI, FLAC, YM, MP3).
 - **R2 (ZABEZPIECZONE 2026-11-20, docelowe rozwiązanie otwarte): `seek` MIDI był liniowy** w liczbie ramek (uszkodzony plik mógł deklarować godziny). Teraz (`sauti_decoder_midi.c`):
   (1) cisza jest pomijana dokładnie (licznik przeskakuje do ramki najbliższego zdarzenia; wynik bit w bit jak przy symulacji ramka po ramce, test porównuje próbki),
   (2) przewijanie nie liczy próbek (bez `sin`, ta sama faza), (3) praca przy grających głosach ma budżet 2^30 jednostek (16 na ramkę + 1 na głos; gęsty 5-minutowy utwór ≈ 3,5·10^8, czyli się mieści);
