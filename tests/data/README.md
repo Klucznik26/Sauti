@@ -8,3 +8,5 @@ MP3, WAV, AIFF, VOC, Opus, ALAC/M4A. Wygenerowane przez `make_probe_fixtures.sh`
 (`tests/test_maktabasauti_probe_audit.c`, cel `make test-maktabasauti-probe-audit`) i test równoległego rozpoznawania (`scripts/test_maktabasauti_threads.sh`).
 
 `lc_mono.aac` AAC-LC mono 64 kb/s · `he1_mono.aac` HE-AAC v1 mono (rdzeń mono + SBR, bez PS), dodane przy etapie 2 (strumieniowy ADTS), te same ziarno i generator (`make_fixtures.sh`).
+
+Etap 2 (strumieniowe kontenery AAC): `lc.loas` / `lc_mono.loas` (konfiguracja tylko okresowo, elementy przed pierwszą są pomijane) · `he2.loas` · `lc.adif` / `lc_mono.adif` (z ramek ADTS, `make_fixtures.sh`) · `lc.m4a` / `lc_mono.m4a` / `he2.m4a` (fdkaac, z listą edycji) · `lc_frag.m4a` (fragmentowany MP4 zbudowany z `lc.m4a` przez `make_fragmented.py`: moov bez tablic próbek, mvex/trex, moof/trun po 24 próbki).

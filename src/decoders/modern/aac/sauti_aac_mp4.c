@@ -319,3 +319,188 @@ int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t 
     }
     return 0;
 }
+
+/* ---- indeks probek (strumieniowo), patrz sauti_aac_mp4.h: ta sama logika co sauti_aac_mp4_to_adts, na tablicach z moov i pojedynczych moof ---- */
+struct SautiAacMp4Index {
+    SautiAacMp4Alloc a;
+    Sample *list; size_t n,cap;
+    uint32_t track_id,trex_size;
+    int has_mvex;
+};
+static int idx_add(SautiAacMp4Index *x,uint64_t off,uint32_t size){
+    if(x->n>=MAX_SAMPLES)return 0;
+    if(x->n==x->cap){
+        const size_t nc=x->cap?x->cap*2u:4096u;
+        Sample *t=(Sample *)x->a.alloc(x->a.user,nc*sizeof(*t));
+        if(!t)return 0;
+        if(x->n)memcpy(t,x->list,x->n*sizeof(*t));
+        if(x->list)x->a.free(x->a.user,x->list);
+        x->list=t;x->cap=nc;
+    }
+    x->list[x->n].off=off;x->list[x->n].size=size;x->n++;
+    return 1;
+}
+void sauti_aac_mp4_index_free(SautiAacMp4Index *x){
+    if(!x)return;
+    SautiAacMp4Alloc a=x->a;
+    if(x->list)a.free(a.user,x->list);
+    a.free(a.user,x);
+}
+uint64_t sauti_aac_mp4_index_count(const SautiAacMp4Index *x){return x?x->n:0u;}
+int sauti_aac_mp4_index_has_fragments(const SautiAacMp4Index *x){return x&&x->has_mvex;}
+int sauti_aac_mp4_index_get(const SautiAacMp4Index *x,uint64_t i,uint64_t *offset,uint32_t *size){
+    if(!x||i>=x->n)return 0;
+    *offset=x->list[i].off;*size=x->list[i].size;
+    return 1;
+}
+SautiAacMp4Index *sauti_aac_mp4_index_new(const SautiAacMp4Alloc *a,const uint8_t *moov_data,size_t moov_size,SautiAacMp4Info *info){
+    if(!a||!a->alloc||!a->free||!moov_data||!info)return NULL;
+    View moov={moov_data,moov_size};
+    uint32_t movie_timescale=1000;
+    {View mvhd;if(find_child(moov,FOURCC('m','v','h','d'),&mvhd)&&mvhd.n>=20u){
+        movie_timescale=mvhd.p[0]==1u?(mvhd.n>=28u?be32(mvhd.p+20):0u):be32(mvhd.p+12);}}
+    size_t pos=0;Box b;
+    while(next_box(moov,&pos,&b)){
+        if(b.type!=FOURCC('t','r','a','k'))continue;
+        View trak={moov.p+b.payload,b.end-b.payload},mdia,hdlr,minf,stbl,stsd,mdhd;
+        if(!find_child(trak,FOURCC('m','d','i','a'),&mdia)||!find_child(mdia,FOURCC('h','d','l','r'),&hdlr)||hdlr.n<12u||
+           be32(hdlr.p+8)!=FOURCC('s','o','u','n'))continue;
+        if(!find_child(mdia,FOURCC('m','i','n','f'),&minf)||!find_child(minf,FOURCC('s','t','b','l'),&stbl)||
+           !find_child(stbl,FOURCC('s','t','s','d'),&stsd)||!find_child(mdia,FOURCC('m','d','h','d'),&mdhd))continue;
+        uint32_t media_timescale=0;
+        if(mdhd.n>=24u)media_timescale=mdhd.p[0]==1u?(mdhd.n>=32u?be32(mdhd.p+20):0u):be32(mdhd.p+12);
+        if(stsd.n<16u)continue;
+        size_t ep=8u;Box e;View ent={stsd.p,stsd.n};
+        if(!next_box(ent,&ep,&e)||e.type!=FOURCC('m','p','4','a'))continue;
+        const size_t base=e.payload+8u;
+        if(e.end<base+20u)continue;
+        const unsigned ver=be16(stsd.p+base);
+        size_t extra=ver==1u?16u:(ver==2u?36u:0u);
+        const size_t children=base+20u+extra;
+        if(children>e.end)continue;
+        View esds_parent={stsd.p+children,e.end-children},esds;
+        uint8_t asc[64];size_t asc_len=0;
+        int have_esds=find_child(esds_parent,FOURCC('e','s','d','s'),&esds);
+        if(!have_esds){
+            View wave;
+            have_esds=find_child(esds_parent,FOURCC('w','a','v','e'),&wave)&&find_child(wave,FOURCC('e','s','d','s'),&esds);
+        }
+        if(!have_esds||!parse_esds(esds,asc,&asc_len))continue;
+        SautiAacMp4Info inf;memset(&inf,0,sizeof(inf));
+        if(!parse_asc(asc,asc_len,&inf))continue;
+        SautiAacMp4Index *x=(SautiAacMp4Index *)a->alloc(a->user,sizeof(*x));
+        if(!x)return NULL;
+        memset(x,0,sizeof(*x));x->a=*a;
+        {   /* tablice probek stbl */
+            View stsz,stsc,stco;int co64=0;
+            uint32_t fixed=0,count=0,field=32;int have_sizes=0;View table={NULL,0};
+            if(find_child(stbl,FOURCC('s','t','s','z'),&stsz)&&stsz.n>=12u){
+                fixed=be32(stsz.p+4);count=be32(stsz.p+8);table.p=stsz.p+12;table.n=stsz.n-12u;have_sizes=1;
+                if(!fixed&&(size_t)count>table.n/4u)have_sizes=0;
+            }else if(find_child(stbl,FOURCC('s','t','z','2'),&stsz)&&stsz.n>=12u){
+                field=stsz.p[7];count=be32(stsz.p+8);table.p=stsz.p+12;table.n=stsz.n-12u;
+                have_sizes=(field==4u||field==8u||field==16u)&&(size_t)count<=table.n*8u/field;
+            }
+            if(have_sizes&&find_child(stbl,FOURCC('s','t','s','c'),&stsc)&&
+               (find_child(stbl,FOURCC('s','t','c','o'),&stco)||(find_child(stbl,FOURCC('c','o','6','4'),&stco)&&(co64=1)))&&
+               stsc.n>=8u&&stco.n>=8u){
+                const uint32_t stsc_n=be32(stsc.p+4),chunks=be32(stco.p+4);
+                const size_t esz=co64?8u:4u;
+                if(count>0u&&count<=MAX_SAMPLES&&
+                   stsc_n>0u&&(size_t)stsc_n<=(stsc.n-8u)/12u&&chunks>0u&&(size_t)chunks<=(stco.n-8u)/esz){
+                    uint32_t sample=0;int ok=1;
+                    for(uint32_t g=0;g<stsc_n&&ok&&sample<count;g++){
+                        const uint32_t first=be32(stsc.p+8+(size_t)g*12u),per=be32(stsc.p+12+(size_t)g*12u);
+                        const uint32_t last=(g+1u<stsc_n)?be32(stsc.p+8+(size_t)(g+1u)*12u):chunks+1u;
+                        if(first<1u||last<first||last>chunks+1u||per==0u){ok=0;break;}
+                        for(uint32_t c=first;c<last&&ok&&sample<count;c++){
+                            uint64_t off=co64?be64(stco.p+8+(size_t)(c-1u)*8u):be32(stco.p+8+(size_t)(c-1u)*4u);
+                            for(uint32_t s2=0;s2<per&&sample<count;s2++,sample++){
+                                uint32_t sz=fixed;
+                                if(!fixed){
+                                    if(field==32u)sz=be32(table.p+(size_t)sample*4u);
+                                    else if(field==16u)sz=be16(table.p+(size_t)sample*2u);
+                                    else if(field==8u)sz=table.p[sample];
+                                    else sz=(sample&1u)?(table.p[sample/2u]&15u):(table.p[sample/2u]>>4);
+                                }
+                                if(!idx_add(x,off,sz)){ok=0;break;}
+                                off+=sz;
+                            }
+                        }
+                    }
+                    if(!ok||sample!=count){x->n=0;}
+                }
+            }
+        }
+        {   View tkhd,mvex;
+            if(find_child(trak,FOURCC('t','k','h','d'),&tkhd)&&tkhd.n>=24u)
+                x->track_id=tkhd.p[0]==1u?(tkhd.n>=28u?be32(tkhd.p+20):0u):be32(tkhd.p+12);
+            if(find_child(moov,FOURCC('m','v','e','x'),&mvex)){
+                x->has_mvex=1;
+                size_t tp=0;Box tb;
+                while(next_box(mvex,&tp,&tb))
+                    if(tb.type==FOURCC('t','r','e','x')&&tb.end-tb.payload>=24u&&be32(mvex.p+tb.payload+4)==x->track_id)
+                        x->trex_size=be32(mvex.p+tb.payload+16);
+            }
+        }
+        /* lista edycji i iTunSMPB */
+        {   View edts,elst;
+            if(find_child(trak,FOURCC('e','d','t','s'),&edts)&&find_child(edts,FOURCC('e','l','s','t'),&elst)&&elst.n>=8u&&media_timescale){
+                const uint32_t n=be32(elst.p+4);const unsigned v=elst.p[0];const size_t es=v==1u?20u:12u;
+                for(uint32_t i=0;i<n&&(size_t)(i+1u)*es<=elst.n-8u;i++){
+                    const uint8_t *q=elst.p+8+(size_t)i*es;
+                    const uint64_t seg=v==1u?be64(q):be32(q);
+                    const int64_t mt=v==1u?(int64_t)be64(q+8):(int32_t)be32(q+4);
+                    if(mt<0)continue;
+                    inf.skip_samples=(uint64_t)mt*inf.sample_rate/media_timescale;
+                    if(seg&&movie_timescale)inf.duration_samples=seg*inf.sample_rate/movie_timescale;
+                    break;
+                }
+            }
+            if(!inf.skip_samples&&!inf.duration_samples)gapless_parse(moov,&inf);
+        }
+        *info=inf;
+        return x;
+    }
+    return NULL;
+}
+int sauti_aac_mp4_index_add_moof(SautiAacMp4Index *x,uint64_t box_start,const uint8_t *payload,size_t payload_size){
+    if(!x||!payload||!x->track_id)return 0;
+    const size_t before=x->n;
+    View moof={payload,payload_size};
+    size_t mp=0;Box tf;
+    while(next_box(moof,&mp,&tf)){
+        if(tf.type!=FOURCC('t','r','a','f'))continue;
+        View traf={moof.p+tf.payload,tf.end-tf.payload};
+        size_t hp=0;Box hb;uint64_t base=box_start,cursor=0;int have_cursor=0;
+        uint32_t def_size=x->trex_size;int mine=0;
+        while(next_box(traf,&hp,&hb)){
+            const uint8_t *q=traf.p+hb.payload;const size_t qn=hb.end-hb.payload;
+            if(hb.type==FOURCC('t','f','h','d')&&qn>=8u){
+                const uint32_t flags=be32(q)&0xffffffu;size_t o=8u;
+                if(be32(q+4)!=x->track_id)break;
+                mine=1;
+                if(flags&0x1u){if(qn<o+8u)break;base=be64(q+o);o+=8u;}
+                if(flags&0x2u)o+=4u;
+                if(flags&0x8u)o+=4u;
+                if(flags&0x10u){if(qn<o+4u)break;def_size=be32(q+o);o+=4u;}
+            }else if(hb.type==FOURCC('t','r','u','n')&&mine&&qn>=8u){
+                const uint32_t flags=be32(q)&0xffffffu,cnt=be32(q+4);size_t o=8u;
+                if(flags&0x1u){if(qn<o+4u)break;cursor=(uint64_t)((int64_t)base+(int32_t)be32(q+o));have_cursor=1;o+=4u;}
+                else if(!have_cursor){cursor=base;have_cursor=1;}
+                if(flags&0x4u)o+=4u;
+                const size_t per=((flags&0x100u)?4u:0u)+((flags&0x200u)?4u:0u)+((flags&0x400u)?4u:0u)+((flags&0x800u)?4u:0u);
+                if(per&&(size_t)cnt>(qn-o)/per)break;
+                for(uint32_t i=0;i<cnt;i++){
+                    const uint8_t *r=q+o+(size_t)i*per;size_t ro=0;
+                    if(flags&0x100u)ro+=4u;
+                    uint32_t sz=def_size;
+                    if(flags&0x200u){sz=be32(r+ro);}
+                    if(!idx_add(x,cursor,sz)){x->n=before;return 0;}
+                    cursor+=sz;
+                }
+            }
+        }
+    }
+    return 1;
+}

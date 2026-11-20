@@ -23,4 +23,12 @@ typedef struct {
 int sauti_aac_adif_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t *adts_length,SautiAacAdifInfo *info);
 /* Test prefiksu: `ADIF` na poczatku. */
 int sauti_aac_adif_probe(const uint8_t *data,size_t size);
+
+/* STRUMIENIOWO: naglowek ADIF i granice blokow bez wczytywania calosci.  Naglowek (ADIF + jeden program_config_element) zajmuje `header_bytes` pierwszych bajtow; kazdy blok to
+ * raw_data_block() bez dlugosci: sauti_aac_adif_block_length() wyznacza jego dlugosc parsujac elementy (patrz wyzej), 0 = blad albo blok niekompletny w podanych danych. */
+typedef struct { unsigned rate_index, sample_rate, channels, bitstream_type; uint32_t bitrate; size_t header_bytes; } SautiAacAdifHeader;
+/* 1 = naglowek poprawny i obslugiwany (jeden program, LC, 1 element czolowy), 0 = niekompletny albo nieobslugiwany. */
+int sauti_aac_adif_parse_header(const uint8_t *data,size_t size,SautiAacAdifHeader *h);
+size_t sauti_aac_adif_scratch_size(void);               /* rozmiar bufora roboczego dla block_length (alokuje wywolujacy, wyrownanie >= 16) */
+size_t sauti_aac_adif_block_length(const uint8_t *raw,size_t length,const SautiAacAdifHeader *h,void *scratch);
 #endif

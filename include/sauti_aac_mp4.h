@@ -29,4 +29,24 @@ typedef struct {
 int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t *adts_length,SautiAacMp4Info *info);
 /* Tani test prefiksu: `ftyp` w pierwszych bajtach. */
 int sauti_aac_mp4_probe(const uint8_t *data,size_t size);
+
+/* STRUMIENIOWO / INDEKS PROBEK: ten sam demuxer bez wczytywania pliku.  Wywolujacy czyta tylko pudelko moov (jego zawartosc) i kolejne moof (zawartosc + pozycja w pliku), a indeks
+ * trzyma liste jednostek dostepu {pozycja w pliku, rozmiar} (16 B na probke: pamiec O(liczba probek), jak w kazdym demuxerze MP4; nie ma w niej danych audio).  Cala pamiec przez
+ * podane funkcje alokatora.  Jednostki z tablic stbl (moov) i z fragmentow (moof, w kolejnosci dodania) tworza jedna liste, jak w sauti_aac_mp4_to_adts. */
+typedef struct {
+    void *user;
+    void *(*alloc)(void *user,size_t size);
+    void (*free)(void *user,void *ptr);                  /* ptr != NULL */
+} SautiAacMp4Alloc;
+typedef struct SautiAacMp4Index SautiAacMp4Index;
+/* Tworzy indeks z zawartosci pudelka `moov` (bez naglowka pudelka).  NULL = brak sciezki AAC / nieobslugiwane / blad (przyczyny jak w sauti_aac_mp4_to_adts).  `info` wypelnione jak tam
+ * (bez sample_count; skip/duration z elst albo iTunSMPB). */
+SautiAacMp4Index *sauti_aac_mp4_index_new(const SautiAacMp4Alloc *a,const uint8_t *moov,size_t moov_size,SautiAacMp4Info *info);
+/* Dodaje jednostki z fragmentu: `box_start` = pozycja pudelka moof w pliku (domyslna podstawa offsetow), `payload` = zawartosc pudelka (bez naglowka). 1 = ok, 0 = blad (indeks nietkniety). */
+int sauti_aac_mp4_index_add_moof(SautiAacMp4Index *idx,uint64_t box_start,const uint8_t *payload,size_t payload_size);
+uint64_t sauti_aac_mp4_index_count(const SautiAacMp4Index *idx);
+/* pozycja i rozmiar jednostki i; 1 = ok, 0 = poza zakresem */
+int sauti_aac_mp4_index_get(const SautiAacMp4Index *idx,uint64_t i,uint64_t *offset,uint32_t *size);
+int sauti_aac_mp4_index_has_fragments(const SautiAacMp4Index *idx);   /* moov ma mvex: moga istniec moof */
+void sauti_aac_mp4_index_free(SautiAacMp4Index *idx);
 #endif

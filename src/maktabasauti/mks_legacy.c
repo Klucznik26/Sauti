@@ -136,9 +136,6 @@ static void MAKTABASAUTI_CALL legacy_close(void *state) {
 LEGACY(wav,    sauti_decoder_wav_ops,               "wav-pcm",                      "RIFF/WAVE PCM",                        "maktabasauti_legacy", "pcm",    "wav",   "",         1, 0u);
 LEGACY(voc,    sauti_decoder_voc_ops,               "creative-voc-pcm",             "Creative VOC PCM",                     "maktabasauti_legacy", "pcm",    "voc",   "",         1, 0u);
 LEGACY(aiff,   sauti_decoder_aiff_ops,              "aiff-pcm",                     "AIFF PCM",                             "maktabasauti_legacy", "pcm",    "aiff",  "",         1, 0u);
-LEGACY(aacmp4, sauti_decoder_aac_mp4_native_ops,    "aac-native-mp4",               "AAC in MP4/M4A/MOV (also fragmented)", "maktabasauti_aac",    "aac",    "mp4",   "",         0, 0u);
-LEGACY(aaclatm,sauti_decoder_aac_latm_native_ops,   "aac-native-latm",              "AAC in LOAS/LATM",                     "maktabasauti_aac",    "aac",    "loas",  "",         0, 0u);
-LEGACY(aacadif,sauti_decoder_aac_adif_native_ops,   "aac-native-adif",              "AAC in ADIF",                          "maktabasauti_aac",    "aac",    "adif",  "",         0, 0u);
 LEGACY(vorbis, sauti_decoder_vorbis_ops,            "ogg-vorbis-stb",               "Ogg Vorbis",                           "maktabasauti_legacy", "vorbis", "ogg",   "",         0, 0u);
 LEGACY(midi,   sauti_decoder_midi_ops,              "midi-basic-synth",             "MIDI (basic synthesiser)",             "maktabasauti_legacy", "midi",   "midi",  "",         0, MAKTABASAUTI_CODEC_FLAG_EXPERIMENTAL);
 LEGACY(flac,   sauti_decoder_flac_ops,              "flac-drflac",                  "FLAC",                                 "maktabasauti_flac",   "flac",   "flac",  "",         1, 0u);
@@ -149,8 +146,11 @@ LEGACY(ym,     sauti_decoder_ym_ops,                "atari-ym2149-experimental",
 LEGACY(mp3,    sauti_decoder_mp3_ops,               "mp3-minimp3",                  "MPEG audio layer III",                 "maktabasauti_legacy", "mp3",    "mp3",   "",         0, 0u);
 
 extern const maktabasauti_codec_t maktabasauti_aac_adts_desc;
+extern const maktabasauti_codec_t maktabasauti_aac_loas_desc;
+extern const maktabasauti_codec_t maktabasauti_aac_adif_desc;
+extern const maktabasauti_codec_t maktabasauti_aac_mp4_desc;
 static const maktabasauti_codec_t *const legacy_ptrs[] = {
-    &codec_wav, &codec_voc, &codec_aiff, &maktabasauti_aac_adts_desc /* ADTS: modul strumieniowy (src/decoders/modern/aac/maktabasauti_aac_adts.c) */, &codec_aacmp4, &codec_aaclatm, &codec_aacadif,
+    &codec_wav, &codec_voc, &codec_aiff, &maktabasauti_aac_adts_desc /* ADTS: modul strumieniowy (src/decoders/modern/aac/maktabasauti_aac_adts.c) */, &maktabasauti_aac_mp4_desc /* MP4: modul indeksowany */, &maktabasauti_aac_loas_desc /* LOAS: modul strumieniowy */, &maktabasauti_aac_adif_desc /* ADIF: modul strumieniowy */,
     &codec_vorbis, &codec_midi, &codec_flac, &codec_avr, &codec_dvsm, &codec_dtm, &codec_ym, &codec_mp3
 };
 

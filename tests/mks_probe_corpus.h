@@ -179,20 +179,20 @@ static inline void corpus_add_synthetic(corpus_t *c) {
     memset(&m, 0, sizeof m);
     mk_be32(&m, 20); mk_str(&m, "ftyp"); mk_str(&m, "M4A "); mk_be32(&m, 0); mk_str(&m, "M4A ");
     mk_be32(&m, 16); mk_str(&m, "mdat"); mk_zero(&m, 8);
-    corpus_add(c, "syn.m4a", "aac-native-mp4", m.b, m.n);
+    corpus_add(c, "syn.m4a", "aac-mp4", m.b, m.n);
     memset(&m, 0, sizeof m);
     mk_be32(&m, 1); mk_str(&m, "ftyp"); mk_be32(&m, 0); mk_be32(&m, 0xFFFFFFFFu);                                            /* rozszerzony rozmiar 64-bit, ogromny */
-    corpus_add(c, "syn_bigbox.m4a", "aac-native-mp4", m.b, m.n);
+    corpus_add(c, "syn_bigbox.m4a", "aac-mp4", m.b, m.n);
 
     /* LOAS/LATM: synchronizacja 0x2B7 + dlugosc */
     memset(&m, 0, sizeof m);
     mk_u8(&m, 0x56); mk_u8(&m, 0xE0); mk_u8(&m, 4); mk_zero(&m, 4);
-    corpus_add(c, "syn.loas", "aac-native-latm", m.b, m.n);
+    corpus_add(c, "syn.loas", "aac-loas", m.b, m.n);
 
     /* ADIF: etykieta + zera */
     memset(&m, 0, sizeof m);
     mk_str(&m, "ADIF"); mk_zero(&m, 40);
-    corpus_add(c, "syn.adif", "aac-native-adif", m.b, m.n);
+    corpus_add(c, "syn.adif", "aac-adif", m.b, m.n);
 
     /* ADTS: pojedyncza ramka (7 B naglowka + zera), LC mono 44,1 kHz i LC stereo, z/bez CRC, kanaly 0, 3..7 */
     {
@@ -221,7 +221,7 @@ static inline void corpus_add_synthetic(corpus_t *c) {
 /* wlasciciel (kodek, ktory MA rozpoznac plik) wg nazwy fixtury; NULL = nie wymagany */
 static inline const char *corpus_owner_for(const char *path) {
     static const struct { const char *suffix, *owner; } map[] = {
-        { "lc.aac", "aac-lc-native-adts" }, { "m51.aac", "aac-lc-native-multi-adts" }, { "he1.m4a", "aac-native-mp4" }, { "he1.loas", "aac-native-latm" }, { "he1.adif", "aac-native-adif" },
+        { "lc.aac", "aac-adts" }, { "m51.aac", "aac-adts" }, { "lc_mono.aac", "aac-adts" }, { "he1.aac", "aac-adts" }, { "he2.aac", "aac-adts" }, { "he1_mono.aac", "aac-adts" }, { "lc.loas", "aac-loas" }, { "lc_mono.loas", "aac-loas" }, { "he2.loas", "aac-loas" }, { "lc.adif", "aac-adif" }, { "lc_mono.adif", "aac-adif" }, { "lc.m4a", "aac-mp4" }, { "lc_mono.m4a", "aac-mp4" }, { "he2.m4a", "aac-mp4" }, { "lc_frag.m4a", "aac-mp4" }, { "he1.m4a", "aac-mp4" }, { "he1.loas", "aac-loas" }, { "he1.adif", "aac-adif" },
         { "probe_real.flac", "flac-drflac" }, { "probe_real.ogg", "ogg-vorbis-stb" }, { "probe_real.mp3", "mp3-minimp3" }, { "probe_real.wav", "wav-pcm" },
         { "probe_real.aiff", "aiff-pcm" }, { "probe_real.voc", "creative-voc-pcm" }
     };

@@ -23,4 +23,11 @@ typedef struct {
 int sauti_aac_latm_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t *adts_length,SautiAacLatmInfo *info);
 /* Test prefiksu: synchronizacja LOAS na poczatku i druga na koncu pierwszego elementu (odrzuca przypadkowe dane). */
 int sauti_aac_latm_probe(const uint8_t *data,size_t size);
+
+/* STRUMIENIOWO (po jednym elemencie LOAS): konwersja AudioMuxElement (bez 3-bajtowego naglowka LOAS) do ramek ADTS.  Stan trzyma konfiguracje strumienia (AudioSpecificConfig z pierwszego
+ * elementu, stala; zmiana = blad).  Wynik: 1 = n >= 1 ramek ADTS w out (dlugosci w lens[]), 0 = element pominiety (brak konfiguracji / brak danych audio: tak jak w pelnej konwersji),
+ * -1 = uszkodzony element (po wczesniejszej poprawnej konfiguracji), -2 = zmiana konfiguracji w trakcie strumienia (nieobslugiwana). */
+typedef struct { uint64_t opaque[16]; } SautiAacLatmState;
+void sauti_aac_latm_state_init(SautiAacLatmState *st);
+int sauti_aac_latm_convert_element(SautiAacLatmState *st,const uint8_t *payload,size_t len,uint8_t *out,size_t cap,uint16_t *lens,unsigned max_frames,unsigned *n);
 #endif

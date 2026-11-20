@@ -138,3 +138,27 @@ int sauti_aac_adif_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t
     *adts=out;*adts_length=w;
     return 1;
 }
+
+/* ---- strumieniowo (patrz sauti_aac_adif.h); ta sama logika co poczatek sauti_aac_adif_to_adts ---- */
+int sauti_aac_adif_parse_header(const uint8_t *data,size_t size,SautiAacAdifHeader *h){
+    if(!data||!h||size<8u||memcmp(data,"ADIF",4)!=0)return 0;
+    Br b={data,size*8u,32u};
+    uint32_t v=0,type=0,rate=0,npce=0;
+    if(!get(&b,1,&v))return 0;
+    if(v&&!skip(&b,72))return 0;
+    if(!skip(&b,2)||!get(&b,1,&type)||!get(&b,23,&rate)||!get(&b,4,&npce))return 0;
+    if(npce!=0u)return 0;
+    if(type==0u&&!skip(&b,20))return 0;
+    Pce pce;
+    if(!parse_pce(&b,&pce))return 0;
+    if(pce.object_type!=1u||pce.rate_index>12u||pce.front!=1u||pce.other!=0u)return 0;
+    memset(h,0,sizeof(*h));
+    h->rate_index=pce.rate_index;h->sample_rate=rates[pce.rate_index];h->channels=pce.front_cpe?2u:1u;
+    h->bitstream_type=type;h->bitrate=rate;h->header_bytes=b.pos/8u;
+    return 1;
+}
+size_t sauti_aac_adif_scratch_size(void){return sizeof(Scratch);}
+size_t sauti_aac_adif_block_length(const uint8_t *raw,size_t length,const SautiAacAdifHeader *h,void *scratch){
+    if(!raw||!h||!scratch)return 0;
+    return block_length(raw,length,h->rate_index,h->channels,(Scratch *)scratch);
+}

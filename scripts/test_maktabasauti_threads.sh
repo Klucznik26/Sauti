@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 T="${1:-8}"; R="${2:-2}"; D=tests/data
-FILES="$D/lc.aac $D/lc_mono.aac $D/he1_mono.aac $D/he1.aac $D/he2.aac $D/he1.m4a $D/he1.loas $D/he1.adif $D/m51.aac"
+FILES="$D/lc.aac $D/lc.loas $D/lc.adif $D/lc.m4a $D/lc_frag.m4a $D/lc_mono.aac $D/he1_mono.aac $D/he1.aac $D/he2.aac $D/he1.m4a $D/he1.loas $D/he1.adif $D/m51.aac"
 PROBE_FILES="$(ls $D/probe_real.* 2>/dev/null || true)"   # wiele formatow: rownolegle rozpoznawanie (nie dekoduja sie wszystkie: tylko AAC z FILES tworzy wzorzec dekodowania)
 for f in $FILES; do [ -r "$f" ] || { echo "FAIL: missing fixture $f"; exit 1; }; done
 if make -s build/test_maktabasauti_threads_tsan >/dev/null 2>&1; then BIN=build/test_maktabasauti_threads_tsan; echo "sanitizer: ThreadSanitizer"

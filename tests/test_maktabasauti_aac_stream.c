@@ -22,6 +22,11 @@
 #include <string.h>
 
 static int g_failures;
+static int g_mp4;                                        /* 1 = MP4: indeksowany, wymaga wejscia przewijalnego */
+static int g_adif;                                       /* 1 = ADIF: bloki bez dlugosci i bez synchronizacji (brak resynchronizacji po uszkodzeniu) */
+static int g_loas;                                       /* 1 = pliki LOAS: elementy (3 B naglowka + dlugosc), 0 = ADTS */
+static size_t g_hmin = 7;                                /* najmniejszy naglowek elementu */
+static size_t elen(const uint8_t *b, size_t pos, int loas) { return loas ? 3u + (size_t)(((b[pos + 1] & 0x1F) << 8) | b[pos + 2]) : (size_t)(((b[pos + 3] & 3) << 11) | (b[pos + 4] << 3) | (b[pos + 5] >> 5)); }
 #define CHECK(c, ...) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s -- ", __FILE__, __LINE__, #c); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); g_failures++; } } while (0)
 
 /* ---- alokator sledzacy (bez realloc) ---- */
@@ -116,7 +121,7 @@ static maktabasauti_result_t drain(maktabasauti_decoder_t *d, float *out, size_t
 }
 static int same(const float *a, const float *b, size_t samples) { return memcmp(a, b, samples * sizeof(float)) == 0; }
 
-static const char *const files[] = { "lc.aac", "lc_mono.aac", "he1.aac", "he1_mono.aac", "he2.aac", "m51.aac" };
+static const char *const files[] = { "lc.aac", "lc_mono.aac", "he1.aac", "he1_mono.aac", "he2.aac", "m51.aac", "lc.loas", "lc_mono.loas", "he1.loas", "he2.loas", "lc.adif", "lc_mono.adif", "he1.adif", "lc.m4a", "lc_mono.m4a", "he1.m4a", "he2.m4a", "lc_frag.m4a" };
 #define NFILES (sizeof files / sizeof *files)
 
 /* 1+2+3: niestandardowe wejscia, PCM identyczny */
@@ -135,6 +140,11 @@ static void test_inputs(const uint8_t *b, size_t n, const Ref *ref, const char *
     for (i = 0; i < sizeof cfg / sizeof *cfg; i++) {
         Src s; Mem m; maktabasauti_decoder_t *d = NULL; maktabasauti_stream_info_t info; float *out; size_t got = 0; long retries = 0; maktabasauti_result_t r, rr;
         memset(&s, 0, sizeof s); memset(&m, 0, sizeof m);
+        if (g_mp4 && !cfg[i].seekable) {                                       /* MP4 potrzebuje wejscia przewijalnego: czysty blad, wejscie i pamiec nietkniete */
+            s.data = b; s.n = n; s.max_chunk = cfg[i].chunk; r = open_src(&s, &m, &d, NULL);
+            CHECK(r != MAKTABASAUTI_OK && !d && s.closed == 0 && m.live == 0, "%s %s: non-seekable MP4 must fail cleanly (%d)", name, cfg[i].what, (int)r);
+            continue;
+        }
         s.data = b; s.n = n; s.seekable = cfg[i].seekable; s.size_known = cfg[i].size_known; s.max_chunk = cfg[i].chunk; s.block_mode = cfg[i].block_mode; s.rng = 12345u + (uint32_t)i;
         for (k = 0;; k++) {                                                    /* otwarcie moze zwrocic WOULD_BLOCK: ponawiamy (wejscie zostaje u nas) */
             r = open_src(&s, &m, &d, NULL);
@@ -167,20 +177,20 @@ static void test_inputs(const uint8_t *b, size_t n, const Ref *ref, const char *
 static void test_block_sweep(const uint8_t *b, size_t n, const char *name) {
     size_t cut = 0, pos = 0, frames_in = 0; long at;
     Ref ref; (void)n;
-    while (frames_in < 14 && pos + 7 <= n) { size_t fl = (size_t)(((b[pos + 3] & 3) << 11) | (b[pos + 4] << 3) | (b[pos + 5] >> 5)); pos += fl; frames_in++; }
-    cut = pos;
+    while (frames_in < 14 && pos + g_hmin <= n) { size_t fl = elen(b, pos, g_loas); pos += fl; frames_in++; }
+    cut = g_mp4 ? n : (g_adif ? n / 3 : pos);
     ref = reference(b, cut);
-    for (at = 1; at <= 160; at++) {
+    for (at = 1; at <= (g_mp4 ? 12 : 60); at++) {
         Src s; Mem m; maktabasauti_decoder_t *d = NULL; float *out; size_t got = 0; long retries = 0; maktabasauti_result_t r, rr; int tries = 0;
         memset(&s, 0, sizeof s); memset(&m, 0, sizeof m);
-        s.data = b; s.n = cut; s.seekable = (at & 1); s.size_known = (at & 1); s.max_chunk = (at % 3 == 0) ? 11 : 0; s.block_mode = 1; s.block_at = at;
+        s.data = b; s.n = cut; s.seekable = g_mp4 ? 1 : (at & 1); s.size_known = s.seekable; s.max_chunk = (at % 3 == 0) ? 11 : 0; s.block_mode = 1; s.block_at = at;
         do { r = open_src(&s, &m, &d, NULL); } while (r == MAKTABASAUTI_E_WOULD_BLOCK && ++tries < 10);
         CHECK(r == MAKTABASAUTI_OK, "%s block_at=%ld: open failed (%d)", name, at, (int)r);
         if (r != MAKTABASAUTI_OK) continue;
         s.armed = 1; s.calls = 0;
         out = (float *)malloc((ref.frames + 4096) * ref.ch * sizeof(float));
         rr = drain(d, out, ref.ch, ref.frames + 4096, 777, &got, &retries);
-        CHECK(rr == MAKTABASAUTI_EOF && got == ref.frames && same(out, ref.pcm, got * ref.ch), "%s block_at=%ld: result %d, %zu/%zu frames or PCM differs", name, at, (int)rr, got, ref.frames);
+        CHECK((rr == MAKTABASAUTI_EOF || (g_adif && !g_mp4 && rr == MAKTABASAUTI_E_TRUNCATED)) && got == ref.frames && same(out, ref.pcm, got * ref.ch), "%s block_at=%ld: result %d, %zu/%zu frames or PCM differs", name, at, (int)rr, got, ref.frames);
         free(out); maktabasauti_decoder_close(d);
         CHECK(m.live == 0, "%s block_at=%ld: leak", name, at);
     }
@@ -207,22 +217,42 @@ static void test_open_block(const uint8_t *b, size_t n, const Ref *ref, const ch
     }
 }
 
+/* 4a: ADIF: granice blokow nie sa widoczne (brak dlugosci), wiec sprawdzamy tylko: brak awarii/wycieku, kod koncowy, prefiks zgodny ze wzorcem */
+static void test_truncation_raw(const uint8_t *b, size_t n, const Ref *ref, const char *name) {
+    static const size_t starts[] = { 0, 1, 3, 4, 8, 20, 60, 100, 300, 1000 }; size_t k;
+    for (k = 0; k < sizeof starts / sizeof *starts + 500; k++) {
+        size_t cut = k < sizeof starts / sizeof *starts ? starts[k] : (n > 500 ? n - 500 : 0) + (k - sizeof starts / sizeof *starts), got = 0; Src s; Mem m; maktabasauti_decoder_t *d = NULL; float *out; long retries = 0; maktabasauti_result_t r, rr;
+        if (cut > n) continue;
+        memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = b; s.n = cut; s.seekable = (int)(k & 1); s.size_known = s.seekable;
+        r = open_src(&s, &m, &d, NULL);
+        if (r != MAKTABASAUTI_OK) { CHECK(s.closed == 0 && m.live == 0 && !d, "%s cut=%zu: failed open must leave input and memory alone", name, cut); continue; }
+        out = (float *)malloc((ref->frames + 4096) * ref->ch * sizeof(float));
+        rr = drain(d, out, ref->ch, ref->frames + 4096, 1024, &got, &retries);
+        CHECK(rr == MAKTABASAUTI_EOF || rr == MAKTABASAUTI_E_TRUNCATED || rr == MAKTABASAUTI_E_CORRUPT_DATA, "%s cut=%zu: final code %d", name, cut, (int)rr);
+        CHECK(got <= ref->frames, "%s cut=%zu: %zu frames (reference has %zu)", name, cut, got, ref->frames);
+        { const size_t cmp = got > 2048 ? got - 2048 : 0; CHECK(same(out, ref->pcm, cmp * ref->ch), "%s cut=%zu: decoded part differs from the reference", name, cut); }
+        free(out); maktabasauti_decoder_close(d);
+        CHECK(m.live == 0 && m.bad == 0, "%s cut=%zu: leak", name, cut);
+    }
+}
+
 /* 4: obciecie na kazdej dlugosci (poczatek i koniec) */
 static void test_truncation(const uint8_t *b, size_t n, const Ref *ref, const char *name) {
-    size_t fl0 = (size_t)(((b[3] & 3) << 11) | (b[4] << 3) | (b[5] >> 5)), cut, nframes_total = 0, pos = 0;
+    if (g_adif || g_loas) { test_truncation_raw(b, n, ref, name); return; }      /* LOAS: elementy przed pierwsza konfiguracja nie sa dekodowalne, wiec liczenie pelnych ramek nie ma sensu */
+    size_t fl0 = elen(b, 0, g_loas), cut, nframes_total = 0, pos = 0;
     size_t starts[] = { 0, 1, 2, 3, 6, 7, 8, 9, 10, fl0 - 1, fl0, fl0 + 1, fl0 + 6, fl0 + 7, fl0 + 8 }, k;
     size_t ends_from;
-    while (pos + 7 <= n) { pos += (size_t)(((b[pos + 3] & 3) << 11) | (b[pos + 4] << 3) | (b[pos + 5] >> 5)); nframes_total++; }
-    ends_from = n > 1200 ? n - 1200 : 0;
+    while (pos + g_hmin <= n) { pos += elen(b, pos, g_loas); nframes_total++; }
+    ends_from = n > 500 ? n - 500 : 0;
     for (k = 0; k < sizeof starts / sizeof *starts + (n - ends_from); k++) {
         Src s; Mem m; maktabasauti_decoder_t *d = NULL; float *out; size_t got = 0, full = 0, p2 = 0; long retries = 0; maktabasauti_result_t r, rr; int seekable = (int)(k & 1);
         cut = k < sizeof starts / sizeof *starts ? starts[k] : ends_from + (k - sizeof starts / sizeof *starts);
         if (cut > n) continue;
         memset(&s, 0, sizeof s); memset(&m, 0, sizeof m);
         s.data = b; s.n = cut; s.seekable = seekable; s.size_known = seekable;
-        while (p2 + 7 <= cut) { size_t fl = (size_t)(((b[p2 + 3] & 3) << 11) | (b[p2 + 4] << 3) | (b[p2 + 5] >> 5)); if (p2 + fl > cut) break; p2 += fl; full++; }
+        while (p2 + g_hmin <= cut) { size_t fl = elen(b, p2, g_loas); if (p2 + fl > cut) break; p2 += fl; full++; }
         r = open_src(&s, &m, &d, NULL);
-        if (full == 0) { CHECK(r != MAKTABASAUTI_OK || cut >= 7, "%s cut=%zu: no complete frame must not open", name, cut); if (r == MAKTABASAUTI_OK) maktabasauti_decoder_close(d); else CHECK(s.closed == 0 && m.live == 0, "ownership/leak after failed open"); continue; }
+        if (full == 0) { CHECK(r != MAKTABASAUTI_OK || cut >= g_hmin, "%s cut=%zu: no complete frame must not open", name, cut); if (r == MAKTABASAUTI_OK) maktabasauti_decoder_close(d); else CHECK(s.closed == 0 && m.live == 0, "ownership/leak after failed open"); continue; }
         CHECK(r == MAKTABASAUTI_OK, "%s cut=%zu: open failed (%d) with %zu complete frames", name, cut, (int)r, full);
         if (r != MAKTABASAUTI_OK) continue;
         out = (float *)malloc((ref->frames + 4096) * ref->ch * sizeof(float));
@@ -239,13 +269,37 @@ static void test_truncation(const uint8_t *b, size_t n, const Ref *ref, const ch
     }
 }
 
+/* 5a: ADIF: uszkodzenie w polowie pliku; PCM sprzed uszkodzenia zgodny ze wzorcem, dalej dowolny koniec bez awarii (brak resynchronizacji w ADIF) */
+static void test_corruption_raw(const uint8_t *b, size_t n, const Ref *ref, const char *name) {
+    uint8_t *w = (uint8_t *)malloc(n); size_t k, got = 0; Src s; Mem m; maktabasauti_decoder_t *d = NULL; float *out; long retries = 0; maktabasauti_result_t r, rr;
+    size_t dpos = n / 2;
+    if (g_mp4) {                                                                  /* MP4: uszkadzamy srodek POSLEDNIEJ ZAWARTOSCI mdat (nie tablice w moov) */
+        size_t pos = 0, last = 0, last_sz = 0;
+        while (pos + 8 <= n) { size_t sz = ((size_t)b[pos] << 24) | ((size_t)b[pos + 1] << 16) | ((size_t)b[pos + 2] << 8) | b[pos + 3]; if (sz < 8 || pos + sz > n) break; if (!memcmp(b + pos + 4, "mdat", 4)) { last = pos; last_sz = sz; } pos += sz; }
+        if (last_sz) dpos = last + 8 + (last_sz - 8) * 3 / 4;
+    }
+    memcpy(w, b, n); for (k = 0; k < 40; k++) w[dpos + k] ^= 0xA5;
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = w; s.n = n; s.seekable = g_mp4; s.size_known = g_mp4;
+    r = open_src(&s, &m, &d, NULL); CHECK(r == MAKTABASAUTI_OK, "%s corrupt: open", name);
+    if (r == MAKTABASAUTI_OK) {
+        out = (float *)malloc((ref->frames + 8192) * ref->ch * sizeof(float));
+        rr = drain(d, out, ref->ch, ref->frames + 8192, 1000, &got, &retries);
+        if (rr == MAKTABASAUTI_E_CORRUPT_DATA || rr == MAKTABASAUTI_E_UNSUPPORTED_FEATURE) { CHECK(maktabasauti_decoder_flush(d) == MAKTABASAUTI_OK, "flush"); (void)drain(d, out + got * ref->ch, ref->ch, 4096, 1000, &k, &retries); }
+        { const size_t safe = g_mp4 ? ref->frames / 2u : (size_t)((double)ref->frames * (double)(n / 2 - 3000) / (double)n);   /* MP4: uszkodzone 3/4 mdat, bierzemy polowe */ CHECK(got < safe || same(out, ref->pcm, safe * ref->ch), "%s corrupt: PCM before the damage differs", name); }
+        free(out); maktabasauti_decoder_close(d);
+        CHECK(m.live == 0 && m.bad == 0, "%s corrupt: leak", name);
+    }
+    free(w);
+}
+
 /* 5: uszkodzenie i flush (strumien nieprzewijalny) */
 static void test_corruption(const uint8_t *b, size_t n, const Ref *ref, const char *name) {
+    if (g_adif) { test_corruption_raw(b, n, ref, name); return; }
     size_t pos = 0, fl[40], idx = 0, i; uint8_t *w = (uint8_t *)malloc(n);
-    while (pos + 7 <= n && idx < 40) { fl[idx] = (size_t)(((b[pos + 3] & 3) << 11) | (b[pos + 4] << 3) | (b[pos + 5] >> 5)); pos += fl[idx]; idx++; }
+    while (pos + g_hmin <= n && idx < 40) { fl[idx] = elen(b, pos, g_loas); pos += fl[idx]; idx++; }
     for (i = 0; i < 4; i++) {                                                  /* i: 0 = zepsuty naglowek, 1 = zepsuty ładunek, 2 = zerowe 300 B, 3 = wstawione smieci */
         Src s; Mem m; maktabasauti_decoder_t *d = NULL; float *out; size_t got = 0, off5 = 0, k, total = 0; long retries = 0; maktabasauti_result_t r, rr; size_t wn = n;
-        for (k = 0; k < 5; k++) off5 += fl[k];
+        for (k = 0; k < (g_loas ? 20u : 5u); k++) off5 += fl[k];
         memcpy(w, b, n);
         if (i == 0) w[off5] = 0x00;                                           /* synchronizacja ramki 5 */
         else if (i == 1) { for (k = 0; k < 40 && off5 + 20 + k < off5 + fl[5]; k++) w[off5 + 20 + k] ^= 0xA5; }   /* ladunek ramki 5 */
@@ -409,18 +463,21 @@ static void test_options_and_tail(const uint8_t *b, size_t n, const Ref *ref, co
 int main(int argc, char **argv) {
     const char *dir = argc > 1 ? argv[1] : "tests/data"; size_t i;
     for (i = 0; i < NFILES; i++) {
+        const char *only = getenv("MKS_STREAM_ONLY");
+        if (only && *only && !strstr(files[i], only)) continue;                                   /* przyspieszenie iteracji: tylko pliki z podanym fragmentem nazwy */
         size_t n; uint8_t *b = slurp(dir, files[i], &n); Ref ref = reference(b, n);
+        g_loas = strstr(files[i], ".loas") != NULL; g_adif = strstr(files[i], ".adif") != NULL; g_mp4 = strstr(files[i], ".m4a") != NULL; if (g_mp4) g_adif = 1;   /* MP4: kontrole jak dla ADIF (granice jednostek niewidoczne w pliku) */ g_hmin = g_loas ? 3u : 7u;
         printf("%s: %zu bytes, %zu frames x %zu ch @ %u Hz\n", files[i], n, ref.frames, ref.ch, ref.rate);
         test_inputs(b, n, &ref, files[i]);
         test_block_sweep(b, n, files[i]);
         test_open_block(b, n, &ref, files[i]);
         test_truncation(b, n, &ref, files[i]);
         test_corruption(b, n, &ref, files[i]);
-        test_memory(b, n, files[i]);
+        if (!g_adif) test_memory(b, n, files[i]);                              /* generator: cykliczne sklejanie pliku jest poprawnym strumieniem tylko dla ADTS/LOAS */
         test_seek(b, n, &ref, files[i], 0);
         test_seek(b, n, &ref, files[i], 1);
-        test_options_and_tail(b, n, &ref, files[i]);
-        if (i == 0 || i == 2) { test_memory_seekable(b, n, files[i]); test_seek_long(b, n, files[i]); }          /* LC stereo i HE-AAC (duzy stan) */
+        if (!g_mp4) test_options_and_tail(b, n, &ref, files[i]);
+        if (!g_mp4 && (i == 0 || i == 2)) { test_memory_seekable(b, n, files[i]); test_seek_long(b, n, files[i]); }          /* LC stereo i HE-AAC (duzy stan) */
         free(ref.pcm); free(b);
     }
     printf("AAC streaming: %s (%d failures)\n", g_failures ? "FAIL" : "PASS", g_failures);

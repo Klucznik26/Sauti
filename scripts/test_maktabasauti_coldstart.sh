@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 T="${1:-8}"; P="${2:-12}"; D=tests/data
-FILES="$D/lc.aac $D/lc_mono.aac $D/he1_mono.aac $D/he1.aac $D/he2.aac $D/he1.m4a $D/he1.loas $D/he1.adif $D/m51.aac $(ls $D/probe_real.*)"
+FILES="$D/lc.aac $D/lc.loas $D/lc.adif $D/lc.m4a $D/lc_frag.m4a $D/lc_mono.aac $D/he1_mono.aac $D/he1.aac $D/he2.aac $D/he1.m4a $D/he1.loas $D/he1.adif $D/m51.aac $(ls $D/probe_real.*)"
 # shellcheck disable=SC2086
 for f in $FILES; do [ -r "$f" ] || { echo "FAIL: missing fixture $f"; exit 1; }; done
 if make -s build/test_maktabasauti_coldstart_tsan >/dev/null 2>&1; then BIN=build/test_maktabasauti_coldstart_tsan; echo "sanitizer: ThreadSanitizer"

@@ -185,3 +185,41 @@ int sauti_aac_latm_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t
     *adts=out;*adts_length=w;
     return 1;
 }
+
+/* ---- strumieniowo: jeden element LOAS naraz (patrz sauti_aac_latm.h); ta sama logika co petla w sauti_aac_latm_to_adts ---- */
+typedef char latm_state_size_check[sizeof(Config)<=sizeof(SautiAacLatmState)?1:-1];
+void sauti_aac_latm_state_init(SautiAacLatmState *st){memset(st,0,sizeof(*st));}
+int sauti_aac_latm_convert_element(SautiAacLatmState *st,const uint8_t *payload,size_t len,uint8_t *out,size_t cap,uint16_t *lens,unsigned max_frames,unsigned *n){
+    Config *cfg=(Config *)st;
+    Br b={payload,len*8u,0};
+    uint32_t same=0;
+    size_t w=0;
+    *n=0;
+    if(!payload||!out||!lens||!len)return 0;
+    if(!get(&b,1,&same))return 0;
+    if(!same){
+        Config c;
+        if(!parse_stream_mux_config(&b,&c))return cfg->have?-1:0;
+        if(!cfg->have)*cfg=c;
+        else if(!config_equal(cfg,&c))return -2;
+    }else if(!cfg->have)return 0;
+    if(cfg->sub_frames+1u>max_frames)return -1;
+    for(unsigned sf=0;sf<=cfg->sub_frames;sf++){
+        uint32_t slot=0,x=255;
+        while(x==255u){if(!get(&b,8,&x))return -1;slot+=x;}
+        if(!slot||slot>8184u||b.nbits-b.pos<(size_t)slot*8u)return -1;
+        const unsigned l=7u+slot;
+        if(w+l>cap)return -1;
+        out[w+0]=0xff;out[w+1]=0xf1;
+        out[w+2]=(uint8_t)(0x40u|(cfg->rate_index<<2)|((cfg->channel_config>>2)&1u));
+        out[w+3]=(uint8_t)(((cfg->channel_config&3u)<<6)|((l>>11)&3u));
+        out[w+4]=(uint8_t)(l>>3);
+        out[w+5]=(uint8_t)(((l&7u)<<5)|0x1fu);
+        out[w+6]=0xfc;
+        for(uint32_t i=0;i<slot;i++){uint32_t byte=0;get(&b,8,&byte);out[w+7u+i]=(uint8_t)byte;}
+        lens[sf]=(uint16_t)l;
+        w+=l;
+    }
+    *n=cfg->sub_frames+1u;
+    return 1;
+}
