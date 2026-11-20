@@ -2162,7 +2162,7 @@ test-maktabasauti-headers:
 
 # ---- MaktabaSauti: rdzen (src/maktabasauti) + opakowania starszych dekoderow; docs/MAKTABASAUTI_API.md ----
 MKS_CORE_SRC := $(filter-out src/maktabasauti/mks_nolegacy.c,$(wildcard src/maktabasauti/*.c))
-MKS_LEGACY_SRC := src/decoders/retro/atari/maktabasauti_dvs.c src/decoders/modern/aac/maktabasauti_aac_engine.c src/decoders/modern/aac/maktabasauti_aac_adts.c src/decoders/modern/aac/maktabasauti_aac_loas.c src/decoders/modern/aac/maktabasauti_aac_adif.c src/decoders/modern/aac/maktabasauti_aac_mp4.c src/decoders/modern/sauti_decoder_wav.c src/decoders/retro/pc/sauti_decoder_voc.c src/decoders/modern/sauti_decoder_aiff.c src/decoders/modern/sauti_decoder_vorbis.c \
+MKS_LEGACY_SRC := src/decoders/retro/atari/maktabasauti_dvs.c src/decoders/modern/aac/maktabasauti_aac_engine.c src/decoders/modern/aac/maktabasauti_aac_adts.c src/decoders/modern/aac/maktabasauti_aac_loas.c src/decoders/modern/aac/maktabasauti_aac_adif.c src/decoders/modern/aac/maktabasauti_aac_mp4.c src/decoders/modern/maktabasauti_pcm.c src/decoders/retro/pc/maktabasauti_voc.c src/decoders/modern/sauti_decoder_wav.c src/decoders/retro/pc/sauti_decoder_voc.c src/decoders/modern/sauti_decoder_aiff.c src/decoders/modern/sauti_decoder_vorbis.c \
                   src/decoders/modern/sauti_decoder_midi.c src/decoders/modern/sauti_decoder_flac.c src/decoders/modern/sauti_decoder_mp3.c src/decoders/retro/atari/sauti_decoder_avr.c \
                   src/decoders/retro/atari/sauti_decoder_dvsm.c src/decoders/retro/atari/sauti_decoder_dtm.c src/decoders/retro/atari/sauti_decoder_ym.c src/sauti_decoder.c
 MKS_DEPS = $(sort $(MKS_CORE_SRC) $(MKS_LEGACY_SRC) $(AAC_PLAYER_SRC) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_ASM))
@@ -2234,6 +2234,16 @@ $(OBJDIR)/test_maktabasauti_dvs_stream: tests/test_maktabasauti_dvs_stream.c $(M
 .PHONY: test-maktabasauti-dvs-stream
 test-maktabasauti-dvs-stream: $(OBJDIR)/test_maktabasauti_dvs_stream
 	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_dvs_stream
+$(OBJDIR)/test_maktabasauti_pcm_stream: tests/test_maktabasauti_pcm_stream.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_pcm_stream.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-maktabasauti-pcm-stream
+test-maktabasauti-pcm-stream: $(OBJDIR)/test_maktabasauti_pcm_stream
+	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_pcm_stream
+$(OBJDIR)/test_maktabasauti_voc_stream: tests/test_maktabasauti_voc_stream.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_voc_stream.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-maktabasauti-voc-stream
+test-maktabasauti-voc-stream: $(OBJDIR)/test_maktabasauti_voc_stream
+	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_voc_stream
 # ---- fuzzing oparty na pokryciu (libFuzzer, wymaga clanga) i powtorka korpusu bez clanga (gcc + ASan/UBSan, zwykle CI) ----
 # cele: fuzz/fuzz_{probe,open,container,hostile_io}.c; korpus poczatkowy z tests/data przez fuzz/make_seeds.py
 FUZZ_TARGETS := probe open container hostile_io

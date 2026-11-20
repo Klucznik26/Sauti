@@ -133,9 +133,6 @@ static void MAKTABASAUTI_CALL legacy_close(void *state) {
         legacy_probe, legacy_open, legacy_read, legacy_seek, legacy_reset, NULL, NULL, NULL, NULL, legacy_close, { NULL }, { NULL } }
 
 /* kolejnosc jak w odtwarzaczu: przy remisie wygrywa wczesniejszy */
-LEGACY(wav,    sauti_decoder_wav_ops,               "wav-pcm",                      "RIFF/WAVE PCM",                        "maktabasauti_legacy", "pcm",    "wav",   "",         1, 0u);
-LEGACY(voc,    sauti_decoder_voc_ops,               "creative-voc-pcm",             "Creative VOC PCM",                     "maktabasauti_legacy", "pcm",    "voc",   "",         1, 0u);
-LEGACY(aiff,   sauti_decoder_aiff_ops,              "aiff-pcm",                     "AIFF PCM",                             "maktabasauti_legacy", "pcm",    "aiff",  "",         1, 0u);
 LEGACY(vorbis, sauti_decoder_vorbis_ops,            "ogg-vorbis-stb",               "Ogg Vorbis",                           "maktabasauti_legacy", "vorbis", "ogg",   "",         0, 0u);
 LEGACY(midi,   sauti_decoder_midi_ops,              "midi-basic-synth",             "MIDI (basic synthesiser)",             "maktabasauti_legacy", "midi",   "midi",  "",         0, MAKTABASAUTI_CODEC_FLAG_EXPERIMENTAL);
 LEGACY(flac,   sauti_decoder_flac_ops,              "flac-drflac",                  "FLAC",                                 "maktabasauti_flac",   "flac",   "flac",  "",         1, 0u);
@@ -147,10 +144,13 @@ extern const maktabasauti_codec_t maktabasauti_aac_adts_desc;
 extern const maktabasauti_codec_t maktabasauti_aac_loas_desc;
 extern const maktabasauti_codec_t maktabasauti_aac_adif_desc;
 extern const maktabasauti_codec_t maktabasauti_aac_mp4_desc;
+extern const maktabasauti_codec_t maktabasauti_pcm_wav_desc;     /* WAV i AIFF: moduly strumieniowe (src/decoders/modern/maktabasauti_pcm.c) */
+extern const maktabasauti_codec_t maktabasauti_pcm_aiff_desc;
+extern const maktabasauti_codec_t maktabasauti_voc_desc;         /* VOC: modul strumieniowy (src/decoders/retro/pc/maktabasauti_voc.c) */
 extern const maktabasauti_codec_t maktabasauti_dvs_avr_desc;    /* AVR i DVSM: moduly strumieniowe (src/decoders/retro/atari/maktabasauti_dvs.c); DTM zostaje adapterem z calym buforem (format modulowy) */
 extern const maktabasauti_codec_t maktabasauti_dvs_dvsm_desc;
 static const maktabasauti_codec_t *const legacy_ptrs[] = {
-    &codec_wav, &codec_voc, &codec_aiff, &maktabasauti_aac_adts_desc /* ADTS: modul strumieniowy (src/decoders/modern/aac/maktabasauti_aac_adts.c) */, &maktabasauti_aac_mp4_desc /* MP4: modul indeksowany */, &maktabasauti_aac_loas_desc /* LOAS: modul strumieniowy */, &maktabasauti_aac_adif_desc /* ADIF: modul strumieniowy */,
+    &maktabasauti_pcm_wav_desc, &maktabasauti_voc_desc, &maktabasauti_pcm_aiff_desc, &maktabasauti_aac_adts_desc /* ADTS: modul strumieniowy (src/decoders/modern/aac/maktabasauti_aac_adts.c) */, &maktabasauti_aac_mp4_desc /* MP4: modul indeksowany */, &maktabasauti_aac_loas_desc /* LOAS: modul strumieniowy */, &maktabasauti_aac_adif_desc /* ADIF: modul strumieniowy */,
     &codec_vorbis, &codec_midi, &codec_flac, &maktabasauti_dvs_avr_desc, &maktabasauti_dvs_dvsm_desc, &codec_dtm, &codec_ym, &codec_mp3
 };
 

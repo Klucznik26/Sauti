@@ -532,7 +532,7 @@ static void test_legacy_bridge(void) {
     assert(maktabasauti_decoder_seek(d, 3001, MAKTABASAUTI_SEEK_EXACT, &actual) == MAKTABASAUTI_E_OUT_OF_RANGE);
     assert(maktabasauti_decoder_reset(d) == MAKTABASAUTI_OK);
     assert(maktabasauti_decoder_read(d, newf, 10, MAKTABASAUTI_FORMAT_F32, &got) == MAKTABASAUTI_OK && memcmp(newf, oldf, 10 * 2 * sizeof(float)) == 0);
-    assert(maktabasauti_decoder_flush(d) == MAKTABASAUTI_E_NOT_IMPLEMENTED);       /* starszy dekoder nie ma flush */
+    assert(maktabasauti_decoder_flush(d) == MAKTABASAUTI_OK);                       /* WAV to modul strumieniowy: ma flush (dawny adapter zwracal NOT_IMPLEMENTED) */
     sauti_legacy_decoder_close(&old);
     maktabasauti_decoder_close(d);
     assert(t.closes == 1);
@@ -542,15 +542,17 @@ static void test_legacy_bridge(void) {
     io = tio_make(&t, wav, n, 1, 1); p = params(&io, NULL); p.codec = "flac";
     assert(maktabasauti_decoder_open(&p, &d) != MAKTABASAUTI_OK && t.closes == 0);
     /* rejestr domyslny: lista kodekow z opisem modulu */
-    {   const maktabasauti_registry_t *reg = maktabasauti_default_registry(); maktabasauti_codec_info_t ci; size_t k, aac = 0, flac = 0, dvs = 0;
+    {   const maktabasauti_registry_t *reg = maktabasauti_default_registry(); maktabasauti_codec_info_t ci; size_t k, aac = 0, flac = 0, dvs = 0, pcm = 0, voc = 0;
         assert(maktabasauti_registry_codec_count(reg) >= 15);
         for (k = 0; k < maktabasauti_registry_codec_count(reg); k++) {
             ci.struct_size = sizeof ci; assert(maktabasauti_registry_codec_info(reg, k, &ci) == MAKTABASAUTI_OK && (ci.flags & MAKTABASAUTI_CODEC_CAN_DECODE));
             if (strcmp(ci.module, "maktabasauti_aac") == 0) aac++;
             if (strcmp(ci.module, "maktabasauti_flac") == 0) flac++;
             if (strcmp(ci.module, "maktabasauti_dvs") == 0) dvs++;
+            if (strcmp(ci.module, "maktabasauti_pcm") == 0) pcm++;
+            if (strcmp(ci.module, "maktabasauti_voc") == 0) voc++;
         }
-        assert(aac == 4 && flac == 1 && dvs == 3);               /* AAC: ADTS (modul strumieniowy, jedno wejscie), MP4, LOAS, ADIF */
+        assert(aac == 4 && flac == 1 && dvs == 3 && pcm == 2 && voc == 1);               /* AAC: ADTS (modul strumieniowy, jedno wejscie), MP4, LOAS, ADIF */
         assert(maktabasauti_registry_codec_info(reg, 9999, &ci) == MAKTABASAUTI_E_OUT_OF_RANGE);
         assert(maktabasauti_registry_add((maktabasauti_registry_t *)reg, &tst_codec) == MAKTABASAUTI_E_INVALID_ARGUMENT);    /* domyslny jest niezmienny */
     }
