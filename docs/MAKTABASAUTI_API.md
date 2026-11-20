@@ -129,7 +129,7 @@ Test `tests/test_aac_threads.c` ma dziś zapasowy wariant z ASan, bo na tej masz
 
 ## 13. Odporność rozpoznawania i wejścia (audyt sond, 2026-11-20)
 
-Pełny raport: `docs/AUDYT_SOND.md`. Zasady, które rdzeń i moduły muszą spełniać (sprawdzane testami `make test-maktabasauti-probe-audit`, `make test-maktabasauti-hostile-io`, wielowątkowym rozpoznawaniem w `scripts/test_maktabasauti_threads.sh`):
+Pełny raport: `docs/AUDYT_SOND.md`; fuzzing oparty na pokryciu: `docs/FUZZING.md`. Zasady, które rdzeń i moduły muszą spełniać (sprawdzane testami `make test-maktabasauti-probe-audit`, `make test-maktabasauti-hostile-io`, wielowątkowym rozpoznawaniem w `scripts/test_maktabasauti_threads.sh`):
 
 **Sonda (`probe`)** — czysta funkcja nagłówka: przyjmuje DOWOLNE dane o dowolnej długości, w tym 0 bajtów, i nigdy nie zakłada, że dane należą do jej kodeka. Nie czyta poza `[prefix, prefix + n)` (także przy skrajnych polach długości i offsetach: rachunki w `size_t`/`uint64_t` z sprawdzeniem przed każdym odczytem), nie zapisuje do wejścia, nie alokuje, nie ma stanu, nie używa niezainicjowanych zmiennych, zwraca 0 albo 1..100 (wynik spoza zakresu rdzeń obcina). Sonda wołana na całym pliku (`NEEDS_FULL_BUFFER`) ma kosztować O(1) względem rozmiaru wejścia (czyta tylko okno nagłówka). Kod bibliotek zewnętrznych użyty w sondzie podlega tym samym zasadom (wniosek z błędu minimp3, commit `b2bdd74`).
 

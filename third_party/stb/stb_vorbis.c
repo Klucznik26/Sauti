@@ -1322,14 +1322,24 @@ static int vorbis_validate(uint8 *data)
 
 // called from setup only, once per code book
 // (formula implied by specification)
+// SAUTI: saturating double -> int conversion (the original cast out-of-range values, e.g. from a corrupt codebook with huge dimensions: undefined behaviour,
+// found by clang -fsanitize=float-cast-overflow under libFuzzer; on x86 the cast gave INT_MIN, which saturation reproduces for the negative side)
+static int stbv_f2i(double v)
+{
+   if (v != v) return INT_MIN;
+   if (v >= 2147483647.0) return INT_MAX;
+   if (v <= -2147483648.0) return INT_MIN;
+   return (int) v;
+}
+
 static int lookup1_values(int entries, int dim)
 {
-   int r = (int) floor(exp((float) log((float) entries) / dim));
-   if ((int) floor(pow((float) r+1, dim)) <= entries)   // (int) cast for MinGW warning;
+   int r = stbv_f2i(floor(exp((float) log((float) entries) / dim)));
+   if (stbv_f2i(floor(pow((float) r+1, dim))) <= entries)   // (int) cast for MinGW warning;
       ++r;                                              // floor() to avoid _ftol() when non-CRT
    if (pow((float) r+1, dim) <= entries)
       return -1;
-   if ((int) floor(pow((float) r, dim)) > entries)
+   if (stbv_f2i(floor(pow((float) r, dim))) > entries)
       return -1;
    return r;
 }

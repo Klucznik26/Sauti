@@ -1,17 +1,23 @@
 diff --git a/tml.h b/tml.h
-index 3332873..e1c158c 100644
+index 3332873..b5c53b8 100644
 --- a/tml.h
 +++ b/tml.h
-@@ -225,7 +225,7 @@ TMLDEF tml_message* tml_load_filename(const char* filename)
+@@ -225,10 +225,12 @@ TMLDEF tml_message* tml_load_filename(const char* filename)
  #endif
  
  struct tml_stream_memory { const char* buffer; unsigned int total, pos; };
 -static int tml_stream_memory_read(struct tml_stream_memory* m, void* ptr, unsigned int size) { if (size > m->total - m->pos) size = m->total - m->pos; TML_MEMCPY(ptr, m->buffer+m->pos, size); m->pos += size; return size; }
 +static int tml_stream_memory_read(struct tml_stream_memory* m, void* ptr, unsigned int size) { if (size > m->total - m->pos) size = m->total - m->pos; if (ptr && size) TML_MEMCPY(ptr, m->buffer+m->pos, size); /* SAUTI: no memcpy(NULL, ..., 0) (UB) */ m->pos += size; return size; }
++/* SAUTI: wrapper with the exact function type (original cast int(*)(struct tml_stream_memory*,...) to int(*)(void*,...): UB, found by clang -fsanitize=function under libFuzzer) */
++static int tml_stream_memory_read_v(void* m, void* ptr, unsigned int size) { return tml_stream_memory_read((struct tml_stream_memory*)m, ptr, size); }
  TMLDEF struct tml_message* tml_load_memory(const void* buffer, int size)
  {
- 	struct tml_stream stream = { TML_NULL, (int(*)(void*,void*,unsigned int))&tml_stream_memory_read };
-@@ -413,7 +413,7 @@ TMLDEF tml_message* tml_load(struct tml_stream* stream)
+-	struct tml_stream stream = { TML_NULL, (int(*)(void*,void*,unsigned int))&tml_stream_memory_read };
++	struct tml_stream stream = { TML_NULL, &tml_stream_memory_read_v };
+ 	struct tml_stream_memory f = { 0, 0, 0 };
+ 	f.buffer = (const char*)buffer;
+ 	f.total = size;
+@@ -413,7 +415,7 @@ TMLDEF tml_message* tml_load(struct tml_stream* stream)
  			{ TML_WARN("Invalid MTrk header"); break; }
  
  		// Get size of track data and read into buffer (allocate bigger buffer if needed)

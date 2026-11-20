@@ -31,10 +31,29 @@ jobs:
         run: make test-maktabasauti-hostile-io
       - name: "Third-party hardening regressions (stb_vorbis, minimp3)"
         run: make test-third-party-hardening
+      - name: "Fuzz corpus replay (gcc + ASan/UBSan: probes, full API, AAC containers, hostile input)"
+        run: make test-fuzz-replay
       - name: "AAC ADTS streaming (non-seekable input, partial reads, WOULD_BLOCK at every point, truncated/corrupt streams, bounded memory, exact seek)"
         run: make test-maktabasauti-aac-stream
       - name: "MIDI seek work bound (silence skipping, budget, state kept after failure)"
         run: make test-midi-seek-bounds
+
+  # fuzzing oparty na pokryciu kodu (libFuzzer + ASan + UBSan): sondy, pelne API z czytnikiem, kontenery AAC wymuszone po nazwie, wejscie lamiace kontrakt
+  libfuzzer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: sudo apt-get update && sudo apt-get install -y nasm gcc make python3 clang
+      - name: libFuzzer, 90 s per target (any crash, leak, UB or timeout fails the job)
+        run: make fuzz-run FUZZ_SECONDS=90
+      - name: crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: build/fuzz_artifact_*
+          if-no-files-found: ignore
 
   # WYMAGANE: ThreadSanitizer.  Brak libtsan => REQUIRE_TSAN=1 daje FAIL.
   tsan:

@@ -1,5 +1,5 @@
 diff --git a/stb_vorbis.c b/stb_vorbis.c
-index 23c93f4..d03ea4e 100644
+index 23c93f4..66332ef 100644
 --- a/stb_vorbis.c
 +++ b/stb_vorbis.c
 @@ -822,6 +822,7 @@ struct stb_vorbis
@@ -167,7 +167,35 @@ index 23c93f4..d03ea4e 100644
  static __forceinline uint32 crc32_update(uint32 crc, uint8 byte)
  {
     return (crc << 8) ^ crc_table[byte ^ (crc >> 24)];
-@@ -1583,8 +1667,8 @@ static int get32_packet(vorb *f)
+@@ -1238,14 +1322,24 @@ static int vorbis_validate(uint8 *data)
+ 
+ // called from setup only, once per code book
+ // (formula implied by specification)
++// SAUTI: saturating double -> int conversion (the original cast out-of-range values, e.g. from a corrupt codebook with huge dimensions: undefined behaviour,
++// found by clang -fsanitize=float-cast-overflow under libFuzzer; on x86 the cast gave INT_MIN, which saturation reproduces for the negative side)
++static int stbv_f2i(double v)
++{
++   if (v != v) return INT_MIN;
++   if (v >= 2147483647.0) return INT_MAX;
++   if (v <= -2147483648.0) return INT_MIN;
++   return (int) v;
++}
++
+ static int lookup1_values(int entries, int dim)
+ {
+-   int r = (int) floor(exp((float) log((float) entries) / dim));
+-   if ((int) floor(pow((float) r+1, dim)) <= entries)   // (int) cast for MinGW warning;
++   int r = stbv_f2i(floor(exp((float) log((float) entries) / dim)));
++   if (stbv_f2i(floor(pow((float) r+1, dim))) <= entries)   // (int) cast for MinGW warning;
+       ++r;                                              // floor() to avoid _ftol() when non-CRT
+    if (pow((float) r+1, dim) <= entries)
+       return -1;
+-   if ((int) floor(pow((float) r, dim)) > entries)
++   if (stbv_f2i(floor(pow((float) r, dim))) > entries)
+       return -1;
+    return r;
+ }
+@@ -1583,8 +1677,8 @@ static int get32_packet(vorb *f)
  {
     uint32 x;
     x = get8_packet(f);
@@ -178,7 +206,7 @@ index 23c93f4..d03ea4e 100644
     x += (uint32) get8_packet(f) << 24;
     return x;
  }
-@@ -3650,6 +3734,8 @@ static int start_decoder(vorb *f)
+@@ -3650,6 +3744,8 @@ static int start_decoder(vorb *f)
     if (!vorbis_validate(header))                    return error(f, VORBIS_invalid_setup);
     //file vendor
     len = get32_packet(f);
@@ -187,7 +215,7 @@ index 23c93f4..d03ea4e 100644
     f->vendor = (char*)setup_malloc(f, sizeof(char) * (len+1));
     if (f->vendor == NULL)                           return error(f, VORBIS_outofmem);
     for(i=0; i < len; ++i) {
-@@ -3659,14 +3745,16 @@ static int start_decoder(vorb *f)
+@@ -3659,14 +3755,16 @@ static int start_decoder(vorb *f)
     //user comments
     f->comment_list_length = get32_packet(f);
     f->comment_list = NULL;
@@ -205,7 +233,7 @@ index 23c93f4..d03ea4e 100644
        f->comment_list[i] = (char*)setup_malloc(f, sizeof(char) * (len+1));
        if (f->comment_list[i] == NULL)               return error(f, VORBIS_outofmem);
  
-@@ -4210,7 +4298,7 @@ static void vorbis_deinit(stb_vorbis *p)
+@@ -4210,7 +4308,7 @@ static void vorbis_deinit(stb_vorbis *p)
     int i,j;
  
     setup_free(p, p->vendor);
@@ -214,7 +242,7 @@ index 23c93f4..d03ea4e 100644
        setup_free(p, p->comment_list[i]);
     }
     setup_free(p, p->comment_list);
-@@ -4263,6 +4351,7 @@ static void vorbis_deinit(stb_vorbis *p)
+@@ -4263,6 +4361,7 @@ static void vorbis_deinit(stb_vorbis *p)
        setup_free(p, p->window[i]);
        setup_free(p, p->bit_reverse[i]);
     }

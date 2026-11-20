@@ -12,4 +12,6 @@ Upstream: https://github.com/mackron/dr_libs (`dr_flac.h`, v0.13.4 development s
   UBSan fuzzing: `signed integer overflow: 1426913846 + 755590732`).
 - CPU capability detection: one atomic word (`drflac__gCpuCaps`, `DRFLAC_CAPS_LOAD/STORE`) instead of plain globals rewritten on every open (data race; upstream silenced ThreadSanitizer with
   `DRFLAC_NO_THREAD_SANITIZE`). `drflac__gIs*Supported` remain as read-only accessor macros. All lookup tables are `static const`.
+- `drflac__f2u64`: saturating `double` -> `uint64_t` conversion used for the seek byte estimates (4 sites); the original casts are undefined behaviour for inf/NaN/out-of-range values
+  (clang `-fsanitize=float-cast-overflow`, found by libFuzzer on 2026-11-20).
 Upstream status: not reported yet; patch in `docs/upstream-patches/dr_flac.patch`.

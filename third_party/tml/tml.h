@@ -226,9 +226,11 @@ TMLDEF tml_message* tml_load_filename(const char* filename)
 
 struct tml_stream_memory { const char* buffer; unsigned int total, pos; };
 static int tml_stream_memory_read(struct tml_stream_memory* m, void* ptr, unsigned int size) { if (size > m->total - m->pos) size = m->total - m->pos; if (ptr && size) TML_MEMCPY(ptr, m->buffer+m->pos, size); /* SAUTI: no memcpy(NULL, ..., 0) (UB) */ m->pos += size; return size; }
+/* SAUTI: wrapper with the exact function type (original cast int(*)(struct tml_stream_memory*,...) to int(*)(void*,...): UB, found by clang -fsanitize=function under libFuzzer) */
+static int tml_stream_memory_read_v(void* m, void* ptr, unsigned int size) { return tml_stream_memory_read((struct tml_stream_memory*)m, ptr, size); }
 TMLDEF struct tml_message* tml_load_memory(const void* buffer, int size)
 {
-	struct tml_stream stream = { TML_NULL, (int(*)(void*,void*,unsigned int))&tml_stream_memory_read };
+	struct tml_stream stream = { TML_NULL, &tml_stream_memory_read_v };
 	struct tml_stream_memory f = { 0, 0, 0 };
 	f.buffer = (const char*)buffer;
 	f.total = size;
