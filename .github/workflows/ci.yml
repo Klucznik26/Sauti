@@ -43,6 +43,8 @@ jobs:
         run: make test-maktabasauti-pcm-stream
       - name: "VOC streaming (indexed and streaming mode, 16384-part limit, unsupported blocks, truncation model, mutations, bounded memory)"
         run: make test-maktabasauti-voc-stream
+      - name: "FLAC streaming (dr_flac over host callbacks: frame gating for WOULD_BLOCK, non-seekable input, header from the reader prefix, truncation vs the old adapter, mutations, bounded memory)"
+        run: make test-maktabasauti-flac-stream
       - name: "MIDI seek work bound (silence skipping, budget, state kept after failure)"
         run: make test-midi-seek-bounds
 
