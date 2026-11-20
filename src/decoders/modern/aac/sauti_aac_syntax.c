@@ -11,8 +11,12 @@ static int read(const uint8_t *data,size_t size,size_t *pos,
                 unsigned bits,uint32_t *out){
     return sauti_aac_bits_read_asm(data,size,pos,bits,out);
 }
-int sauti_aac_ics_info_parse(const uint8_t *data,size_t size,
-                             size_t *bit_offset,SautiAacIcsInfo *info){
+unsigned sauti_aac_pred_sfb_max(unsigned sfi){
+    static const unsigned char max[13]={33,33,38,40,40,40,41,41,37,37,37,34,0};
+    return sfi<13u?max[sfi]:0u;
+}
+int sauti_aac_ics_info_parse_idx(const uint8_t *data,size_t size,
+                                 size_t *bit_offset,unsigned idx,SautiAacIcsInfo *info){
     if(!data||!bit_offset||!info)return 0;
     size_t pos=*bit_offset;uint32_t r=0,v=0;
     SautiAacIcsInfo next;memset(&next,0,sizeof(next));
@@ -33,10 +37,30 @@ int sauti_aac_ics_info_parse(const uint8_t *data,size_t size,
         next.group_count=1;
         next.group_length[0]=1;
         if(!read(data,size,&pos,6,&next.max_sfb) ||
-           !read(data,size,&pos,1,&r) || r)return 0;
-        /* AAC-Main predictor data / other profiles are not decoded. */
+           !read(data,size,&pos,1,&r))return 0;
+        if(r){                                              /* predictor_data_present: AAC Main only */
+            if(!(idx&0x10000u))return 0;                   /* SAUTI_AAC_IDX_MAIN_FLAG (kept literal: this file does not include the layout header) */
+            const unsigned limit=sauti_aac_pred_sfb_max(idx&0xffu);
+            if(!limit)return 0;
+            next.predictor_present=1u;
+            if(!read(data,size,&pos,1,&v))return 0;
+            next.predictor_reset=(uint8_t)v;
+            if(v){
+                if(!read(data,size,&pos,5,&v) || v>30u)return 0;                  /* 0 = no group to reset, 31 is reserved */
+                next.predictor_reset_group=(uint8_t)v;
+            }
+            const unsigned n=next.max_sfb<limit?next.max_sfb:limit;
+            for(unsigned sfb=0;sfb<n;sfb++){
+                if(!read(data,size,&pos,1,&v))return 0;
+                next.prediction_used[sfb]=(uint8_t)v;
+            }
+        }
     }
     *info=next;*bit_offset=pos;return 1;
+}
+int sauti_aac_ics_info_parse(const uint8_t *data,size_t size,
+                             size_t *bit_offset,SautiAacIcsInfo *info){
+    return sauti_aac_ics_info_parse_idx(data,size,bit_offset,0u,info);
 }
 int sauti_aac_fill_parse(const uint8_t *data,size_t size,
                          size_t *bit_offset,SautiAacFillInfo *info){

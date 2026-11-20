@@ -1,6 +1,7 @@
 #ifndef SAUTI_AAC_CPE_H
 #define SAUTI_AAC_CPE_H
 #include "sauti_aac_lc_frame.h"
+#include "sauti_aac_pred.h"
 
 /* AAC-26/29C: one ID_CPE (channel pair) in a raw AAC-LC block.
  * Handles independent ICS and common_window with per-band Mid/Side,
@@ -35,6 +36,7 @@ int sauti_aac_lc_cpe_synthesize(const SautiAacCpeData *cpe,
  * a layout (sauti_aac_layout.h).  `pns_stream` advances only on success.  1 success, 0 malformed, -1 unsupported. */
 int sauti_aac_cpe_spectra(const SautiAacCpeData *cpe,unsigned rate,uint32_t *pns_stream,
                           float spectral[2][1024],SautiAacReason *reason);
+int sauti_aac_cpe_spectra_pred(const SautiAacCpeData *parsed,unsigned rate,uint32_t *pns_stream,float spectral[2][1024],SautiAacPredState pred[2],SautiAacReason *reason);
 
 /* Atomic stereo ADTS decode: interleaved LRLR, 1024 frames per channel.
  * On any failure neither channel state nor PCM is modified.

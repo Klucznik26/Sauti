@@ -22,7 +22,7 @@ int main(int argc,char **argv){
     if(!asc||!aus)return 2;
     if(asc_n>=2&&(asc[0]>>3)==2u){                                        /* AAC-LC with frameLengthFlag = 1: 960 lines (sauti_aac_lcn) */
         SautiAacLcnConfig lc;static SautiAacLcnState ls;static float lp[2*960];FILE *lo;size_t lframes=0,lfailed=0;
-        lc.rate_index=(unsigned)(((asc[0]&7u)<<1)|(asc[1]>>7));lc.channel_config=(unsigned)((asc[1]>>3)&15u);
+        lc.main=0;lc.rate_index=(unsigned)(((asc[0]&7u)<<1)|(asc[1]>>7));lc.channel_config=(unsigned)((asc[1]>>3)&15u);
         if(!((asc[1]>>2)&1u)||!sauti_aac_lcn_frame_samples(&lc)){fprintf(stderr,"not a 960-line LC configuration\n");return 3;}
         sauti_aac_lcn_state_init(&ls);lo=fopen(argv[3],"wb");if(!lo)return 2;
         while(pos+4u<=aus_n){

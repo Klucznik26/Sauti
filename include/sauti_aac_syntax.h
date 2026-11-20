@@ -14,10 +14,20 @@ typedef struct {
     uint32_t window_count;       /* 1 or 8 */
     uint32_t group_count;
     uint8_t group_length[8];     /* group sizes, indexed 0..group_count-1 */
+    /* AAC Main predictor_data (only with sauti_aac_ics_info_parse_idx and the Main flag of the index; otherwise all zero) */
+    uint8_t predictor_present;   /* predictor_data_present */
+    uint8_t predictor_reset;     /* predictor_reset */
+    uint8_t predictor_reset_group; /* predictor_reset_group_number, 1..30 (0: none) */
+    uint8_t prediction_used[41]; /* per scalefactor band below min(max_sfb, PRED_SFB_MAX) */
 } SautiAacIcsInfo;
 
 int sauti_aac_ics_info_parse(const uint8_t *bytes,size_t size,
                              size_t *bit_offset,SautiAacIcsInfo *info);
+/* The same for a packed index (sauti_aac_layout.h): with SAUTI_AAC_IDX_MAIN_FLAG the predictor_data of AAC Main (predictor_reset, reset group, prediction_used per band) is parsed;
+ * without it predictor_data_present = 1 fails as before (AAC-LC).  The band limit PRED_SFB_MAX comes from the sampling_frequency_index; 7350 Hz has none (fails). */
+int sauti_aac_ics_info_parse_idx(const uint8_t *bytes,size_t size,size_t *bit_offset,unsigned idx,SautiAacIcsInfo *info);
+/* Number of scalefactor bands the Main predictor covers (ISO/IEC 14496-3 4.6.7, Table 4.? PRED_SFB_MAX), 0 for an unsupported rate. */
+unsigned sauti_aac_pred_sfb_max(unsigned sampling_frequency_index);
 
 /* pulse_data() (ISO/IEC 14496-3 4.4.2.7, tylko okna dlugie): count = number_pulse + 1 (1..4), pierwsza pozycja = swb_offset[start_sfb] + offset[0], kolejne dodaja offset[i].
  * Parser sprawdza tylko skladnie i to, ze okno nie jest EIGHT_SHORT; zakres start_sfb/pozycji sprawdza sauti_aac_lc_pulse_apply (zna tabele pasm dla czestotliwosci). */

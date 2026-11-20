@@ -42,7 +42,7 @@ static void fingerprint(const float *pcm, unsigned n, unsigned ch, double out[2]
 
 static void test_vectors(const Stream *s, int dump) {
     SautiAacLcnConfig cfg; SautiAacLcnState st; float pcm[2 * 960]; size_t f; SautiAacReason why;
-    cfg.rate_index = s->rate_index; cfg.channel_config = s->channels;
+    cfg.rate_index = s->rate_index; cfg.channel_config = s->channels; cfg.main = 0;
     CHECK(sauti_aac_lcn_frame_samples(&cfg) == 960u, "%s: frame length", s->name);
     sauti_aac_lcn_state_init(&st);
     for (f = 0; f < s->frames; f++) {
@@ -56,7 +56,7 @@ static void test_vectors(const Stream *s, int dump) {
 
 static void test_atomic(const Stream *s) {
     SautiAacLcnConfig cfg; SautiAacLcnState st, before; float pcm[2 * 960], keep[2 * 960]; SautiAacReason why; size_t f, len, i; int round; long accepted = 0, rejected = 0;
-    cfg.rate_index = s->rate_index; cfg.channel_config = s->channels;
+    cfg.rate_index = s->rate_index; cfg.channel_config = s->channels; cfg.main = 0;
     sauti_aac_lcn_state_init(&st);
     for (i = 0; i < 2 * 960; i++) keep[i] = pcm[i] = 12345.0f;
     for (f = 0; f < s->frames; f++) {
@@ -216,7 +216,7 @@ typedef struct { uint8_t b[4096]; unsigned n; } Bits;
 static void put(Bits *x, unsigned value, unsigned width) { while (width--) { const unsigned bit = (value >> width) & 1u; if ((x->n & 7u) == 0) x->b[x->n >> 3] = 0; if (bit) x->b[x->n >> 3] |= (uint8_t)(0x80u >> (x->n & 7u)); x->n++; } }
 static void test_refusals(void) {
     SautiAacLcnConfig c; SautiAacLcnState st; float pcm[2 * 960]; SautiAacReason why; Bits x; unsigned rate;
-    c.rate_index = 3; c.channel_config = 0; CHECK(sauti_aac_lcn_frame_samples(&c) == 0u, "channel configuration 0");
+    c.rate_index = 3; c.channel_config = 0; c.main = 0; CHECK(sauti_aac_lcn_frame_samples(&c) == 0u, "channel configuration 0");
     c.channel_config = 3; CHECK(sauti_aac_lcn_frame_samples(&c) == 0u, "channel configuration 3 (not supported with 960)");
     c.channel_config = 7; CHECK(sauti_aac_lcn_frame_samples(&c) == 0u, "channel configuration 7");
     c.channel_config = 2; c.rate_index = 13; CHECK(sauti_aac_lcn_frame_samples(&c) == 0u, "sampling index 13");
@@ -253,7 +253,7 @@ static void put_fil(Bits *x, unsigned type, unsigned count) {                   
 /* DSE and FIL elements around the channel element are skipped without changing a sample: the same access unit decodes bit for bit with and without them */
 static void test_skipped_elements(const Stream *s) {
     SautiAacLcnConfig cfg; SautiAacLcnState base, aug; float want[2 * 960], got[2 * 960]; SautiAacReason why; size_t f; unsigned variant, checked = 0;
-    cfg.rate_index = s->rate_index; cfg.channel_config = s->channels;
+    cfg.rate_index = s->rate_index; cfg.channel_config = s->channels; cfg.main = 0;
     for (variant = 0; variant < 8; variant++) {
         sauti_aac_lcn_state_init(&base); sauti_aac_lcn_state_init(&aug);
         for (f = 0; f < s->frames; f++) {

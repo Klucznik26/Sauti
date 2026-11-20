@@ -9,7 +9,10 @@
 #define SAUTI_AAC_LAYOUT_960 3u        /* AAC-LC family with frameLengthFlag = 1: 960 lines, eight short windows of 120 */
 #define SAUTI_AAC_IDX(rate, layout) ((unsigned)(rate) | ((unsigned)(layout) << 8))
 #define SAUTI_AAC_IDX_RATE(idx) ((unsigned)(idx) & 0xffu)
-#define SAUTI_AAC_IDX_LAYOUT(idx) ((unsigned)(idx) >> 8)
+#define SAUTI_AAC_IDX_LAYOUT(idx) (((unsigned)(idx) >> 8) & 0xffu)
+/* bit 16: the stream is AAC Main (ISO/IEC 14496-3 object type 1): ics_info carries predictor_data and the decoder runs the backward-adaptive predictors; a plain index is AAC-LC */
+#define SAUTI_AAC_IDX_MAIN_FLAG 0x10000u
+#define SAUTI_AAC_IDX_IS_MAIN(idx) (((unsigned)(idx) & SAUTI_AAC_IDX_MAIN_FLAG) != 0u)
 /* Length of one transform window of the layout in `idx`: the stride of the natural [window][line] spectrum layout of short windows and the number of lines of a long window. */
 static inline unsigned sauti_aac_layout_window_len(unsigned idx, unsigned short_window) {
     switch (SAUTI_AAC_IDX_LAYOUT(idx)) {

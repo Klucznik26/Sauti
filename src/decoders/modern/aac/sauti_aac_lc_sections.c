@@ -69,6 +69,11 @@ int sauti_aac_lc_sce_prefix_parse(const uint8_t *data,size_t length,
 int sauti_aac_lc_sce_prefix_parse_id(const uint8_t *data,size_t length,
                                      size_t *bit_offset,unsigned element_id,
                                      SautiAacScePrefix *out){
+    return sauti_aac_lc_sce_prefix_parse_idx(data,length,bit_offset,element_id,0u,out);
+}
+int sauti_aac_lc_sce_prefix_parse_idx(const uint8_t *data,size_t length,
+                                      size_t *bit_offset,unsigned element_id,unsigned idx,
+                                      SautiAacScePrefix *out){
     if(!data||!bit_offset||!out||(element_id!=0u&&element_id!=3u))return 0;
     SautiAacScePrefix next;
     memset(&next,0,sizeof(next));
@@ -77,7 +82,7 @@ int sauti_aac_lc_sce_prefix_parse_id(const uint8_t *data,size_t length,
     if(!bits(data,length,&pos,3,&id) || id!=element_id ||
        !bits(data,length,&pos,4,&next.instance_tag) ||
        !bits(data,length,&pos,8,&next.global_gain) ||
-       !sauti_aac_ics_info_parse(data,length,&pos,&next.ics) ||
+       !sauti_aac_ics_info_parse_idx(data,length,&pos,idx,&next.ics) ||
        !sauti_aac_lc_sections_parse(data,length,&pos,&next.ics,
                                    &next.sections))return 0;
     *out=next;

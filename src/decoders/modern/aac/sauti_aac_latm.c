@@ -83,10 +83,11 @@ static int parse_asc(Br *b,Config *c){
         if(!get_rate(b,&ext_index,&ext_rate)||!get_aot(b,&aot))return 0;
         if(aot==22u&&!get(b,4,&flag))return 0;
     }
-    if(aot!=2u)return 0;                                 /* tylko AAC-LC (rdzen) */
+    if(aot!=1u&&aot!=2u)return 0;                        /* AAC Main albo AAC-LC (rdzen) */
     c->aot=aot;
     /* GASpecificConfig */
     if(!get(b,1,&flag))return 0;
+    if(flag&&aot==1u)return 0;                           /* AAC Main: tylko 1024 linii */
     if(flag){                                            /* frameLengthFlag 1 = 960 linii: LC, mono i stereo (sauti_aac_lcn); SBR zglaszany w ASC jest tylko zapisany, a jednostki z SBR odrzuca dekoder */
         if(c->channel_config<1u||c->channel_config>2u)return 0;
         c->frame480=1u;
@@ -199,7 +200,7 @@ int sauti_aac_latm_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t
         }
         if(!ok){free(out);return 0;}
     }
-    if(!frames||!cfg.have||cfg.aot==23u||cfg.aot==39u||(cfg.aot==2u&&cfg.frame480)){free(out);return 0;}                  /* AAC-LD / ELD: tylko sciezka strumieniowa silnika (jednostki nie sa ADTS) */
+    if(!frames||!cfg.have||cfg.aot==1u||cfg.aot==23u||cfg.aot==39u||(cfg.aot==2u&&cfg.frame480)){free(out);return 0;}                  /* AAC-LD / ELD: tylko sciezka strumieniowa silnika (jednostki nie sa ADTS) */
     memset(info,0,sizeof(*info));
     info->aot=cfg.aot;info->rate_index=cfg.rate_index;info->sample_rate=cfg.sample_rate;info->channel_config=cfg.channel_config;
     info->sbr=cfg.sbr;info->ps=cfg.ps;info->frames=frames;
@@ -231,7 +232,7 @@ int sauti_aac_latm_convert_element(SautiAacLatmState *st,const uint8_t *payload,
         if(!slot||slot>8184u||b.nbits-b.pos<(size_t)slot*8u)return -1;
         const unsigned l=7u+slot;
         if(w+l>cap)return -1;
-        if(cfg->aot==23u||cfg->aot==39u||(cfg->aot==2u&&cfg->frame480))(void)sauti_aac_er_wrap_header(out+w,cfg->aot,cfg->rate_index,cfg->channel_config,cfg->frame480,slot);     /* AAC-LD / ELD i LC z ramka 960: naglowek wewnetrzny silnika */
+        if(cfg->aot==1u||cfg->aot==23u||cfg->aot==39u||(cfg->aot==2u&&cfg->frame480))(void)sauti_aac_er_wrap_header(out+w,cfg->aot,cfg->rate_index,cfg->channel_config,cfg->frame480,slot);     /* AAC-LD / ELD i LC z ramka 960: naglowek wewnetrzny silnika */
         else{
         out[w+0]=0xff;out[w+1]=0xf1;
         out[w+2]=(uint8_t)(0x40u|(cfg->rate_index<<2)|((cfg->channel_config>>2)&1u));

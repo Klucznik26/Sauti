@@ -44,7 +44,7 @@ static maktabasauti_result_t adts_fetch(dec_t *d) {
     m = h->peek(h->user, d->rd, d->frame, hd.frame_bytes);
     if (m < 0) return (maktabasauti_result_t)m;
     if ((uint64_t)m < hd.frame_bytes) return MAKTABASAUTI_E_TRUNCATED;
-    if (!sauti_aac_adts_parse_asm(d->frame, hd.frame_bytes, &full) || full.frame_bytes != hd.frame_bytes) return MAKTABASAUTI_E_CORRUPT_DATA;
+    if ((d->frame[2] >> 6) != 0u && (!sauti_aac_adts_parse_asm(d->frame, hd.frame_bytes, &full) || full.frame_bytes != hd.frame_bytes)) return MAKTABASAUTI_E_CORRUPT_DATA;   /* profil 0 (AAC Main): naglowek sprawdzil juz aac_adts_parse_header (asm zna tylko LC) */
     m = h->read(h->user, d->rd, d->frame, hd.frame_bytes);
     if (m < 0) return (maktabasauti_result_t)m;
     if ((uint64_t)m != hd.frame_bytes) return MAKTABASAUTI_E_IO;        /* peek obiecal te bajty */

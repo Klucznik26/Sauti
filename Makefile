@@ -131,7 +131,7 @@ AAC_HE_ADTS_CPE_QMF_SRC := src/decoders/modern/aac/sauti_aac_he_adts_cpe_qmf.c
 AAC_ADTS_CRC_SRC := src/decoders/modern/aac/sauti_aac_adts_crc.c
 AAC_LC_MULTI_SRC := src/decoders/modern/aac/sauti_aac_lc_multi.c
 AAC_MP4_SRC := src/decoders/modern/aac/sauti_aac_mp4.c src/decoders/modern/aac/sauti_decoder_aac_mp4.c src/decoders/modern/aac/sauti_aac_latm.c src/decoders/modern/aac/sauti_decoder_aac_latm.c src/decoders/modern/aac/sauti_aac_adif.c src/decoders/modern/aac/sauti_decoder_aac_adif.c
-AAC_NATIVE_ADAPTER_DEPS = $(sort $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_LC_MULTI_SRC) $(AAC_MP4_SRC) $(AAC_SBR_ADTS_CPE_DEPS) $(AAC_SBR_CHANNEL_CLI_SRC) src/decoders/modern/aac/sauti_decoder_aac_he.c src/decoders/modern/aac/sauti_aac_er.c src/decoders/modern/aac/sauti_aac_eld_window.c src/decoders/modern/aac/sauti_aac_lcn.c)
+AAC_NATIVE_ADAPTER_DEPS = $(sort $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_LC_MULTI_SRC) $(AAC_MP4_SRC) $(AAC_SBR_ADTS_CPE_DEPS) $(AAC_SBR_CHANNEL_CLI_SRC) src/decoders/modern/aac/sauti_decoder_aac_he.c src/decoders/modern/aac/sauti_aac_er.c src/decoders/modern/aac/sauti_aac_eld_window.c src/decoders/modern/aac/sauti_aac_lcn.c src/decoders/modern/aac/sauti_aac_pred.c)
 AAC_LC_SECTIONS_SRC := src/decoders/modern/aac/sauti_aac_lc_sections.c
 AAC_HUFFMAN_SRC := src/decoders/modern/aac/sauti_aac_huffman.c
 AAC_HUFFMAN_ASM := $(OBJDIR)/sauti_aac_huffman.o
@@ -1462,7 +1462,7 @@ test-aac-tns: $(OBJDIR)/test_aac_tns
 AAC_PLAYER_SRC = $(sort $(AAC_NATIVE_ADAPTER_DEPS) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC))
 AAC_PLAYER_ASM = $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM)
 
-AAC_CPE_SRC := src/decoders/modern/aac/sauti_aac_cpe.c
+AAC_CPE_SRC := src/decoders/modern/aac/sauti_aac_cpe.c src/decoders/modern/aac/sauti_aac_pred.c
 
 $(OBJDIR)/test_aac_cpe: tests/test_aac_cpe.c include/sauti_aac_cpe.h $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_cpe.c $(AAC_CPE_SRC) $(AAC_LC_FRAME_SRC) $(AAC_LC_SECTIONS_SRC) $(AAC_SYNTAX_SRC) $(AAC_SCALEFACTORS_SRC) $(AAC_SPECTRAL_DATA_SRC) $(AAC_TABLES_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_SRC) $(AAC_LC_SYNTH_SRC) $(AAC_DEQUANT_SRC) $(AAC_IMDCT_SRC) $(AAC_WINDOW_SRC) $(AAC_BANDS_SRC) $(AAC_PNS_SRC) $(AAC_TNS_SRC) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_SPECTRAL_ASM) $(AAC_DSP_ASM) $(AAC_IMDCT_ASM) $(AAC_DEQUANT_ASM) -lm -no-pie
@@ -2246,6 +2246,11 @@ $(OBJDIR)/test_aac_er: tests/test_aac_er.c src/decoders/modern/aac/sauti_aac_er.
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -Iinclude -o $@ tests/test_aac_er.c src/sauti_decoder.c $(filter-out src/decoders/modern/aac/sauti_aac_er.c,$(AAC_NATIVE_ADAPTER_DEPS)) -lm -no-pie
 $(OBJDIR)/test_aac_lc960: tests/test_aac_lc960.c tests/test_aac_lc960_vectors.h tests/test_aac_lc960_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_aac_lc960.c $(MKS_DEPS) -lm -lpthread -no-pie
+$(OBJDIR)/test_aac_main: tests/test_aac_main.c tests/test_aac_main_vectors.h tests/test_aac_main_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_aac_main.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-aac-main
+test-aac-main: $(OBJDIR)/test_aac_main
+	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_aac_main
 .PHONY: test-aac-lc960
 test-aac-lc960: $(OBJDIR)/test_aac_lc960
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_aac_lc960

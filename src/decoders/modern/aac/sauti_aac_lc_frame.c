@@ -44,7 +44,7 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
         return -1;
     }
     SautiAacScePrefix sce;
-    if(!sauti_aac_lc_sce_prefix_parse_id(raw,length,&pos,element_id,&sce)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
+    if(!sauti_aac_lc_sce_prefix_parse_idx(raw,length,&pos,element_id,rate_index,&sce)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
     const uint16_t *offsets=NULL;unsigned count=0;
     if(!sauti_aac_band_offsets(rate_index,
                                sce.ics.window_sequence==2u,

@@ -9,6 +9,7 @@
 #include "sauti_aac_spectral_data.h"
 #include "sauti_aac_syntax.h"
 #include "sauti_aac_pns.h"
+#include "sauti_aac_pred.h"
 #include <math.h>
 #include <string.h>
 
@@ -23,7 +24,7 @@ static int channel_parse(const uint8_t *data,size_t length,size_t *pos,
     uint32_t v=0;
     if(!get(data,length,pos,8,&ch->global_gain))return 0;
     if(common)ch->ics=*common;
-    else if(!sauti_aac_ics_info_parse(data,length,pos,&ch->ics))return 0;
+    else if(!sauti_aac_ics_info_parse_idx(data,length,pos,rate,&ch->ics))return 0;
     const uint16_t *offsets=NULL;unsigned bands=0;
     if(!sauti_aac_band_offsets(rate,ch->ics.window_sequence==2u,
                                &offsets,&bands) || ch->ics.max_sfb>bands)
@@ -80,7 +81,7 @@ int sauti_aac_lc_cpe_parse(const uint8_t *raw,size_t length,
     parsed.common_window=common;
     SautiAacIcsInfo shared={0};
     if(common){
-        if(!sauti_aac_ics_info_parse(raw,length,&pos,&shared))return 0;
+        if(!sauti_aac_ics_info_parse_idx(raw,length,&pos,rate,&shared))return 0;
         uint32_t mask=0;
         if(!get(raw,length,&pos,2,&mask)||mask==3u)return 0;
         parsed.ms_mask_present=mask;
@@ -247,6 +248,12 @@ static int apply_intensity(const SautiAacCpeData *cpe,unsigned rate,
  * (advanced only on success).  The band tables come from `rate` (a sampling_frequency_index, optionally with a layout, see sauti_aac_layout.h). */
 int sauti_aac_cpe_spectra(const SautiAacCpeData *parsed,unsigned rate,uint32_t *pns_stream,
                           float spectral[2][1024],SautiAacReason *reason){
+    return sauti_aac_cpe_spectra_pred(parsed,rate,pns_stream,spectral,NULL,reason);
+}
+/* The same with AAC Main prediction: `pred` (two states, or NULL) runs after M/S and correlated noise and before intensity, in the order of the standard (and FFmpeg).  The predictor
+ * states are advanced in place; the caller keeps the transaction atomic (works on a copy of its state). */
+int sauti_aac_cpe_spectra_pred(const SautiAacCpeData *parsed,unsigned rate,uint32_t *pns_stream,
+                               float spectral[2][1024],SautiAacPredState pred[2],SautiAacReason *reason){
     uint32_t stream=*pns_stream;
     for(unsigned ch=0;ch<2;ch++){
         const SautiAacLcMonoData *data=&parsed->channel[ch];
@@ -280,6 +287,13 @@ int sauti_aac_cpe_spectra(const SautiAacCpeData *parsed,unsigned rate,uint32_t *
         return pns_status;
     }
 #endif
+    if(pred){
+        for(unsigned ch=0;ch<2;ch++){
+            uint8_t noise[SAUTI_AAC_SF_BANDS];
+            for(unsigned b=0;b<SAUTI_AAC_SF_BANDS;b++)noise[b]=parsed->channel[ch].factors.codebook[0][b]==13u;
+            if(!sauti_aac_pred_apply_pns(&pred[ch],&parsed->channel[ch].ics,rate,spectral[ch],noise)){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;}
+        }
+    }
 #ifndef SAUTI_AAC_DIAG_SHORT_NO_INTENSITY
     const int intensity_ok=apply_intensity(parsed,rate,spectral[0],spectral[1]);
 #else

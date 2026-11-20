@@ -49,4 +49,6 @@ int sauti_aac_lc_sce_prefix_parse(const uint8_t *data, size_t length,
 int sauti_aac_lc_sce_prefix_parse_id(const uint8_t *data,size_t length,
                                      size_t *bit_offset,unsigned element_id,
                                      SautiAacScePrefix *out);
+/* The same for a packed index (sauti_aac_layout.h): with the Main flag the ics_info predictor_data is parsed (AAC Main). */
+int sauti_aac_lc_sce_prefix_parse_idx(const uint8_t *data,size_t length,size_t *bit_offset,unsigned element_id,unsigned idx,SautiAacScePrefix *out);
 #endif

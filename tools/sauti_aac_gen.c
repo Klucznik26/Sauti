@@ -14,6 +14,9 @@
  *   --short          random window sequences: EIGHT_SHORT with random grouping, LONG_START / LONG_STOP transitions
  *   --kbd            random window shape (sine / Kaiser-Bessel derived) per frame
  *   --quiet Q        lowers global_gain by Q steps (4 steps = 6 dB): the default levels are far above full scale (peak ~100), which clips in fixed-point decoders such as FDK; 36 keeps the peak below 1
+ *   --full-sfb       max_sfb always the full number of bands (constant across frames)
+ *   --pns-quiet      noise bands 20 octaves below the signal (the noise itself is negligible in the PCM; for tests of what PNS does to other tools)
+ *   --main           AAC Main (object type 1): random predictor_data (prediction_used flags, resets) in the long windows
  *   --level G        global_gain and every scalefactor kept within G..G+12 (3 octaves) instead of a random walk over ~10 octaves: a controlled level; 136 gives a peak of about 0.3 with the default amplitude
  *   --pns            one band in six becomes a perceptual-noise-substitution band (codebook 13); --pns-den N: one in N (1 = every band)
  *   --ms-all         M/S stereo with ms_mask_present = 2 (every band), implies --ms
@@ -22,6 +25,7 @@
 #include "sauti_aac_bands.h"
 #include "sauti_aac_layout.h"
 #include "sauti_aac_spectral.h"
+#include "sauti_aac_syntax.h"
 #include "sauti_aac_tables.h"
 #include <math.h>
 #include <stdio.h>
@@ -69,10 +73,11 @@ static void put_spectrum(Bw *w, unsigned book, const int *q, unsigned n) {      
 /* ---- channel stream ------------------------------------------------------------------------------------------------------------------------------------------------ */
 typedef struct {
     int q[1024];                                   /* natural layout: [window][line] (one window for long sequences) */
+    unsigned pred, pred_n, pred_reset, pred_group; uint8_t pred_used[41];            /* AAC Main predictor_data of the (shared) ics_info */
     unsigned seq, shape, max_sfb, groups, group_len[8];
     unsigned book[8][64]; int sf[8][64]; unsigned gain; int tns; unsigned tns_len, tns_order, tns_dir; int tns_coef[20];
 } Chan;
-typedef struct { unsigned frame, rate, channels, ms, msall, tns, pns, amp, shorts, kbd, quiet, level; const uint16_t *off, *soff; unsigned bands, sbands; } Cfg;
+typedef struct { unsigned frame, rate, channels, main, predmode, fullsfb, pnsquiet, ms, msall, tns, pns, amp, shorts, kbd, quiet, level; const uint16_t *off, *soff; unsigned bands, sbands; } Cfg;
 
 static unsigned g_prev_seq;                                                         /* window sequence of the previous frame (shared by both channels: common_window) */
 static void pick_sequence(const Cfg *c, unsigned *seq) {
@@ -104,7 +109,7 @@ static void make_channel(const Cfg *c, Chan *ch, unsigned seq, unsigned shape, u
                 }
             ch->book[g][b] = book_for_max(mx);
             if (c->pns && rr(0, (int)c->pns - 1) == 0) {                                              /* perceptual noise substitution: no spectral data, the band is filled with noise of the coded energy */
-                int nv = (int)ch->gain - 100 + rr(-8, 8); if (nv < last_nv - 60) nv = last_nv - 60; if (nv > last_nv + 60) nv = last_nv + 60;
+                int nv = (int)ch->gain - 100 + rr(-8, 8) - (c->pnsquiet ? 80 : 0); if (nv < last_nv - 60) nv = last_nv - 60; if (nv > last_nv + 60) nv = last_nv + 60;
                 for (w = first_window; w < first_window + group_len[g]; w++) for (i = lo; i < hi; i++) ch->q[(is_short ? w * ns : 0) + i] = 0;
                 ch->book[g][b] = 13u; ch->sf[g][b] = nv; last_nv = nv;
             } else
@@ -119,13 +124,27 @@ static void make_channel(const Cfg *c, Chan *ch, unsigned seq, unsigned shape, u
         for (i = 0; i < ch->tns_order; i++) ch->tns_coef[i] = rr(-3, 3);
     }
 }
+static void fill_pred(const Cfg *c, Chan *ch) {                                         /* random predictor_data for a long window of an AAC Main stream */
+    const unsigned limit = sauti_aac_pred_sfb_max(c->rate); unsigned i;
+    ch->pred_n = ch->max_sfb < limit ? ch->max_sfb : limit;
+    ch->pred = rr(0, 3) != 0; ch->pred_reset = ch->pred && rr(0, 3) == 0; ch->pred_group = (unsigned)rr(1, 30);
+    for (i = 0; i < ch->pred_n; i++) ch->pred_used[i] = rr(0, 3) != 0;
+    if (c->predmode == 1) ch->pred = 0;                                                  /* Main syntax, predictor_data_present = 0 */
+    if (c->predmode == 2) { ch->pred = 1; ch->pred_reset = 0; for (i = 0; i < ch->pred_n; i++) ch->pred_used[i] = 0; }     /* present, nothing used, no reset */
+    if (c->predmode == 3) { ch->pred = 1; ch->pred_reset = 0; for (i = 0; i < ch->pred_n; i++) ch->pred_used[i] = 1; }     /* everything used, no reset */
+    if (c->predmode == 4) { ch->pred = 1; ch->pred_reset = 1; for (i = 0; i < ch->pred_n; i++) ch->pred_used[i] = 1; }     /* everything used, with reset groups */
+}
 static void put_ics_info(Bw *w, const Chan *ch) {
     put(w, 0, 1); put(w, ch->seq, 2); put(w, ch->shape, 1);
     if (ch->seq == 2u) {
         unsigned g, k;
         put(w, ch->max_sfb, 4);
         { unsigned win = 0; for (g = 0; g < ch->groups; g++) for (k = 0; k < ch->group_len[g]; k++, win++) if (win > 0) put(w, k > 0 ? 1u : 0u, 1); }    /* window i+1 joins the group of window i */
-    } else { put(w, ch->max_sfb, 6); put(w, 0, 1); }                                    /* max_sfb, no predictor */
+    } else {
+        unsigned i;
+        put(w, ch->max_sfb, 6); put(w, ch->pred, 1);                                    /* max_sfb, predictor_data_present */
+        if (ch->pred) { put(w, ch->pred_reset, 1); if (ch->pred_reset) put(w, ch->pred_group, 5); for (i = 0; i < ch->pred_n; i++) put(w, ch->pred_used[i], 1); }
+    }
 }
 static void put_sections(Bw *w, const Chan *ch) {
     const unsigned bits = ch->seq == 2u ? 3u : 5u, esc = (1u << bits) - 1u; unsigned g, b;
@@ -202,6 +221,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--level") && a + 1 < argc) c.level = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--pns")) c.pns = 6;
         else if (!strcmp(argv[a], "--pns-den") && a + 1 < argc) c.pns = (unsigned)atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--main")) c.main = 1;
+        else if (!strcmp(argv[a], "--pns-quiet")) c.pnsquiet = 1;
+        else if (!strcmp(argv[a], "--full-sfb")) c.fullsfb = 1;
+        else if (!strcmp(argv[a], "--pred-mode") && a + 1 < argc) c.predmode = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--ms-all")) { c.ms = 1; c.msall = 1; }
         else if (!strcmp(argv[a], "--ms")) c.ms = 1;
         else if (!strcmp(argv[a], "--tns")) c.tns = 1;
@@ -214,22 +237,22 @@ int main(int argc, char **argv) {
     { const unsigned lay = c.frame == 960 ? SAUTI_AAC_LAYOUT_960 : SAUTI_AAC_LAYOUT_1024;
       if (!sauti_aac_band_offsets(SAUTI_AAC_IDX(c.rate, lay), 0, &c.off, &c.bands) || !sauti_aac_band_offsets(SAUTI_AAC_IDX(c.rate, lay), 1, &c.soff, &c.sbands)) { fprintf(stderr, "no band table for this frame length / rate\n"); return 2; } }
     /* AudioSpecificConfig: AOT 2, rate, channel config, frameLengthFlag, dependsOnCoreCoder 0, extensionFlag 0 */
-    memset(&asc, 0, sizeof asc); put(&asc, 2, 5); put(&asc, c.rate, 4); put(&asc, c.channels, 4); put(&asc, c.frame == 960 ? 1u : 0u, 1); put(&asc, 0, 1); put(&asc, 0, 1);
+    memset(&asc, 0, sizeof asc); put(&asc, c.main ? 1u : 2u, 5); put(&asc, c.rate, 4); put(&asc, c.channels, 4); put(&asc, c.frame == 960 ? 1u : 0u, 1); put(&asc, 0, 1); put(&asc, 0, 1);
     snprintf(path, sizeof path, "%s.asc", argv[1]); fa = fopen(path, "wb"); if (!fa) return 2; fwrite(asc.b, 1, (asc.n + 7) / 8, fa); fclose(fa);
     snprintf(path, sizeof path, "%s.aus", argv[1]); fb = fopen(path, "wb"); if (!fb) return 2;
     for (f = 0; f < frames; f++) {
         static Bw w; Chan ch[2]; size_t len; unsigned seq, shape, max_sfb, groups, group_len[8], k;
         memset(&w, 0, sizeof w);
-        pick_sequence(&c, &seq); shape = c.kbd ? (rnd() & 1u) : 0u;
+        pick_sequence(&c, &seq); if (getenv("SAUTI_GEN_DEBUG")) fprintf(stderr, "frame %u seq %u\n", f, seq); shape = c.kbd ? (rnd() & 1u) : 0u;
         if (seq == 2u) {
             unsigned win = 0; groups = 0;
             for (k = 0; k < 8; k++) { if (k == 0 || (rnd() % 3u) == 0) group_len[groups++] = 1; else group_len[groups - 1]++; win++; }
-            max_sfb = (c.sbands > 4 && (rnd() & 3u)) ? (unsigned)rr((int)c.sbands / 2, (int)c.sbands) : c.sbands; if (max_sfb > 15u) max_sfb = 15u; (void)win;
-        } else { groups = 1; group_len[0] = 1; max_sfb = (c.bands > 8 && (rnd() & 3u)) ? (unsigned)rr((int)c.bands / 2, (int)c.bands) : c.bands; }
-        if (c.channels == 1) { make_channel(&c, &ch[0], seq, shape, max_sfb, group_len, groups); put(&w, 0, 3); put(&w, 0, 4); put_channel(&w, &c, &ch[0], 1); }
+            max_sfb = (c.sbands > 4 && !c.fullsfb && (rnd() & 3u)) ? (unsigned)rr((int)c.sbands / 2, (int)c.sbands) : c.sbands; if (max_sfb > 15u) max_sfb = 15u; (void)win;
+        } else { groups = 1; group_len[0] = 1; max_sfb = (c.bands > 8 && !c.fullsfb && (rnd() & 3u)) ? (unsigned)rr((int)c.bands / 2, (int)c.bands) : c.bands; }
+        if (c.channels == 1) { make_channel(&c, &ch[0], seq, shape, max_sfb, group_len, groups); if (c.main && seq != 2u) fill_pred(&c, &ch[0]); put(&w, 0, 3); put(&w, 0, 4); put_channel(&w, &c, &ch[0], 1); }
         else {
             unsigned ms_mask = 0, b, g; uint8_t used[8][64] = { { 0 } };
-            make_channel(&c, &ch[0], seq, shape, max_sfb, group_len, groups); make_channel(&c, &ch[1], seq, shape, max_sfb, group_len, groups);
+            make_channel(&c, &ch[0], seq, shape, max_sfb, group_len, groups); make_channel(&c, &ch[1], seq, shape, max_sfb, group_len, groups); if (c.main && seq != 2u) fill_pred(&c, &ch[0]);
             if (c.ms) { ms_mask = c.msall ? 2u : (unsigned)rr(0, 2); for (g = 0; g < groups; g++) for (b = 0; b < max_sfb; b++) used[g][b] = (uint8_t)(ms_mask == 2 ? 1 : (ms_mask == 1 ? (rnd() & 1u) : 0u)); }
             put(&w, 1, 3); put(&w, 0, 4); put(&w, 1, 1);                                  /* ID_CPE, tag, common_window */
             put_ics_info(&w, &ch[0]); put(&w, ms_mask, 2);
