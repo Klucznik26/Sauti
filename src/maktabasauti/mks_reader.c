@@ -36,7 +36,8 @@ static int64_t fill(mks_reader_t *r, size_t need) {
     }
     while (r->len < need) {
         int64_t got = r->io.read(r->io.user, r->buf + r->len, r->cap - r->len);
-        if (got < 0) return r->len ? (int64_t)r->len : io_err(got);   /* mamy czesc danych: oddajemy je, blad wroci przy kolejnym wywolaniu */
+        if (got < 0) { r->io_err = io_err(got); return r->len ? (int64_t)r->len : r->io_err; }   /* mamy czesc danych: oddajemy je (read), peek zglasza blad */
+        r->io_err = 0;
         if (got == 0) break;                              /* koniec danych */
         if ((uint64_t)got > (uint64_t)(r->cap - r->len)) return MAKTABASAUTI_E_IO;   /* wejscie oddaje wiecej, niz zazadano: naruszenie kontraktu (bufor nie jest ruszany) */
         r->len += (size_t)got;
@@ -94,8 +95,10 @@ int64_t mks_reader_peek(mks_reader_t *r, void *dst, size_t n) {
         return (int64_t)n;
     }
     if (n > r->cap) return MAKTABASAUTI_E_INVALID_ARGUMENT;
+    r->io_err = 0;
     avail = fill(r, n);
     if (avail < 0) return avail;
+    if ((size_t)avail < n && r->io_err < 0) return r->io_err;   /* za malo danych, bo wejscie zglosilo blad (np. WOULD_BLOCK), a nie koniec: nie udajemy krotkiego pliku */
     if ((size_t)avail > n) avail = (int64_t)n;
     memcpy(dst, r->buf + r->pos, (size_t)avail);
     return avail;

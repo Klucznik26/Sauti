@@ -238,12 +238,18 @@ static void phase_random(Guard *g, const corpus_t *c, unsigned long iters) {
 }
 
 /* ---- faza 4: open() kodekow bezposrednio (host z buforem ochronnym jako "cale wejscie") ---- */
-typedef struct { const uint8_t *data; size_t n; long live, bad; } Fake;
+typedef struct { const uint8_t *data; size_t n, pos; long live, bad; int seekable; } Fake;
 static void *MAKTABASAUTI_CALL f_alloc(void *u, size_t n) { Fake *f = (Fake *)u; void *p = malloc(n ? n : 1); if (p) f->live++; return p; }
 static void *MAKTABASAUTI_CALL f_realloc(void *u, void *p, size_t n) { (void)u; return realloc(p, n); }
 static void MAKTABASAUTI_CALL f_free(void *u, void *p) { Fake *f = (Fake *)u; if (!p) { f->bad++; return; } f->live--; free(p); }
 static maktabasauti_result_t MAKTABASAUTI_CALL f_map(void *u, maktabasauti_reader_t *r, const uint8_t **d, size_t *n) { Fake *f = (Fake *)u; (void)r; *d = f->data; *n = f->n; return MAKTABASAUTI_OK; }
-static int64_t MAKTABASAUTI_CALL f_nope(void *u, maktabasauti_reader_t *r, void *b, size_t n) { (void)u; (void)r; (void)b; (void)n; return MAKTABASAUTI_E_IO; }
+/* czytnik nad buforem ochronnym: moduly strumieniowe czytaja przez peek/read/seek/tell/size/input_flags (jak w prawdziwym hoscie), takze po 1 bajcie od konca wejscia */
+static int64_t MAKTABASAUTI_CALL f_peek(void *u, maktabasauti_reader_t *r, void *b, size_t n) { Fake *f = (Fake *)u; size_t left = f->n - f->pos; (void)r; if (n > 16384u) return MAKTABASAUTI_E_INVALID_ARGUMENT; if (n > left) n = left; if (n) memcpy(b, f->data + f->pos, n); return (int64_t)n; }
+static int64_t MAKTABASAUTI_CALL f_read(void *u, maktabasauti_reader_t *r, void *b, size_t n) { Fake *f = (Fake *)u; size_t left = f->n - f->pos; (void)r; if (n > left) n = left; if (n) memcpy(b, f->data + f->pos, n); f->pos += n; return (int64_t)n; }
+static int64_t MAKTABASAUTI_CALL f_seek(void *u, maktabasauti_reader_t *r, int64_t off, int wh) { Fake *f = (Fake *)u; int64_t base = wh == 0 ? 0 : wh == 1 ? (int64_t)f->pos : (int64_t)f->n; (void)r; if (wh < 0 || wh > 2 || base + off < 0 || (uint64_t)(base + off) > (uint64_t)f->n) return MAKTABASAUTI_E_OUT_OF_RANGE; f->pos = (size_t)(base + off); return base + off; }
+static int64_t MAKTABASAUTI_CALL f_tell(void *u, maktabasauti_reader_t *r) { (void)r; return (int64_t)((Fake *)u)->pos; }
+static int64_t MAKTABASAUTI_CALL f_size(void *u, maktabasauti_reader_t *r) { (void)r; return (int64_t)((Fake *)u)->n; }
+static uint32_t MAKTABASAUTI_CALL f_flags(void *u, maktabasauti_reader_t *r) { Fake *f = (Fake *)u; (void)r; return (f->seekable ? MAKTABASAUTI_INPUT_SEEKABLE : 0u) | MAKTABASAUTI_INPUT_SIZE_KNOWN; }
 static const char *MAKTABASAUTI_CALL f_opt(void *u, const char *k) { (void)u; (void)k; return NULL; }
 static void MAKTABASAUTI_CALL f_log(void *u, int l, const char *m) { (void)u; (void)l; (void)m; }
 
@@ -254,9 +260,9 @@ static void open_one(Guard *g, size_t ci, const char *item, const char *mode, co
     Fake fk; maktabasauti_host_t host; maktabasauti_stream_info_t info; void *state = NULL;
     const uint8_t *d = guard_set(g, src, n, (int)(g_open_calls & 1u));
     double t0 = now_s();
-    memset(&fk, 0, sizeof fk); fk.data = d; fk.n = n;
+    memset(&fk, 0, sizeof fk); fk.data = d; fk.n = n; fk.seekable = (int)(g_open_calls & 2u) == 0;     /* co druga para otwarc: wejscie nieprzewijalne */
     memset(&host, 0, sizeof host); host.struct_size = sizeof host; host.user = &fk;
-    host.alloc = f_alloc; host.realloc = f_realloc; host.free = f_free; host.read = f_nope; host.peek = f_nope; host.map = f_map; host.option = f_opt; host.log = f_log;
+    host.alloc = f_alloc; host.realloc = f_realloc; host.free = f_free; host.read = f_read; host.peek = f_peek; host.seek = f_seek; host.tell = f_tell; host.size = f_size; host.input_flags = f_flags; host.map = f_map; host.option = f_opt; host.log = f_log;
     memset(&info, 0, sizeof info); info.struct_size = sizeof info;
     g_codec = c->name; g_item = item; g_mode = mode; g_len = n; g_open_calls++;
     poison_stack((unsigned char)(0x80u + (g_open_calls & 0x7fu)));

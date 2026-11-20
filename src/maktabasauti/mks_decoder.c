@@ -70,6 +70,11 @@ static maktabasauti_result_t MAKTABASAUTI_CALL h_map(void *u, maktabasauti_reade
     if (r != &d->reader || !data || !size) return MAKTABASAUTI_E_INVALID_ARGUMENT;
     return mks_reader_map(r, data, size);
 }
+static uint32_t MAKTABASAUTI_CALL h_input_flags(void *u, maktabasauti_reader_t *r) {
+    maktabasauti_decoder_t *d = (maktabasauti_decoder_t *)u;
+    if (r != &d->reader) return 0u;
+    return ((d->reader.mem || d->io.seek) ? MAKTABASAUTI_INPUT_SEEKABLE : 0u) | (mks_reader_size(r) >= 0 ? MAKTABASAUTI_INPUT_SIZE_KNOWN : 0u);
+}
 static const char *MAKTABASAUTI_CALL h_option(void *u, const char *key) {
     maktabasauti_decoder_t *d = (maktabasauti_decoder_t *)u;
     size_t i;
@@ -142,7 +147,6 @@ maktabasauti_result_t MAKTABASAUTI_CALL maktabasauti_decoder_open(const maktabas
     int64_t pn;
     candidate_t *cands;
     size_t ncands = 0, i, attempts = 0;
-    const uint8_t *full = NULL; size_t full_size = 0; int have_full = 0;
     const char *forced = NULL, *hint = NULL;
     uint32_t flags = 0;
     int skipped_seekable = 0;
@@ -191,7 +195,7 @@ maktabasauti_result_t MAKTABASAUTI_CALL maktabasauti_decoder_open(const maktabas
     d->host.user = d;
     d->host.alloc = h_alloc; d->host.realloc = h_realloc; d->host.free = h_free;
     d->host.read = h_read; d->host.peek = h_peek; d->host.seek = h_seek; d->host.tell = h_tell; d->host.size = h_size;
-    d->host.map = h_map; d->host.option = h_option; d->host.log = h_log;
+    d->host.map = h_map; d->host.option = h_option; d->host.log = h_log; d->host.input_flags = h_input_flags;
 
     prefix = (uint8_t *)mks_alloc(&d->alloc, MKS_PROBE_BYTES);
     cands = reg->count ? (candidate_t *)mks_alloc(&d->alloc, reg->count * sizeof *cands) : NULL;
@@ -207,20 +211,9 @@ maktabasauti_result_t MAKTABASAUTI_CALL maktabasauti_decoder_open(const maktabas
         size_t at;
         if (forced && forced[0] && !name_matches(forced, c->name)) continue;
         if ((c->flags & MAKTABASAUTI_CODEC_FLAG_NEEDS_SEEKABLE_INPUT) && !d->io.seek) { skipped_seekable = 1; continue; }
-        if (c->flags & MAKTABASAUTI_CODEC_FLAG_NEEDS_FULL_BUFFER) {
-            if (!have_full) {
-                r = mks_reader_map(&d->reader, &full, &full_size);
-                if (r != MAKTABASAUTI_OK) {                          /* nie da sie wczytac calosci: ten rodzaj kodekow odpada, reszta moze sie udac */
-                    if (r == MAKTABASAUTI_E_IO || r == MAKTABASAUTI_E_WOULD_BLOCK) goto fail;
-                    best_err = r == MAKTABASAUTI_E_NO_MEMORY ? MAKTABASAUTI_E_NO_MEMORY : best_err;
-                    continue;
-                }
-                have_full = 1;
-            }
-            score = c->probe(c, full, full_size, hint);
-        } else {
-            score = c->probe(c, prefix, (size_t)pn, hint);
-        }
+        /* WSZYSTKIE sondy dostaja ograniczony prefiks (<= MKS_PROBE_BYTES): rozpoznawanie nie wczytuje pliku.  Kodek z NEEDS_FULL_BUFFER dostaje cale wejscie dopiero w open()
+         * przez host->map (wybranego kandydata), z tym samym buforem czytnika co prefiks. */
+        score = c->probe(c, prefix, (size_t)pn, hint);
         if (forced && forced[0] && score <= 0) score = 1;              /* wymuszony kodek otwieramy nawet bez rozpoznania */
         if (score <= 0) continue;
         if (score > 100) score = 100;
@@ -273,6 +266,9 @@ maktabasauti_result_t MAKTABASAUTI_CALL maktabasauti_decoder_open(const maktabas
 fail:
     mks_free(&d->alloc, prefix);
     mks_free(&d->alloc, cands);
+    /* E_WOULD_BLOCK przy otwarciu: wejscie zostaje u wywolujacego, a gdy sie przewija, wracamy na poczatek, zeby ponowienie open() widzialo komplet danych.  Wejscie nieprzewijalne
+     * nie moze tego zagwarantowac: bajty juz z niego pobrane do prefiksu przepadaja (patrz docs/MAKTABASAUTI_API.md: zrodla na zywo daja pierwsze KiB przed open()). */
+    if (r == MAKTABASAUTI_E_WOULD_BLOCK && d->io.seek) (void)d->io.seek(d->io.user, 0, 0);
     release_partial(d);                                  /* bez io.close: wejscie zostaje u wywolujacego */
     return r;
 }

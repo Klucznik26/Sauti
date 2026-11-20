@@ -456,14 +456,25 @@ static void test_errors_format_change_would_block(void) {
     maktabasauti_decoder_close(d);
     /* WOULD_BLOCK: wejscie raz bez danych.  (a) na granicy porcji odczytu: blad jest WIDOCZNY dla wywolujacego, stan zachowany, ponowienie dziala, zaden bajt nie ginie.
      * (b) w srodku ramki: kodek oddaje cale ramki, ktore ma, a niepelna zostaje u niego (carry); blad wtedy nie jest widoczny, a dane sa kompletne i poprawne.
-     * Gdy brak danych trafia w okno probkowania przy otwarciu, czytnik oddaje dane, ktore ma (to zamierzone). */
-    {   static uint8_t wb[TST_HDR + 4 * 3000];
+     * (c) brak danych w oknie probkowania przy otwarciu (pierwsze MKS_PROBE_BYTES): open zwraca E_WOULD_BLOCK (wejscie zostaje u wywolujacego), ponowienie dziala (wczesniej czytnik
+     *     oddawal niepelny prefiks, a sondy oceniały obciete dane).  Punkty (a) i (b) lezą za oknem sond. */
+    {   static uint8_t wb[TST_HDR + 4 * 9000];
         size_t variant;
-        n = tst_make(wb, 'A', 8000, 2, 3000, 0);
+        n = tst_make(wb, 'A', 8000, 2, 9000, 0);
+        {   /* (c) */
+            TIO t2; maktabasauti_decoder_t *d2 = NULL; int tries = 0; maktabasauti_result_t r2;
+            io = tio_make(&t2, wb, n, 1, 1); t2.block_at = TST_HDR + 100;                       /* w oknie sond */
+            p = params(&io, reg);
+            r2 = maktabasauti_decoder_open(&p, &d2);
+            assert(r2 == MAKTABASAUTI_E_WOULD_BLOCK && !d2 && t2.closes == 0);
+            while (r2 == MAKTABASAUTI_E_WOULD_BLOCK && ++tries < 5) r2 = maktabasauti_decoder_open(&p, &d2);
+            assert(r2 == MAKTABASAUTI_OK && d2);
+            maktabasauti_decoder_close(d2);
+        }
         for (variant = 0; variant < 2; variant++) {
             size_t total = 0, blocks = 0, f;
             io = tio_make(&t, wb, n, 1, 1);
-            t.block_at = variant == 0 ? TST_HDR + 256 * 30 : TST_HDR + 4 * 2000 + 2;
+            t.block_at = variant == 0 ? TST_HDR + 256 * 100 : TST_HDR + 4 * 5000 + 2;
             p = params(&io, reg);
             assert(maktabasauti_decoder_open(&p, &d) == MAKTABASAUTI_OK);
             for (;;) {
@@ -474,7 +485,7 @@ static void test_errors_format_change_would_block(void) {
                 for (f = 0; f < got; f++) assert(pcm[2 * f] == tst_sample(total + f, 0));
                 total += got;
             }
-            assert(total == 3000);
+            assert(total == 9000);
             assert(variant == 0 ? blocks == 1 : blocks <= 1);
             maktabasauti_decoder_close(d);
         }
@@ -539,7 +550,7 @@ static void test_legacy_bridge(void) {
             if (strcmp(ci.module, "maktabasauti_flac") == 0) flac++;
             if (strcmp(ci.module, "maktabasauti_dvs") == 0) dvs++;
         }
-        assert(aac == 8 && flac == 1 && dvs == 3);
+        assert(aac == 4 && flac == 1 && dvs == 3);               /* AAC: ADTS (modul strumieniowy, jedno wejscie), MP4, LOAS, ADIF */
         assert(maktabasauti_registry_codec_info(reg, 9999, &ci) == MAKTABASAUTI_E_OUT_OF_RANGE);
         assert(maktabasauti_registry_add((maktabasauti_registry_t *)reg, &tst_codec) == MAKTABASAUTI_E_INVALID_ARGUMENT);    /* domyslny jest niezmienny */
     }

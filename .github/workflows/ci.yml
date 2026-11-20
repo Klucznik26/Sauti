@@ -31,6 +31,8 @@ jobs:
         run: make test-maktabasauti-hostile-io
       - name: "Third-party hardening regressions (stb_vorbis, minimp3)"
         run: make test-third-party-hardening
+      - name: "AAC ADTS streaming (non-seekable input, partial reads, WOULD_BLOCK at every point, truncated/corrupt streams, bounded memory, exact seek)"
+        run: make test-maktabasauti-aac-stream
       - name: "MIDI seek work bound (silence skipping, budget, state kept after failure)"
         run: make test-midi-seek-bounds
 

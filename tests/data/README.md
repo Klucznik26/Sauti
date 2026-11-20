@@ -6,3 +6,5 @@ Syntetyczne fixtury strumieni AAC dla testów (2 s, ton + szum z `numpy default_
 `probe_real.*` — małe (0,3 s, 22,05 kHz, dwa tony z generatora FFmpeg `lavfi sine`; **nie są to dane użytkownika**) prawdziwe pliki pozostałych formatów: FLAC, Ogg Vorbis,
 MP3, WAV, AIFF, VOC, Opus, ALAC/M4A. Wygenerowane przez `make_probe_fixtures.sh` (jednorazowo; w repozytorium są wyniki). Używane przez audyt sond
 (`tests/test_maktabasauti_probe_audit.c`, cel `make test-maktabasauti-probe-audit`) i test równoległego rozpoznawania (`scripts/test_maktabasauti_threads.sh`).
+
+`lc_mono.aac` AAC-LC mono 64 kb/s · `he1_mono.aac` HE-AAC v1 mono (rdzeń mono + SBR, bez PS), dodane przy etapie 2 (strumieniowy ADTS), te same ziarno i generator (`make_fixtures.sh`).

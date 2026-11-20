@@ -73,9 +73,11 @@ Zmiany wyłącznie w kodzie bibliotek zewnętrznych są opisane osobno w `third_
 
 ## 4. Pozostałe ryzyka
 
-- **R1: wczytanie całości dla sond.** Kodeki z `NEEDS_FULL_BUFFER` dostają przy sondowaniu cały plik, więc każde otwarcie rejestrem domyślnym wczytuje całe wejście do pamięci
-  (limit 1 GiB, wzrost tylko o faktycznie odczytane dane), także dla danych, których żaden kodek nie rozpozna. Sama sonda jest O(1), ale nie da się tego zmienić bez zmiany
-  semantyki starych sond (część wymaga rozmiaru: ADTS „bez ramek częściowych”, LATM, VOC). Usunie to etap 2 (moduły strumieniowe z sondą po prefiksie 4 KiB).
+- **R1 (ROZWIĄZANE 2026-11-20): wczytanie całości dla sond.** Wszystkie sondy dostają teraz ograniczony prefiks (16 KiB = okno detekcji minimp3 = pojemność czytnika), także kodeki
+  `NEEDS_FULL_BUFFER`; plik jest mapowany do pamięci dopiero w `open()` wybranego legacy kodeka (`host->map`), a bufor czytnika z prefiksem jest ponownie używany. Nieznany plik nie jest już
+  wczytywany. Różnica semantyczna względem starych sond (przyjęta, opisana): sondy VOC (`rozmiar naglowka <= n`) i MP3 (okno detekcji skrócone przez znaczniki na końcu pliku) oceniają
+  prefiks, nie cały plik; dotyczy plików, w których nagłówek VOC ma > 16 KiB albo plik MP3 jest o mniej niż rozmiar znaczników dłuższy od okna. Adaptery legacy pozostają oznaczone
+  `NEEDS_FULL_BUFFER` (jawne pełne buforowanie w `open`). Strumieniowy moduł AAC ADTS nie mapuje niczego (`docs/MAKTABASAUTI_API.md` §14).
 - **R2 (ZABEZPIECZONE 2026-11-20, docelowe rozwiązanie otwarte): `seek` MIDI był liniowy** w liczbie ramek (uszkodzony plik mógł deklarować godziny). Teraz (`sauti_decoder_midi.c`):
   (1) cisza jest pomijana dokładnie (licznik przeskakuje do ramki najbliższego zdarzenia; wynik bit w bit jak przy symulacji ramka po ramce, test porównuje próbki),
   (2) przewijanie nie liczy próbek (bez `sin`, ta sama faza), (3) praca przy grających głosach ma budżet 2^30 jednostek (16 na ramkę + 1 na głos; gęsty 5-minutowy utwór ≈ 3,5·10^8, czyli się mieści);

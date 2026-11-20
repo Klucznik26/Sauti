@@ -2142,7 +2142,7 @@ test-maktabasauti-headers:
 
 # ---- MaktabaSauti: rdzen (src/maktabasauti) + opakowania starszych dekoderow; docs/MAKTABASAUTI_API.md ----
 MKS_CORE_SRC := $(filter-out src/maktabasauti/mks_nolegacy.c,$(wildcard src/maktabasauti/*.c))
-MKS_LEGACY_SRC := src/decoders/modern/sauti_decoder_wav.c src/decoders/retro/pc/sauti_decoder_voc.c src/decoders/modern/sauti_decoder_aiff.c src/decoders/modern/sauti_decoder_vorbis.c \
+MKS_LEGACY_SRC := src/decoders/modern/aac/maktabasauti_aac_adts.c src/decoders/modern/sauti_decoder_wav.c src/decoders/retro/pc/sauti_decoder_voc.c src/decoders/modern/sauti_decoder_aiff.c src/decoders/modern/sauti_decoder_vorbis.c \
                   src/decoders/modern/sauti_decoder_midi.c src/decoders/modern/sauti_decoder_flac.c src/decoders/modern/sauti_decoder_mp3.c src/decoders/retro/atari/sauti_decoder_avr.c \
                   src/decoders/retro/atari/sauti_decoder_dvsm.c src/decoders/retro/atari/sauti_decoder_dtm.c src/decoders/retro/atari/sauti_decoder_ym.c src/sauti_decoder.c
 MKS_DEPS = $(sort $(MKS_CORE_SRC) $(MKS_LEGACY_SRC) $(AAC_PLAYER_SRC) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_ASM))
@@ -2171,7 +2171,7 @@ $(OBJDIR)/test_maktabasauti_threads_tsan: tests/test_maktabasauti_threads.c test
 # audyt sond (probe) i open() na dowolnych danych: bufory o dokladnym rozmiarze ze stronami ochronnymi, tylko do odczytu, zasmiecany stos (niezainicjowane zmienne);
 # trzy budowy: ASan+UBSan, zwykla -O2 z -ftrivial-auto-var-init=pattern (zmienne automatyczne wypelniane wzorcem) oraz -O0 bez sanitizerow
 MKS_AUDIT_EXTRA := src/decoders/modern/sauti_decoder_opus.c src/decoders/modern/sauti_decoder_ffmpeg.c
-MKS_AUDIT_FIXTURES := tests/data/lc.aac tests/data/he1.aac tests/data/he2.aac tests/data/he1.m4a tests/data/he1.loas tests/data/he1.adif tests/data/m51.aac $(wildcard tests/data/probe_real.*)
+MKS_AUDIT_FIXTURES := tests/data/lc.aac tests/data/lc_mono.aac tests/data/he1.aac tests/data/he1_mono.aac tests/data/he2.aac tests/data/he1.m4a tests/data/he1.loas tests/data/he1.adif tests/data/m51.aac $(wildcard tests/data/probe_real.*)
 $(OBJDIR)/test_maktabasauti_probe_audit_asan: tests/test_maktabasauti_probe_audit.c tests/mks_probe_corpus.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -Itests -o $@ tests/test_maktabasauti_probe_audit.c $(MKS_DEPS) $(MKS_AUDIT_EXTRA) -lm -lpthread -no-pie
 $(OBJDIR)/test_maktabasauti_probe_audit_pattern: tests/test_maktabasauti_probe_audit.c tests/mks_probe_corpus.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
@@ -2203,6 +2203,12 @@ $(OBJDIR)/test_midi_seek_bounds: tests/test_midi_seek_bounds.c $(MKS_DEPS) $(MKS
 .PHONY: test-midi-seek-bounds
 test-midi-seek-bounds: $(OBJDIR)/test_midi_seek_bounds
 	./$(OBJDIR)/test_midi_seek_bounds
+# strumieniowe AAC ADTS (etap 2): wejscia nieprzewijalne, czesciowe odczyty, WOULD_BLOCK, urwane/uszkodzone strumienie, pamiec niezalezna od dlugosci, seek dokladny
+$(OBJDIR)/test_maktabasauti_aac_stream: tests/test_maktabasauti_aac_stream.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_aac_stream.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-maktabasauti-aac-stream
+test-maktabasauti-aac-stream: $(OBJDIR)/test_maktabasauti_aac_stream
+	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_aac_stream tests/data
 .PHONY: test-maktabasauti-probe-audit
 test-maktabasauti-probe-audit: $(OBJDIR)/test_maktabasauti_probe_audit_asan $(OBJDIR)/test_maktabasauti_probe_audit_pattern $(OBJDIR)/test_maktabasauti_probe_audit_plain
 	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_probe_audit_asan $(MKS_AUDIT_FIXTURES)
@@ -2219,7 +2225,7 @@ $(OBJDIR)/test_maktabasauti_coldstart_tsan: tests/test_maktabasauti_coldstart.c 
 test-maktabasauti-core: check-maktabasauti-c99 $(OBJDIR)/test_maktabasauti_core
 	./$(OBJDIR)/test_maktabasauti_core
 test-maktabasauti-regression: $(OBJDIR)/test_maktabasauti_regression
-	./$(OBJDIR)/test_maktabasauti_regression tests/data/lc.aac tests/data/he1.aac tests/data/he2.aac tests/data/he1.m4a tests/data/he1.loas tests/data/he1.adif tests/data/m51.aac
+	./$(OBJDIR)/test_maktabasauti_regression tests/data/lc.aac tests/data/lc_mono.aac tests/data/he1_mono.aac tests/data/he1.aac tests/data/he2.aac tests/data/he1.m4a tests/data/he1.loas tests/data/he1.adif tests/data/m51.aac
 
 # rdzen bez opakowan starszych dekoderow: przenosna budowa (bez NASM, bez plikow starszych dekoderow), C99 pedantic; do CI na Windows/macOS/BSD/ARM64
 .PHONY: test-maktabasauti-core-portable

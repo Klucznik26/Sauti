@@ -31,4 +31,14 @@ while len(bits)%8: bits+='0'
 bits+='00000000'
 open('he1.adif','wb').write(b'ADIF'+int(bits,2).to_bytes(len(bits)//8,'big')+b''.join(blocks))
 PY
+# mono: AAC-LC mono i HE-AAC v1 mono (rdzen mono + SBR, bez PS), dodane przy etapie 2 (strumieniowy ADTS); osobne wejscie mono, to samo ziarno
+python3 -I - "$W/in_mono.wav" <<'PY'
+import sys,wave
+import numpy as np
+sr=48000; t=np.arange(sr*2)/sr; rng=np.random.default_rng(3)
+x=0.25*np.sin(2*np.pi*200*t)+0.03*rng.standard_normal(len(t))
+w=wave.open(sys.argv[1],'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes((np.clip(x,-1,1)*32767).astype('<i2').tobytes()); w.close()
+PY
+"$FDK" -p 2  -b 64000 -f 2 -o lc_mono.aac  "$W/in_mono.wav" >/dev/null 2>&1
+"$FDK" -p 5  -b 32000 -f 2 -o he1_mono.aac "$W/in_mono.wav" >/dev/null 2>&1
 ls -l *.aac *.m4a *.loas *.adif | awk '{print $5,$9}'

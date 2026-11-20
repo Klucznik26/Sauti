@@ -37,6 +37,7 @@ struct maktabasauti_reader {
     uint8_t *mem;                    /* tryb "cale wejscie w pamieci" (mks_reader_map): wtedy czytamy stad */
     size_t mem_size;
     size_t mem_pos;
+    int64_t io_err;                  /* ostatni blad z io.read (<0), zerowany po udanym odczycie: peek zglasza go, gdy nie moze spelnic zadania (WOULD_BLOCK a koniec danych) */
 };
 typedef struct maktabasauti_reader mks_reader_t;
 maktabasauti_result_t mks_reader_init(mks_reader_t *r, const mks_alloc_t *alloc, const maktabasauti_io_t *io);
@@ -49,7 +50,7 @@ int64_t mks_reader_size(const mks_reader_t *r);
 /* wczytuje cale wejscie (od jego poczatku) do pamieci i od tej pory czytnik obsluguje je z pamieci; limit MKS_MAX_FULL_BUFFER */
 maktabasauti_result_t mks_reader_map(mks_reader_t *r, const uint8_t **data, size_t *size);
 #define MKS_READER_BUFFER 16384u
-#define MKS_PROBE_BYTES 4096u
+#define MKS_PROBE_BYTES 16384u      /* prefiks dla sond: rowny oknu detekcji minimp3 i pojemnosci czytnika; sondy NIGDY nie dostaja calego pliku (R1) */
 #define MKS_MAX_FULL_BUFFER ((size_t)1 << 30)
 #define MKS_MAP_INITIAL_MAX ((size_t)64 << 20)   /* poczatkowa pojemnosc bufora calego wejscia: dalej rosnie tylko o faktycznie odczytane dane */
 

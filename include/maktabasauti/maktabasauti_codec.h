@@ -43,7 +43,14 @@ typedef struct maktabasauti_host {
     const char *(MAKTABASAUTI_CALL *option)(void *user, const char *key);
     /* log (level jak MAKTABASAUTI_LOG_*) */
     void (MAKTABASAUTI_CALL *log)(void *user, int level, const char *message);
+    /* DODANE 2026-11-20 (etap 2, streaming; na koncu: starsze moduly nie znaja pola, sprawdzaja host->struct_size): cechy wejscia, MAKTABASAUTI_INPUT_* */
+    uint32_t (MAKTABASAUTI_CALL *input_flags)(void *user, maktabasauti_reader_t *reader);
 } maktabasauti_host_t;
+
+enum {                                                  /* wynik host->input_flags */
+    MAKTABASAUTI_INPUT_SEEKABLE = 1u << 0,              /* wejscie da sie przewinac (seek dziala, takze do tylu poza oknem bufora) */
+    MAKTABASAUTI_INPUT_SIZE_KNOWN = 1u << 1             /* host->size zwraca rozmiar */
+};
 
 enum {                                                  /* maktabasauti_codec_t.flags */
     MAKTABASAUTI_CODEC_FLAG_NEEDS_SEEKABLE_INPUT = 1u << 0,   /* otwarcie wymaga seek (np. MP4 z moov na koncu); dla wejsc nieprzewijalnych host zwroci E_NOT_SEEKABLE */
@@ -54,8 +61,9 @@ enum {                                                  /* maktabasauti_codec_t.
     MAKTABASAUTI_CODEC_FLAG_NEEDS_FULL_BUFFER = 1u << 5       /* dla opakowanych starszych dekoderow: wymaga calego wejscia w pamieci (host->map); NIE jest strumieniowy */
 };
 
-/* probe: ocena rozpoznania po prefiksie danych (host daje do 4096 bajtow od poczatku wejscia; `n` < 4096 oznacza, ze to caly material; dla kodeka z flaga
- * NEEDS_FULL_BUFFER `prefix` to CALE wejscie).  `self` to opis kodeka (pozwala jednej funkcji obslugiwac wiele kodekow przez `user_data`).  Zwraca 0 = to nie moj format,
+/* probe: ocena rozpoznania po prefiksie danych (host daje do 16384 bajtow od poczatku wejscia; `n` < 16384 oznacza, ze to caly material).  Sonda NIGDY nie dostaje calego pliku
+ * (od 2026-11-20; wczesniej kodeki z NEEDS_FULL_BUFFER dostawaly cale wejscie, co wymuszalo wczytanie pliku przy kazdym rozpoznawaniu); flaga NEEDS_FULL_BUFFER oznacza tylko,
+ * ze open() wola host->map.  `self` to opis kodeka (pozwala jednej funkcji obslugiwac wiele kodekow przez `user_data`).  Zwraca 0 = to nie moj format,
  * 1..100 = pewnosc (100 = nie ma watpliwosci).  Wygrywa najwyzsza pewnosc; przy remisie kolejnosc w rejestrze.  name_hint moze byc NULL.  Bez alokacji i bez stanu. */
 struct maktabasauti_codec;
 typedef int32_t (MAKTABASAUTI_CALL *maktabasauti_codec_probe_fn)(const struct maktabasauti_codec *self, const uint8_t *prefix, size_t n, const char *name_hint);

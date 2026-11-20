@@ -136,11 +136,6 @@ static void MAKTABASAUTI_CALL legacy_close(void *state) {
 LEGACY(wav,    sauti_decoder_wav_ops,               "wav-pcm",                      "RIFF/WAVE PCM",                        "maktabasauti_legacy", "pcm",    "wav",   "",         1, 0u);
 LEGACY(voc,    sauti_decoder_voc_ops,               "creative-voc-pcm",             "Creative VOC PCM",                     "maktabasauti_legacy", "pcm",    "voc",   "",         1, 0u);
 LEGACY(aiff,   sauti_decoder_aiff_ops,              "aiff-pcm",                     "AIFF PCM",                             "maktabasauti_legacy", "pcm",    "aiff",  "",         1, 0u);
-LEGACY(aac,    sauti_decoder_aac_native_ops,        "aac-lc-native-adts",           "AAC-LC stereo, ADTS",                  "maktabasauti_aac",    "aac",    "adts",  "LC",       0, 0u);
-LEGACY(aacm,   sauti_decoder_aac_mono_native_ops,   "aac-lc-native-mono-adts",      "AAC-LC mono, ADTS",                    "maktabasauti_aac",    "aac",    "adts",  "LC",       0, 0u);
-LEGACY(aacx,   sauti_decoder_aac_multi_native_ops,  "aac-lc-native-multi-adts",     "AAC-LC multichannel, ADTS",            "maktabasauti_aac",    "aac",    "adts",  "LC",       0, 0u);
-LEGACY(aache,  sauti_decoder_aac_he_native_ops,     "aac-he-native-adts",           "HE-AAC v1/v2 mono core, ADTS",         "maktabasauti_aac",    "aac",    "adts",  "HE-AAC",   0, 0u);
-LEGACY(aachc,  sauti_decoder_aac_he_cpe_native_ops, "aac-he-cpe-native-adts",       "HE-AAC v1 stereo core, ADTS",          "maktabasauti_aac",    "aac",    "adts",  "HE-AAC",   0, 0u);
 LEGACY(aacmp4, sauti_decoder_aac_mp4_native_ops,    "aac-native-mp4",               "AAC in MP4/M4A/MOV (also fragmented)", "maktabasauti_aac",    "aac",    "mp4",   "",         0, 0u);
 LEGACY(aaclatm,sauti_decoder_aac_latm_native_ops,   "aac-native-latm",              "AAC in LOAS/LATM",                     "maktabasauti_aac",    "aac",    "loas",  "",         0, 0u);
 LEGACY(aacadif,sauti_decoder_aac_adif_native_ops,   "aac-native-adif",              "AAC in ADIF",                          "maktabasauti_aac",    "aac",    "adif",  "",         0, 0u);
@@ -153,8 +148,9 @@ LEGACY(dtm,    sauti_decoder_dtm_ops,               "atari-falcon-digital-tracke
 LEGACY(ym,     sauti_decoder_ym_ops,                "atari-ym2149-experimental",    "Atari YM2149 music (experimental)",    "maktabasauti_legacy", "ym",     "ym",    "",         0, MAKTABASAUTI_CODEC_FLAG_EXPERIMENTAL);
 LEGACY(mp3,    sauti_decoder_mp3_ops,               "mp3-minimp3",                  "MPEG audio layer III",                 "maktabasauti_legacy", "mp3",    "mp3",   "",         0, 0u);
 
+extern const maktabasauti_codec_t maktabasauti_aac_adts_desc;
 static const maktabasauti_codec_t *const legacy_ptrs[] = {
-    &codec_wav, &codec_voc, &codec_aiff, &codec_aac, &codec_aacm, &codec_aacx, &codec_aache, &codec_aachc, &codec_aacmp4, &codec_aaclatm, &codec_aacadif,
+    &codec_wav, &codec_voc, &codec_aiff, &maktabasauti_aac_adts_desc /* ADTS: modul strumieniowy (src/decoders/modern/aac/maktabasauti_aac_adts.c) */, &codec_aacmp4, &codec_aaclatm, &codec_aacadif,
     &codec_vorbis, &codec_midi, &codec_flac, &codec_avr, &codec_dvsm, &codec_dtm, &codec_ym, &codec_mp3
 };
 

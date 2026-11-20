@@ -135,4 +135,18 @@ Pełny raport: `docs/AUDYT_SOND.md`. Zasady, które rdzeń i moduły muszą spe�
 
 **Wejście (`maktabasauti_io_t`)** — rdzeń nie ufa wartościom zwracanym przez callbacki użytkownika: `read` zwracający więcej niż zażądano daje `E_IO` (bez zapisu poza buforem), kod błędu spoza `E_*` (np. `INT64_MIN`) jest normalizowany do `E_IO` (wcześniej po obcięciu do `int` mógł dać `OK`), `size` jest tylko wskazówką (początkowy bufor całego wejścia ≤ 64 MiB, dalej rośnie wyłącznie o faktycznie odczytane dane, twardy limit 1 GiB), `seek` z dowolnym `offset`/`whence` nie powoduje przepełnienia ze znakiem. Wejście, które nigdy nie zgłasza końca danych, kończy się `E_NO_MEMORY` po 1 GiB przy kodekach wymagających całości (strumieniowe moduły czytają dalej, tylko ile potrzebują).
 
-**Znane, opisane ryzyka:** (R1) rejestr domyślny wczytuje CAŁE wejście, żeby uruchomić sondy starych dekoderów, także dla nieznanych danych; usunie to etap 2 (moduły strumieniowe z sondą po prefiksie); (R2) `seek` MIDI ma ograniczoną pracę (cisza pomijana, budżet dla grających głosów, `E_NOT_SEEKABLE` po przekroczeniu), docelowo punkty kontrolne; pozostałe w `docs/AUDYT_SOND.md`.
+**Znane, opisane ryzyka:** (R1, rozwiązane 2026-11-20) sondy dostają prefiks 16 KiB, całość mapuje dopiero `open()` legacy kodeka; (R2) `seek` MIDI ma ograniczoną pracę (cisza pomijana, budżet dla grających głosów, `E_NOT_SEEKABLE` po przekroczeniu), docelowo punkty kontrolne; pozostałe w `docs/AUDYT_SOND.md`.
+
+## 14. Etap 2: strumieniowy AAC ADTS (2026-11-20)
+
+Moduł `maktabasauti_aac`, kodek `aac-adts` (`src/decoders/modern/aac/maktabasauti_aac_adts.c`) zastępuje w rejestrze domyślnym pięć opakowań starych dekoderów (LC stereo/mono/wielokanałowy, HE-AAC mono/CPE).
+Algorytm dekodowania bez zmian (te same funkcje poziomu ramki, PCM bit w bit jak w starym API: `test_maktabasauti_regression`); zmienił się sposób dostarczania danych:
+- czytanie po jednej ramce ADTS przez `host->peek/read`; ramka jest zużywana dopiero, gdy kompletna, więc `E_WOULD_BLOCK` w dowolnym miejscu zostawia stan nietknięty;
+- pamięć: stan dekodera + ramka + PCM jednej ramki + pula punktów kontrolnych ≤ 8 MiB (stride rośnie dwukrotnie po zapełnieniu), niezależnie od długości;
+- wejście nieprzewijalne: odczyt i `flush`, długość nieznana, `seek`/`reset` = `E_NOT_SEEKABLE`; przewijalne: jedno przejście po nagłówkach przy otwarciu (dokładna długość; opcja `adts.scan=off` wyłącza),
+  `seek` dokładny z najbliższego punktu kontrolnego; bajty za ostatnią ramką (np. ID3v1) są pomijane;
+- błędy: zła ramka lub nagłówek → `E_CORRUPT_DATA` po wydaniu poprawnych ramek, lepki do `flush` (gubi historię, resynchronizuje, HE czeka na ramkę z nagłówkiem SBR); urwana ramka → `E_TRUNCATED`;
+  zmiana parametrów w środku → `E_UNSUPPORTED_FEATURE`;
+- do hosta dodano usługę `input_flags` (`MAKTABASAUTI_INPUT_SEEKABLE/SIZE_KNOWN`); `peek` zgłasza błąd wejścia (np. `E_WOULD_BLOCK`), gdy nie może spełnić żądania, zamiast udawać krótki plik;
+- `open()` przy `E_WOULD_BLOCK` zostawia wejście u wywołującego i, gdy się przewija, cofa je na początek (ponowienie działa); wejście nieprzewijalne nie może tego zagwarantować: źródła na żywo powinny dostarczyć pierwsze KiB przed `open()`.
+Testy: `make test-maktabasauti-aac-stream` (6 fixtur: LC stereo/mono/5.1, HE v1 CPE/mono, HE v2), audyt sond/open i testy wielowątkowe obejmują ten moduł. Nie zrobione: LOAS/LATM, ADIF, MP4/M4A (nadal adaptery legacy `NEEDS_FULL_BUFFER`), ID3v2 przed ADTS, zmiana parametrów w strumieniu.
