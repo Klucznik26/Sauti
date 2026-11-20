@@ -7,7 +7,7 @@ zgłoszenie (pull request / issue w obcym repozytorium) wymaga decyzji właścic
 | plik | biblioteka (upstream) | co naprawia | test regresji |
 |---|---|---|---|
 | `stb_vorbis.patch` | nothings/stb, `stb_vorbis.c` v1.22 | przepełnienie sterty przez obcięcie rozmiaru do `int`; niezainicjowane wskaźniki zwalniane przy błędzie ustawień; nieprawidłowe `free()` wskaźnika do pamięci tymczasowej; wycieki bloków tymczasowych; dereferencja NULL `comment_list`; limity długości vendor/komentarzy; UB przesunięcia wartości ujemnej | `tests/test_third_party_hardening.c`, `make test-third-party-hardening` |
-| `dr_flac.patch` | mackron/dr_libs, `dr_flac.h` 0.13.4 | UB przepełnienia `int` w predykcji 32-bitowej (arytmetyka bez znaku) | audyt sond (`make test-maktabasauti-probe-audit`, UBSan) |
+| `dr_flac.patch` | mackron/dr_libs, `dr_flac.h` 0.13.4 | UB przepełnienia `int` w predykcji i sumach reszt (arytmetyka bez znaku); wyścig danych w wykrywaniu możliwości procesora (słowo atomowe zamiast globali) | audyt sond (UBSan), `scripts/test_maktabasauti_coldstart.sh` (TSan) |
 | `tml.patch` | schellingb/TinySoundFont, `tml.h` | `memcpy(NULL, ..., 0)`; UB przesunięcia 255<<24 w nagłówku MTrk | audyt sond (UBSan) |
 | `minimp3.patch` | lieff/minimp3, `minimp3_ex.h` | niezainicjowane `free_format_bytes` w `mp3dec_detect_cb` (odczyt przed początkiem bufora); UB przesunięć bajtów >= 128 o 24 bity (rozmiar APEv2, liczba ramek Xing) | `tests/test_decoder_mp3.c`, `tests/test_third_party_hardening.c` |
 

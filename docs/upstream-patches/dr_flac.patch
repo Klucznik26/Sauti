@@ -1,8 +1,163 @@
 diff --git a/dr_flac.h b/dr_flac.h
-index f811bcf..8e8e601 100644
+index f811bcf..d7d711c 100644
 --- a/dr_flac.h
 +++ b/dr_flac.h
-@@ -3031,38 +3031,38 @@ static DRFLAC_INLINE drflac_int32 drflac__calculate_prediction_32(drflac_uint32
+@@ -1675,45 +1675,52 @@ DRFLAC_API const char* drflac_version_string(void)
+     #define DRFLAC_NO_THREAD_SANITIZE
+ #endif
+ 
+-#if defined(DRFLAC_HAS_LZCNT_INTRINSIC)
+-static drflac_bool32 drflac__gIsLZCNTSupported = DRFLAC_FALSE;
++/*
++SAUTI: CPU capabilities are ONE word, written exactly once per computation with an atomic store and read with atomic loads. The original kept several plain globals that every
++dr_flac_open() rewrote (a data race when several threads open FLAC files at the same time; upstream silenced ThreadSanitizer instead of fixing it). Every thread that holds a decoder
++has run drflac__init_cpu_caps() itself, and the stored word is complete (computed in a local first), so a reader sees either 0 (nothing detected: the portable code path) or the full value.
++The names drflac__gIs*Supported are kept as read-only accessors, so the call sites are unchanged.
++*/
++#define DRFLAC_CAP_INIT   0x01u
++#define DRFLAC_CAP_SSE2   0x02u
++#define DRFLAC_CAP_SSE41  0x04u
++#define DRFLAC_CAP_LZCNT  0x08u
++#define DRFLAC_CAP_NEON   0x10u
++static drflac_uint32 drflac__gCpuCaps = 0;
++#if defined(__GNUC__) || defined(__clang__)
++    #define DRFLAC_CAPS_LOAD()       ((drflac_uint32)__atomic_load_n(&drflac__gCpuCaps, __ATOMIC_RELAXED))
++    #define DRFLAC_CAPS_STORE(v)     __atomic_store_n(&drflac__gCpuCaps, (drflac_uint32)(v), __ATOMIC_RELAXED)
++#elif defined(_MSC_VER)
++    #define DRFLAC_CAPS_LOAD()       ((drflac_uint32)_InterlockedOr((volatile long*)&drflac__gCpuCaps, 0))
++    #define DRFLAC_CAPS_STORE(v)     ((void)_InterlockedExchange((volatile long*)&drflac__gCpuCaps, (long)(v)))
++#else
++    #error "dr_flac (Sauti): no atomic word access known for this compiler; add one here"
+ #endif
++#define drflac__gIsLZCNTSupported  ((DRFLAC_CAPS_LOAD() & DRFLAC_CAP_LZCNT)  != 0)
++#define drflac__gIsSSE2Supported   ((DRFLAC_CAPS_LOAD() & DRFLAC_CAP_SSE2)   != 0)
++#define drflac__gIsSSE41Supported  ((DRFLAC_CAPS_LOAD() & DRFLAC_CAP_SSE41)  != 0)
++#define drflac__gIsNEONSupported   ((DRFLAC_CAPS_LOAD() & DRFLAC_CAP_NEON)   != 0)
+ 
+ #ifndef DRFLAC_NO_CPUID
+-static drflac_bool32 drflac__gIsSSE2Supported  = DRFLAC_FALSE;
+-static drflac_bool32 drflac__gIsSSE41Supported = DRFLAC_FALSE;
+-
+-/*
+-I've had a bug report that Clang's ThreadSanitizer presents a warning in this function. Having reviewed this, this does
+-actually make sense. However, since CPU caps should never differ for a running process, I don't think the trade off of
+-complicating internal API's by passing around CPU caps versus just disabling the warnings is worthwhile. I'm therefore
+-just going to disable these warnings. This is disabled via the DRFLAC_NO_THREAD_SANITIZE attribute.
+-*/
+-DRFLAC_NO_THREAD_SANITIZE static void drflac__init_cpu_caps(void)
++static void drflac__init_cpu_caps(void)
+ {
+-    static drflac_bool32 isCPUCapsInitialized = DRFLAC_FALSE;
+-
+-    if (!isCPUCapsInitialized) {
+-        /* LZCNT */
++    drflac_uint32 caps;
++    if (DRFLAC_CAPS_LOAD() & DRFLAC_CAP_INIT) {
++        return;
++    }
++    caps = DRFLAC_CAP_INIT;
+ #if defined(DRFLAC_HAS_LZCNT_INTRINSIC)
++    {
+         int info[4] = {0};
+         drflac__cpuid(info, 0x80000001);
+-        drflac__gIsLZCNTSupported = (info[2] & (1 << 5)) != 0;
+-#endif
+-
+-        /* SSE2 */
+-        drflac__gIsSSE2Supported = drflac_has_sse2();
+-
+-        /* SSE4.1 */
+-        drflac__gIsSSE41Supported = drflac_has_sse41();
+-
+-        /* Initialized. */
+-        isCPUCapsInitialized = DRFLAC_TRUE;
++        if ((info[2] & (1 << 5)) != 0) { caps |= DRFLAC_CAP_LZCNT; }
+     }
++#endif
++    if (drflac_has_sse2())  { caps |= DRFLAC_CAP_SSE2; }
++    if (drflac_has_sse41()) { caps |= DRFLAC_CAP_SSE41; }
++    DRFLAC_CAPS_STORE(caps);
+ }
+ #else
+-static drflac_bool32 drflac__gIsNEONSupported  = DRFLAC_FALSE;
+-
+ static DRFLAC_INLINE drflac_bool32 drflac__has_neon(void)
+ {
+ #if defined(DRFLAC_SUPPORT_NEON)
+@@ -1732,13 +1739,14 @@ static DRFLAC_INLINE drflac_bool32 drflac__has_neon(void)
+ #endif
+ }
+ 
+-DRFLAC_NO_THREAD_SANITIZE static void drflac__init_cpu_caps(void)
++static void drflac__init_cpu_caps(void)
+ {
+-    drflac__gIsNEONSupported = drflac__has_neon();
+-
++    drflac_uint32 caps = DRFLAC_CAP_INIT;
++    if (drflac__has_neon()) { caps |= DRFLAC_CAP_NEON; }
+ #if defined(DRFLAC_HAS_LZCNT_INTRINSIC) && defined(DRFLAC_ARM) && (defined(__ARM_ARCH) && __ARM_ARCH >= 5)
+-    drflac__gIsLZCNTSupported = DRFLAC_TRUE;
++    caps |= DRFLAC_CAP_LZCNT;
+ #endif
++    DRFLAC_CAPS_STORE(caps);
+ }
+ #endif
+ 
+@@ -1897,7 +1905,7 @@ static DRFLAC_INLINE drflac_uint32 drflac__unsynchsafe_32(drflac_uint32 n)
+ 
+ 
+ /* The CRC code below is based on this document: http://zlib.net/crc_v3.txt */
+-static drflac_uint8 drflac__crc8_table[] = {
++static const drflac_uint8 drflac__crc8_table[] = {
+     0x00, 0x07, 0x0E, 0x09, 0x1C, 0x1B, 0x12, 0x15, 0x38, 0x3F, 0x36, 0x31, 0x24, 0x23, 0x2A, 0x2D,
+     0x70, 0x77, 0x7E, 0x79, 0x6C, 0x6B, 0x62, 0x65, 0x48, 0x4F, 0x46, 0x41, 0x54, 0x53, 0x5A, 0x5D,
+     0xE0, 0xE7, 0xEE, 0xE9, 0xFC, 0xFB, 0xF2, 0xF5, 0xD8, 0xDF, 0xD6, 0xD1, 0xC4, 0xC3, 0xCA, 0xCD,
+@@ -1916,7 +1924,7 @@ static drflac_uint8 drflac__crc8_table[] = {
+     0xDE, 0xD9, 0xD0, 0xD7, 0xC2, 0xC5, 0xCC, 0xCB, 0xE6, 0xE1, 0xE8, 0xEF, 0xFA, 0xFD, 0xF4, 0xF3
+ };
+ 
+-static drflac_uint16 drflac__crc16_table[] = {
++static const drflac_uint16 drflac__crc16_table[] = {
+     0x0000, 0x8005, 0x800F, 0x000A, 0x801B, 0x001E, 0x0014, 0x8011,
+     0x8033, 0x0036, 0x003C, 0x8039, 0x0028, 0x802D, 0x8027, 0x0022,
+     0x8063, 0x0066, 0x006C, 0x8069, 0x0078, 0x807D, 0x8077, 0x0072,
+@@ -1981,7 +1989,7 @@ static DRFLAC_INLINE drflac_uint8 drflac_crc8(drflac_uint8 crc, drflac_uint32 da
+     drflac_uint32 leftoverBits;
+     drflac_uint64 leftoverDataMask;
+ 
+-    static drflac_uint64 leftoverDataMaskTable[8] = {
++    static const drflac_uint64 leftoverDataMaskTable[8] = {
+         0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F
+     };
+ 
+@@ -2070,7 +2078,7 @@ static DRFLAC_INLINE drflac_uint16 drflac_crc16__32bit(drflac_uint16 crc, drflac
+     drflac_uint32 leftoverBits;
+     drflac_uint64 leftoverDataMask;
+ 
+-    static drflac_uint64 leftoverDataMaskTable[8] = {
++    static const drflac_uint64 leftoverDataMaskTable[8] = {
+         0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F
+     };
+ 
+@@ -2105,7 +2113,7 @@ static DRFLAC_INLINE drflac_uint16 drflac_crc16__64bit(drflac_uint16 crc, drflac
+     drflac_uint32 leftoverBits;
+     drflac_uint64 leftoverDataMask;
+ 
+-    static drflac_uint64 leftoverDataMaskTable[8] = {
++    static const drflac_uint64 leftoverDataMaskTable[8] = {
+         0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F
+     };
+ 
+@@ -2650,7 +2658,7 @@ static drflac_bool32 drflac__find_and_seek_to_next_sync_code(drflac_bs* bs)
+ static DRFLAC_INLINE drflac_uint32 drflac__clz_software(drflac_cache_t x)
+ {
+     drflac_uint32 n;
+-    static drflac_uint32 clz_table_4[] = {
++    static const drflac_uint32 clz_table_4[] = {
+         0,
+         4,
+         3, 3,
+@@ -3031,38 +3039,38 @@ static DRFLAC_INLINE drflac_int32 drflac__calculate_prediction_32(drflac_uint32
      /* VC++ optimizes this to a single jmp. I've not yet verified this for other compilers. */
      switch (order)
      {
@@ -73,7 +228,7 @@ index f811bcf..8e8e601 100644
      }
  
      return (drflac_int32)(prediction >> shift);
-@@ -3295,9 +3295,9 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__reference(drfla
+@@ -3295,9 +3303,9 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__reference(drfla
  
  
          if (drflac__use_64_bit_prediction(bitsPerSample, lpcOrder, lpcPrecision)) {
@@ -85,7 +240,7 @@ index f811bcf..8e8e601 100644
          }
      }
  
-@@ -3736,10 +3736,10 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__scalar(drflac_b
+@@ -3736,10 +3744,10 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__scalar(drflac_b
              riceParamPart2  = (riceParamPart2 >> 1) ^ t[riceParamPart2 & 0x01];
              riceParamPart3  = (riceParamPart3 >> 1) ^ t[riceParamPart3 & 0x01];
  
@@ -100,7 +255,7 @@ index f811bcf..8e8e601 100644
  
              pSamplesOut += 4;
          }
-@@ -3767,10 +3767,10 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__scalar(drflac_b
+@@ -3767,10 +3775,10 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__scalar(drflac_b
              riceParamPart2  = (riceParamPart2 >> 1) ^ t[riceParamPart2 & 0x01];
              riceParamPart3  = (riceParamPart3 >> 1) ^ t[riceParamPart3 & 0x01];
  
@@ -115,7 +270,7 @@ index f811bcf..8e8e601 100644
  
              pSamplesOut += 4;
          }
-@@ -3791,9 +3791,9 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__scalar(drflac_b
+@@ -3791,9 +3799,9 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__scalar(drflac_b
  
          /* Sample reconstruction. */
          if (drflac__use_64_bit_prediction(bitsPerSample, lpcOrder, lpcPrecision)) {
@@ -127,7 +282,7 @@ index f811bcf..8e8e601 100644
          }
  
          i += 1;
-@@ -4050,7 +4050,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__sse41_32(drflac
+@@ -4050,7 +4058,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__sse41_32(drflac
          riceParamParts0  = (riceParamParts0 >> 1) ^ t[riceParamParts0 & 0x01];
  
          /* Sample reconstruction. */
@@ -136,7 +291,7 @@ index f811bcf..8e8e601 100644
  
          i += 1;
          pDecodedSamples += 1;
-@@ -4240,7 +4240,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__sse41_64(drflac
+@@ -4240,7 +4248,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__sse41_64(drflac
          riceParamParts0  = (riceParamParts0 >> 1) ^ t[riceParamParts0 & 0x01];
  
          /* Sample reconstruction. */
@@ -145,7 +300,7 @@ index f811bcf..8e8e601 100644
  
          i += 1;
          pDecodedSamples += 1;
-@@ -4560,7 +4560,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__neon_32(drflac_
+@@ -4560,7 +4568,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__neon_32(drflac_
          riceParamParts[0]  = (riceParamParts[0] >> 1) ^ t[riceParamParts[0] & 0x01];
  
          /* Sample reconstruction. */
@@ -154,7 +309,7 @@ index f811bcf..8e8e601 100644
  
          i += 1;
          pDecodedSamples += 1;
-@@ -4737,7 +4737,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__neon_64(drflac_
+@@ -4737,7 +4745,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__neon_64(drflac_
          riceParamParts[0]  = (riceParamParts[0] >> 1) ^ t[riceParamParts[0] & 0x01];
  
          /* Sample reconstruction. */
@@ -163,7 +318,7 @@ index f811bcf..8e8e601 100644
  
          i += 1;
          pDecodedSamples += 1;
-@@ -4822,9 +4822,9 @@ static drflac_bool32 drflac__decode_samples_with_residual__unencoded(drflac_bs*
+@@ -4822,9 +4830,9 @@ static drflac_bool32 drflac__decode_samples_with_residual__unencoded(drflac_bs*
          }
  
          if (drflac__use_64_bit_prediction(bitsPerSample, lpcOrder, lpcPrecision)) {
@@ -175,3 +330,21 @@ index f811bcf..8e8e601 100644
          }
      }
  
+@@ -5057,7 +5065,7 @@ static drflac_bool32 drflac__decode_samples__fixed(drflac_bs* bs, drflac_uint32
+ {
+     drflac_uint32 i;
+ 
+-    static drflac_int32 lpcCoefficientsTable[5][4] = {
++    static const drflac_int32 lpcCoefficientsTable[5][4] = {
+         {0,  0, 0,  0},
+         {1,  0, 0,  0},
+         {2, -1, 0,  0},
+@@ -7143,7 +7151,7 @@ typedef enum
+ } drflac_ogg_crc_mismatch_recovery;
+ 
+ #ifndef DR_FLAC_NO_CRC
+-static drflac_uint32 drflac__crc32_table[] = {
++static const drflac_uint32 drflac__crc32_table[] = {
+     0x00000000L, 0x04C11DB7L, 0x09823B6EL, 0x0D4326D9L,
+     0x130476DCL, 0x17C56B6BL, 0x1A864DB2L, 0x1E475005L,
+     0x2608EDB8L, 0x22C9F00FL, 0x2F8AD6D6L, 0x2B4BCB61L,

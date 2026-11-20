@@ -10,4 +10,6 @@ Upstream: https://github.com/mackron/dr_libs (`dr_flac.h`, v0.13.4 development s
   function. Results are bit-identical on every target with two's complement `int` (all supported targets).
 - All `residue + prediction` sums and the unencoded-residual path (`drflac__decode_samples_with_residual__unencoded`) use `drflac_uint32` arithmetic as well (16 sites, found by
   UBSan fuzzing: `signed integer overflow: 1426913846 + 755590732`).
+- CPU capability detection: one atomic word (`drflac__gCpuCaps`, `DRFLAC_CAPS_LOAD/STORE`) instead of plain globals rewritten on every open (data race; upstream silenced ThreadSanitizer with
+  `DRFLAC_NO_THREAD_SANITIZE`). `drflac__gIs*Supported` remain as read-only accessor macros. All lookup tables are `static const`.
 Upstream status: not reported yet; patch in `docs/upstream-patches/dr_flac.patch`.
