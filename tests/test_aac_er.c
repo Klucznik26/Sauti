@@ -6,6 +6,7 @@
  * (scripts/test_aac_er_vs_ffmpeg.sh), so a change of the filterbank, the window, the overlap or the syntax changes them.  Random bit flips and every truncation length must give a clean
  * error with the state and the output untouched. */
 #include "../src/decoders/modern/aac/sauti_aac_er.c"          /* the static transform functions are tested directly */
+#include "sauti_aac_latm.h"
 #include <assert.h>
 #include <stdio.h>
 
@@ -225,6 +226,22 @@ static void test_crafted(void) {
     }
 }
 
+
+/* LOAS/LATM carrying AAC-LD / ELD: the streaming conversion yields internal frames (layer 01), the full-buffer ADTS conversion refuses them */
+static void test_latm(void) {
+    static const char *const names[2] = { "tests/data/ld_st.loas", "tests/data/eld_st.loas" }; unsigned k;
+    for (k = 0; k < 2; k++) {
+        FILE *f = fopen(names[k], "rb"); static uint8_t buf[40000]; size_t n; SautiAacLatmState st; uint8_t out[9000]; uint16_t lens[4]; unsigned frames = 0; uint8_t *adts = NULL; size_t adts_n = 0; SautiAacLatmInfo info;
+        CHECK(f != NULL, "%s: open", names[k]); if (!f) continue;
+        n = fread(buf, 1, sizeof buf, f); fclose(f);
+        CHECK(sauti_aac_latm_probe(buf, n) == 1, "%s: probe", names[k]);
+        CHECK(sauti_aac_latm_to_adts(buf, n, &adts, &adts_n, &info) == 0, "%s: the ADTS conversion must refuse AAC-LD / ELD", names[k]);
+        sauti_aac_latm_state_init(&st);
+        { const size_t len = (size_t)((buf[1] & 0x1f) << 8) | buf[2]; int r = sauti_aac_latm_convert_element(&st, buf + 3, len, out, sizeof out, lens, 4, &frames);
+          CHECK(r == 1 && frames == 1 && lens[0] > 7 && out[0] == 0xff && out[1] == 0xf3 && (out[2] >> 6) == (k ? 1u : 0u) && ((out[2] >> 2) & 15u) == 3 && (((out[2] & 1u) << 2) | (out[3] >> 6)) == 2, "%s: first element: %d, %u frames, header %02x %02x %02x", names[k], r, frames, out[0], out[1], out[2]); }
+    }
+}
+
 /* AAC-LD synthesis against an independent direct implementation: IMDCT by the cosine sum, the two window shapes written out from their definitions, overlap-add of the halves */
 static void ref_imdct(const float *x, unsigned n, double *y) {
     const double pi = 3.14159265358979323846264338327950288;
@@ -285,6 +302,7 @@ int main(void) {
     for (i = 0; i < 6; i++) { test_stream(&streams[i]); test_atomic(&streams[i]); }
     test_ld_window();
     test_crafted();
+    test_latm();
     printf("AAC-LD / AAC-ELD: %s (%d failures)\n", g_failures ? "FAIL" : "PASS", g_failures);
     return g_failures ? 1 : 0;
 }

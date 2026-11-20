@@ -81,6 +81,7 @@ int sauti_aac_er_asc_parse(const uint8_t *asc,size_t length,SautiAacErAsc *out){
         if(!get(asc,length,&pos,2,&ep))return 0;                              /* epConfig */
         if(ep)return -1;
     }
+    a.bits=(unsigned)pos;
     *out=a;
     return 1;
 }

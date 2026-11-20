@@ -106,3 +106,6 @@ w=wave.open(sys.argv[1]+"/er_hq.wav",'wb'); w.setnchannels(2); w.setsampwidth(2)
 PY
 "$FDK" -p 39 -b 192000 -f 0 --no-timestamp -o eld_hq.m4a "$W/er_hq.wav" >/dev/null 2>&1
 "$FDK" -p 23 -b 192000 -f 0 --no-timestamp -o ld_hq.m4a  "$W/er_hq.wav" >/dev/null 2>&1
+# AAC-LD / AAC-ELD in LOAS/LATM (fdkaac -f 10, StreamMuxConfig repeated in every element)
+"$FDK" -p 23 -b 64000 -f 10 --header-period 1 -o ld_st.loas  "$W/er_st.wav" >/dev/null 2>&1
+"$FDK" -p 39 -b 64000 -f 10 --header-period 1 -o eld_st.loas "$W/er_st.wav" >/dev/null 2>&1

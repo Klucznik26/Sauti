@@ -98,14 +98,7 @@ typedef struct { unsigned rate_index, rate, config, frame_bytes, header_bytes, r
  * ktory nie jest poprawnym ADTS: pole `layer` = 01 (w prawdziwym ADTS zawsze 00), pole profilu = 0 dla AAC-LD (23) albo 1 dla AAC-ELD (39), bit prywatny = ramka 480; reszta jak w ADTS (indeks
  * czestotliwosci, konfiguracja kanalow, dlugosc ramki z naglowkiem).  Naglowek nigdy nie opuszcza silnika.  Zwraca dlugosc ramki (7 + sz). */
 static inline size_t aac_er_wrap(uint8_t *frame, unsigned aot, unsigned rate_index, unsigned channel_config, unsigned frame480, uint32_t sz) {
-    const size_t l = 7u + sz;
-    frame[0] = 0xff; frame[1] = 0xf3;
-    frame[2] = (uint8_t)(((aot == 39u ? 1u : 0u) << 6) | (rate_index << 2) | ((frame480 & 1u) << 1) | ((channel_config >> 2) & 1u));
-    frame[3] = (uint8_t)(((channel_config & 3u) << 6) | ((l >> 11) & 3u));
-    frame[4] = (uint8_t)(l >> 3);
-    frame[5] = (uint8_t)(((l & 7u) << 5) | 0x1fu);
-    frame[6] = 0xfc;
-    return l;
+    return sauti_aac_er_wrap_header(frame, aot, rate_index, channel_config, frame480, sz);
 }
 
 static const unsigned aac_adts_rates[13] = { 96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350 };
