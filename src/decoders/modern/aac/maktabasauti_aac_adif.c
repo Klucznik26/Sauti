@@ -118,6 +118,6 @@ static maktabasauti_result_t MAKTABASAUTI_CALL adif_open(const maktabasauti_code
 const maktabasauti_codec_t maktabasauti_aac_adif_desc = {
     sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "aac-adif", "AAC in ADIF (LC mono/stereo, HE-AAC via SBR in FIL), streaming", "maktabasauti_aac",
     MAKTABASAUTI_CODEC_FLAG_STREAMING | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
-    adif_probe, adif_open, aac_eng_read, aac_eng_seek, aac_eng_reset, aac_eng_flush, NULL, aac_eng_last_error, NULL, aac_eng_close, { NULL }, { NULL }
+    adif_probe, adif_open, aac_eng_read, aac_eng_seek, aac_eng_reset, aac_eng_flush, NULL, aac_eng_last_error, aac_eng_get_info, aac_eng_close, { NULL }, { NULL }
 };
 const maktabasauti_codec_t *maktabasauti_aac_adif_codec(void) { return &maktabasauti_aac_adif_desc; }

@@ -64,7 +64,13 @@ static maktabasauti_result_t loas_fetch(dec_t *d) {
         rc = sauti_aac_latm_convert_element(&p->st, p->elem + 3, len, p->q, sizeof p->q, p->lens, 64u, &cnt);
         if (rc == 0) continue;                                            /* element bez danych audio (przed pierwsza konfiguracja): pomijamy */
         if (rc == -1) return MAKTABASAUTI_E_CORRUPT_DATA;
-        if (rc == -2) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+        if (rc == -2) {                                                   /* zmiana konfiguracji w srodku strumienia: przyjmujemy nowa i konwertujemy element jeszcze raz;
+                                                                            * silnik zauwazy inne parametry w naglowkach ADTS i zglosi E_FORMAT_CHANGED */
+            sauti_aac_latm_state_init(&p->st);
+            rc = sauti_aac_latm_convert_element(&p->st, p->elem + 3, len, p->q, sizeof p->q, p->lens, 64u, &cnt);
+            if (rc == 0) continue;
+            if (rc != 1) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+        }
         p->n = cnt; p->next = 0; p->off = 0;
         (void)pop_frame(d, p);
         return MAKTABASAUTI_OK;
@@ -140,6 +146,6 @@ static maktabasauti_result_t MAKTABASAUTI_CALL loas_open(const maktabasauti_code
 const maktabasauti_codec_t maktabasauti_aac_loas_desc = {
     sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "aac-loas", "AAC in LOAS/LATM (LC, HE-AAC v1/v2), streaming", "maktabasauti_aac",
     MAKTABASAUTI_CODEC_FLAG_STREAMING | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
-    loas_probe, loas_open, aac_eng_read, aac_eng_seek, aac_eng_reset, aac_eng_flush, NULL, aac_eng_last_error, NULL, aac_eng_close, { NULL }, { NULL }
+    loas_probe, loas_open, aac_eng_read, aac_eng_seek, aac_eng_reset, aac_eng_flush, NULL, aac_eng_last_error, aac_eng_get_info, aac_eng_close, { NULL }, { NULL }
 };
 const maktabasauti_codec_t *maktabasauti_aac_loas_codec(void) { return &maktabasauti_aac_loas_desc; }

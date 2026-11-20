@@ -16,6 +16,14 @@ for f in files:
     for seek in (0, 4):
         put('container', '%s.%d' % (base, seek), bytes([codec_of(f) | seek]) + d)
     put('probe', base + '.cut', d[:len(d) // 2])
+# pary sklejone (zmiana parametrow w srodku strumienia ADTS/LOAS)
+pairs = [('lc.aac', 'lc_mono.aac'), ('lc.aac', 'lc44.aac'), ('he2.aac', 'lc.aac'), ('lc.aac', 'he1.aac'), ('lc.loas', 'he1.loas'), ('he2.loas', 'lc44.loas')]
+for a, b in pairs:
+    pa, pb = os.path.join('tests/data', a), os.path.join('tests/data', b)
+    if os.path.exists(pa) and os.path.exists(pb):
+        d = open(pa, 'rb').read() + open(pb, 'rb').read(); n = a + '+' + b
+        put('open', n + '.01', bytes([0b00001, 7]) + d); put('open', n + '.00', bytes([0b00000, 7]) + d)
+        put('container', n, bytes([codec_of(a)]) + d)
 rng = random.Random(7)
 for i in range(16):
     put('hostile_io', 'script%02d' % i, bytes(rng.randrange(256) for _ in range(8 + 64)))

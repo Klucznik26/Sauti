@@ -392,6 +392,7 @@ maktabasauti_result_t MAKTABASAUTI_CALL maktabasauti_decoder_reset(maktabasauti_
     maktabasauti_result_t r;
     if (!d) return MAKTABASAUTI_E_INVALID_ARGUMENT;
     /* wejscie nieprzewijalne (poza trybem "cale wejscie w pamieci"): reset NIGDY sie nie udaje, niezaleznie od tego, ile jeszcze siedzi w buforze czytnika */
+    if (d->codec->get_info && !(d->info.flags & MAKTABASAUTI_STREAM_SEEKABLE)) return MAKTABASAUTI_E_NOT_SEEKABLE;   /* opis strumienia (takze odswiezony po E_FORMAT_CHANGED) mowi: bez reset; wejscia nie ruszamy */
     if (!d->io.seek && !d->reader.mem) return MAKTABASAUTI_E_NOT_SEEKABLE;
     if (mks_reader_seek(&d->reader, 0, 0) < 0) return MAKTABASAUTI_E_NOT_SEEKABLE;   /* wejscie nie wraca na poczatek: stan bez zmian */
     if (d->codec->reset) r = d->codec->reset(d->state);

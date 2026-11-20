@@ -163,7 +163,7 @@ static maktabasauti_result_t produce(dec_t *d) {
     d->cache_pos = d->cache_len = 0;
     for (;;) {
         maktabasauti_result_t fr; prod_t p;
-        if ((d->variant == V_HE_MONO) && d->ps_mode && d->core.u.he.pending_valid && (d->src_eof || at_known_end(d))) {
+        if ((d->variant == V_HE_MONO) && d->ps_mode && d->core.u.he.pending_valid && (d->src_eof || at_known_end(d) || d->fmt_pending)) {
             he_state_t *s = &d->core.u.he;
             if (s->flushed) return MAKTABASAUTI_EOF;
             if (!he_render_ps(d, NULL, d->cache)) return MAKTABASAUTI_E_CORRUPT_DATA;
@@ -187,7 +187,11 @@ static maktabasauti_result_t produce(dec_t *d) {
         if (fr == MAKTABASAUTI_E_TRUNCATED) { d->src_eof = 1; return fr; }   /* urwana ramka na koncu: nic wiecej nie przyjdzie */
         if (fr != MAKTABASAUTI_OK) return fr;
         {   aac_adts_hdr_t hd;
-            if (aac_adts_parse_header(d->frame, d->frame_len, &hd) && !aac_same_stream(d, &hd)) { d->have_frame = 0; return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; } }   /* zmiana parametrow w srodku */
+            if (aac_adts_parse_header(d->frame, d->frame_len, &hd) && !aac_same_stream(d, &hd)) {              /* zmiana parametrow w srodku strumienia */
+                if (hd.raw_blocks != 1u) { d->have_frame = 0; return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
+                if (d->variant == V_HE_MONO && d->ps_mode && d->core.u.he.pending_valid && !d->core.u.he.flushed) { d->fmt_pending = 1; continue; }   /* najpierw zalegly blok HE-AAC v2 */
+                return MAKTABASAUTI_E_FORMAT_CHANGED;                                                          /* ramka zostaje w d->frame: czyta ja aac_eng_read po przestawieniu */
+            } }
         p = (d->variant <= V_LC_MULTI) ? decode_lc(d) : decode_he(d);
         d->have_frame = 0;                                                 /* ramka zuzyta (takze, gdy dekodowanie sie nie powiodlo: pomijamy ja) */
         d->core.in_offset = d->cont->position ? d->cont->position(d) : d->host->tell(d->host->user, d->rd);
@@ -213,6 +217,41 @@ static void drop_checkpoints(dec_t *d) {
     d->cp_count = 0; d->cp_stride = (d->variant >= V_HE_MONO) ? 256u : 64u;
 }
 
+static uint64_t default_mask(unsigned channels);
+static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp);
+static void fill_info(const dec_t *d, maktabasauti_stream_info_t *info) {
+    memset(info, 0, sizeof *info);
+    info->struct_size = sizeof *info;
+    info->sample_rate = d->out_rate; info->channels = d->out_channels; info->channel_mask = default_mask(d->out_channels);
+    info->native_format = MAKTABASAUTI_FORMAT_F32;
+    info->total_frames = d->trimmed ? d->avail : (d->total_known ? d->known_frames * d->frame_pcm : MAKTABASAUTI_UNKNOWN_LENGTH);
+    info->flags = d->seekable ? MAKTABASAUTI_STREAM_SEEKABLE : 0u;
+    strcpy(info->codec_name, "aac"); strncpy(info->container_name, d->cont->name, sizeof info->container_name - 1u);
+    strcpy(info->codec_profile, d->variant >= V_HE_MONO ? "HE-AAC" : "LC");
+}
+
+maktabasauti_result_t MAKTABASAUTI_CALL aac_eng_get_info(const void *state, maktabasauti_stream_info_t *info) {
+    const dec_t *d = (const dec_t *)state;
+    uint32_t keep = info->struct_size;
+    fill_info(d, info);
+    info->struct_size = keep ? keep : (uint32_t)sizeof *info;
+    return MAKTABASAUTI_OK;
+}
+
+/* zmiana parametrow w srodku strumienia (czestotliwosc, uklad kanalow, CRC): ramka z nowymi parametrami czeka w d->frame; dekoder jest klasyfikowany od nowa na tej ramce i startuje ze
+ * swiezym stanem.  Po zmianie dlugosc jest nieznana, a przewijanie wylaczone (pozycje PCM sprzed zmiany mialy inny format: punkty kontrolne i licznik ramek nie obowiazuja). */
+static maktabasauti_result_t reconfigure(dec_t *d) {
+    aac_adts_hdr_t hd; maktabasauti_result_t r;
+    if (!aac_adts_parse_header(d->frame, d->frame_len, &hd) || hd.raw_blocks != 1u) { d->have_frame = 0; return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
+    r = eng_classify(d, &hd);
+    if (r != MAKTABASAUTI_OK) { d->have_frame = 0; return r; }                                          /* nowe parametry nieobslugiwane */
+    d->cache_pos = d->cache_len = 0; d->fmt_pending = 0; d->fmt_changed = 1;
+    d->seekable = 0; d->total_known = 0; d->trimmed = 0; d->trim_skip = 0; d->avail = 0; d->skip_left = 0; d->resyncing = 0;
+    drop_checkpoints(d);
+    d->core.in_offset = d->cont->position ? d->cont->position(d) : d->host->tell(d->host->user, d->rd);
+    return MAKTABASAUTI_OK;
+}
+
 maktabasauti_result_t MAKTABASAUTI_CALL aac_eng_read(void *state, void *dst, size_t n, size_t *frames) {
     dec_t *d = (dec_t *)state; float *out = (float *)dst; size_t done = 0; const size_t ch = d->out_channels;
     *frames = 0;
@@ -225,8 +264,14 @@ maktabasauti_result_t MAKTABASAUTI_CALL aac_eng_read(void *state, void *dst, siz
         size_t take;
         if (d->cache_pos == d->cache_len) {
             maktabasauti_result_t r = produce(d);
+            if (r == MAKTABASAUTI_E_FORMAT_CHANGED) {                      /* ramki sprzed zmiany wydajemy najpierw; potem przestawiamy dekoder i zglaszamy zmiane */
+                if (done) { *frames = done; return MAKTABASAUTI_OK; }
+                r = reconfigure(d);
+                if (r != MAKTABASAUTI_OK) { d->pend = r; return r; }
+                *frames = 0;
+                return MAKTABASAUTI_E_FORMAT_CHANGED;
+            }
             if (r != MAKTABASAUTI_OK) {
-                if (r == MAKTABASAUTI_EOF && at_known_end(d) && d->core.pcm_out == 0) { /* pusty strumien: nic do wydania */ }
                 *frames = done;
                 if (r == MAKTABASAUTI_EOF) return done ? MAKTABASAUTI_OK : MAKTABASAUTI_EOF;
                 if (r == MAKTABASAUTI_E_WOULD_BLOCK) return done ? MAKTABASAUTI_OK : r;                  /* nielepki: stan nietkniety, mozna powtorzyc */
@@ -297,6 +342,7 @@ landed_at_end:                                                                  
 
 maktabasauti_result_t MAKTABASAUTI_CALL aac_eng_reset(void *state) {
     dec_t *d = (dec_t *)state;
+    if (d->fmt_changed) return MAKTABASAUTI_E_NOT_SEEKABLE;                                              /* po zmianie parametrow punkt 0 opisuje stary format */
     if (d->cont->seek_to) { maktabasauti_result_t pr = d->cont->seek_to(d, d->cp0.in_offset); if (pr != MAKTABASAUTI_OK) return pr; }   /* kontenery o wlasnej pozycji (MP4: numer probki) */
     restore_core(d, &d->cp0);
     d->skip_left = d->trim_skip;
@@ -337,35 +383,21 @@ static uint64_t default_mask(unsigned channels) {
 
 /* sekwencyjne przejscie po naglowkach: liczy ramki ADTS od biezacej pozycji (po pierwszej ramce) do konca albo pierwszej niepoprawnej; wraca na `resume` */
 
-maktabasauti_result_t aac_eng_open(const maktabasauti_codec_t *self, const aac_container_t *cont, const maktabasauti_host_t *host, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
-    dec_t *d = NULL; maktabasauti_result_t r; aac_adts_hdr_t hd; uint32_t flags; const char *scan_opt; int64_t after_first;
-    prod_t pr = P_FAIL; variant_t chosen = V_LC_STEREO;
-    *state = NULL;
-    d = (dec_t *)host->alloc(host->user, sizeof *d);
-    if (!d) return MAKTABASAUTI_E_NO_MEMORY;
-    memset(d, 0, sizeof *d);
-    d->codec = self; d->cont = cont; d->host = host; d->rd = rd;
-    flags = host->input_flags ? host->input_flags(host->user, rd) : 0u;
-    d->seekable = (flags & MAKTABASAUTI_INPUT_SEEKABLE) != 0;
-    if (cont->prepare) { r = cont->prepare(d); if (r != MAKTABASAUTI_OK) goto fail; }
-    r = eng_fetch(d);
-    if (r == MAKTABASAUTI_E_CORRUPT_DATA || r == MAKTABASAUTI_E_TRUNCATED || r == MAKTABASAUTI_EOF) r = MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
-    if (r != MAKTABASAUTI_OK) goto fail;
-    (void)aac_adts_parse_header(d->frame, d->frame_len, &hd);
-    if (hd.raw_blocks != 1u) { r = MAKTABASAUTI_E_UNSUPPORTED_FEATURE; goto fail; }   /* wiele raw_data_block w ramce: niewspierane (jak wczesniej) */
+/* wariant wg PIERWSZEJ ramki (z d->frame, naglowek hd), w kolejnosci starego rejestru; probne dekodowanie na swiezym stanie, potem stan wraca do poczatkowego.  Uzywane przy otwarciu
+ * i przy zmianie parametrow w srodku strumienia (E_FORMAT_CHANGED).  Ustawia czestotliwosc, kanaly, rozmiar bloku PCM i wariant; OK albo E_UNSUPPORTED_FEATURE. */
+static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
+    const aac_adts_hdr_t hd = *hdp; prod_t pr = P_FAIL; variant_t chosen = V_LC_STEREO;
     d->rate_index = hd.rate_index; d->core_rate = hd.rate; d->config = hd.config; d->crc_present = hd.crc_present;
-    after_first = cont->position ? cont->position(d) : host->tell(host->user, rd);
-
     /* wariant wg PIERWSZEJ ramki, w kolejnosci starego rejestru; probne dekodowanie na swiezym stanie, potem stan wraca do poczatkowego */
     {   static const variant_t order_stereo[] = { V_LC_STEREO, V_HE_CPE }, order_mono[] = { V_LC_MONO, V_HE_MONO }, order_multi[] = { V_LC_MULTI };
         const variant_t *order = hd.config == 2u ? order_stereo : hd.config == 1u ? order_mono : order_multi;
         size_t norder = hd.config == 2u ? 2u : hd.config == 1u ? 2u : 1u, k;
         if (hd.config == 0u || hd.config >= 3u) {
-            if (hd.crc_present) { r = MAKTABASAUTI_E_UNSUPPORTED_FEATURE; goto fail; }             /* wielokanalowy LC bez CRC (jak wczesniej) */
+            if (hd.crc_present) { return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }             /* wielokanalowy LC bez CRC (jak wczesniej) */
             if (hd.config == 0u) {
                 int sc = sauti_aac_lc_multi_scan_pce(d->frame, d->frame_len, &d->layout);
-                if (sc != 1) { r = MAKTABASAUTI_E_UNSUPPORTED_FEATURE; goto fail; }
-            } else if (!sauti_aac_lc_multi_config_channels(hd.config)) { r = MAKTABASAUTI_E_UNSUPPORTED_FEATURE; goto fail; }
+                if (sc != 1) { return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
+            } else if (!sauti_aac_lc_multi_config_channels(hd.config)) { return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
         }
         for (k = 0; k < norder; k++) {
             d->variant = order[k];
@@ -384,10 +416,32 @@ maktabasauti_result_t aac_eng_open(const maktabasauti_codec_t *self, const aac_c
             pr = order[k] <= V_LC_MULTI ? decode_lc(d) : decode_he(d);
             if (pr == P_OK || pr == P_NEED_MORE) { chosen = order[k]; break; }
         }
-        if (!(pr == P_OK || pr == P_NEED_MORE)) { r = MAKTABASAUTI_E_UNSUPPORTED_FEATURE; goto fail; }   /* pierwsza ramka nie dekoduje sie zadnym wariantem */
+        if (!(pr == P_OK || pr == P_NEED_MORE)) { return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }   /* pierwsza ramka nie dekoduje sie zadnym wariantem */
     }
     d->variant = chosen;
     core_reset(d);
+    return MAKTABASAUTI_OK;
+}
+
+maktabasauti_result_t aac_eng_open(const maktabasauti_codec_t *self, const aac_container_t *cont, const maktabasauti_host_t *host, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
+    dec_t *d = NULL; maktabasauti_result_t r; aac_adts_hdr_t hd; uint32_t flags; const char *scan_opt; int64_t after_first;
+    *state = NULL;
+    d = (dec_t *)host->alloc(host->user, sizeof *d);
+    if (!d) return MAKTABASAUTI_E_NO_MEMORY;
+    memset(d, 0, sizeof *d);
+    d->codec = self; d->cont = cont; d->host = host; d->rd = rd;
+    flags = host->input_flags ? host->input_flags(host->user, rd) : 0u;
+    d->seekable = (flags & MAKTABASAUTI_INPUT_SEEKABLE) != 0;
+    if (cont->prepare) { r = cont->prepare(d); if (r != MAKTABASAUTI_OK) goto fail; }
+    r = eng_fetch(d);
+    if (r == MAKTABASAUTI_E_CORRUPT_DATA || r == MAKTABASAUTI_E_TRUNCATED || r == MAKTABASAUTI_EOF) r = MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    if (r != MAKTABASAUTI_OK) goto fail;
+    (void)aac_adts_parse_header(d->frame, d->frame_len, &hd);
+    if (hd.raw_blocks != 1u) { r = MAKTABASAUTI_E_UNSUPPORTED_FEATURE; goto fail; }   /* wiele raw_data_block w ramce: niewspierane (jak wczesniej) */
+    after_first = cont->position ? cont->position(d) : host->tell(host->user, rd);
+
+    r = eng_classify(d, &hd);
+    if (r != MAKTABASAUTI_OK) goto fail;
     d->core.in_offset = 0; d->cp0 = d->core;                                                          /* blok 0: ramka 0 jest jeszcze w d->frame (have_frame) */
     d->cp_stride = d->variant >= V_HE_MONO ? 256u : 64u;
     d->cp_max = CHECKPOINT_BUDGET / sizeof(checkpoint_t); if (d->cp_max > CHECKPOINT_MAX) d->cp_max = CHECKPOINT_MAX; if (d->cp_max < 4u) d->cp_max = 4u;
@@ -414,14 +468,7 @@ maktabasauti_result_t aac_eng_open(const maktabasauti_codec_t *self, const aac_c
     d->core.in_offset = after_first;
     /* ramka 0 jest w buforze, a punkt kontrolny 0 ma wejscie na jej poczatku (0): przywrocenie punktu 0 pobierze ja ponownie */
 
-    memset(info, 0, sizeof *info);
-    info->struct_size = sizeof *info;
-    info->sample_rate = d->out_rate; info->channels = d->out_channels; info->channel_mask = default_mask(d->out_channels);
-    info->native_format = MAKTABASAUTI_FORMAT_F32;
-    info->total_frames = d->trimmed ? d->avail : (d->total_known ? d->known_frames * d->frame_pcm : MAKTABASAUTI_UNKNOWN_LENGTH);
-    info->flags = d->seekable ? MAKTABASAUTI_STREAM_SEEKABLE : 0u;
-    strcpy(info->codec_name, "aac"); strncpy(info->container_name, cont->name, sizeof info->container_name - 1u);
-    strcpy(info->codec_profile, d->variant >= V_HE_MONO ? "HE-AAC" : "LC");
+    fill_info(d, info);
     *state = d;
     return MAKTABASAUTI_OK;
 fail:

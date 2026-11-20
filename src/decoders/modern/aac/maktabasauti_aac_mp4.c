@@ -160,6 +160,6 @@ static maktabasauti_result_t MAKTABASAUTI_CALL mp4_open(const maktabasauti_codec
 const maktabasauti_codec_t maktabasauti_aac_mp4_desc = {
     sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "aac-mp4", "AAC in MP4/M4A/M4B (LC, HE-AAC v1/v2; also fragmented), indexed, seekable input", "maktabasauti_aac",
     MAKTABASAUTI_CODEC_FLAG_NEEDS_SEEKABLE_INPUT | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
-    mp4_probe, mp4_open, aac_eng_read, aac_eng_seek, aac_eng_reset, aac_eng_flush, NULL, aac_eng_last_error, NULL, aac_eng_close, { NULL }, { NULL }
+    mp4_probe, mp4_open, aac_eng_read, aac_eng_seek, aac_eng_reset, aac_eng_flush, NULL, aac_eng_last_error, aac_eng_get_info, aac_eng_close, { NULL }, { NULL }
 };
 const maktabasauti_codec_t *maktabasauti_aac_mp4_codec(void) { return &maktabasauti_aac_mp4_desc; }

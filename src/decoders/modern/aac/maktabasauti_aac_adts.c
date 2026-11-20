@@ -181,6 +181,6 @@ static maktabasauti_result_t MAKTABASAUTI_CALL adts_open(const maktabasauti_code
 const maktabasauti_codec_t maktabasauti_aac_adts_desc = {
     sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "aac-adts", "AAC in ADTS (LC mono/stereo/multichannel, HE-AAC v1/v2), streaming", "maktabasauti_aac",
     MAKTABASAUTI_CODEC_FLAG_STREAMING | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
-    adts_probe, adts_open, aac_eng_read, aac_eng_seek, aac_eng_reset, aac_eng_flush, NULL, aac_eng_last_error, NULL, aac_eng_close, { NULL }, { NULL }
+    adts_probe, adts_open, aac_eng_read, aac_eng_seek, aac_eng_reset, aac_eng_flush, NULL, aac_eng_last_error, aac_eng_get_info, aac_eng_close, { NULL }, { NULL }
 };
 const maktabasauti_codec_t *maktabasauti_aac_adts_codec(void) { return &maktabasauti_aac_adts_desc; }

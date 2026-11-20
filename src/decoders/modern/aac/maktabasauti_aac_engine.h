@@ -76,6 +76,7 @@ typedef struct {
     int have_frame; size_t frame_len;
     int src_eof;
     uint64_t trim_skip, avail, skip_left; int trimmed;   /* przyciecie gapless (MP4: lista edycji / iTunSMPB): pominiete ramki PCM na poczatku i dlugosc wyjscia */
+    int fmt_pending, fmt_changed;                         /* zmiana parametrow w strumieniu: oczekuje (najpierw zalegle bloki) / juz zaszla (przewijanie wylaczone) */
     unsigned resyncing;                                  /* po flush: ramki, ktorych nie da sie zdekodowac (np. HE bez naglowka SBR po utracie stanu), sa pomijane do pierwszej udanej */
     maktabasauti_result_t pend;                          /* odlozony blad (po wydaniu ramek z cache) */
     char err[96];
@@ -116,6 +117,7 @@ maktabasauti_result_t MAKTABASAUTI_CALL aac_eng_seek(void *state, uint64_t frame
 maktabasauti_result_t MAKTABASAUTI_CALL aac_eng_reset(void *state);
 maktabasauti_result_t MAKTABASAUTI_CALL aac_eng_flush(void *state);
 const char *MAKTABASAUTI_CALL aac_eng_last_error(const void *state);
+maktabasauti_result_t MAKTABASAUTI_CALL aac_eng_get_info(const void *state, maktabasauti_stream_info_t *info);
 void MAKTABASAUTI_CALL aac_eng_close(void *state);
 /* wspolne: ADTS header (C) i zgodnosc ramki ze strumieniem */
 int aac_adts_parse_header(const uint8_t *p, size_t n, aac_adts_hdr_t *h);

@@ -506,6 +506,45 @@ static void test_id3v2(const uint8_t *b, size_t n, const Ref *ref, const char *n
     }
 }
 
+/* 11: zmiana parametrow w srodku strumienia (E_FORMAT_CHANGED): dwa pliki sklejone; PCM pierwszego identyczny ze wzorcem, potem E_FORMAT_CHANGED (0 ramek), nowy opis strumienia (czestotliwosc, kanaly,
+ * dlugosc nieznana, bez seek), PCM drugiego identyczny ze wzorcem odczytanym osobno (swiezy stan dekodera; HE-AAC v2: zalegly blok pierwszego wydany z cisza jako wyprzedzeniem) */
+static void test_format_change(const char *dir, const char *fa, const char *fb) {
+    size_t na, nb, mode; uint8_t *a = slurp(dir, fa, &na), *b = slurp(dir, fb, &nb), *ab = (uint8_t *)malloc(na + nb); Ref ra = reference(a, na), rb = reference(b, nb);
+    memcpy(ab, a, na); memcpy(ab + na, b, nb);
+    for (mode = 0; mode < 2; mode++) {
+        Src s; Mem m; maktabasauti_decoder_t *d = NULL; maktabasauti_stream_info_t info; maktabasauti_result_t r; size_t got = 0, g = 0, cap = ra.frames + rb.frames + 8192;
+        float *outa = (float *)malloc(cap * 8 * sizeof(float)), *outb = (float *)malloc(cap * 8 * sizeof(float)); int changed = 0; uint64_t act;
+        memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = ab; s.n = na + nb; s.seekable = (int)(mode == 0); s.size_known = s.seekable;
+        r = open_src(&s, &m, &d, NULL);
+        CHECK(r == MAKTABASAUTI_OK, "%s + %s (%s): open failed (%d)", fa, fb, mode ? "non-seekable" : "seekable", (int)r);
+        if (r != MAKTABASAUTI_OK) { free(outa); free(outb); continue; }
+        info.struct_size = sizeof info; maktabasauti_decoder_get_info(d, &info);
+        CHECK(info.sample_rate == ra.rate && info.channels == ra.ch, "%s + %s: the first stream parameters", fa, fb);
+        for (;;) {                                                                 /* faza 1: do zmiany */
+            r = maktabasauti_decoder_read(d, outa + got * ra.ch, 1000, MAKTABASAUTI_FORMAT_F32, &g);
+            got += g;
+            if (r == MAKTABASAUTI_E_FORMAT_CHANGED) { changed = 1; break; }
+            if (r != MAKTABASAUTI_OK) break;
+            if (got > ra.frames + 4096) break;
+        }
+        CHECK(changed, "%s + %s (%s): E_FORMAT_CHANGED expected, got %d after %zu frames", fa, fb, mode ? "non-seekable" : "seekable", (int)r, got);
+        CHECK(got == ra.frames && same(outa, ra.pcm, got * ra.ch), "%s + %s (%s): PCM before the change differs (%zu vs %zu frames)", fa, fb, mode ? "non-seekable" : "seekable", got, ra.frames);
+        if (changed) {
+            info.struct_size = sizeof info; CHECK(maktabasauti_decoder_get_info(d, &info) == MAKTABASAUTI_OK, "info");
+            CHECK(info.sample_rate == rb.rate && info.channels == rb.ch, "%s + %s: stream info after the change (%u Hz x %u vs %u Hz x %zu)", fa, fb, info.sample_rate, info.channels, rb.rate, rb.ch);
+            CHECK(info.total_frames == MAKTABASAUTI_UNKNOWN_LENGTH && !(info.flags & MAKTABASAUTI_STREAM_SEEKABLE), "%s + %s: length must be unknown and seeking off after the change", fa, fb);
+            CHECK(maktabasauti_decoder_seek(d, 0, MAKTABASAUTI_SEEK_EXACT, &act) == MAKTABASAUTI_E_NOT_SEEKABLE, "seek after the change");
+            CHECK(maktabasauti_decoder_reset(d) == MAKTABASAUTI_E_NOT_SEEKABLE, "reset after the change");
+            { size_t gb = 0; long retries = 0; r = drain(d, outb, rb.ch, cap, 1000, &gb, &retries);
+              CHECK((r == MAKTABASAUTI_EOF) && gb == rb.frames && same(outb, rb.pcm, gb * rb.ch), "%s + %s (%s): PCM after the change differs (code %d, %zu vs %zu frames)", fa, fb, mode ? "non-seekable" : "seekable", (int)r, gb, rb.frames); }
+        }
+        maktabasauti_decoder_close(d);
+        CHECK(m.live == 0 && m.bad == 0, "%s + %s: leak", fa, fb);
+        free(outa); free(outb);
+    }
+    free(ra.pcm); free(rb.pcm); free(a); free(b); free(ab);
+}
+
 int main(int argc, char **argv) {
     const char *dir = argc > 1 ? argv[1] : "tests/data"; size_t i;
     for (i = 0; i < NFILES; i++) {
@@ -526,6 +565,11 @@ int main(int argc, char **argv) {
         if (!g_adif && !g_loas) test_id3v2(b, n, &ref, files[i]);                       /* tylko ADTS */
         if (!g_mp4 && (i == 0 || i == 2)) { test_memory_seekable(b, n, files[i]); test_seek_long(b, n, files[i]); }          /* LC stereo i HE-AAC (duzy stan) */
         free(ref.pcm); free(b);
+    }
+    {   static const char *const pairs[][2] = { { "lc.aac", "lc_mono.aac" }, { "lc.aac", "lc44.aac" }, { "lc.aac", "he1.aac" }, { "he2.aac", "lc.aac" }, { "he1.aac", "lc_mono.aac" }, { "lc_mono.aac", "he2.aac" },
+            { "m51.aac", "lc.aac" }, { "lc.aac", "m51.aac" }, { "he2.aac", "he1.aac" }, { "lc.loas", "he1.loas" }, { "lc.loas", "lc44.loas" }, { "he2.loas", "lc44.loas" }, { "he1.loas", "he2.loas" } };
+        size_t k; const char *only = getenv("MKS_STREAM_ONLY");
+        for (k = 0; k < sizeof pairs / sizeof *pairs; k++) if (!only || !*only || !strcmp(only, "pairs") || strstr(pairs[k][0], only) || strstr(pairs[k][1], only)) test_format_change(dir, pairs[k][0], pairs[k][1]);
     }
     printf("AAC streaming: %s (%d failures)\n", g_failures ? "FAIL" : "PASS", g_failures);
     return g_failures ? 1 : 0;

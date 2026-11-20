@@ -64,4 +64,15 @@ PY
 "$FDK" -p 2  -b 64000 -f 0 --no-timestamp -o lc_mono.m4a "$W/in_mono.wav" >/dev/null 2>&1
 "$FDK" -p 29 -b 48000 -f 0 --no-timestamp -o he2.m4a     "$W/in.wav"      >/dev/null 2>&1
 python3 -I make_fragmented.py lc.m4a lc_frag.m4a
+# 44,1 kHz (etap 2: zmiana parametrow w srodku strumienia ADTS/LOAS; testy skleja pliki o roznych parametrach)
+python3 -I - "$W/in44.wav" <<'PY'
+import sys,wave
+import numpy as np
+sr=44100; t=np.arange(sr*2)/sr; rng=np.random.default_rng(3)
+x=np.zeros((len(t),2))
+for c in range(2): x[:,c]=0.25*np.sin(2*np.pi*(200*1.41**c)*t+c)+0.03*rng.standard_normal(len(t))
+w=wave.open(sys.argv[1],'wb'); w.setnchannels(2); w.setsampwidth(2); w.setframerate(sr); w.writeframes((np.clip(x,-1,1)*32767).astype('<i2').tobytes()); w.close()
+PY
+"$FDK" -p 2 -b 96000 -f 2  -o lc44.aac  "$W/in44.wav" >/dev/null 2>&1
+"$FDK" -p 2 -b 96000 -f 10 --header-period 1 -o lc44.loas "$W/in44.wav" >/dev/null 2>&1
 ls -l *.aac *.m4a *.loas *.adif | awk '{print $5,$9}'
