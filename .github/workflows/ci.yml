@@ -47,6 +47,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y nasm gcc make python3 clang
       - name: libFuzzer, 90 s per target (any crash, leak, UB or timeout fails the job)
         run: make fuzz-run FUZZ_SECONDS=90
+      - name: "libFuzzer + MemorySanitizer, 60 s per target (pure-C codecs only; the NASM kernels are not instrumented)"
+        run: make fuzz-run-msan FUZZ_SECONDS=60
       - name: crash artifacts
         if: failure()
         uses: actions/upload-artifact@v4

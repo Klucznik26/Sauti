@@ -1,5 +1,5 @@
 diff --git a/stb_vorbis.c b/stb_vorbis.c
-index 23c93f4..66332ef 100644
+index 23c93f4..6f02cea 100644
 --- a/stb_vorbis.c
 +++ b/stb_vorbis.c
 @@ -822,6 +822,7 @@ struct stb_vorbis
@@ -233,7 +233,17 @@ index 23c93f4..66332ef 100644
        f->comment_list[i] = (char*)setup_malloc(f, sizeof(char) * (len+1));
        if (f->comment_list[i] == NULL)               return error(f, VORBIS_outofmem);
  
-@@ -4210,7 +4308,7 @@ static void vorbis_deinit(stb_vorbis *p)
+@@ -3735,6 +3833,9 @@ static int start_decoder(vorb *f)
+       c->sparse = ordered ? 0 : get_bits(f,1);
+ 
+       if (c->dimensions == 0 && c->entries != 0)    return error(f, VORBIS_invalid_setup);
++      // SAUTI: sanity limit (the format allows 2^24 entries; real codebooks have a few thousand).  A 2 KiB file could declare 16 million entries and keep the setup busy for seconds
++      // (compute_sorted_huffman etc.; found by libFuzzer as slow units), and the tables take hundreds of megabytes.
++      if (c->entries > (1 << 20))                   return error(f, VORBIS_invalid_setup);
+ 
+       if (c->sparse)
+          lengths = (uint8 *) setup_temp_malloc(f, c->entries);
+@@ -4210,7 +4311,7 @@ static void vorbis_deinit(stb_vorbis *p)
     int i,j;
  
     setup_free(p, p->vendor);
@@ -242,7 +252,7 @@ index 23c93f4..66332ef 100644
        setup_free(p, p->comment_list[i]);
     }
     setup_free(p, p->comment_list);
-@@ -4263,6 +4361,7 @@ static void vorbis_deinit(stb_vorbis *p)
+@@ -4263,6 +4364,7 @@ static void vorbis_deinit(stb_vorbis *p)
        setup_free(p, p->window[i]);
        setup_free(p, p->bit_reverse[i]);
     }

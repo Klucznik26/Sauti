@@ -1,0 +1,89 @@
+# Nocny fuzzing: dlugie przebiegi libFuzzera (ASan+UBSan) i MemorySanitizera na zachowywanym korpusie.  Awaria = blad zadania + artefakt.  Reczne uruchomienie: workflow_dispatch (czas w sekundach).
+name: fuzz-nightly
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "seconds per target"
+        default: "1500"
+
+permissions:
+  contents: read
+
+jobs:
+  asan-ubsan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [probe, open, container, hostile_io]
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: sudo apt-get update && sudo apt-get install -y nasm gcc make python3 clang
+      - name: corpus cache
+        uses: actions/cache@v4
+        with:
+          path: build/fuzz_corpus_${{ matrix.target }}
+          key: fuzz-corpus-asan-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-asan-${{ matrix.target }}-
+      - name: build
+        run: make fuzz-build FUZZ_TARGETS=${{ matrix.target }}
+      - name: run
+        env:
+          SECONDS_PER_TARGET: ${{ github.event.inputs.seconds || '1500' }}
+        run: |
+          make build/fuzz_seeds/.stamp
+          mkdir -p build/fuzz_corpus_${{ matrix.target }}
+          cp -rn build/fuzz_seeds/${{ matrix.target }}/. build/fuzz_corpus_${{ matrix.target }}/
+          [ -d fuzz/regression/${{ matrix.target }} ] && cp -rn fuzz/regression/${{ matrix.target }}/. build/fuzz_corpus_${{ matrix.target }}/ || true
+          ASAN_OPTIONS=allocator_may_return_null=1:detect_leaks=1 ./build/fuzz_${{ matrix.target }} -max_total_time=$SECONDS_PER_TARGET -timeout=30 -rss_limit_mb=3072 \
+            -print_final_stats=1 -dict=fuzz/formats.dict -artifact_prefix=build/fuzz_artifact_${{ matrix.target }}_ build/fuzz_corpus_${{ matrix.target }}
+      - name: artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-asan-${{ matrix.target }}
+          path: build/fuzz_artifact_*
+          if-no-files-found: ignore
+
+  msan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [probe, open, hostile_io]
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: sudo apt-get update && sudo apt-get install -y nasm gcc make python3 clang
+      - name: corpus cache
+        uses: actions/cache@v4
+        with:
+          path: build/fuzz_corpus_msan_${{ matrix.target }}
+          key: fuzz-corpus-msan-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-msan-${{ matrix.target }}-
+      - name: "build (pure-C codecs only; the NASM kernels are not instrumented)"
+        run: make fuzz-build-msan MSAN_TARGETS=${{ matrix.target }}
+      - name: run
+        env:
+          SECONDS_PER_TARGET: ${{ github.event.inputs.seconds || '1500' }}
+        run: |
+          make build/fuzz_seeds/.stamp
+          mkdir -p build/fuzz_corpus_msan_${{ matrix.target }}
+          cp -rn build/fuzz_seeds/${{ matrix.target }}/. build/fuzz_corpus_msan_${{ matrix.target }}/
+          [ -d fuzz/regression/${{ matrix.target }} ] && cp -rn fuzz/regression/${{ matrix.target }}/. build/fuzz_corpus_msan_${{ matrix.target }}/ || true
+          ./build/fuzz_msan_${{ matrix.target }} -max_total_time=$SECONDS_PER_TARGET -timeout=30 -rss_limit_mb=3072 -print_final_stats=1 -dict=fuzz/formats.dict \
+            -artifact_prefix=build/fuzz_artifact_msan_${{ matrix.target }}_ build/fuzz_corpus_msan_${{ matrix.target }}
+      - name: artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-msan-${{ matrix.target }}
+          path: build/fuzz_artifact_*
+          if-no-files-found: ignore

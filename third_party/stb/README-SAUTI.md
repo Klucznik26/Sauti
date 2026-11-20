@@ -24,6 +24,8 @@ the unmodified file fails those tests (invalid `free()`, heap overflow, leaks, u
 6. `crc_table` is a compile-time constant (`static const`); `crc32_init()` is empty. The original filled a global table on every open: a data race when two threads open Ogg
    files at once (found by ThreadSanitizer in CI, 2026-11-20).
 7. `lookup1_values` uses a saturating `stbv_f2i` instead of `(int) floor(...)` casts of out-of-range values (undefined behaviour; clang `-fsanitize=float-cast-overflow`, libFuzzer 2026-11-20).
+8. A codebook may have at most 2^20 entries (the format allows 2^24; real codebooks have thousands). A 2 KiB file declaring 16 million entries kept the setup busy for seconds
+   (libFuzzer slow units) and made the tables take hundreds of megabytes.
 
 Behaviour for valid files is unchanged (bit-identical PCM: `make test-maktabasauti-regression`, thread tests, hardening test opens the unmodified fixture).
 Upstream status: not reported yet; the patch is in `docs/upstream-patches/stb_vorbis.patch` (diff against the imported v1.22), ready to propose to nothings/stb.

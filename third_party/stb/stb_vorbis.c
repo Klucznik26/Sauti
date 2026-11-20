@@ -3833,6 +3833,9 @@ static int start_decoder(vorb *f)
       c->sparse = ordered ? 0 : get_bits(f,1);
 
       if (c->dimensions == 0 && c->entries != 0)    return error(f, VORBIS_invalid_setup);
+      // SAUTI: sanity limit (the format allows 2^24 entries; real codebooks have a few thousand).  A 2 KiB file could declare 16 million entries and keep the setup busy for seconds
+      // (compute_sorted_huffman etc.; found by libFuzzer as slow units), and the tables take hundreds of megabytes.
+      if (c->entries > (1 << 20))                   return error(f, VORBIS_invalid_setup);
 
       if (c->sparse)
          lengths = (uint8 *) setup_temp_malloc(f, c->entries);

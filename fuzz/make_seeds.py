@@ -19,4 +19,13 @@ for f in files:
 rng = random.Random(7)
 for i in range(16):
     put('hostile_io', 'script%02d' % i, bytes(rng.randrange(256) for _ in range(8 + 64)))
+# syntetyczne pliki wszystkich formatow z tests/mks_probe_corpus.h (narzedzie fuzz/dump_corpus.c, budowane przez make): argv[2] = katalog z zrzutem
+if len(sys.argv) > 2:
+    for f in sorted(glob.glob(os.path.join(sys.argv[2], 'syn_*'))):
+        d = open(f, 'rb').read(); base = os.path.basename(f)
+        put('probe', base, d)
+        for mode in (0b00001, 0b00000):
+            put('open', '%s.%02x' % (base, mode), bytes([mode, 7]) + d)
+        for codec in range(4):
+            put('container', '%s.c%d' % (base, codec), bytes([codec]) + d)
 print('seeds in', out, sum(len(os.listdir(os.path.join(out, t))) for t in ('probe', 'open', 'container', 'hostile_io')))

@@ -417,8 +417,29 @@ TMLDEF tml_message* tml_load(struct tml_stream* stream)
 		// Get size of track data and read into buffer (allocate bigger buffer if needed)
 		track_length = (int)((unsigned)track_header[7] | ((unsigned)track_header[6] << 8) | ((unsigned)track_header[5] << 16) | ((unsigned)track_header[4] << 24)); /* SAUTI: unsigned shifts (original: 255<<24 on int = UB); >= 2^31 becomes negative and is rejected below */
 		if (track_length < 0) { TML_WARN("Invalid MTrk header"); break; }
-		if (trackbufsize < track_length) { TML_FREE(trackbuf); trackbuf = (unsigned char*)TML_MALLOC(trackbufsize = track_length); }
-		if (stream->read(stream->data, trackbuf, track_length) != track_length) { TML_WARN("Unexpected end of file"); break; }
+		/* SAUTI: the track buffer grows with the data actually read (64 KiB steps).  The original allocated the DECLARED length (up to 2 GiB from a 33-byte file) before reading,
+		   and used the buffer unchecked when malloc failed (found by libFuzzer + MemorySanitizer as an out-of-memory: a tiny MIDI claimed a 300 MB track). */
+		{
+			int got = 0, read_ok = 1;
+			while (got < track_length)
+			{
+				int want = track_length - got;
+				if (want > 65536) want = 65536;
+				if (trackbufsize < got + want)
+				{
+					int newsize = got + want;
+					unsigned char* nb;
+					if (trackbufsize <= track_length / 2 && newsize < trackbufsize * 2) newsize = trackbufsize * 2;
+					nb = (unsigned char*)TML_MALLOC(newsize);
+					if (!nb) { TML_WARN("Out of memory"); read_ok = 0; break; }
+					if (got) TML_MEMCPY(nb, trackbuf, got);
+					TML_FREE(trackbuf); trackbuf = nb; trackbufsize = newsize;
+				}
+				if (stream->read(stream->data, trackbuf + got, want) != want) { TML_WARN("Unexpected end of file"); read_ok = 0; break; }
+				got += want;
+			}
+			if (!read_ok) break;
+		}
 
 		t->Idx = p.message_count;
 		for (p.buf_end = (p.buf = trackbuf) + track_length; p.buf != p.buf_end;)

@@ -2214,9 +2214,12 @@ test-maktabasauti-aac-stream: $(OBJDIR)/test_maktabasauti_aac_stream
 FUZZ_TARGETS := probe open container hostile_io
 CLANG ?= clang
 FUZZ_SEEDS := $(OBJDIR)/fuzz_seeds
-$(FUZZ_SEEDS)/.stamp: fuzz/make_seeds.py $(wildcard tests/data/*)
-	@rm -rf $(FUZZ_SEEDS); mkdir -p $(FUZZ_SEEDS)
-	python3 -I fuzz/make_seeds.py $(FUZZ_SEEDS)
+$(OBJDIR)/dump_corpus: fuzz/dump_corpus.c tests/mks_probe_corpus.h | $(OBJDIR)
+	$(CC) -std=gnu11 -O1 -Itests -o $@ fuzz/dump_corpus.c
+$(FUZZ_SEEDS)/.stamp: fuzz/make_seeds.py fuzz/dump_corpus.c tests/mks_probe_corpus.h $(OBJDIR)/dump_corpus $(wildcard tests/data/*)
+	@rm -rf $(FUZZ_SEEDS); mkdir -p $(FUZZ_SEEDS)/_syn
+	./$(OBJDIR)/dump_corpus $(FUZZ_SEEDS)/_syn
+	python3 -I fuzz/make_seeds.py $(FUZZ_SEEDS) $(FUZZ_SEEDS)/_syn
 	@touch $@
 $(OBJDIR)/fuzz_replay_%: fuzz/fuzz_%.c fuzz/fuzz_common.h fuzz/standalone_main.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) -std=gnu11 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -Ifuzz -o $@ fuzz/fuzz_$*.c fuzz/standalone_main.c $(MKS_DEPS) -lm -lpthread -no-pie
@@ -2225,13 +2228,22 @@ test-fuzz-replay: $(FUZZ_SEEDS)/.stamp $(foreach t,$(FUZZ_TARGETS),$(OBJDIR)/fuz
 	@for t in $(FUZZ_TARGETS); do echo "== fuzz replay: $$t"; ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/fuzz_replay_$$t $(FUZZ_SEEDS)/$$t $$(ls -d fuzz/regression/$$t 2>/dev/null) || exit 1; done
 $(OBJDIR)/fuzz_%: fuzz/fuzz_%.c fuzz/fuzz_common.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CLANG) -std=gnu11 -g -O1 -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -Ifuzz -o $@ fuzz/fuzz_$*.c $(MKS_DEPS) -lm -lpthread -no-pie
+# MemorySanitizer (niezainicjowane odczyty, ktorych ASan nie widzi): tylko kodeki w czystym C (patrz fuzz/fuzz_common.h); wymaga clanga
+MSAN_TARGETS := probe open hostile_io
+$(OBJDIR)/fuzz_msan_%: fuzz/fuzz_%.c fuzz/fuzz_common.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CLANG) -std=gnu11 -g -O1 -DMKS_FUZZ_PURE_C -fsanitize=fuzzer,memory -fsanitize-memory-track-origins=2 -fno-omit-frame-pointer $(MKS_INC) -Ifuzz -o $@ fuzz/fuzz_$*.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: fuzz-build-msan fuzz-run-msan
+fuzz-build-msan: $(foreach t,$(MSAN_TARGETS),$(OBJDIR)/fuzz_msan_$(t))
+fuzz-run-msan: fuzz-build-msan $(FUZZ_SEEDS)/.stamp
+	@for t in $(MSAN_TARGETS); do echo "== libFuzzer + MSan: $$t ($(FUZZ_SECONDS) s)"; rm -rf $(OBJDIR)/fuzz_corpus_msan_$$t; cp -r $(FUZZ_SEEDS)/$$t $(OBJDIR)/fuzz_corpus_msan_$$t; [ -d fuzz/regression/$$t ] && cp -r fuzz/regression/$$t/. $(OBJDIR)/fuzz_corpus_msan_$$t/; \
+	  ./$(OBJDIR)/fuzz_msan_$$t -max_total_time=$(FUZZ_SECONDS) -timeout=30 -rss_limit_mb=3072 -print_final_stats=1 -dict=fuzz/formats.dict -artifact_prefix=$(OBJDIR)/fuzz_artifact_msan_$${t}_ $(OBJDIR)/fuzz_corpus_msan_$$t || exit 1; done
 .PHONY: fuzz-build fuzz-run
 fuzz-build: $(foreach t,$(FUZZ_TARGETS),$(OBJDIR)/fuzz_$(t))
 # fuzz-run: kazdy cel FUZZ_SECONDS sekund (domyslnie 60) na kopii korpusu; kazda awaria = blad (artefakt crash-* w katalogu biezacym)
 FUZZ_SECONDS ?= 60
 fuzz-run: fuzz-build $(FUZZ_SEEDS)/.stamp
-	@for t in $(FUZZ_TARGETS); do echo "== libFuzzer: $$t ($(FUZZ_SECONDS) s)"; rm -rf $(OBJDIR)/fuzz_corpus_$$t; cp -r $(FUZZ_SEEDS)/$$t $(OBJDIR)/fuzz_corpus_$$t; \
-	  ASAN_OPTIONS=allocator_may_return_null=1:detect_leaks=1 ./$(OBJDIR)/fuzz_$$t -max_total_time=$(FUZZ_SECONDS) -timeout=30 -rss_limit_mb=3072 -print_final_stats=1 -artifact_prefix=$(OBJDIR)/fuzz_artifact_$${t}_ $(OBJDIR)/fuzz_corpus_$$t || exit 1; done
+	@for t in $(FUZZ_TARGETS); do echo "== libFuzzer: $$t ($(FUZZ_SECONDS) s)"; rm -rf $(OBJDIR)/fuzz_corpus_$$t; cp -r $(FUZZ_SEEDS)/$$t $(OBJDIR)/fuzz_corpus_$$t; [ -d fuzz/regression/$$t ] && cp -r fuzz/regression/$$t/. $(OBJDIR)/fuzz_corpus_$$t/; \
+	  ASAN_OPTIONS=allocator_may_return_null=1:detect_leaks=1 ./$(OBJDIR)/fuzz_$$t -max_total_time=$(FUZZ_SECONDS) -timeout=30 -rss_limit_mb=3072 -print_final_stats=1 -dict=fuzz/formats.dict -artifact_prefix=$(OBJDIR)/fuzz_artifact_$${t}_ $(OBJDIR)/fuzz_corpus_$$t || exit 1; done
 
 .PHONY: test-maktabasauti-probe-audit
 test-maktabasauti-probe-audit: $(OBJDIR)/test_maktabasauti_probe_audit_asan $(OBJDIR)/test_maktabasauti_probe_audit_pattern $(OBJDIR)/test_maktabasauti_probe_audit_plain

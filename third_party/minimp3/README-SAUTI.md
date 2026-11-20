@@ -26,3 +26,5 @@ These headers are third-party code. Preserve their upstream notices.
   byte promoted to `int` by 24 bits: undefined behaviour for bytes >= 128; UBSan finding of 2026-11-20). Regression tests: `tests/test_third_party_hardening.c`
   (Xing frame count 0xFF000000, APEv2 size 0xFF000000) and the corpus item `syn_ape_huge.mp3` of the probe audit.
 - Upstream status: not reported yet; the patch against the imported upstream master is in `docs/upstream-patches/minimp3.patch`.
+- minimp3.h, `mp3dec_decode_frame`: `scratch` is zeroed with `memset` (upstream leaves the ~14 KiB structure uninitialised; MemorySanitizer under libFuzzer reported corrupt frames reading uninitialised
+  members, so stack content could end up in the decoded PCM; decoding of valid streams is unchanged). Cost: one 14 KiB memset per frame.

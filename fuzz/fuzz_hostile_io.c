@@ -17,16 +17,18 @@ static int64_t MAKTABASAUTI_CALL h_size(void *u) { H *h = (H *)u; uint8_t c = sb
 static void MAKTABASAUTI_CALL h_close(void *u) { ((H *)u)->closed++; }
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     static const uint8_t wav[] = { 'R','I','F','F', 0x24,0,0,0, 'W','A','V','E', 'f','m','t',' ', 16,0,0,0, 1,0, 1,0, 0x40,0x1f,0,0, 0x80,0x3e,0,0, 2,0, 16,0, 'd','a','t','a', 0x00,0x01,0,0 };
-    H h; FzMem m; maktabasauti_allocator_t a; maktabasauti_open_params_t p; maktabasauti_decoder_t *d = NULL; maktabasauti_result_t r;
+    H h; FzMem m; maktabasauti_allocator_t a; maktabasauti_open_params_t p; maktabasauti_decoder_t *d = NULL; maktabasauti_result_t r; maktabasauti_registry_t *reg;
     if (size < 9) return 0;
     memset(&h, 0, sizeof h); memset(&m, 0, sizeof m);
     memcpy(&h.size_claim, data, 8); h.script = data + 8; h.slen = size - 8; h.has_seek = 1;
     memcpy(h.base, wav, sizeof wav); h.bn = sizeof h.base;
     a = fz_allocator(&m);
     memset(&p, 0, sizeof p); p.struct_size = sizeof p; p.abi_version = MAKTABASAUTI_ABI_VERSION; p.allocator = &a;
+    reg = fz_pure_registry(); p.registry = reg;
     p.io.struct_size = sizeof p.io; p.io.user = &h; p.io.read = h_read; p.io.seek = h_seek; p.io.size = h_size; p.io.close = h_close;
     r = maktabasauti_decoder_open(&p, &d);
     if (r == MAKTABASAUTI_OK) { fz_exercise(d); maktabasauti_decoder_close(d); } else if (h.closed) abort();
+    maktabasauti_registry_destroy(reg);
     fz_check_mem(&m);
     return 0;
 }

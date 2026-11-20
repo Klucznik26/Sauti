@@ -10,4 +10,6 @@ The file keeps its CRLF line endings: edit it in binary-safe mode.
   rejected by the existing `track_length < 0` check.
 - `tml_load_memory`: the memory stream read function is called through a wrapper with the exact function type (`tml_stream_memory_read_v`); the original cast
   `int(*)(struct tml_stream_memory*,void*,unsigned)` to `int(*)(void*,void*,unsigned)` is undefined behaviour (clang `-fsanitize=function`, found by libFuzzer on 2026-11-20).
+- `tml_load_memory`: the track buffer grows with the data actually read (64 KiB steps) instead of being allocated at the declared MTrk length (up to 2 GiB from a 33-byte file),
+  and a failed `malloc` is handled (MemorySanitizer + libFuzzer out-of-memory finding, 2026-11-20).
 Upstream status: not reported yet; patch in `docs/upstream-patches/tml.patch`.

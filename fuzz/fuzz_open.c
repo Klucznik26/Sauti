@@ -18,7 +18,7 @@ static int64_t MAKTABASAUTI_CALL in_seek(void *u, int64_t off, int wh) {
 static int64_t MAKTABASAUTI_CALL in_size(void *u) { return (int64_t)((In *)u)->n; }
 static void MAKTABASAUTI_CALL in_close(void *u) { ((In *)u)->closed++; }
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-    In s; FzMem m; maktabasauti_allocator_t a; maktabasauti_open_params_t p; maktabasauti_decoder_t *d = NULL; maktabasauti_result_t r; unsigned tries;
+    In s; FzMem m; maktabasauti_allocator_t a; maktabasauti_open_params_t p; maktabasauti_decoder_t *d = NULL; maktabasauti_result_t r; unsigned tries; maktabasauti_registry_t *reg;
     static const size_t chunks[4] = { 0, 1, 7, 300 };
     if (size < 2) return 0;
     memset(&s, 0, sizeof s); memset(&m, 0, sizeof m);
@@ -26,10 +26,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     s.d = data + 2; s.n = size - 2;
     a = fz_allocator(&m);
     memset(&p, 0, sizeof p); p.struct_size = sizeof p; p.abi_version = MAKTABASAUTI_ABI_VERSION; p.allocator = &a;
+    reg = fz_pure_registry(); p.registry = reg;
     p.io.struct_size = sizeof p.io; p.io.user = &s; p.io.read = in_read; p.io.close = in_close; p.io.seek = s.seekable ? in_seek : NULL; p.io.size = s.size_known ? in_size : NULL;
     for (tries = 0; tries < 4; tries++) { r = maktabasauti_decoder_open(&p, &d); if (r != MAKTABASAUTI_E_WOULD_BLOCK) break; if (!s.seekable) break; }
     if (r == MAKTABASAUTI_OK) { s.armed = 1; fz_exercise(d); maktabasauti_decoder_close(d); if (s.closed != 1) abort(); }
     else if (s.closed != 0) abort();                                      /* nieudane otwarcie nie zamyka wejscia */
+    maktabasauti_registry_destroy(reg);
     fz_check_mem(&m);
     return 0;
 }

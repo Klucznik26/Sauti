@@ -36,8 +36,15 @@ Kampania 6 × 10 min (`fuzz_open`, `fuzz_container`, 2026-11-20, po poprawce tml
 przez clanga `-fsanitize=float-cast-overflow`, którego gcc nie ma): dr_flac (`inf` -> `uint64`, 3 razy) i stb_vorbis (`lookup1_values`). Naprawione nasycającymi konwersjami (F16, F17); wejścia zapisane w `fuzz/regression/open/` i odtwarzane w każdym CI
 (`make test-fuzz-replay`).
 
+## MemorySanitizer i przebiegi nocne
+
+- `make fuzz-run-msan` (cele `probe`, `open`, `hostile_io` z `-DMKS_FUZZ_PURE_C`): rejestr tylko z kodekami w czystym C, bo jądra NASM nie są instrumentowane. Sprawdzone mutacją: bez poprawki z `b2bdd74` MSan zgłasza
+  niezainicjowaną zmienną minimp3 w kilka sekund (ASan nie). Znalazł F18 (minimp3 `scratch`) i F19 (tml: alokacja wg deklarowanej długości, 3,3 GB RSS z pliku 33-bajtowego).
+- `.github/workflows/fuzz-nightly.yml`: codziennie 02:17 UTC (albo ręcznie z `seconds`), ASan+UBSan na 4 celach i MSan na 3, 25 min na cel, korpus w `actions/cache`; artefakty awarii wysyłane.
+- Wejścia regresyjne (`fuzz/regression/<cel>/`) trafiają do korpusu każdego przebiegu i do powtórki gcc.
+
 ## Ograniczenia
 
-- Korpus początkowy jest mały (fixtury AAC i prawdziwe pliki FLAC/Ogg/MP3/WAV/AIFF/VOC/Opus/ALAC); dłuższe sesje z rozbudowanym korpusem i słownikiem etykiet formatów zwiększą pokrycie.
+- Korpus początkowy: fixtury AAC, prawdziwe pliki FLAC/Ogg/MP3/WAV/AIFF/VOC/Opus/ALAC i syntetyczne pliki wszystkich formatów + słownik etykiet; pokrycie rośnie z nocnymi przebiegami (korpus jest zachowywany).
 - Dekodery są wolne (`fuzz_container` ≈ 100 wykonań/s): wartościowe są długie przebiegi nocne, nie 90 s w CI.
-- Brak MSan (niezainicjowane odczyty): ASan ich nie widzi; zostaje `-ftrivial-auto-var-init=pattern` w audycie.
+- MSan nie obejmuje kodeków z jądrami NASM (AAC, AVR, DVSM, YM): patrz wyżej.
