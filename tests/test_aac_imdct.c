@@ -67,6 +67,9 @@ int main(void){
     for(size_t i=0;i<2048;i++)assert(output[i]==77.0f);
     run(128);
     run(1024);
+    run(512);                                                       /* AAC-LD / ELD */
+    run(480);                                                       /* AAC-LD / ELD with 480-line frames (direct DCT-IV) */
+
     puts("PASS AAC IMDCT NASM: 128/1024, reference cosine, rollback");
     return 0;
 }

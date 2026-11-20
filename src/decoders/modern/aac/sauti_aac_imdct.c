@@ -20,8 +20,8 @@ typedef struct {
     double fft_c[256],fft_s[256];       /* e^{-2 pi i j/(N/2)}: cos and sin of 2 pi j/(N/2), j < N/4 */
     uint16_t reverse[512];
 } ImdctPlan;
-static ImdctPlan plan128,plan1024;
-static atomic_int plan_state[2];        /* 0 = not built, 1 = being built, 2 = ready */
+static ImdctPlan plans[3];              /* 128 (short), 512 (AAC-LD / AAC-ELD), 1024 (long) */
+static atomic_int plan_state[3];        /* 0 = not built, 1 = being built, 2 = ready */
 
 static void plan_build(ImdctPlan *p,size_t n){
     const double pi=3.14159265358979323846264338327950288;
@@ -46,14 +46,31 @@ static void plan_build(ImdctPlan *p,size_t n){
     p->reverse[0]=0;
 }
 static const ImdctPlan *plan_get(size_t n){
-    const unsigned which=n==1024u;
-    ImdctPlan *p=which?&plan1024:&plan128;
+    const unsigned which=n==1024u?2u:n==512u?1u:0u;
+    ImdctPlan *p=&plans[which];
     int expected=0;
     if(atomic_compare_exchange_strong(&plan_state[which],&expected,1)){
         plan_build(p,n);
         atomic_store(&plan_state[which],2);
     }else while(atomic_load(&plan_state[which])!=2){}
     return p;
+}
+/* DCT-IV y[m] = sum_k X[k] cos(pi/(4N) (2m+1)(2k+1)) for a length that is not a power of two (AAC-LD / ELD frame length 480): direct O(N^2) sum over a table of
+ * cos(pi j/(4N)), j < 8N.  Slower than the FFT path but exact (double) and allocation free for the one length that needs it. */
+static void dct4_direct(const float *x,size_t n,double *y){
+    static double table[3840];                 /* 8 * 480 */
+    static atomic_int state;                   /* 0 = not built, 1 = being built, 2 = ready */
+    int expected=0;
+    const double pi=3.14159265358979323846264338327950288;
+    if(atomic_compare_exchange_strong(&state,&expected,1)){
+        for(size_t j=0;j<8u*480u;j++)table[j]=cos(pi*(double)j/(4.0*480.0));
+        atomic_store(&state,2);
+    }else while(atomic_load(&state)!=2){}
+    for(size_t m=0;m<n;m++){
+        double acc=0.0;
+        for(size_t k=0;k<n;k++)acc+=(double)x[k]*table[((2u*m+1u)*(2u*k+1u))%(8u*n)];
+        y[m]=acc;
+    }
 }
 /* In-place radix-2 FFT of `half` points, e^{-2 pi i nk/half}. */
 static void fft_half(AacComplex *a,const ImdctPlan *p){
@@ -77,7 +94,7 @@ static void fft_half(AacComplex *a,const ImdctPlan *p){
     }
 }
 int sauti_aac_imdct(const float *spectral,size_t n,float *time_samples){
-    if(!spectral || !time_samples || (n!=128u && n!=1024u))return 0;
+    if(!spectral || !time_samples || (n!=128u && n!=512u && n!=480u && n!=1024u))return 0;
     for(size_t k=0;k<n;k++)if(!isfinite(spectral[k]))return 0;
 #ifdef SAUTI_AAC_DIAG_SHORT_DIRECT_IMDCT
     /* Diagnostic only: direct textbook IMDCT for the 128-bin short
@@ -100,22 +117,26 @@ int sauti_aac_imdct(const float *spectral,size_t n,float *time_samples){
         return 1;
     }
 #endif
-    const ImdctPlan *plan=plan_get(n);
     const size_t half=n/2u;
-    AacComplex z[512];
     double y[1024];
-    for(size_t i=0;i<half;i++){
-        const double a=(double)spectral[2u*i],b=(double)spectral[n-1u-2u*i];
-        const double c=plan->pre_c[i],s2=plan->pre_s[i];       /* multiply by e^{-i angle} = c - i s */
-        z[i].re=a*c+b*s2;z[i].im=b*c-a*s2;
+    if(n==480u){
+        dct4_direct(spectral,n,y);
+    }else{
+        const ImdctPlan *plan=plan_get(n);
+        AacComplex z[512];
+        for(size_t i=0;i<half;i++){
+            const double a=(double)spectral[2u*i],b=(double)spectral[n-1u-2u*i];
+            const double c=plan->pre_c[i],s2=plan->pre_s[i];       /* multiply by e^{-i angle} = c - i s */
+            z[i].re=a*c+b*s2;z[i].im=b*c-a*s2;
+        }
+        fft_half(z,plan);
+        for(size_t k=0;k<half;k++){
+            const double c=plan->post_c[k],s2=plan->post_s[k];
+            const double wr=z[k].re*c+z[k].im*s2,wi=z[k].im*c-z[k].re*s2;
+            y[2u*k]=wr;y[n-1u-2u*k]=-wi;
+        }
     }
-    fft_half(z,plan);
-    for(size_t k=0;k<half;k++){
-        const double c=plan->post_c[k],s2=plan->post_s[k];
-        const double wr=z[k].re*c+z[k].im*s2,wi=z[k].im*c-z[k].re*s2;
-        y[2u*k]=wr;y[n-1u-2u*k]=-wi;
-    }
-    float next[2048];
+    float next[2048];                                              /* 2n samples: up to 2048 for n = 1024 */
     const double normalized=2.0/(double)n;
     for(size_t t=0;t<2u*n;t++){
         const size_t m=t+half;

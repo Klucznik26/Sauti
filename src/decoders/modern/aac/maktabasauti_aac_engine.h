@@ -5,6 +5,7 @@
 #define MAKTABASAUTI_AAC_ENGINE_H
 #include "maktabasauti/maktabasauti_codec.h"
 #include "sauti_aac_cpe.h"
+#include "sauti_aac_er.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_he_adts_cpe.h"
 #include "sauti_aac_he_adts_mono.h"
@@ -24,7 +25,7 @@
 #define CHECKPOINT_MAX 256u
 #define RESYNC_LIMIT ((size_t)1 << 20)                   /* ile bajtow szukamy synchronizacji po uszkodzeniu */
 
-typedef enum { V_LC_STEREO = 0, V_LC_MONO, V_LC_MULTI, V_HE_MONO, V_HE_CPE } variant_t;
+typedef enum { V_LC_STEREO = 0, V_LC_MONO, V_LC_MULTI, V_HE_MONO, V_HE_CPE, V_ER } variant_t;      /* V_ER: AAC-LD / AAC-ELD (sauti_aac_er), ramki z naglowkiem wewnetrznym (patrz aac_er_wrap) */
 
 typedef struct {
     SautiAacHeAdtsMonoState mono;
@@ -43,6 +44,7 @@ typedef struct {
         SautiAacLcSynthesis lc[2];
         SautiAacLcMulti multi;
         he_state_t he;
+        SautiAacErState er;
     } u;
     uint64_t frames_in;                                  /* ramki ADTS zdekodowane */
     uint64_t pcm_out;                                    /* bloki PCM wyprodukowane (LC: = frames_in; HE-PS: o jeden mniej, patrz he_produce) */
@@ -62,6 +64,7 @@ typedef struct {
     variant_t variant;
     unsigned config;                                     /* channel_configuration z ADTS */
     unsigned rate_index, core_rate, core_channels, crc_present;
+    unsigned er_aot, er_480;                             /* V_ER: typ obiektu (23 / 39) i dlugosc ramki 480 zamiast 512 */
     unsigned out_channels, out_rate, frame_pcm, ps_mode;
     SautiAacLcLayout layout;                             /* tylko config 0 (PCE) */
     int seekable, total_known;
@@ -89,7 +92,21 @@ typedef struct {
 
 /* ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
 /* naglowek ADTS (C): te same warunki co sauti_aac_adts_parse_asm, ale na samych 7-9 bajtach, bez wymagania calej ramki (do sondy po prefiksie i do wyznaczania dlugosci) */
-typedef struct { unsigned rate_index, rate, config, frame_bytes, header_bytes, raw_blocks, crc_present; } aac_adts_hdr_t;
+typedef struct { unsigned rate_index, rate, config, frame_bytes, header_bytes, raw_blocks, crc_present; unsigned er, er_aot, er_480; } aac_adts_hdr_t;     /* er: ramka AAC-LD / ELD (naglowek wewnetrzny) */
+
+/* Jednostka dostepu AAC-LD / AAC-ELD nie da sie zapisac w ADTS (pole profilu ma 2 bity), a silnik przekazuje ramki w postaci ADTS, wiec kontener owija ja w 7-bajtowy naglowek WEWNETRZNY,
+ * ktory nie jest poprawnym ADTS: pole `layer` = 01 (w prawdziwym ADTS zawsze 00), pole profilu = 0 dla AAC-LD (23) albo 1 dla AAC-ELD (39), bit prywatny = ramka 480; reszta jak w ADTS (indeks
+ * czestotliwosci, konfiguracja kanalow, dlugosc ramki z naglowkiem).  Naglowek nigdy nie opuszcza silnika.  Zwraca dlugosc ramki (7 + sz). */
+static inline size_t aac_er_wrap(uint8_t *frame, unsigned aot, unsigned rate_index, unsigned channel_config, unsigned frame480, uint32_t sz) {
+    const size_t l = 7u + sz;
+    frame[0] = 0xff; frame[1] = 0xf3;
+    frame[2] = (uint8_t)(((aot == 39u ? 1u : 0u) << 6) | (rate_index << 2) | ((frame480 & 1u) << 1) | ((channel_config >> 2) & 1u));
+    frame[3] = (uint8_t)(((channel_config & 3u) << 6) | ((l >> 11) & 3u));
+    frame[4] = (uint8_t)(l >> 3);
+    frame[5] = (uint8_t)(((l & 7u) << 5) | 0x1fu);
+    frame[6] = 0xfc;
+    return l;
+}
 
 static const unsigned aac_adts_rates[13] = { 96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350 };
 

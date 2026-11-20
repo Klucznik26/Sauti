@@ -28,6 +28,8 @@ FFmpeg (libavcodec) jest na LGPL-2.1+. LGPL pozwala **linkować** bibliotekę do
 | okno prototypu QMF (640 współczynników) | `sauti_aac_sbr_qmf_synth_window.c` | „SBR prototype table cross-checked against the public FFmpeg n6.1" |
 | ROM szumu SBR (512 par) | `sauti_aac_sbr_noise_rom.c` | „standardized reference data, cross-checked" |
 | przesunięcia pasm skalowania | `sauti_aac_bands.c` | tablice normatywne |
+| przesunięcia pasm skalowania dla ramek 512 / 480 (AAC-LD / ELD) i `tns_max_bands` | `sauti_aac_bands.c` | tablice normatywne; liczby sprawdzone z `aactab.c` FFmpeg (jak wyżej), dopisane 2026-11-20 |
+| okno filterbanku AAC-ELD (1920 + 1800 współczynników) | `sauti_aac_eld_window.c` | tablica normatywna ISO/IEC 14496-3; **liczby przepisane z `aactab.c` FFmpeg** (`ff_aac_eld_window_512/_480`, LGPL), skrypt `tools/gen_eld_window.py`; wymaga tego samego przeglądu licencyjnego albo zastąpienia danymi z normy |
 | część algorytmów SBR | `sauti_aac_sbr_gain_partition.c` i pokrewne | komentarz „Numerics follow FFmpeg libavcodec/aacsbr.c:sbr_gain_calc()" |
 | adapter do libavcodec | `sauti_decoder_ffmpeg.c` | **nie wchodzi do wydawanej biblioteki** (opcjonalny, wyłącznie do testów i zapasowo w odtwarzaczu) |
 

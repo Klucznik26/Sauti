@@ -172,6 +172,7 @@ static maktabasauti_result_t live_prepare(dec_t *d, mp4_priv_t *p) {
 }
 static void wrap_adts(dec_t *d, const mp4_priv_t *p, uint32_t sz) {
     const size_t l = 7u + sz;
+    if (p->mi.aot == 23u || p->mi.aot == 39u) { d->frame_len = aac_er_wrap(d->frame, p->mi.aot, p->mi.rate_index, p->mi.channel_config, p->mi.frame480, sz); return; }
     d->frame[0] = 0xff; d->frame[1] = 0xf1;
     d->frame[2] = (uint8_t)(0x40u | (p->mi.rate_index << 2) | ((p->mi.channel_config >> 2) & 1u));
     d->frame[3] = (uint8_t)(((p->mi.channel_config & 3u) << 6) | ((l >> 11) & 3u));

@@ -124,7 +124,7 @@ static maktabasauti_result_t drain(maktabasauti_decoder_t *d, float *out, size_t
 }
 static int same(const float *a, const float *b, size_t samples) { return memcmp(a, b, samples * sizeof(float)) == 0; }
 
-static const char *const files[] = { "lc.aac", "lc_mono.aac", "he1.aac", "he1_mono.aac", "he2.aac", "m51.aac", "lc.loas", "lc_mono.loas", "he1.loas", "he2.loas", "lc.adif", "lc_mono.adif", "he1.adif", "lc.m4a", "lc_mono.m4a", "he1.m4a", "he2.m4a", "lc_fast.m4a", "lc_mono_fast.m4a", "he1_fast.m4a", "he2_fast.m4a", "lc_frag.m4a" };
+static const char *const files[] = { "lc.aac", "lc_mono.aac", "he1.aac", "he1_mono.aac", "he2.aac", "m51.aac", "lc.loas", "lc_mono.loas", "he1.loas", "he2.loas", "lc.adif", "lc_mono.adif", "he1.adif", "lc.m4a", "lc_mono.m4a", "he1.m4a", "he2.m4a", "lc_fast.m4a", "lc_mono_fast.m4a", "he1_fast.m4a", "he2_fast.m4a", "lc_frag.m4a", "ld_st.m4a", "eld_st.m4a", "ld_mono.m4a", "eld_mono.m4a", "ld_hq.m4a", "eld_hq.m4a" };
 #define NFILES (sizeof files / sizeof *files)
 
 /* 1+2+3: niestandardowe wejscia, PCM identyczny */

@@ -31,6 +31,11 @@ int sauti_aac_lc_cpe_synthesize(const SautiAacCpeData *cpe,
                                 float pcm_interleaved[2048],
                                 SautiAacReason *reason);
 
+/* The two spectra of a parsed CPE after dequantisation, PNS, Mid/Side, correlated PNS and intensity stereo (shared by AAC-LC and the low-delay decoders). `rate` may carry
+ * a layout (sauti_aac_layout.h).  `pns_stream` advances only on success.  1 success, 0 malformed, -1 unsupported. */
+int sauti_aac_cpe_spectra(const SautiAacCpeData *cpe,unsigned rate,uint32_t *pns_stream,
+                          float spectral[2][1024],SautiAacReason *reason);
+
 /* Atomic stereo ADTS decode: interleaved LRLR, 1024 frames per channel.
  * On any failure neither channel state nor PCM is modified.
  * Correlated PNS requires both SFBs to carry NOISE_HCB plus ms_used. */

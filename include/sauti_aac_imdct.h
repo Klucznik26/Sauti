@@ -3,7 +3,7 @@
 #include <stddef.h>
 
 /* Inverse MDCT primitive: n spectral floats -> 2*n time samples.
- * Supported n: 128 and 1024. The normalization convention is 2/n:
+ * Supported n: 128 and 1024 (AAC-LC), 512 and 480 (AAC-LD / AAC-ELD; 480 uses a direct O(n^2) DCT-IV). The normalization convention is 2/n:
  * y[t] = 2/n * sum_k x[k] cos(pi/n * (t+0.5+n/2)*(k+0.5)).
  *
  * This is an unwindowed mathematical transform, NOT finished AAC PCM.

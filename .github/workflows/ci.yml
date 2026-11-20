@@ -37,6 +37,8 @@ jobs:
         run: make test-fuzz-replay
       - name: "AAC ADTS streaming (non-seekable input, partial reads, WOULD_BLOCK at every point, truncated/corrupt streams, bounded memory, exact seek)"
         run: make test-maktabasauti-aac-stream
+      - name: "AAC-LD / AAC-ELD decoder (ASC, recorded PCM fingerprints, hand-built access units, every truncation and random bit flips with ASan/UBSan, LD window against a direct implementation)"
+        run: make test-aac-er
       - name: "DVSM / AVR streaming (non-seekable input, partial reads, WOULD_BLOCK at every point, truncation, checkpoints, bounded memory)"
         run: make test-maktabasauti-dvs-stream
       - name: "WAV / AIFF streaming (differential vs the old adapters, header matrix, placeholder sizes, float WAV, truncation, mutations, bounded memory)"

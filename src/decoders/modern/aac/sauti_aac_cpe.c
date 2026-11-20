@@ -241,34 +241,23 @@ static int apply_intensity(const SautiAacCpeData *cpe,unsigned rate,
     }
     return group_start==ics->window_count;
 }
-int sauti_aac_lc_cpe_synthesize(const SautiAacCpeData *parsed,
-                                unsigned rate,SautiAacLcSynthesis state[2],
-                                float interleaved[2048],SautiAacReason *reason){
-    if(!reason)return 0;
-    *reason=SAUTI_AAC_REASON_INVALID_ADTS;
-    if(!parsed||!state||!interleaved||rate>=13u)return 0;
-    if(state[0].initialized!=1u||state[1].initialized!=1u){
-        *reason=SAUTI_AAC_REASON_UNSUPPORTED_HISTORY;return -1;
-    }
-    SautiAacLcSynthesis next[2]={state[0],state[1]};
-    float spectral[2][1024],left[1024],right[1024],pcm[2048];
-    /* AAC PNS uses one decoder-wide RNG stream. Consume left bands
-     * before right bands; never independently reseed the channels.
-     * Keep the public two-state API synchronized after success. */
-    uint32_t pns_stream=next[0].pns_seed;
+/* Dequantisation, PNS, Mid/Side, correlated PNS and intensity stereo of one parsed CPE: the two spectra that go into the inverse transform.  Shared by the AAC-LC
+ * synthesis below and by the low-delay (AAC-LD / ELD) decoder, which differ only in the transform and the window. `pns_stream` is the decoder-wide noise generator state
+ * (advanced only on success).  The band tables come from `rate` (a sampling_frequency_index, optionally with a layout, see sauti_aac_layout.h). */
+int sauti_aac_cpe_spectra(const SautiAacCpeData *parsed,unsigned rate,uint32_t *pns_stream,
+                          float spectral[2][1024],SautiAacReason *reason){
+    uint32_t stream=*pns_stream;
     for(unsigned ch=0;ch<2;ch++){
         const SautiAacLcMonoData *data=&parsed->channel[ch];
         if(!sauti_aac_lc_dequantize(data->quant,rate,
                     &data->ics,&data->sections,&data->factors,
                     spectral[ch]) ||
            !sauti_aac_pns_apply(&data->ics,rate,&data->sections,
-                               &data->factors,&pns_stream,
+                               &data->factors,&stream,
                                spectral[ch])){
             *reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;
         }
     }
-    next[0].pns_seed=pns_stream;
-    next[1].pns_seed=pns_stream;
 #ifndef SAUTI_AAC_DIAG_SHORT_NO_MS
     int ms_status=apply_ms(parsed,rate,spectral[0],spectral[1],reason);
 #else
@@ -299,6 +288,30 @@ int sauti_aac_lc_cpe_synthesize(const SautiAacCpeData *parsed,
     if(!intensity_ok){
         *reason=SAUTI_AAC_REASON_INTENSITY;return 0;
     }
+    *pns_stream=stream;
+    return 1;
+}
+int sauti_aac_lc_cpe_synthesize(const SautiAacCpeData *parsed,
+                                unsigned rate,SautiAacLcSynthesis state[2],
+                                float interleaved[2048],SautiAacReason *reason){
+    if(!reason)return 0;
+    *reason=SAUTI_AAC_REASON_INVALID_ADTS;
+    if(!parsed||!state||!interleaved||rate>=13u)return 0;
+    if(state[0].initialized!=1u||state[1].initialized!=1u){
+        *reason=SAUTI_AAC_REASON_UNSUPPORTED_HISTORY;return -1;
+    }
+    SautiAacLcSynthesis next[2]={state[0],state[1]};
+    float spectral[2][1024],left[1024],right[1024],pcm[2048];
+    /* AAC PNS uses one decoder-wide RNG stream. Consume left bands
+     * before right bands; never independently reseed the channels.
+     * Keep the public two-state API synchronized after success. */
+    uint32_t pns_stream=next[0].pns_seed;
+    {
+        const int status=sauti_aac_cpe_spectra(parsed,rate,&pns_stream,spectral,reason);
+        if(status!=1)return status;
+    }
+    next[0].pns_seed=pns_stream;
+    next[1].pns_seed=pns_stream;
     for(unsigned ch=0;ch<2;ch++){
         const SautiAacLcMonoData *data=&parsed->channel[ch];
         if(!sauti_aac_lc_synthesis_spectral(&next[ch],&data->ics,

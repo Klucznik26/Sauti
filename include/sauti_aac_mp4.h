@@ -11,7 +11,8 @@
  * Warianty kontenera: esds takze w pudelku `wave` (QuickTime, wersja 1/2 wpisu mp4a), rozmiary z stsz albo stz2 (4/8/16 bitow), segmenty DASH (styp/sidx pomijane).
  * Nieobslugiwane (zwraca 0, bez PCM zastepczego): brak sciezki AAC, inny kodek (np. ALAC), czestotliwosc poza tablica ADTS, AU > 8184 B, uszkodzone tabele. */
 typedef struct {
-    unsigned aot;                 /* typ obiektu z ASC (2 = LC; 5/29 = SBR/PS jawnie) */
+    unsigned aot;                 /* typ obiektu z ASC (2 = LC; 5/29 = SBR/PS jawnie; 23 = AAC-LD, 39 = AAC-ELD bez SBR: tylko sciezka strumieniowa silnika) */
+    unsigned frame480;            /* AAC-LD / ELD: ramka 480 zamiast 512 probek */
     unsigned rate_index;          /* indeks czestotliwosci rdzenia (ADTS) */
     unsigned sample_rate;         /* czestotliwosc rdzenia, Hz */
     unsigned channel_config;      /* channel_configuration z ASC (0 = PCE w strumieniu) */

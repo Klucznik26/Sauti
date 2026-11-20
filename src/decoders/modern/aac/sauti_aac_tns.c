@@ -1,6 +1,7 @@
 #include "sauti_aac_tns.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_bands.h"
+#include "sauti_aac_layout.h"
 #include <math.h>
 #include <string.h>
 #include <stdint.h>
@@ -57,25 +58,18 @@ int sauti_aac_tns_parse(const uint8_t *data,size_t size,size_t *bit_offset,
     return 1;
 }
 
-/* AAC-LC tns_max_bands for 1024/128 transforms, by sample-rate index.
- * Values are tabulated in the ISO AAC specification. */
-static const uint8_t max_long[13]={
-    31,31,34,40,42,51,46,46,42,42,42,39,39
-};
-static const uint8_t max_short[13]={
-    9,9,10,14,14,14,14,14,14,14,14,14,14
-};
 int sauti_aac_tns_apply(const SautiAacTnsData *tns,
                         const SautiAacIcsInfo *ics,unsigned rate,
                         float spectral[1024]){
-    if(!tns||!ics||!spectral||rate>=13u||
+    if(!tns||!ics||!spectral||SAUTI_AAC_IDX_RATE(rate)>=13u||
        ics->window_sequence>3u)return 0;
     const unsigned shortwin=ics->window_sequence==2u;
     const unsigned windows=shortwin?8u:1u;
     if(ics->window_count!=windows)return 0;
     const uint16_t *offsets=NULL;unsigned bands=0;
     if(!sauti_aac_band_offsets(rate,shortwin,&offsets,&bands))return 0;
-    const unsigned mmm=shortwin?max_short[rate]:max_long[rate];
+    const unsigned mmm=sauti_aac_tns_max_bands(rate,shortwin);
+    if(!mmm)return 0;
     const unsigned cap=mmm<ics->max_sfb?mmm:ics->max_sfb;
     float next[1024];
     for(unsigned i=0;i<1024;i++){
@@ -117,7 +111,7 @@ int sauti_aac_tns_apply(const SautiAacTnsData *tns,
             const unsigned high=top<cap?top:cap;
             unsigned start=offsets[low],stop=offsets[high];
             if(start>=stop)continue;
-            const unsigned size=shortwin?128u:1024u;
+            const unsigned size=shortwin?128u:1024u;                   /* arrays stay 1024 wide; a low-delay frame uses the first 512 / 480 lines (band offsets bound them) */
             if(stop>size)return 0;
             const unsigned base=w*size;
             const int direction=f->direction?-1:1;

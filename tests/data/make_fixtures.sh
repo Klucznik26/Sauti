@@ -78,3 +78,31 @@ PY
 "$FDK" -p 2 -b 96000 -f 2  -o lc44.aac  "$W/in44.wav" >/dev/null 2>&1
 "$FDK" -p 2 -b 96000 -f 10 --header-period 1 -o lc44.loas "$W/in44.wav" >/dev/null 2>&1
 ls -l *.aac *.m4a *.loas *.adif | awk '{print $5,$9}'
+# AAC-LD / AAC-ELD (error-resilient syntax, no resilience tools): 3 s synthetic stereo and mono (tones, noise, clicks; numpy default_rng(11)), fdkaac -p 23 / -p 39 in M4A.
+# These exercise src/decoders/modern/aac/sauti_aac_er.c; the decoder is compared with FFmpeg by scripts/test_aac_er_vs_ffmpeg.sh.
+python3 -I - "$W" <<'PY'
+import sys,wave
+import numpy as np
+sr=48000; n=sr*3; t=np.arange(n)/sr; rng=np.random.default_rng(11)
+for name,ch in (("st",2),("mono",1)):
+    x=np.zeros((n,ch))
+    for c in range(ch):
+        x[:,c]=0.22*np.sin(2*np.pi*(220*1.33**c)*t)+0.12*np.sin(2*np.pi*(1700+300*c)*t*(1+0.1*np.sin(2*np.pi*0.5*t)))+0.02*rng.standard_normal(n)
+    for k in range(0,n,9000): x[k:k+40,:]+=0.5
+    w=wave.open(sys.argv[1]+"/er_"+name+".wav",'wb'); w.setnchannels(ch); w.setsampwidth(2); w.setframerate(sr); w.writeframes((np.clip(x,-1,1)*32767).astype('<i2').tobytes()); w.close()
+PY
+"$FDK" -p 23 -b 64000 -f 0 --no-timestamp -o ld_st.m4a   "$W/er_st.wav"   >/dev/null 2>&1
+"$FDK" -p 39 -b 64000 -f 0 --no-timestamp -o eld_st.m4a  "$W/er_st.wav"   >/dev/null 2>&1
+"$FDK" -p 23 -b 32000 -f 0 --no-timestamp -o ld_mono.m4a "$W/er_mono.wav" >/dev/null 2>&1
+"$FDK" -p 39 -b 32000 -f 0 --no-timestamp -o eld_mono.m4a "$W/er_mono.wav" >/dev/null 2>&1
+# high-bitrate AAC-LD / AAC-ELD (192 kb/s, broadband noise up to 24 kHz): the encoder then codes the upper half of the spectrum, which the 64 kb/s fixtures leave empty
+python3 -I - "$W" <<'PY'
+import sys,wave
+import numpy as np
+sr=48000; n=sr; t=np.arange(n)/sr; rng=np.random.default_rng(23)
+x=np.zeros((n,2))
+for c in range(2): x[:,c]=0.15*np.sin(2*np.pi*(330*1.21**c)*t)+0.12*rng.standard_normal(n)*(0.4+0.6*np.sin(2*np.pi*3*t)**2)
+w=wave.open(sys.argv[1]+"/er_hq.wav",'wb'); w.setnchannels(2); w.setsampwidth(2); w.setframerate(sr); w.writeframes((np.clip(x,-1,1)*32767).astype('<i2').tobytes()); w.close()
+PY
+"$FDK" -p 39 -b 192000 -f 0 --no-timestamp -o eld_hq.m4a "$W/er_hq.wav" >/dev/null 2>&1
+"$FDK" -p 23 -b 192000 -f 0 --no-timestamp -o ld_hq.m4a  "$W/er_hq.wav" >/dev/null 2>&1
