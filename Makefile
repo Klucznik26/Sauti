@@ -3,6 +3,20 @@ NASM ?= nasm
 CC ?= cc
 PKG_CONFIG ?= pkg-config
 CFLAGS ?= -O2 -std=c11 -Wall -Wextra -Werror
+# PORTABLE=1: bez NASM. Jadra asemblerowe (AAC, AVR, DVSM, YM) zastepuja ich odpowiedniki w C z src/portable (bit w bit jak asembler, patrz tests/test_portable_equivalence.c), jadra QMF wybieraja wersje
+# w C (SAUTI_QMF_DISABLE_ASM), a -ffp-contract=off zabezpiecza kolejnosc dzialan zmiennoprzecinkowych przed FMA (ARM64).  Uzycie: make PORTABLE=1 OBJDIR=build_portable test-aac-native
+PORTABLE ?= 0
+SAUTI_PORTABLE_DIR := src/portable
+ifeq ($(PORTABLE),1)
+CFLAGS += -ffp-contract=off -DSAUTI_QMF_DISABLE_ASM
+define ASM_OBJ
+$(if $(wildcard $(SAUTI_PORTABLE_DIR)/$(basename $(notdir $(1)))_portable.c),$(CC) $(CFLAGS) -Iinclude -I$(SAUTI_PORTABLE_DIR) -c -o $@ $(SAUTI_PORTABLE_DIR)/$(basename $(notdir $(1)))_portable.c,$(error PORTABLE=1: brak odpowiednika w C dla $(1)))
+endef
+else
+define ASM_OBJ
+$(NASM) -f elf64 -o $@ $(1)
+endef
+endif
 OBJDIR := build
 ARCHIVE_AVAILABLE := $(shell $(PKG_CONFIG) --exists libarchive && echo yes)
 ifeq ($(ARCHIVE_AVAILABLE),yes)
@@ -147,7 +161,7 @@ $(OBJDIR):
 	mkdir -p $@
 
 $(YM_ASM): src/decoders/retro/atari/sauti_decoder_ym.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/test_decoder_ym: tests/test_decoder_ym.c include/sauti_decoder_ym.h include/sauti_decoder.h src/sauti_decoder.c $(YM_SRC) $(YM_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_ym.c src/sauti_decoder.c $(YM_SRC) $(YM_ASM) -no-pie
@@ -309,7 +323,7 @@ $(OBJDIR)/test_ym_archive: tests/test_ym_archive.c include/sauti_ym_archive.h $(
 	$(CC) $(CFLAGS) $(ARCHIVE_FLAGS) -Iinclude -o $@ tests/test_ym_archive.c $(YM_ARCHIVE_SRC) $(ARCHIVE_LIBS)
 
 $(DVSM_ASM): src/decoders/retro/atari/sauti_decoder_dvsm.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/test_decoder_dvsm_san: tests/test_decoder_dvsm.c include/sauti_decoder_dvsm.h include/sauti_decoder.h src/sauti_decoder.c $(DVSM_SRC) $(DVSM_ASM) | $(OBJDIR)
 	$(CC) $(YM_SAN_FLAGS) -Iinclude -o $@ tests/test_decoder_dvsm.c src/sauti_decoder.c $(DVSM_SRC) $(DVSM_ASM) -lm -no-pie
@@ -340,7 +354,7 @@ $(OBJDIR)/dump_decoder_dvsm: tests/dump_decoder_dvsm.c include/sauti_decoder_dvs
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/dump_decoder_dvsm.c src/sauti_decoder.c $(DVSM_SRC) $(DVSM_ASM) -lm -no-pie
 
 $(AVR_ASM): src/decoders/retro/atari/sauti_decoder_avr.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/test_decoder_avr_san: tests/test_decoder_avr.c include/sauti_decoder_avr.h include/sauti_decoder.h src/sauti_decoder.c $(AVR_SRC) $(AVR_ASM) | $(OBJDIR)
 	$(CC) $(YM_SAN_FLAGS) -Iinclude -o $@ tests/test_decoder_avr.c src/sauti_decoder.c $(AVR_SRC) $(AVR_ASM) -no-pie
@@ -354,37 +368,37 @@ $(OBJDIR)/test_decoder_avr: tests/test_decoder_avr.c include/sauti_decoder_avr.h
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_decoder_avr.c src/sauti_decoder.c $(AVR_SRC) $(AVR_ASM) -no-pie
 
 $(OBJDIR)/sauti_core.o: src/sauti_core.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/sauti_fft.o: src/sauti_fft.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/sauti_spectrum.o: src/sauti_spectrum.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/sauti_frame.o: src/sauti_frame.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/sauti_db_log.o: src/sauti_db_log.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/sauti_audio_ring.o: src/sauti_audio_ring.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/sauti_stereo_ring.o: src/sauti_stereo_ring.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/sauti_stereo_analysis.o: src/sauti_stereo_analysis.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/sauti_stereo_bars.o: src/sauti_stereo_bars.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/sauti_peak_hold.o: src/sauti_peak_hold.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/sauti_levels.o: src/sauti_levels.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 # Optional Linux-only end-to-end MP3 -> float PCM -> SDL queued audio smoke test.
 $(OBJDIR)/demo_mp3_playback_sdl: tests/demo_mp3_playback_sdl.c include/sauti_decoder.h include/sauti_decoder_mp3.h include/sauti_pcm_output.h src/sauti_decoder.c src/decoders/modern/sauti_decoder_mp3.c src/sauti_pcm_output.c third_party/minimp3/minimp3.h third_party/minimp3/minimp3_ex.h | $(OBJDIR)
@@ -411,7 +425,7 @@ $(OBJDIR)/test_decoder_mp3: tests/test_decoder_mp3.c include/sauti_decoder.h inc
 # AAC family parser is tested independently of the existing FFmpeg decoder.
 # This target does not claim to decode AAC to PCM.
 $(AAC_HEADERS_ASM): src/decoders/modern/aac/sauti_aac_headers.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/test_aac_headers: tests/test_aac_headers.c include/sauti_aac_headers.h $(AAC_CONFIG_SRC) $(AAC_HEADERS_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_headers.c $(AAC_CONFIG_SRC) $(AAC_HEADERS_ASM) -no-pie
@@ -421,22 +435,22 @@ test-aac-headers: $(OBJDIR)/test_aac_headers
 	./$(OBJDIR)/test_aac_headers
 
 $(AAC_DSP_ASM): src/decoders/modern/aac/sauti_aac_dsp.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(AAC_PS_MIX_ASM): src/decoders/modern/aac/sauti_aac_ps_mix.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(AAC_SBR_QMF_SYNTH_WINDOW_ASM): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(AAC_SBR_QMF_SYNTH_MOD_ASM): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod.asm src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_tables.inc | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(AAC_SBR_QMF_SYNTH_WINDOW_AVX2): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window_avx2.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(AAC_SBR_QMF_SYNTH_MOD_AVX2): src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod_avx2.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/test_aac_syntax: tests/test_aac_syntax.c include/sauti_aac_syntax.h $(AAC_SYNTAX_SRC) $(AAC_DSP_ASM) $(AAC_HEADERS_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_syntax.c $(AAC_SYNTAX_SRC) $(AAC_HEADERS_ASM) $(AAC_DSP_ASM) -no-pie
@@ -753,6 +767,11 @@ $(OBJDIR)/test_aac_sbr_qmf_synth_mod: tests/test_aac_sbr_qmf_synth_mod.c include
 test-aac-sbr-qmf-synth-mod: $(OBJDIR)/test_aac_sbr_qmf_synth_mod
 	./$(OBJDIR)/test_aac_sbr_qmf_synth_mod
 
+ifeq ($(PORTABLE),1)
+.PHONY: test-aac-qmf-simd
+test-aac-qmf-simd:
+	@echo "SKIP test-aac-qmf-simd: PORTABLE=1 ma tylko odpowiedniki w C (brak jader SIMD do porownania)"
+else
 # Native SSE2/AVX2 differential tests; automatically SKIP on CPUs without AVX2.
 $(OBJDIR)/test_aac_qmf_simd: tests/test_aac_qmf_simd.c include/sauti_aac_sbr_qmf_synth_mod.h $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_qmf_simd.c $(AAC_SBR_QMF_SYNTH_MOD_SRC) $(AAC_SBR_QMF_SYNTH_WINDOW_SRC) -lm
@@ -760,6 +779,7 @@ $(OBJDIR)/test_aac_qmf_simd: tests/test_aac_qmf_simd.c include/sauti_aac_sbr_qmf
 .PHONY: test-aac-qmf-simd
 test-aac-qmf-simd: $(OBJDIR)/test_aac_qmf_simd
 	./$(OBJDIR)/test_aac_qmf_simd
+endif
 
 # Pure CPU policy and live CPUID dispatch verification, including forced modes.
 $(OBJDIR)/test_aac_qmf_dispatch: tests/test_aac_qmf_dispatch.c include/sauti_aac_qmf_dispatch.h | $(OBJDIR)
@@ -1230,7 +1250,7 @@ test-aac-he-preview-compare:
 	python3 tools/sauti_he_aac_compare_pcm.py --self-test
 
 # SBR-82: mono HE-AAC through the standard-structured channel decoder (tool, not a product).
-AAC_SBR_CHANNEL_CLI_SRC := build/sauti_aac_dequant.o build/sauti_aac_dsp.o build/sauti_aac_headers.o build/sauti_aac_huffman.o build/sauti_aac_imdct.o build/sauti_aac_sbr_qmf_synth_mod_asm.o build/sauti_aac_sbr_qmf_synth_mod_avx2.o build/sauti_aac_sbr_qmf_synth_window_asm.o build/sauti_aac_sbr_qmf_synth_window_avx2.o build/sauti_aac_spectral.o src/decoders/modern/aac/sauti_aac_adts_crc.c src/decoders/modern/aac/sauti_aac_bands.c src/decoders/modern/aac/sauti_aac_dequant.c src/decoders/modern/aac/sauti_aac_he_adts_mono.c src/decoders/modern/aac/sauti_aac_he_adts_qmf.c src/decoders/modern/aac/sauti_aac_huffman.c src/decoders/modern/aac/sauti_aac_imdct.c src/decoders/modern/aac/sauti_aac_lc_frame.c src/decoders/modern/aac/sauti_aac_lc_sections.c src/decoders/modern/aac/sauti_aac_lc_synth.c src/decoders/modern/aac/sauti_aac_pns.c src/decoders/modern/aac/sauti_aac_sbr_channel.c src/decoders/modern/aac/sauti_aac_sbr_control.c src/decoders/modern/aac/sauti_aac_sbr_crc.c src/decoders/modern/aac/sauti_aac_sbr_energy.c src/decoders/modern/aac/sauti_aac_sbr_gain_limit_partition.c src/decoders/modern/aac/sauti_aac_sbr_gain_partition.c src/decoders/modern/aac/sauti_aac_sbr_grid.c src/decoders/modern/aac/sauti_aac_sbr_hf.c src/decoders/modern/aac/sauti_aac_sbr_hf_band_audit.c src/decoders/modern/aac/sauti_aac_sbr_hf_joint_rom.c src/decoders/modern/aac/sauti_aac_sbr_hf_limiter.c src/decoders/modern/aac/sauti_aac_sbr_hf_patch_route_audit.c src/decoders/modern/aac/sauti_aac_sbr_hf_phase_probe.c src/decoders/modern/aac/sauti_aac_sbr_hf_predict.c src/decoders/modern/aac/sauti_aac_sbr_hf_sine.c src/decoders/modern/aac/sauti_aac_sbr_huffman.c src/decoders/modern/aac/sauti_aac_sbr_limiter_bands.c src/decoders/modern/aac/sauti_aac_sbr_limits.c src/decoders/modern/aac/sauti_aac_sbr_low_source_audit.c src/decoders/modern/aac/sauti_aac_sbr_lpc_estimate.c src/decoders/modern/aac/sauti_aac_sbr_master.c src/decoders/modern/aac/sauti_aac_sbr_master_log.c src/decoders/modern/aac/sauti_aac_sbr_noise_rom.c src/decoders/modern/aac/sauti_aac_sbr_patch.c src/decoders/modern/aac/sauti_aac_sbr_payload.c src/decoders/modern/aac/sauti_aac_sbr_qmf_analysis.c src/decoders/modern/aac/sauti_aac_sbr_qmf_frame.c src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod.c src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window.c src/decoders/modern/aac/sauti_aac_sbr_quant.c src/decoders/modern/aac/sauti_aac_sbr_smooth.c src/decoders/modern/aac/sauti_aac_sbr_tables.c src/decoders/modern/aac/sauti_aac_sbr_temporal_apply.c src/decoders/modern/aac/sauti_aac_sbr_temporal_energy_audit.c src/decoders/modern/aac/sauti_aac_sbr_temporal_energy_units.c src/decoders/modern/aac/sauti_aac_sbr_temporal_envelope_audit.c src/decoders/modern/aac/sauti_aac_sbr_temporal_gain.c src/decoders/modern/aac/sauti_aac_sbr_temporal_gain_bridge.c src/decoders/modern/aac/sauti_aac_sbr_temporal_harmonic_preview.c src/decoders/modern/aac/sauti_aac_sbr_temporal_hf_units.c src/decoders/modern/aac/sauti_aac_sbr_temporal_mix.c src/decoders/modern/aac/sauti_aac_sbr_temporal_noise.c src/decoders/modern/aac/sauti_aac_sbr_temporal_pcm_preview.c src/decoders/modern/aac/sauti_aac_sbr_temporal_power.c src/decoders/modern/aac/sauti_aac_sbr_temporal_qmf.c src/decoders/modern/aac/sauti_aac_sbr_temporal_reference_gain.c src/decoders/modern/aac/sauti_aac_sbr_temporal_smooth.c src/decoders/modern/aac/sauti_aac_sbr_temporal_source6.c src/decoders/modern/aac/sauti_aac_scalefactors.c src/decoders/modern/aac/sauti_aac_spectral.c src/decoders/modern/aac/sauti_aac_spectral_data.c src/decoders/modern/aac/sauti_aac_syntax.c src/decoders/modern/aac/sauti_aac_tables.c src/decoders/modern/aac/sauti_aac_tns.c src/decoders/modern/aac/sauti_aac_window.c $(AAC_HE_ADTS_PS_LINK) src/decoders/modern/aac/sauti_aac_he_adts_cpe.c src/decoders/modern/aac/sauti_aac_cpe.c
+AAC_SBR_CHANNEL_CLI_SRC := $(OBJDIR)/sauti_aac_dequant.o $(OBJDIR)/sauti_aac_dsp.o $(OBJDIR)/sauti_aac_headers.o $(OBJDIR)/sauti_aac_huffman.o $(OBJDIR)/sauti_aac_imdct.o $(OBJDIR)/sauti_aac_sbr_qmf_synth_mod_asm.o $(OBJDIR)/sauti_aac_sbr_qmf_synth_mod_avx2.o $(OBJDIR)/sauti_aac_sbr_qmf_synth_window_asm.o $(OBJDIR)/sauti_aac_sbr_qmf_synth_window_avx2.o $(OBJDIR)/sauti_aac_spectral.o src/decoders/modern/aac/sauti_aac_adts_crc.c src/decoders/modern/aac/sauti_aac_bands.c src/decoders/modern/aac/sauti_aac_dequant.c src/decoders/modern/aac/sauti_aac_he_adts_mono.c src/decoders/modern/aac/sauti_aac_he_adts_qmf.c src/decoders/modern/aac/sauti_aac_huffman.c src/decoders/modern/aac/sauti_aac_imdct.c src/decoders/modern/aac/sauti_aac_lc_frame.c src/decoders/modern/aac/sauti_aac_lc_sections.c src/decoders/modern/aac/sauti_aac_lc_synth.c src/decoders/modern/aac/sauti_aac_pns.c src/decoders/modern/aac/sauti_aac_sbr_channel.c src/decoders/modern/aac/sauti_aac_sbr_control.c src/decoders/modern/aac/sauti_aac_sbr_crc.c src/decoders/modern/aac/sauti_aac_sbr_energy.c src/decoders/modern/aac/sauti_aac_sbr_gain_limit_partition.c src/decoders/modern/aac/sauti_aac_sbr_gain_partition.c src/decoders/modern/aac/sauti_aac_sbr_grid.c src/decoders/modern/aac/sauti_aac_sbr_hf.c src/decoders/modern/aac/sauti_aac_sbr_hf_band_audit.c src/decoders/modern/aac/sauti_aac_sbr_hf_joint_rom.c src/decoders/modern/aac/sauti_aac_sbr_hf_limiter.c src/decoders/modern/aac/sauti_aac_sbr_hf_patch_route_audit.c src/decoders/modern/aac/sauti_aac_sbr_hf_phase_probe.c src/decoders/modern/aac/sauti_aac_sbr_hf_predict.c src/decoders/modern/aac/sauti_aac_sbr_hf_sine.c src/decoders/modern/aac/sauti_aac_sbr_huffman.c src/decoders/modern/aac/sauti_aac_sbr_limiter_bands.c src/decoders/modern/aac/sauti_aac_sbr_limits.c src/decoders/modern/aac/sauti_aac_sbr_low_source_audit.c src/decoders/modern/aac/sauti_aac_sbr_lpc_estimate.c src/decoders/modern/aac/sauti_aac_sbr_master.c src/decoders/modern/aac/sauti_aac_sbr_master_log.c src/decoders/modern/aac/sauti_aac_sbr_noise_rom.c src/decoders/modern/aac/sauti_aac_sbr_patch.c src/decoders/modern/aac/sauti_aac_sbr_payload.c src/decoders/modern/aac/sauti_aac_sbr_qmf_analysis.c src/decoders/modern/aac/sauti_aac_sbr_qmf_frame.c src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod.c src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window.c src/decoders/modern/aac/sauti_aac_sbr_quant.c src/decoders/modern/aac/sauti_aac_sbr_smooth.c src/decoders/modern/aac/sauti_aac_sbr_tables.c src/decoders/modern/aac/sauti_aac_sbr_temporal_apply.c src/decoders/modern/aac/sauti_aac_sbr_temporal_energy_audit.c src/decoders/modern/aac/sauti_aac_sbr_temporal_energy_units.c src/decoders/modern/aac/sauti_aac_sbr_temporal_envelope_audit.c src/decoders/modern/aac/sauti_aac_sbr_temporal_gain.c src/decoders/modern/aac/sauti_aac_sbr_temporal_gain_bridge.c src/decoders/modern/aac/sauti_aac_sbr_temporal_harmonic_preview.c src/decoders/modern/aac/sauti_aac_sbr_temporal_hf_units.c src/decoders/modern/aac/sauti_aac_sbr_temporal_mix.c src/decoders/modern/aac/sauti_aac_sbr_temporal_noise.c src/decoders/modern/aac/sauti_aac_sbr_temporal_pcm_preview.c src/decoders/modern/aac/sauti_aac_sbr_temporal_power.c src/decoders/modern/aac/sauti_aac_sbr_temporal_qmf.c src/decoders/modern/aac/sauti_aac_sbr_temporal_reference_gain.c src/decoders/modern/aac/sauti_aac_sbr_temporal_smooth.c src/decoders/modern/aac/sauti_aac_sbr_temporal_source6.c src/decoders/modern/aac/sauti_aac_scalefactors.c src/decoders/modern/aac/sauti_aac_spectral.c src/decoders/modern/aac/sauti_aac_spectral_data.c src/decoders/modern/aac/sauti_aac_syntax.c src/decoders/modern/aac/sauti_aac_tables.c src/decoders/modern/aac/sauti_aac_tns.c src/decoders/modern/aac/sauti_aac_window.c $(AAC_HE_ADTS_PS_LINK) src/decoders/modern/aac/sauti_aac_he_adts_cpe.c src/decoders/modern/aac/sauti_aac_cpe.c
 $(OBJDIR)/sauti_he_decode_cli: tools/sauti_he_decode_cli.c include/sauti_aac_sbr_channel.h $(AAC_SBR_CHANNEL_CLI_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_he_decode_cli.c $(sort $(AAC_SBR_CHANNEL_CLI_SRC)) -lm -no-pie
 
@@ -1283,7 +1303,7 @@ test-aac-lc-sections: $(OBJDIR)/test_aac_lc_sections
 	./$(OBJDIR)/test_aac_lc_sections
 
 $(AAC_HUFFMAN_ASM): src/decoders/modern/aac/sauti_aac_huffman.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/test_aac_huffman: tests/test_aac_huffman.c include/sauti_aac_huffman.h $(AAC_HUFFMAN_SRC) $(AAC_HUFFMAN_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_huffman.c $(AAC_HUFFMAN_SRC) $(AAC_HUFFMAN_ASM) -no-pie
@@ -1293,7 +1313,7 @@ test-aac-huffman: $(OBJDIR)/test_aac_huffman
 	./$(OBJDIR)/test_aac_huffman
 
 $(AAC_SPECTRAL_ASM): src/decoders/modern/aac/sauti_aac_spectral.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/test_aac_spectral: tests/test_aac_spectral.c include/sauti_aac_spectral.h $(AAC_SPECTRAL_SRC) $(AAC_SPECTRAL_ASM) $(AAC_HUFFMAN_SRC) $(AAC_HUFFMAN_ASM) $(AAC_HEADERS_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_spectral.c $(AAC_SPECTRAL_SRC) $(AAC_HUFFMAN_SRC) $(AAC_SPECTRAL_ASM) $(AAC_HUFFMAN_ASM) $(AAC_HEADERS_ASM) -no-pie
@@ -1324,7 +1344,7 @@ test-aac-spectral-data: $(OBJDIR)/test_aac_spectral_data
 	./$(OBJDIR)/test_aac_spectral_data
 
 $(AAC_DEQUANT_ASM): src/decoders/modern/aac/sauti_aac_dequant.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/test_aac_dequant: tests/test_aac_dequant.c include/sauti_aac_dequant.h $(AAC_DEQUANT_SRC) $(AAC_DEQUANT_ASM) $(AAC_BANDS_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_dequant.c $(AAC_DEQUANT_SRC) $(AAC_BANDS_SRC) $(AAC_DEQUANT_ASM) -lm -no-pie
@@ -1334,7 +1354,7 @@ test-aac-dequant: $(OBJDIR)/test_aac_dequant
 	./$(OBJDIR)/test_aac_dequant
 
 $(AAC_IMDCT_ASM): src/decoders/modern/aac/sauti_aac_imdct.asm | $(OBJDIR)
-	$(NASM) -f elf64 -o $@ $<
+	$(call ASM_OBJ,$<)
 
 $(OBJDIR)/test_aac_imdct: tests/test_aac_imdct.c include/sauti_aac_imdct.h $(AAC_IMDCT_SRC) $(AAC_IMDCT_ASM) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tests/test_aac_imdct.c $(AAC_IMDCT_SRC) $(AAC_IMDCT_ASM) -lm -no-pie
@@ -2228,10 +2248,28 @@ test-fuzz-replay: $(FUZZ_SEEDS)/.stamp $(foreach t,$(FUZZ_TARGETS),$(OBJDIR)/fuz
 	@for t in $(FUZZ_TARGETS); do echo "== fuzz replay: $$t"; ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/fuzz_replay_$$t $(FUZZ_SEEDS)/$$t $$(ls -d fuzz/regression/$$t 2>/dev/null) || exit 1; done
 $(OBJDIR)/fuzz_%: fuzz/fuzz_%.c fuzz/fuzz_common.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CLANG) -std=gnu11 -g -O1 -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -Ifuzz -o $@ fuzz/fuzz_$*.c $(MKS_DEPS) -lm -lpthread -no-pie
-# MemorySanitizer (niezainicjowane odczyty, ktorych ASan nie widzi): tylko kodeki w czystym C (patrz fuzz/fuzz_common.h); wymaga clanga
-MSAN_TARGETS := probe open hostile_io
-$(OBJDIR)/fuzz_msan_%: fuzz/fuzz_%.c fuzz/fuzz_common.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
-	$(CLANG) -std=gnu11 -g -O1 -DMKS_FUZZ_PURE_C -fsanitize=fuzzer,memory -fsanitize-memory-track-origins=2 -fno-omit-frame-pointer $(MKS_INC) -Ifuzz -o $@ fuzz/fuzz_$*.c $(MKS_DEPS) -lm -lpthread -no-pie
+# MemorySanitizer (niezainicjowane odczyty, ktorych ASan nie widzi): PELNY rejestr, takze AAC/AVR/DVSM/YM, bo jadra NASM (nieinstrumentowane przez MSan) sa zastapione przez src/portable
+# (te same wyniki bit w bit: test-portable-equivalence).  Wymaga clanga; zrodla w C kompiluje sam clang, zadnego obiektu z gcc/NASM.
+MKS_PORTABLE_SRC := $(sort $(wildcard $(SAUTI_PORTABLE_DIR)/*_portable.c))
+MKS_DEPS_C = $(sort $(filter-out %.o,$(MKS_CORE_SRC) $(MKS_LEGACY_SRC) $(AAC_PLAYER_SRC)) $(MKS_PORTABLE_SRC))   # bez obiektow NASM (listy zrodel AAC wymieniaja je obok zrodel C)
+MSAN_FLAGS := -std=gnu11 -g -O1 -DSAUTI_QMF_DISABLE_ASM -ffp-contract=off -fsanitize-memory-track-origins=2 -fno-omit-frame-pointer
+MSAN_TARGETS := probe open container hostile_io
+$(OBJDIR)/fuzz_msan_%: fuzz/fuzz_%.c fuzz/fuzz_common.h $(MKS_DEPS_C) $(MKS_THIRD) | $(OBJDIR)
+	$(CLANG) $(MSAN_FLAGS) -fsanitize=fuzzer,memory $(MKS_INC) -I$(SAUTI_PORTABLE_DIR) -Ifuzz -o $@ fuzz/fuzz_$*.c $(MKS_DEPS_C) -lm -lpthread -no-pie
+# powtorzenie korpusu (bez libFuzzera) pod MSan: ziarna + wejscia regresyjne, uruchamiane w CI przy kazdej zmianie
+$(OBJDIR)/fuzz_replay_msan_%: fuzz/fuzz_%.c fuzz/fuzz_common.h fuzz/standalone_main.c $(MKS_DEPS_C) $(MKS_THIRD) | $(OBJDIR)
+	$(CLANG) $(MSAN_FLAGS) -fsanitize=memory $(MKS_INC) -I$(SAUTI_PORTABLE_DIR) -Ifuzz -o $@ fuzz/fuzz_$*.c fuzz/standalone_main.c $(MKS_DEPS_C) -lm -lpthread -no-pie
+.PHONY: test-msan-replay
+test-msan-replay: $(FUZZ_SEEDS)/.stamp $(foreach t,$(MSAN_TARGETS),$(OBJDIR)/fuzz_replay_msan_$(t))
+	@for t in $(MSAN_TARGETS); do echo "== MSan replay: $$t"; ASAN_OPTIONS= MSAN_OPTIONS=allocator_may_return_null=1:halt_on_error=1 ./$(OBJDIR)/fuzz_replay_msan_$$t $(FUZZ_SEEDS)/$$t $$(ls -d fuzz/regression/$$t 2>/dev/null) || exit 1; done
+# jadra w C == jadra NASM, bit w bit (wymaga NASM; ten sam plik z -DSAUTI_PORTABLE_REF_SUFFIX daje nazwy *_c)
+PORTABLE_EQ_ASM := $(AAC_DEQUANT_ASM) $(AAC_DSP_ASM) $(AAC_HEADERS_ASM) $(AAC_HUFFMAN_ASM) $(AAC_IMDCT_ASM) $(AAC_PS_MIX_ASM) $(AAC_SPECTRAL_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_ASM)
+PORTABLE_EQ_SRC := $(filter-out %qmf%,$(MKS_PORTABLE_SRC))
+$(OBJDIR)/test_portable_equivalence: tests/test_portable_equivalence.c $(MKS_PORTABLE_SRC) $(SAUTI_PORTABLE_DIR)/sauti_portable.h $(PORTABLE_EQ_ASM) | $(OBJDIR)
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=undefined -Iinclude -I$(SAUTI_PORTABLE_DIR) -DSAUTI_PORTABLE_REF_SUFFIX -o $@ tests/test_portable_equivalence.c $(PORTABLE_EQ_SRC) $(PORTABLE_EQ_ASM) -lm -no-pie
+.PHONY: test-portable-equivalence
+test-portable-equivalence: $(OBJDIR)/test_portable_equivalence
+	./$(OBJDIR)/test_portable_equivalence
 .PHONY: fuzz-build-msan fuzz-run-msan
 fuzz-build-msan: $(foreach t,$(MSAN_TARGETS),$(OBJDIR)/fuzz_msan_$(t))
 fuzz-run-msan: fuzz-build-msan $(FUZZ_SEEDS)/.stamp

@@ -17,6 +17,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y nasm gcc g++ make python3
       - name: AAC native tests
         run: make test-aac-native
+      - name: "C kernels == NASM kernels (21 functions, 660k random/edge inputs, bit for bit)"
+        run: make test-portable-equivalence
       - name: public headers (C99 pedantic, C++17, ABI layout)
         run: make test-maktabasauti-headers
       - name: "MaktabaSauti core (C99 pedantic check, ASan+UBSan: allocator contract, ownership, streaming, seek, errors, legacy bridge)"
@@ -47,7 +49,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y nasm gcc make python3 clang
       - name: libFuzzer, 90 s per target (any crash, leak, UB or timeout fails the job)
         run: make fuzz-run FUZZ_SECONDS=90
-      - name: "libFuzzer + MemorySanitizer, 60 s per target (pure-C codecs only; the NASM kernels are not instrumented)"
+      - name: "MemorySanitizer corpus replay (FULL registry incl. AAC/AVR/DVSM/YM: the NASM kernels are replaced by their bit-identical C ports)"
+        run: make test-msan-replay
+      - name: "libFuzzer + MemorySanitizer, 60 s per target (full registry)"
         run: make fuzz-run-msan FUZZ_SECONDS=60
       - name: crash artifacts
         if: failure()
@@ -144,12 +148,21 @@ jobs:
               src/maktabasauti/mks_alloc.c src/maktabasauti/mks_core.c src/maktabasauti/mks_decoder.c src/maktabasauti/mks_io.c src/maktabasauti/mks_pcm.c \
               src/maktabasauti/mks_reader.c src/maktabasauti/mks_registry.c src/maktabasauti/mks_nolegacy.c -lm -o t_core && ./t_core
 
-  # pelna budowa dekoderow na Windows/ARM/BSD wymaga sciezek C zamiast asm NASM (BIBLIOTEKA_PLAN.md, etap 4): do tego czasu nie moze byc wymagana
-  portable-build-pending:
-    runs-on: ubuntu-24.04-arm
-    continue-on-error: true   # oczekiwane niepowodzenie: 25 plikow NASM tylko x86-64; zadanie istnieje, zeby postep byl widoczny, nie ukryty
+  # budowa bez NASM: jadra asemblerowe zastapione przez src/portable (bit w bit jak asembler); x86-64 sprawdza to samo co ARM64, ARM dodatkowo zachowanie FMA / kolejnosci dzialan
+  portable-x86:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y gcc make
-      - name: native AAC tests on ARM64 (needs C fallbacks for the NASM kernels)
-        run: make test-aac-native
+      - run: sudo apt-get update && sudo apt-get install -y gcc make python3
+      - name: "native AAC tests with C kernels instead of NASM (PORTABLE=1, no nasm installed)"
+        run: make PORTABLE=1 OBJDIR=build_portable test-aac-native
+
+  # ARM64: wymaganie NIE jest jeszcze wymuszone (dopoki zadanie nie przejdzie na zielono w kilku kolejnych przebiegach); zadanie istnieje, zeby wynik byl widoczny, nie ukryty
+  portable-arm64:
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y gcc make python3
+      - name: "native AAC tests on ARM64 with the C kernels (PORTABLE=1)"
+        run: make PORTABLE=1 OBJDIR=build_portable test-aac-native

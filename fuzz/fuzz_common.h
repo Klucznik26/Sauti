@@ -32,18 +32,9 @@ static void fz_exercise(maktabasauti_decoder_t *d) {
     (void)maktabasauti_decoder_read(d, buf, 512, MAKTABASAUTI_FORMAT_F32, &got);
 }
 
-/* MemorySanitizer: jadra asemblerowe NASM nie sa instrumentowane (MSan nie widzi ich zapisow i zglasza falszywe niezainicjowane odczyty), wiec przy -DMKS_FUZZ_PURE_C cele uzywaja rejestru
- * z kodekami napisanymi w czystym C (WAV, VOC, AIFF, Vorbis, MIDI, FLAC, DTM, MP3); inaczej rejestr domyslny. Zwraca NULL = domyslny. */
-#ifdef MKS_FUZZ_PURE_C
-#include "mks_internal.h"
-static maktabasauti_registry_t *fz_pure_registry(void) {
-    static const char *const names[] = { "wav-pcm", "creative-voc-pcm", "aiff-pcm", "ogg-vorbis-stb", "midi-basic-synth", "flac-drflac", "atari-falcon-digital-tracker", "mp3-minimp3" };
-    size_t n, i, k; const maktabasauti_codec_t *const *all = mks_legacy_codecs(&n); maktabasauti_registry_t *r = NULL;
-    if (maktabasauti_registry_create(NULL, &r) != MAKTABASAUTI_OK) return NULL;
-    for (k = 0; k < sizeof names / sizeof *names; k++) for (i = 0; i < n; i++) if (!strcmp(all[i]->name, names[k])) (void)maktabasauti_registry_add(r, all[i]);
-    return r;
-}
-#else
+/* MemorySanitizer: jadra asemblerowe NASM nie sa instrumentowane (MSan nie widzialby ich zapisow i zglaszal falszywe niezainicjowane odczyty), wiec build MSan nie linkuje NASM: zamiast nich
+ * kompiluje przenosne jadra w C z src/portable (bit w bit jak asembler, test-portable-equivalence).  Dzieki temu pod MSan dziala PELNY rejestr, takze AAC, AVR, DVSM i YM; dlatego ten
+ * punkt wyboru rejestru zwraca NULL (= domyslny). */
 static maktabasauti_registry_t *fz_pure_registry(void) { return NULL; }
-#endif
+
 #endif

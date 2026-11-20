@@ -57,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [probe, open, hostile_io]
+        target: [probe, open, container, hostile_io]
     steps:
       - uses: actions/checkout@v4
       - name: toolchain
@@ -68,7 +68,7 @@ jobs:
           path: build/fuzz_corpus_msan_${{ matrix.target }}
           key: fuzz-corpus-msan-${{ matrix.target }}-${{ github.run_id }}
           restore-keys: fuzz-corpus-msan-${{ matrix.target }}-
-      - name: "build (pure-C codecs only; the NASM kernels are not instrumented)"
+      - name: "build (full registry; the NASM kernels are replaced by their bit-identical C ports from src/portable)"
         run: make fuzz-build-msan MSAN_TARGETS=${{ matrix.target }}
       - name: run
         env:

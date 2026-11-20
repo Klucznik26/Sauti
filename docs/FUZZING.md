@@ -22,6 +22,8 @@ Trzy warstwy, od najtańszej:
 ```
 make test-fuzz-replay                         # bez clanga
 make fuzz-run CLANG=clang FUZZ_SECONDS=300    # z clangiem (libFuzzer wbudowany w clang)
+make test-msan-replay CLANG=clang             # MSan na pelnym rejestrze (jadra NASM zastapione przez src/portable)
+make test-portable-equivalence                # jadra w C == jadra NASM, bit w bit (wymaga NASM)
 ```
 Bez zainstalowanego clanga da się go użyć bez roota: `dnf download clang clang-libs compiler-rt llvm-libs clang-resource-filesystem` (tylko pakiety x86_64), `rpm2cpio | cpio -idm` do osobnego katalogu,
 `LD_LIBRARY_PATH=<katalog>/usr/lib64`, `CLANG="<katalog>/usr/bin/clang -resource-dir <katalog>/usr/lib/clang/22"`.
@@ -38,13 +40,13 @@ przez clanga `-fsanitize=float-cast-overflow`, którego gcc nie ma): dr_flac (`i
 
 ## MemorySanitizer i przebiegi nocne
 
-- `make fuzz-run-msan` (cele `probe`, `open`, `hostile_io` z `-DMKS_FUZZ_PURE_C`): rejestr tylko z kodekami w czystym C, bo jądra NASM nie są instrumentowane. Sprawdzone mutacją: bez poprawki z `b2bdd74` MSan zgłasza
+- `make fuzz-run-msan` (cele `probe`, `open`, `container`, `hostile_io`) i `make test-msan-replay` (odtworzenie korpusu bez libFuzzera, w CI): PEŁNY rejestr. Jądra NASM nie są instrumentowane, więc build MSan używa ich bit-identycznych odpowiedników w C z `src/portable/` (`make test-portable-equivalence` dowodzi równoważności). Sprawdzone mutacją: bez poprawki z `b2bdd74` MSan zgłasza minimp3, a niezainicjowany odczyt wstrzyknięty do jądra AAC jest wykrywany.
   niezainicjowaną zmienną minimp3 w kilka sekund (ASan nie). Znalazł F18 (minimp3 `scratch`) i F19 (tml: alokacja wg deklarowanej długości, 3,3 GB RSS z pliku 33-bajtowego).
-- `.github/workflows/fuzz-nightly.yml`: codziennie 02:17 UTC (albo ręcznie z `seconds`), ASan+UBSan na 4 celach i MSan na 3, 25 min na cel, korpus w `actions/cache`; artefakty awarii wysyłane.
+- `.github/workflows/fuzz-nightly.yml`: codziennie 02:17 UTC (albo ręcznie z `seconds`), ASan+UBSan i MSan na 4 celach, 25 min na cel, korpus w `actions/cache`; artefakty awarii wysyłane.
 - Wejścia regresyjne (`fuzz/regression/<cel>/`) trafiają do korpusu każdego przebiegu i do powtórki gcc.
 
 ## Ograniczenia
 
 - Korpus początkowy: fixtury AAC, prawdziwe pliki FLAC/Ogg/MP3/WAV/AIFF/VOC/Opus/ALAC i syntetyczne pliki wszystkich formatów + słownik etykiet; pokrycie rośnie z nocnymi przebiegami (korpus jest zachowywany).
 - Dekodery są wolne (`fuzz_container` ≈ 100 wykonań/s): wartościowe są długie przebiegi nocne, nie 90 s w CI.
-- MSan nie obejmuje kodeków z jądrami NASM (AAC, AVR, DVSM, YM): patrz wyżej.
+- MSan sprawdza kod w C (w tym przenośne odpowiedniki jąder), nie sam asembler: poprawność NASM zapewnia test równoważności bit w bit i fuzzing ASan/UBSan.

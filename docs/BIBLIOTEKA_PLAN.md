@@ -67,7 +67,7 @@ Dlatego kolejność prac jest następująca (zamiast tej z pierwszej wersji plan
 
 1. **Wielobieżność**: usunięcie wszystkich statycznych buforów; test dwóch dekoderów w dwóch wątkach (TSan) i 1000 otwarć/zamknięć (ASan, brak wycieków).
 2. **Publiczne API + wejście strumieniowe + testy API** (w tym zgodność wyników z obecnym rejestrem).
-3. **Ścieżki C dla całego asm + budowanie na Windows/ARM/BSD** (CMake, CI), pakiet instalacyjny (`.so/.dll/.a`, nagłówki, `pkg-config`, `.cmake`).
+3. **Ścieżki C dla całego asm + budowanie na Windows/ARM/BSD** (*stan 2026-11-20: ścieżki C dla WSZYSTKICH jąder kodeków — AAC, AVR, DVSM, YM — są w `src/portable/`, bit w bit jak NASM (`make test-portable-equivalence`); `make PORTABLE=1 OBJDIR=build_portable test-aac-native` buduje i testuje bez NASM; zostają: CMake/pakiet, jądra wizualizacji (`sauti_core`, `fft`, …) i wyniki na prawdziwym ARM64 w CI*) (CMake, CI), pakiet instalacyjny (`.so/.dll/.a`, nagłówki, `pkg-config`, `.cmake`).
 4. **Izolacja `sauti-tables`** i wyłączenie adaptera FFmpeg z wydania; raport pochodzenia danych.
 5. **Koder AAC-LC** (najpierw CBR/VBR stereo z M/S i TNS bez PNS; potem SBR/HE-AAC; model psychoakustyczny własny), test: dekodery FFmpeg/FAAD2 odtwarzają nasze strumienie, a zmierzone SNR/PEAQ-podobne metryki są porównywalne z fdkaac przy tym samym bitrate.
 6. Dalsze dekodery wg SBR-99 (LD, ELD, 960, Main, LTP, USAC, …) i formaty pozostałe (DVSM ADPCM, itd.).
