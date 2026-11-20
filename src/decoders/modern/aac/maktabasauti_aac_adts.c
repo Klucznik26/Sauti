@@ -172,7 +172,7 @@ static maktabasauti_result_t adts_scan(dec_t *d, int64_t resume, uint64_t *count
 }
 
 
-static const aac_container_t adts_container = { "adts", adts_fetch, adts_resync, adts_scan, NULL, NULL, NULL, adts_prepare, NULL, NULL, NULL };
+static const aac_container_t adts_container = { "adts", adts_fetch, adts_resync, adts_scan, NULL, NULL, NULL, adts_prepare, NULL, NULL, NULL, 0 };
 
 static maktabasauti_result_t MAKTABASAUTI_CALL adts_open(const maktabasauti_codec_t *self, const maktabasauti_host_t *host, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
     return aac_eng_open(self, &adts_container, host, rd, info, state);

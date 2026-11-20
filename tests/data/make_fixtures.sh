@@ -64,6 +64,8 @@ PY
 "$FDK" -p 2  -b 64000 -f 0 --no-timestamp -o lc_mono.m4a "$W/in_mono.wav" >/dev/null 2>&1
 "$FDK" -p 29 -b 48000 -f 0 --no-timestamp -o he2.m4a     "$W/in.wav"      >/dev/null 2>&1
 python3 -I make_fragmented.py lc.m4a lc_frag.m4a
+python3 -I make_mdat_first.py lc_frag.m4a lc_frag_mdatfirst.m4a
+for f in lc lc_mono he1 he2; do python3 -I make_faststart.py $f.m4a ${f}_fast.m4a; done      # moov przed mdat: wejscie nieprzewijalne (MP4 na zywo)
 # 44,1 kHz (etap 2: zmiana parametrow w srodku strumienia ADTS/LOAS; testy skleja pliki o roznych parametrach)
 python3 -I - "$W/in44.wav" <<'PY'
 import sys,wave

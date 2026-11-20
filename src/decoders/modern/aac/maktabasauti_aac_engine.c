@@ -424,7 +424,7 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
 }
 
 maktabasauti_result_t aac_eng_open(const maktabasauti_codec_t *self, const aac_container_t *cont, const maktabasauti_host_t *host, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
-    dec_t *d = NULL; maktabasauti_result_t r; aac_adts_hdr_t hd; uint32_t flags; const char *scan_opt; int64_t after_first;
+    dec_t *d = NULL; maktabasauti_result_t r; aac_adts_hdr_t hd; uint32_t flags; const char *scan_opt, *gapless_opt; int64_t after_first;
     *state = NULL;
     d = (dec_t *)host->alloc(host->user, sizeof *d);
     if (!d) return MAKTABASAUTI_E_NO_MEMORY;
@@ -453,16 +453,17 @@ maktabasauti_result_t aac_eng_open(const maktabasauti_codec_t *self, const aac_c
     scan_opt = host->option ? host->option(host->user, "aac.scan") : NULL;
     if (!scan_opt && host->option) scan_opt = host->option(host->user, "adts.scan");
     d->total_known = 0;
-    if (d->seekable && !(scan_opt && (!strcmp(scan_opt, "off") || !strcmp(scan_opt, "0")))) {
+    if ((d->seekable || cont->scan_without_seek) && !(scan_opt && (!strcmp(scan_opt, "off") || !strcmp(scan_opt, "0")))) {
         uint64_t count = 0; int consistent = 0;
         r = d->cont->scan(d, after_first, &count, &consistent);
         if (r != MAKTABASAUTI_OK) goto fail;
         if (consistent) { d->total_known = 1; d->known_frames = count; }
     }
-    if (cont->trim) {                                                                                  /* przyciecie gapless: wymaga znanej dlugosci (albo tylko skip) */
+    gapless_opt = host->option ? host->option(host->user, "gapless") : NULL;                             /* MAKTABASAUTI_OPEN_NO_GAPLESS: bez przyciecia priming/dopelnienia */
+    if (cont->trim && !(gapless_opt && !strcmp(gapless_opt, "off"))) {                                   /* przyciecie gapless: wymaga znanej dlugosci (albo tylko skip) */
         uint64_t skip = 0, avail = 0;
         if (!cont->trim(d, d->total_known ? d->known_frames * d->frame_pcm : 0u, &skip, &avail)) { r = MAKTABASAUTI_E_UNSUPPORTED_FEATURE; goto fail; }
-        if (skip || avail) { d->trimmed = d->total_known; d->trim_skip = skip; d->avail = avail; d->skip_left = skip; }
+        if (skip || avail) { d->trimmed = d->total_known || avail != 0u; d->trim_skip = skip; d->avail = avail; d->skip_left = skip; }
     }
     d->have_frame = 1;                                                                                 /* pierwsza ramka czeka w buforze: pierwszy produce() ja zdekoduje */
     d->core.in_offset = after_first;

@@ -48,5 +48,8 @@ uint64_t sauti_aac_mp4_index_count(const SautiAacMp4Index *idx);
 /* pozycja i rozmiar jednostki i; 1 = ok, 0 = poza zakresem */
 int sauti_aac_mp4_index_get(const SautiAacMp4Index *idx,uint64_t i,uint64_t *offset,uint32_t *size);
 int sauti_aac_mp4_index_has_fragments(const SautiAacMp4Index *idx);   /* moov ma mvex: moga istniec moof */
+/* Zapomina wszystkie dotychczasowe jednostki (indeks zostaje uzyteczny: nastepne moof dopisuja od zera).  Dla wejscia NA ZYWO: pamiec indeksu jest ograniczona rozmiarem jednego
+ * fragmentu, a nie dlugoscia strumienia. */
+void sauti_aac_mp4_index_forget_units(SautiAacMp4Index *idx);
 void sauti_aac_mp4_index_free(SautiAacMp4Index *idx);
 #endif

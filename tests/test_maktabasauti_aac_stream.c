@@ -22,7 +22,10 @@
 #include <string.h>
 
 static int g_failures;
-static int g_mp4;                                        /* 1 = MP4: indeksowany, wymaga wejscia przewijalnego */
+static int g_mp4;                                        /* 1 = MP4: indeksowany na wejsciu przewijalnym, jednoprzebiegowy "na zywo" na nieprzewijalnym */
+static int g_live_ok;                                    /* 1 = MP4 z moov przed danymi (fragmentowany albo faststart): da sie czytac z wejscia nieprzewijalnego */
+static uint32_t g_open_flags;                            /* flagi maktabasauti_open_params_t dla open_src */
+static int g_frag;                                       /* 1 = MP4 fragmentowany (na zywo: dlugosc nieznana) */
 static int g_adif;                                       /* 1 = ADIF: bloki bez dlugosci i bez synchronizacji (brak resynchronizacji po uszkodzeniu) */
 static int g_loas;                                       /* 1 = pliki LOAS: elementy (3 B naglowka + dlugosc), 0 = ADTS */
 static size_t g_hmin = 7;                                /* najmniejszy naglowek elementu */
@@ -76,7 +79,7 @@ static maktabasauti_io_t src_io(Src *s) { maktabasauti_io_t io; memset(&io, 0, s
 
 static maktabasauti_result_t open_src(Src *s, Mem *m, maktabasauti_decoder_t **d, const char *scan) {
     maktabasauti_allocator_t a = mem_allocator(m); maktabasauti_open_params_t p; maktabasauti_option_t opt;
-    memset(&p, 0, sizeof p); p.struct_size = sizeof p; p.abi_version = MAKTABASAUTI_ABI_VERSION; p.io = src_io(s); p.allocator = &a;
+    memset(&p, 0, sizeof p); p.struct_size = sizeof p; p.abi_version = MAKTABASAUTI_ABI_VERSION; p.io = src_io(s); p.allocator = &a; p.flags = g_open_flags;
     if (scan) { opt.key = "adts.scan"; opt.value = scan; p.options = &opt; p.option_count = 1; }
     return maktabasauti_decoder_open(&p, d);
 }
@@ -121,7 +124,7 @@ static maktabasauti_result_t drain(maktabasauti_decoder_t *d, float *out, size_t
 }
 static int same(const float *a, const float *b, size_t samples) { return memcmp(a, b, samples * sizeof(float)) == 0; }
 
-static const char *const files[] = { "lc.aac", "lc_mono.aac", "he1.aac", "he1_mono.aac", "he2.aac", "m51.aac", "lc.loas", "lc_mono.loas", "he1.loas", "he2.loas", "lc.adif", "lc_mono.adif", "he1.adif", "lc.m4a", "lc_mono.m4a", "he1.m4a", "he2.m4a", "lc_frag.m4a" };
+static const char *const files[] = { "lc.aac", "lc_mono.aac", "he1.aac", "he1_mono.aac", "he2.aac", "m51.aac", "lc.loas", "lc_mono.loas", "he1.loas", "he2.loas", "lc.adif", "lc_mono.adif", "he1.adif", "lc.m4a", "lc_mono.m4a", "he1.m4a", "he2.m4a", "lc_fast.m4a", "lc_mono_fast.m4a", "he1_fast.m4a", "he2_fast.m4a", "lc_frag.m4a" };
 #define NFILES (sizeof files / sizeof *files)
 
 /* 1+2+3: niestandardowe wejscia, PCM identyczny */
@@ -140,9 +143,9 @@ static void test_inputs(const uint8_t *b, size_t n, const Ref *ref, const char *
     for (i = 0; i < sizeof cfg / sizeof *cfg; i++) {
         Src s; Mem m; maktabasauti_decoder_t *d = NULL; maktabasauti_stream_info_t info; float *out; size_t got = 0; long retries = 0; maktabasauti_result_t r, rr;
         memset(&s, 0, sizeof s); memset(&m, 0, sizeof m);
-        if (g_mp4 && !cfg[i].seekable) {                                       /* MP4 potrzebuje wejscia przewijalnego: czysty blad, wejscie i pamiec nietkniete */
+        if (g_mp4 && !g_live_ok && !cfg[i].seekable) {                         /* moov za danymi: z wejscia nieprzewijalnego nie da sie tego odczytac - czysty blad, wejscie i pamiec nietkniete */
             s.data = b; s.n = n; s.max_chunk = cfg[i].chunk; r = open_src(&s, &m, &d, NULL);
-            CHECK(r != MAKTABASAUTI_OK && !d && s.closed == 0 && m.live == 0, "%s %s: non-seekable MP4 must fail cleanly (%d)", name, cfg[i].what, (int)r);
+            CHECK(r == MAKTABASAUTI_E_NOT_SEEKABLE && !d && s.closed == 0 && m.live == 0, "%s %s: non-seekable MP4 with moov after mdat must fail cleanly with E_NOT_SEEKABLE (%d)", name, cfg[i].what, (int)r);
             continue;
         }
         s.data = b; s.n = n; s.seekable = cfg[i].seekable; s.size_known = cfg[i].size_known; s.max_chunk = cfg[i].chunk; s.block_mode = cfg[i].block_mode; s.rng = 12345u + (uint32_t)i;
@@ -158,7 +161,10 @@ static void test_inputs(const uint8_t *b, size_t n, const Ref *ref, const char *
         info.struct_size = sizeof info; CHECK(maktabasauti_decoder_get_info(d, &info) == MAKTABASAUTI_OK, "info");
         CHECK(info.sample_rate == ref->rate && info.channels == ref->ch, "%s %s: stream parameters differ", name, cfg[i].what);
         if (!cfg[i].seekable) {
-            uint64_t act; CHECK(info.total_frames == MAKTABASAUTI_UNKNOWN_LENGTH && !(info.flags & MAKTABASAUTI_STREAM_SEEKABLE), "%s %s: non-seekable input must report unknown length", name, cfg[i].what);
+            uint64_t act;
+            if (g_mp4 && !g_frag) CHECK(info.total_frames == ref->frames && !(info.flags & MAKTABASAUTI_STREAM_SEEKABLE), "%s %s: faststart MP4 knows its length from moov even on live input (%llu)", name, cfg[i].what, (unsigned long long)info.total_frames);
+            else if (g_mp4) CHECK(info.total_frames == ref->frames && !(info.flags & MAKTABASAUTI_STREAM_SEEKABLE), "%s %s: live fMP4 reports the length declared by the edit list (%llu)", name, cfg[i].what, (unsigned long long)info.total_frames);
+            else CHECK(info.total_frames == MAKTABASAUTI_UNKNOWN_LENGTH && !(info.flags & MAKTABASAUTI_STREAM_SEEKABLE), "%s %s: non-seekable input must report unknown length", name, cfg[i].what);
             CHECK(maktabasauti_decoder_seek(d, 0, MAKTABASAUTI_SEEK_EXACT, &act) == MAKTABASAUTI_E_NOT_SEEKABLE, "seek on non-seekable");
             CHECK(maktabasauti_decoder_reset(d) == MAKTABASAUTI_E_NOT_SEEKABLE, "reset on non-seekable");
         }
@@ -183,7 +189,7 @@ static void test_block_sweep(const uint8_t *b, size_t n, const char *name) {
     for (at = 1; at <= (g_mp4 ? 12 : 60); at++) {
         Src s; Mem m; maktabasauti_decoder_t *d = NULL; float *out; size_t got = 0; long retries = 0; maktabasauti_result_t r, rr; int tries = 0;
         memset(&s, 0, sizeof s); memset(&m, 0, sizeof m);
-        s.data = b; s.n = cut; s.seekable = g_mp4 ? 1 : (at & 1); s.size_known = s.seekable; s.max_chunk = (at % 3 == 0) ? 11 : 0; s.block_mode = 1; s.block_at = at;
+        s.data = b; s.n = cut; s.seekable = (g_mp4 && !g_live_ok) ? 1 : (at & 1); s.size_known = s.seekable; s.max_chunk = (at % 3 == 0) ? 11 : 0; s.block_mode = 1; s.block_at = at;
         do { r = open_src(&s, &m, &d, NULL); } while (r == MAKTABASAUTI_E_WOULD_BLOCK && ++tries < 10);
         CHECK(r == MAKTABASAUTI_OK, "%s block_at=%ld: open failed (%d)", name, at, (int)r);
         if (r != MAKTABASAUTI_OK) continue;
@@ -328,6 +334,104 @@ static void test_corruption(const uint8_t *b, size_t n, const Ref *ref, const ch
         CHECK(m.live == 0 && m.bad == 0, "%s corrupt %zu: leak", name, i);
     }
     free(w);
+}
+
+/* ---- MP4 NA ZYWO (wejscie nieprzewijalne) ---- */
+typedef struct { uint32_t type; size_t off, size; } TBox;
+static size_t top_boxes(const uint8_t *b, size_t n, TBox *o, size_t max) {
+    size_t pos = 0, k = 0;
+    while (pos + 8 <= n && k < max) {
+        size_t sz = ((size_t)b[pos] << 24) | ((size_t)b[pos + 1] << 16) | ((size_t)b[pos + 2] << 8) | b[pos + 3];
+        o[k].type = ((uint32_t)b[pos + 4] << 24) | ((uint32_t)b[pos + 5] << 16) | ((uint32_t)b[pos + 6] << 8) | b[pos + 7]; o[k].off = pos; o[k].size = sz; k++;
+        if (sz < 8) break;
+        pos += sz;
+    }
+    return k;
+}
+/* czy otwarcie z wejscia nieprzewijalnego (i ewentualnie przewijalnego) zwraca ten sam PCM; zwraca kod koncowy */
+static maktabasauti_result_t live_decode(const uint8_t *b, size_t n, int seekable, size_t chunk, float *out, size_t cap, size_t ch, size_t *got, maktabasauti_result_t *open_rc, Mem *m, int *closed) {
+    Src s; maktabasauti_decoder_t *d = NULL; long retries = 0; maktabasauti_result_t rr;
+    memset(&s, 0, sizeof s); memset(m, 0, sizeof *m);
+    s.data = b; s.n = n; s.seekable = seekable; s.size_known = seekable; s.max_chunk = chunk;
+    *got = 0; *open_rc = open_src(&s, m, &d, NULL);
+    if (*open_rc != MAKTABASAUTI_OK) { *closed = s.closed; return *open_rc; }
+    rr = drain(d, out, ch, cap, 1000, got, &retries);
+    maktabasauti_decoder_close(d); *closed = s.closed;
+    return rr;
+}
+/* obciecie strumienia w wielu miejscach (naglowek pudelka, srodek moof, srodek probki, granice pudelek): wynik to prefiks PCM, nigdy blad pamieci/zawieszenie */
+static void test_live_truncation(const uint8_t *b, size_t n, const Ref *ref, const char *name) {
+    TBox bx[512]; const size_t nb = top_boxes(b, n, bx, 512); size_t i, k; size_t cuts[2048], nc = 0;
+    float *out = (float *)malloc((ref->frames + 4096) * ref->ch * sizeof(float));
+    for (i = 0; i < nb; i++) {
+        const size_t o = bx[i].off, e = bx[i].off + bx[i].size;
+        const size_t pts[] = { o + 1, o + 4, o + 7, o + 8, o + 9, o + 15, o + 16, o + bx[i].size / 3, o + bx[i].size / 2, e - 1, e };
+        for (k = 0; k < sizeof pts / sizeof *pts && nc < 2040; k++) if (pts[k] > 0 && pts[k] <= n) cuts[nc++] = pts[k];
+    }
+    for (i = 0; i < nc; i++) {
+        Mem m; size_t got = 0; maktabasauti_result_t orc, rr; int closed = 0;
+        rr = live_decode(b, cuts[i], 0, (i % 3) ? 0 : 13, out, ref->frames + 4096, ref->ch, &got, &orc, &m, &closed);
+        CHECK(m.live == 0 && m.bad == 0, "%s cut %zu: leak (live=%zu)", name, cuts[i], m.live);
+        if (orc != MAKTABASAUTI_OK) { CHECK(closed == 0, "%s cut %zu: failed open must leave the input with the caller", name, cuts[i]); continue; }
+        CHECK(rr == MAKTABASAUTI_EOF || rr == MAKTABASAUTI_E_TRUNCATED, "%s cut %zu: ended with %d", name, cuts[i], (int)rr);
+        CHECK(got <= ref->frames && same(out, ref->pcm, got * ref->ch), "%s cut %zu: decoded PCM is not a prefix of the reference (%zu frames)", name, cuts[i], got);
+    }
+    free(out);
+}
+/* fMP4 z mdat przed moof: seekable dziala (ten sam PCM), nieprzewijalne = czysty blad E_UNSUPPORTED_FEATURE (bez cofania nie da sie odczytac) */
+static void test_live_mdat_first(const char *dir, const Ref *ref) {
+    size_t n; uint8_t *b = slurp(dir, "lc_frag_mdatfirst.m4a", &n); Mem m; size_t got = 0; maktabasauti_result_t orc, rr; int closed = 0;
+    float *out = (float *)malloc((ref->frames + 4096) * ref->ch * sizeof(float));
+    rr = live_decode(b, n, 1, 0, out, ref->frames + 4096, ref->ch, &got, &orc, &m, &closed);
+    CHECK(orc == MAKTABASAUTI_OK && rr == MAKTABASAUTI_EOF && got == ref->frames && same(out, ref->pcm, got * ref->ch), "mdat-first, seekable: PCM differs (open %d, end %d, %zu frames)", (int)orc, (int)rr, got);
+    rr = live_decode(b, n, 0, 0, out, ref->frames + 4096, ref->ch, &got, &orc, &m, &closed);
+    CHECK(orc == MAKTABASAUTI_E_UNSUPPORTED_FEATURE && m.live == 0, "mdat-first, live: expected E_UNSUPPORTED_FEATURE at open (open %d, end %d)", (int)orc, (int)rr);
+    free(out); free(b);
+}
+/* wrogie naglowki (uszkodzone pudelko: drain wznawia po E_CORRUPT_DATA przez flush, a MP4 nie ma synchronizacji, wiec strumien konczy sie EOF; deklaracje rozmiaru: blad): moof deklarujacy 1 GiB (odmowa bez alokacji), moof deklarujacy 10 MiB i urwany po 100 B (pamiec nie idzie za deklaracja), pudelko o rozmiarze < naglowka */
+static void test_live_hostile(const uint8_t *b, size_t n, const Ref *ref, const char *name) {
+    TBox bx[512]; const size_t nb = top_boxes(b, n, bx, 512); size_t moof = 0, i, k; uint8_t *w = (uint8_t *)malloc(n + 256);
+    float *out = (float *)malloc((ref->frames + 4096) * ref->ch * sizeof(float));
+    for (i = 0, k = 0; i < nb; i++) if (bx[i].type == 0x6d6f6f66u && ++k == 2) { moof = bx[i].off; break; }          /* po pierwszym kompletnym fragmencie: otwarcie sie udaje, wrogi jest drugi */
+    CHECK(moof > 0, "%s: no moof", name);
+    for (k = 0; k < 4; k++) {
+        Mem m; size_t got = 0; maktabasauti_result_t orc, rr; int closed = 0; size_t len = moof;
+        memcpy(w, b, moof);
+        if (k == 0) { w[len++] = 0x40; w[len++] = 0; w[len++] = 0; w[len++] = 0; memcpy(w + len, "moof", 4); len += 4; }                 /* 1 GiB */
+        if (k == 1) { w[len++] = 0; w[len++] = 0xA0; w[len++] = 0; w[len++] = 0; memcpy(w + len, "moof", 4); len += 4; memset(w + len, 0x55, 100); len += 100; }   /* 10 MiB, 100 B */
+        if (k == 2) { w[len++] = 0; w[len++] = 0; w[len++] = 0; w[len++] = 4; memcpy(w + len, "moof", 4); len += 4; }                  /* rozmiar < naglowka */
+        if (k == 3) { w[len++] = 0; w[len++] = 0; w[len++] = 0; w[len++] = 1; memcpy(w + len, "moof", 4); len += 4; memset(w + len, 0xff, 8); len += 8; }   /* rozmiar 64-bitowy = 2^64-1 */
+        rr = live_decode(w, len, 0, 0, out, ref->frames + 4096, ref->ch, &got, &orc, &m, &closed);
+        CHECK(m.live == 0 && m.bad == 0 && m.peak < ((size_t)3 << 20), "%s hostile %zu: leak or memory peak %zu", name, k, m.peak);
+        CHECK(orc == MAKTABASAUTI_OK && rr != MAKTABASAUTI_OK && (k >= 2 || rr != MAKTABASAUTI_EOF) && got > 0 && same(out, ref->pcm, got * ref->ch), "%s hostile %zu: open %d, end %d, %zu frames", name, k, (int)orc, (int)rr, got);
+    }
+    free(w); free(out);
+}
+/* wejscie bez konca (generator, ~100 MB cyklicznego fMP4): pamiec nie zalezy od dlugosci; bez gapless, bo lista edycji ucielaby wyjscie */
+static void test_live_memory(const uint8_t *b, size_t n, const char *name) {
+    Src s; Mem m; maktabasauti_decoder_t *d = NULL; static float out[4096 * 8]; size_t got, total = 0;
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m);
+    s.gen = b; s.gen_len = n; s.gen_total = (uint64_t)100 << 20; s.max_chunk = 4096;
+    g_open_flags = MAKTABASAUTI_OPEN_NO_GAPLESS;
+    CHECK(open_src(&s, &m, &d, NULL) == MAKTABASAUTI_OK, "%s live generator: open", name);
+    g_open_flags = 0;
+    if (!d) return;
+    for (;;) { maktabasauti_result_t r = maktabasauti_decoder_read(d, out, 4096, MAKTABASAUTI_FORMAT_F32, &got); if (r != MAKTABASAUTI_OK) { CHECK(r == MAKTABASAUTI_EOF, "%s live generator: code %d", name, (int)r); break; } total += got; if (total / 1024 >= 5000) break; }
+    CHECK(total > 1000000, "%s live generator: decoded only %zu frames", name, total);
+    CHECK(m.peak < ((size_t)1 << 20) + ((size_t)1 << 19), "%s live generator: memory peak %zu bytes for an unbounded source (must not depend on length)", name, m.peak);
+    maktabasauti_decoder_close(d);
+    CHECK(m.live == 0, "%s live generator: leak", name);
+}
+/* OPEN_NO_GAPLESS: bez przyciecia wyjscie jest dluzsze o priming + dopelnienie, PCM nie traci zadnej probki */
+static void test_no_gapless(const uint8_t *b, size_t n, const Ref *ref, const char *name) {
+    Src s; Mem m; maktabasauti_decoder_t *d = NULL; maktabasauti_stream_info_t info; size_t got = 0; long retries = 0; float *out;
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = b; s.n = n; s.seekable = 1; s.size_known = 1;
+    g_open_flags = MAKTABASAUTI_OPEN_NO_GAPLESS; CHECK(open_src(&s, &m, &d, NULL) == MAKTABASAUTI_OK, "%s no-gapless: open", name); g_open_flags = 0;
+    if (!d) return;
+    info.struct_size = sizeof info; CHECK(maktabasauti_decoder_get_info(d, &info) == MAKTABASAUTI_OK && info.total_frames >= ref->frames, "%s no-gapless: length %llu vs trimmed %zu", name, (unsigned long long)info.total_frames, ref->frames);
+    out = (float *)malloc((size_t)(info.total_frames + 4096) * ref->ch * sizeof(float));
+    CHECK(drain(d, out, ref->ch, (size_t)info.total_frames + 4096, 1000, &got, &retries) == MAKTABASAUTI_EOF && got == info.total_frames, "%s no-gapless: %zu frames", name, got);
+    free(out); maktabasauti_decoder_close(d);
 }
 
 /* 6: pamiec: generator ~100 MB bez przechowywania */
@@ -551,13 +655,16 @@ int main(int argc, char **argv) {
         const char *only = getenv("MKS_STREAM_ONLY");
         if (only && *only && !strstr(files[i], only)) continue;                                   /* przyspieszenie iteracji: tylko pliki z podanym fragmentem nazwy */
         size_t n; uint8_t *b = slurp(dir, files[i], &n); Ref ref = reference(b, n);
-        g_loas = strstr(files[i], ".loas") != NULL; g_adif = strstr(files[i], ".adif") != NULL; g_mp4 = strstr(files[i], ".m4a") != NULL; if (g_mp4) g_adif = 1;   /* MP4: kontrole jak dla ADIF (granice jednostek niewidoczne w pliku) */ g_hmin = g_loas ? 3u : 7u;
+        g_loas = strstr(files[i], ".loas") != NULL; g_adif = strstr(files[i], ".adif") != NULL; g_mp4 = strstr(files[i], ".m4a") != NULL; if (g_mp4) g_adif = 1; g_frag = strstr(files[i], "_frag") != NULL; g_live_ok = g_frag || strstr(files[i], "_fast") != NULL;   /* MP4: kontrole jak dla ADIF (granice jednostek niewidoczne w pliku) */ g_hmin = g_loas ? 3u : 7u;
         printf("%s: %zu bytes, %zu frames x %zu ch @ %u Hz\n", files[i], n, ref.frames, ref.ch, ref.rate);
         test_inputs(b, n, &ref, files[i]);
         test_block_sweep(b, n, files[i]);
         test_open_block(b, n, &ref, files[i]);
         test_truncation(b, n, &ref, files[i]);
         test_corruption(b, n, &ref, files[i]);
+        if (g_mp4) test_no_gapless(b, n, &ref, files[i]);
+        if (g_frag) { test_live_truncation(b, n, &ref, files[i]); test_live_hostile(b, n, &ref, files[i]); test_live_memory(b, n, files[i]); test_live_mdat_first(dir, &ref); }
+        if (g_mp4 && !g_frag && g_live_ok) test_live_truncation(b, n, &ref, files[i]);
         if (!g_adif) test_memory(b, n, files[i]);                              /* generator: cykliczne sklejanie pliku jest poprawnym strumieniem tylko dla ADTS/LOAS */
         test_seek(b, n, &ref, files[i], 0);
         test_seek(b, n, &ref, files[i], 1);

@@ -104,7 +104,7 @@ static maktabasauti_result_t adif_scan(dec_t *d, int64_t resume, uint64_t *count
 
 static void adif_release(dec_t *d) { if (d->cptr) { d->host->free(d->host->user, d->cptr); d->cptr = NULL; } }
 
-static const aac_container_t adif_container = { "adif", adif_fetch, adif_resync, adif_scan, NULL, NULL, adif_release, NULL, NULL, NULL, NULL };
+static const aac_container_t adif_container = { "adif", adif_fetch, adif_resync, adif_scan, NULL, NULL, adif_release, NULL, NULL, NULL, NULL, 0 };
 
 static int32_t MAKTABASAUTI_CALL adif_probe(const maktabasauti_codec_t *self, const uint8_t *p, size_t n, const char *hint) {
     SautiAacAdifHeader h; (void)self; (void)hint;

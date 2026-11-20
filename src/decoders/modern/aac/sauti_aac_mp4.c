@@ -347,6 +347,7 @@ void sauti_aac_mp4_index_free(SautiAacMp4Index *x){
     a.free(a.user,x);
 }
 uint64_t sauti_aac_mp4_index_count(const SautiAacMp4Index *x){return x?x->n:0u;}
+void sauti_aac_mp4_index_forget_units(SautiAacMp4Index *x){if(x)x->n=0;}
 int sauti_aac_mp4_index_has_fragments(const SautiAacMp4Index *x){return x&&x->has_mvex;}
 int sauti_aac_mp4_index_get(const SautiAacMp4Index *x,uint64_t i,uint64_t *offset,uint32_t *size){
     if(!x||i>=x->n)return 0;

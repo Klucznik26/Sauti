@@ -107,6 +107,7 @@ typedef struct aac_container {
     maktabasauti_result_t (*seek_to)(dec_t *d, int64_t in_offset);                     /* NULL = host->seek na bajt; in_offset to pozycja kontenera (bajt albo numer probki) */
     int64_t (*position)(dec_t *d);                                                    /* NULL = host->tell (bajt); pozycja kontenera po zuzyciu ramki: wartosc dla seek_to / punktow kontrolnych */
     int (*trim)(dec_t *d, uint64_t decoded_total, uint64_t *skip, uint64_t *avail);    /* NULL = bez przyciecia (gapless): ramki PCM do pominiecia na poczatku i dlugosc po przycieciu; 0 = odrzuc */
+    int scan_without_seek;                                                             /* 1 = scan nie czyta wejscia (liczba z indeksu), wiec dziala tez na wejsciu nieprzewijalnym; brak = tylko przewijalne */
 } aac_container_t;
 
 /* silnik: ogolne funkcje opisu kodeka */

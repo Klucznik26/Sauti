@@ -133,7 +133,7 @@ static int loas_boundary(const dec_t *d) { const loas_priv_t *p = (const loas_pr
 static void loas_discard(dec_t *d) { loas_priv_t *p = (loas_priv_t *)d->cptr; if (p) { p->n = p->next = 0; p->off = 0; } }
 static void loas_release(dec_t *d) { if (d->cptr) { d->host->free(d->host->user, d->cptr); d->cptr = NULL; } }
 
-static const aac_container_t loas_container = { "loas", loas_fetch, loas_resync, loas_scan, loas_boundary, loas_discard, loas_release, NULL, NULL, NULL, NULL };
+static const aac_container_t loas_container = { "loas", loas_fetch, loas_resync, loas_scan, loas_boundary, loas_discard, loas_release, NULL, NULL, NULL, NULL, 0 };
 
 static int32_t MAKTABASAUTI_CALL loas_probe(const maktabasauti_codec_t *self, const uint8_t *p, size_t n, const char *hint) {
     (void)self; (void)hint;
