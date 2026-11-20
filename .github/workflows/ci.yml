@@ -39,6 +39,8 @@ jobs:
         run: make test-maktabasauti-aac-stream
       - name: "AAC-LD / AAC-ELD decoder (ASC, recorded PCM fingerprints, hand-built access units, every truncation and random bit flips with ASan/UBSan, LD window against a direct implementation)"
         run: make test-aac-er
+      - name: "AAC-LC with 960-sample frames (fingerprints, every truncation and bit flips, all 13 sampling rates, DSE/FIL skipping, SBR / multichannel refusals, window geometry against the definition, PNS noise correlation)"
+        run: make test-aac-lc960
       - name: "DVSM / AVR streaming (non-seekable input, partial reads, WOULD_BLOCK at every point, truncation, checkpoints, bounded memory)"
         run: make test-maktabasauti-dvs-stream
       - name: "WAV / AIFF streaming (differential vs the old adapters, header matrix, placeholder sizes, float WAV, truncation, mutations, bounded memory)"

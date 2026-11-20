@@ -85,9 +85,9 @@ static void t_dequant(void) {
         CHECK(sauti_aac_dequant_scale_asm(q, a, &sc, b, 1025) == sauti_aac_dequant_scale_asm_c(q, a, &sc, b, 1025), "dequant n=1025"); }
 }
 static void t_window(void) {
-    static const size_t ns[] = { 128, 1024, 0, 1, 127, 129, 256, 2048 }; int it;
+    static const size_t ns[] = { 128, 1024, 120, 960, 0, 1, 127, 129, 119, 121, 959, 961, 256, 2048 }; int it;     /* 120 / 960: AAC-LC with 960-sample frames */
     for (it = 0; it < 400; it++) {
-        static float im[2048], w[2048], h1[1024], h2[1024], o1[1024], o2[1024]; size_t n = ns[rn(8)], i; int r1, r2;
+        static float im[2048], w[2048], h1[1024], h2[1024], o1[1024], o2[1024]; size_t n = ns[rn(14)], i; int r1, r2;
         fill(im, 2048); fill(w, 2048); fill(h1, 1024); memcpy(h2, h1, sizeof h1); for (i = 0; i < 1024; i++) o1[i] = o2[i] = 7.0f;
         r1 = sauti_aac_window_overlap_asm(im, w, h1, o1, n); r2 = sauti_aac_window_overlap_asm_c(im, w, h2, o2, n);
         CHECK(r1 == r2 && memcmp(h1, h2, sizeof h1) == 0 && memcmp(o1, o2, sizeof o1) == 0, "window n=%zu ret %d/%d", n, r1, r2);

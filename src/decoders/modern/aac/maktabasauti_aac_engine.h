@@ -6,6 +6,7 @@
 #include "maktabasauti/maktabasauti_codec.h"
 #include "sauti_aac_cpe.h"
 #include "sauti_aac_er.h"
+#include "sauti_aac_lcn.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_he_adts_cpe.h"
 #include "sauti_aac_he_adts_mono.h"
@@ -45,6 +46,7 @@ typedef struct {
         SautiAacLcMulti multi;
         he_state_t he;
         SautiAacErState er;
+        SautiAacLcnState lcn;                            /* V_ER z er_aot == 2: AAC-LC z ramka 960 */
     } u;
     uint64_t frames_in;                                  /* ramki ADTS zdekodowane */
     uint64_t pcm_out;                                    /* bloki PCM wyprodukowane (LC: = frames_in; HE-PS: o jeden mniej, patrz he_produce) */
@@ -64,7 +66,7 @@ typedef struct {
     variant_t variant;
     unsigned config;                                     /* channel_configuration z ADTS */
     unsigned rate_index, core_rate, core_channels, crc_present;
-    unsigned er_aot, er_480;                             /* V_ER: typ obiektu (23 / 39) i dlugosc ramki 480 zamiast 512 */
+    unsigned er_aot, er_480;                             /* V_ER: typ obiektu (23 / 39; 2 = AAC-LC z ramka 960 bez narzedzi ER) i dlugosc ramki 480 zamiast 512 */
     unsigned out_channels, out_rate, frame_pcm, ps_mode;
     SautiAacLcLayout layout;                             /* tylko config 0 (PCE) */
     int seekable, total_known;

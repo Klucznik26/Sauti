@@ -1,6 +1,7 @@
 /* AAC-LC mono bitstream integration, fail-closed on unimplemented tools.
  * No speculative TNS/pulse parsing and no FFmpeg runtime linkage. */
 #include "sauti_aac_lc_frame.h"
+#include "sauti_aac_layout.h"
 #include "sauti_aac_lc_sections.h"
 #include "sauti_aac_spectral_data.h"
 #include "sauti_aac_syntax.h"
@@ -18,7 +19,7 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
                            size_t *bit_offset,unsigned rate_index,unsigned element_id,
                            SautiAacLcMonoData *out,SautiAacReason *reason){
     if(!raw||!bit_offset||!out||length>SIZE_MAX/8u||
-       *bit_offset>length*8u||rate_index>=13u)return 0;
+       *bit_offset>length*8u||SAUTI_AAC_IDX_RATE(rate_index)>=13u)return 0;
     *reason=SAUTI_AAC_REASON_INVALID_SCE;
     size_t pos=*bit_offset;
     /* The encoder can put EXT_FILL (type 0) before the SCE, often
@@ -99,7 +100,7 @@ int sauti_aac_lc_pulse_apply(int32_t quant[1024],unsigned rate_index,
     uint32_t k=offsets[pulse->start_sfb];
     for(uint32_t i=0;i<pulse->count;i++){
         k+=pulse->offset[i];
-        if(k>=1024u)return 0;
+        if(k>=offsets[bands])return 0;                          /* 1024 lines (960 / 512 / 480 in the other layouts): the last band offset */
         unsigned band=0;
         while(band+1u<bands && offsets[band+1u]<=k)band++;
         if(band>=ics->max_sfb)continue;                        /* poza zakodowanymi pasmami: wspolczynnik zerowy, pomijany */

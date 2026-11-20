@@ -111,7 +111,7 @@ int sauti_aac_tns_apply(const SautiAacTnsData *tns,
             const unsigned high=top<cap?top:cap;
             unsigned start=offsets[low],stop=offsets[high];
             if(start>=stop)continue;
-            const unsigned size=shortwin?128u:1024u;                   /* arrays stay 1024 wide; a low-delay frame uses the first 512 / 480 lines (band offsets bound them) */
+            const unsigned size=sauti_aac_layout_window_len(rate,shortwin);                   /* arrays stay 1024 wide; a low-delay frame uses the first 512 / 480 lines (band offsets bound them) */
             if(stop>size)return 0;
             const unsigned base=w*size;
             const int direction=f->direction?-1:1;

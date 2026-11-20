@@ -1,3 +1,4 @@
+#include "sauti_aac_layout.h"
 #include "sauti_aac_pns.h"
 #include "sauti_aac_bands.h"
 #include <math.h>
@@ -51,7 +52,7 @@ int sauti_aac_pns_apply(const SautiAacIcsInfo *ics,
         if(s->codebook!=13)continue;
         for(unsigned band=s->first_sfb;band<s->end_sfb;band++){
             unsigned from=offsets[band],to=offsets[band+1];
-            if(to<=from || to>(short_win?128u:1024u))return 0;
+            if(to<=from || to>sauti_aac_layout_window_len(rate,(unsigned)short_win))return 0;
             const int32_t scale=sf->value[s->group][band];
             if(scale< -512 || scale>512)return 0;
             /* NOISE_BT scalefactor is already an exponent offset from
@@ -62,7 +63,7 @@ int sauti_aac_pns_apply(const SautiAacIcsInfo *ics,
             const double gain=exp2((double)scale/4.0);
             for(unsigned w=starts[s->group];
                 w<starts[s->group]+ics->group_length[s->group];w++){
-                unsigned base=w*(short_win?128u:1024u);
+                unsigned base=w*sauti_aac_layout_window_len(rate,(unsigned)short_win);
                 double energy=0.0;
                 for(unsigned i=from;i<to;i++){
                     /* Convert deterministic 32-bit noise to [-1,1). */

@@ -1,3 +1,4 @@
+#include "sauti_aac_layout.h"
 #include "sauti_aac_spectral_data.h"
 #include "sauti_aac_bands.h"
 #include "sauti_aac_tables.h"
@@ -61,7 +62,7 @@ int sauti_aac_lc_spectral_data_parse(const uint8_t *data,size_t length,
         const unsigned tuple_width=cb<=4u?4u:2u;
         for(unsigned band=sec->first_sfb;band<sec->end_sfb;band++){
             unsigned from=offsets[band],to=offsets[band+1];
-            if(to<=from || to>(short_window?128u:1024u) ||
+            if(to<=from || to>sauti_aac_layout_window_len(sample_rate_index,(unsigned)short_window) ||
                (to-from)%tuple_width)return 0;
             /* AAC groups are coded by band, then window, then coefficient.
              * Reassemble into natural per-window ordering in the output. */
@@ -72,7 +73,7 @@ int sauti_aac_lc_spectral_data_parse(const uint8_t *data,size_t length,
                     if(!sauti_aac_spectral_decode(cb,data,length,&pos,
                                                   tree,tree_count,values))return 0;
                     for(unsigned j=0;j<tuple_width;j++)
-                        next[w*(short_window?128u:1024u)+line+j]=values[j];
+                        next[w*sauti_aac_layout_window_len(sample_rate_index,(unsigned)short_window)+line+j]=values[j];
                 }
             }
         }

@@ -1,3 +1,4 @@
+#include "sauti_aac_layout.h"
 #include "sauti_aac_dequant.h"
 #include "sauti_aac_bands.h"
 #include <math.h>
@@ -56,11 +57,11 @@ int sauti_aac_lc_dequantize(const int32_t quant[1024],
         if(s->codebook==0u || s->codebook>=13u)continue;
         for(unsigned band=s->first_sfb;band<s->end_sfb;band++){
             unsigned start=offsets[band],end=offsets[band+1];
-            if(end<=start || end>(short_win?128u:1024u))return 0;
+            if(end<=start || end>sauti_aac_layout_window_len(sample_rate_index,(unsigned)short_win))return 0;
             float gain=exp2f(((float)factors->value[s->group][band]-100.0f)*0.25f);
             for(unsigned win=group_start[s->group];
                 win<group_start[s->group]+ics->group_length[s->group];win++){
-                unsigned base=win*(short_win?128u:1024u)+start;
+                unsigned base=win*sauti_aac_layout_window_len(sample_rate_index,(unsigned)short_win)+start;
                 for(unsigned line=base;line<base+end-start;line++){
                     int32_t q=quant[line];
                     if(q < -8191 || q > 8191)return 0;

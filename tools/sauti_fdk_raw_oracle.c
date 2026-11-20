@@ -13,7 +13,7 @@ static unsigned char *slurp(const char *p,long *n){FILE *f=fopen(p,"rb");unsigne
 int main(int argc,char **argv){
     long asc_n,aus_n,pos=0,frames=0,errs=0;unsigned char *asc,*aus;HANDLE_AACDECODER h;static INT_PCM pcm[8*2048];FILE *o;
     if(argc==4&&!strcmp(argv[1],"--loas")){
-        long n=0,pos=0,frames=0;unsigned char *b=slurp(argv[2],&n);HANDLE_AACDECODER h=aacDecoder_Open(TT_MP4_LOAS,1);FILE *o=fopen(argv[3],"wb");static INT_PCM pcm[8*2048];static float f[8*2048];
+        long n=0,pos=0,frames=0;unsigned char *b=slurp(argv[2],&n);HANDLE_AACDECODER h=aacDecoder_Open(TT_MP4_LOAS,1);FILE *o=fopen(argv[3],"wb");(void)aacDecoder_SetParam(h,AAC_PCM_LIMITER_ENABLE,0);static INT_PCM pcm[8*2048];static float f[8*2048];
         if(!b||!o)return 2;
         while(pos<n){
             UINT valid,chunk=(UINT)(n-pos<4096?n-pos:4096);UCHAR *buf[1];UINT sz[1];AAC_DECODER_ERROR e;
@@ -31,7 +31,7 @@ int main(int argc,char **argv){
     if(argc!=4)return 2;
     if(sizeof(INT_PCM)!=4){fprintf(stderr,"this tool needs a 32-bit PCM build of libfdk-aac (INT_PCM is %zu bytes)\n",sizeof(INT_PCM));return 2;}
     asc=slurp(argv[1],&asc_n);aus=slurp(argv[2],&aus_n);if(!asc||!aus)return 2;
-    h=aacDecoder_Open(TT_MP4_RAW,1);
+    h=aacDecoder_Open(TT_MP4_RAW,1);(void)aacDecoder_SetParam(h,AAC_PCM_LIMITER_ENABLE,0);                /* no 15 ms limiter delay, no gain reduction: a faithful decode for comparison */
     { UCHAR *conf[1]={asc};UINT len[1]={(UINT)asc_n};if(aacDecoder_ConfigRaw(h,conf,len)!=AAC_DEC_OK){fprintf(stderr,"ConfigRaw failed\n");return 3;} }
     o=fopen(argv[3],"wb");
     while(pos+4<=aus_n){

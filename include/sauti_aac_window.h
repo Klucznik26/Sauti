@@ -13,4 +13,10 @@ int sauti_aac_window_synth(unsigned sequence,unsigned previous_shape,
                            unsigned current_shape,const float *imdct,
                            const float previous_overlap[1024],
                            float pcm[1024],float next_overlap[1024]);
+/* The same for a long length n of 1024 or 960 (frameLengthFlag = 1: eight short windows of 120): imdct holds 2n samples (8 contiguous short blocks of 2n/8 for sequence 2), the
+ * overlap history and the output n.  sauti_aac_window_synth is n = 1024. */
+int sauti_aac_window_synth_n(unsigned n,unsigned sequence,unsigned previous_shape,
+                             unsigned current_shape,const float *imdct,
+                             const float *previous_overlap,
+                             float *pcm,float *next_overlap);
 #endif

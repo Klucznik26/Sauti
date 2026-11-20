@@ -68,6 +68,8 @@ int main(void){
     run(128);
     run(1024);
     run(512);                                                       /* AAC-LD / ELD */
+    run(960);                                                       /* AAC-LC with frameLengthFlag = 1 (long) */
+    run(120);                                                       /* ... and its short windows */
     run(480);                                                       /* AAC-LD / ELD with 480-line frames (direct DCT-IV) */
 
     puts("PASS AAC IMDCT NASM: 128/1024, reference cosine, rollback");

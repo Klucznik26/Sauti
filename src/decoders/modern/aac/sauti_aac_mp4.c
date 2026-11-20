@@ -105,12 +105,20 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
         return 1;
     }
     if(aot!=2u&&aot!=5u&&aot!=29u)return 0;                                   /* LC, albo HE/HEv2 (rdzen LC + SBR w FIL) */
+    info->frame480=0u;
+    if(aot==2u){                                                              /* GASpecificConfig: frameLengthFlag 1 = 960 linii (tylko LC bez SBR) */
+        const unsigned flag=getbits(asc,n,&bit,1);
+        if(flag==1u){info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cc;info->frame480=1u;return cc>=1u&&cc<=2u;}
+    }
     if(aot==5u||aot==29u){                                                    /* jawny SBR: nastepna jest czestotliwosc wyjsciowa i AOT rdzenia */
         const unsigned eri=getbits(asc,n,&bit,4);
         if(eri==0xffffffffu)return 0;
         if(eri==15u)bit+=24u;
         unsigned core=getbits(asc,n,&bit,5);
         if(core!=2u)return 0;
+        if(getbits(asc,n,&bit,1)==1u){                                        /* HE-AAC z ramka 960: rdzen LC 960 bez SBR; AU z SBR odrzuca dekoder (E_UNSUPPORTED_FEATURE), nie dekoduje ich jako 1024 */
+            info->aot=2u;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cc;info->frame480=1u;return cc>=1u&&cc<=2u;
+        }
     }
     info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cc;info->frame480=0u;
     return 1;
@@ -185,7 +193,7 @@ int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t 
         if(!have_esds||!parse_esds(esds,asc,&asc_len))continue;
         SautiAacMp4Info inf;memset(&inf,0,sizeof(inf));
         if(!parse_asc(asc,asc_len,&inf))continue;
-        if(inf.aot==23u||inf.aot==39u)continue;                              /* AAC-LD / ELD nie da sie zapisac jako ADTS (sciezka strumieniowa silnika owija je wlasnym naglowkiem) */
+        if(inf.aot==23u||inf.aot==39u||(inf.aot==2u&&inf.frame480))continue;                              /* AAC-LD / ELD nie da sie zapisac jako ADTS (sciezka strumieniowa silnika owija je wlasnym naglowkiem) */
         /* Lista jednostek dostepu: z tablic probek (stbl) i z fragmentow (moof/trun) - plik moze miec jedno, drugie albo oba. */
         Sample *list=NULL;size_t nlist=0,caplist=0;
         {

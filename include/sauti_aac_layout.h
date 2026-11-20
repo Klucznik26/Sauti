@@ -6,7 +6,17 @@
 #define SAUTI_AAC_LAYOUT_1024 0u
 #define SAUTI_AAC_LAYOUT_512 1u
 #define SAUTI_AAC_LAYOUT_480 2u
+#define SAUTI_AAC_LAYOUT_960 3u        /* AAC-LC family with frameLengthFlag = 1: 960 lines, eight short windows of 120 */
 #define SAUTI_AAC_IDX(rate, layout) ((unsigned)(rate) | ((unsigned)(layout) << 8))
 #define SAUTI_AAC_IDX_RATE(idx) ((unsigned)(idx) & 0xffu)
 #define SAUTI_AAC_IDX_LAYOUT(idx) ((unsigned)(idx) >> 8)
+/* Length of one transform window of the layout in `idx`: the stride of the natural [window][line] spectrum layout of short windows and the number of lines of a long window. */
+static inline unsigned sauti_aac_layout_window_len(unsigned idx, unsigned short_window) {
+    switch (SAUTI_AAC_IDX_LAYOUT(idx)) {
+    case SAUTI_AAC_LAYOUT_960: return short_window ? 120u : 960u;
+    case SAUTI_AAC_LAYOUT_512: return 512u;
+    case SAUTI_AAC_LAYOUT_480: return 480u;
+    default: return short_window ? 128u : 1024u;
+    }
+}
 #endif

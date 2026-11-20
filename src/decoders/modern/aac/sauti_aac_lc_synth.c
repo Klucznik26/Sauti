@@ -5,6 +5,7 @@
 #include "sauti_aac_imdct.h"
 #include "sauti_aac_window.h"
 #include "sauti_aac_pns.h"
+#include "sauti_aac_layout.h"
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
@@ -34,16 +35,19 @@ int sauti_aac_lc_synthesis_spectral(SautiAacLcSynthesis *state,
                                     unsigned sample_rate_index,
                                     const float spectral_input[1024],
                                     float pcm[1024]){
+    const unsigned layout=SAUTI_AAC_IDX_LAYOUT(sample_rate_index);
+    const unsigned n=layout==SAUTI_AAC_LAYOUT_960?960u:1024u,ns=n/8u;      /* long and short transform lengths: 1024 / 128, or 960 / 120 with frameLengthFlag = 1 */
     if(!state || !ics || !spectral_input || !pcm ||
-       sample_rate_index>=13u || state->initialized!=1u ||
+       SAUTI_AAC_IDX_RATE(sample_rate_index)>=13u ||
+       (layout!=SAUTI_AAC_LAYOUT_1024 && layout!=SAUTI_AAC_LAYOUT_960) || state->initialized!=1u ||
        state->previous_shape>1u || ics->window_shape>1u ||
        ics->window_sequence>3u)
         return 0;
-    for(unsigned i=0;i<1024;i++)
+    for(unsigned i=0;i<n;i++)
         if(!isfinite(state->overlap[i]) ||
            !isfinite(spectral_input[i]))return 0;
-    float spectral[1024],time[2048],out[1024],history[1024];
-    memcpy(spectral,spectral_input,sizeof(spectral));
+    float spectral[1024]={0},time[2048],out[1024],history[1024];
+    memcpy(spectral,spectral_input,n*sizeof(float));
     if(tns && !sauti_aac_tns_apply(tns,ics,sample_rate_index,spectral))
         return 0;
     /* SBR-81: a forbidden transition is decoded like FFmpeg does (windowing depends on the current sequence and the saved overlap only)
@@ -51,14 +55,14 @@ int sauti_aac_lc_synthesis_spectral(SautiAacLcSynthesis *state,
     const unsigned transition_ok=valid_transition(state->previous_sequence,ics->window_sequence);
     if(ics->window_sequence==2u){
         for(unsigned block=0;block<8;block++)
-            if(!sauti_aac_imdct(spectral+128u*block,128u,
-                                time+256u*block))return 0;
-    }else if(!sauti_aac_imdct(spectral,1024u,time))return 0;
-    if(!sauti_aac_window_synth(ics->window_sequence,
-                               state->previous_shape,ics->window_shape,
-                               time,state->overlap,out,history))return 0;
-    memcpy(pcm,out,sizeof(out));
-    memcpy(state->overlap,history,sizeof(history));
+            if(!sauti_aac_imdct(spectral+ns*block,ns,
+                                time+2u*ns*block))return 0;
+    }else if(!sauti_aac_imdct(spectral,n,time))return 0;
+    if(!sauti_aac_window_synth_n(n,ics->window_sequence,
+                                 state->previous_shape,ics->window_shape,
+                                 time,state->overlap,out,history))return 0;
+    memcpy(pcm,out,n*sizeof(float));
+    memcpy(state->overlap,history,n*sizeof(float));
     state->previous_sequence=ics->window_sequence;
     state->previous_shape=ics->window_shape;
     if(!transition_ok && state->transition_violations<UINT32_MAX)state->transition_violations++;

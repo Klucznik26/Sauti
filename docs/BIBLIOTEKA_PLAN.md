@@ -29,6 +29,7 @@ FFmpeg (libavcodec) jest na LGPL-2.1+. LGPL pozwala **linkować** bibliotekę do
 | ROM szumu SBR (512 par) | `sauti_aac_sbr_noise_rom.c` | „standardized reference data, cross-checked" |
 | przesunięcia pasm skalowania | `sauti_aac_bands.c` | tablice normatywne |
 | przesunięcia pasm skalowania dla ramek 512 / 480 (AAC-LD / ELD) i `tns_max_bands` | `sauti_aac_bands.c` | tablice normatywne; liczby sprawdzone z `aactab.c` FFmpeg (jak wyżej), dopisane 2026-11-20 |
+| przesunięcia pasm skalowania dla ramek 960 / 120 (AAC-LC z `frameLengthFlag = 1`) | `sauti_aac_bands.c` | tablice normatywne ISO/IEC 14496-3; liczby sprawdzone z `aactab.c` FFmpeg (jak wyżej), dopisane 2026-11-20; potwierdzone dekodowaniem względem FFmpeg (136–139 dB) i FDK AAC (86–92 dB) na wszystkich 13 indeksach częstotliwości (`tests/data/lc960_r*.m4a`); wymagają tego samego przeglądu licencyjnego co tablice 512 / 480 |
 | okno filterbanku AAC-ELD (1920 + 1800 współczynników) | `sauti_aac_eld_window.c` | tablica normatywna ISO/IEC 14496-3; **liczby przepisane z `aactab.c` FFmpeg** (`ff_aac_eld_window_512/_480`, LGPL), skrypt `tools/gen_eld_window.py`; wymaga tego samego przeglądu licencyjnego albo zastąpienia danymi z normy |
 | część algorytmów SBR | `sauti_aac_sbr_gain_partition.c` i pokrewne | komentarz „Numerics follow FFmpeg libavcodec/aacsbr.c:sbr_gain_calc()" |
 | adapter do libavcodec | `sauti_decoder_ffmpeg.c` | **nie wchodzi do wydawanej biblioteki** (opcjonalny, wyłącznie do testów i zapasowo w odtwarzaczu) |
@@ -72,7 +73,7 @@ Dlatego kolejność prac jest następująca (zamiast tej z pierwszej wersji plan
 3. **Ścieżki C dla całego asm + budowanie na Windows/ARM/BSD** (*stan 2026-11-20: ścieżki C dla WSZYSTKICH jąder kodeków — AAC, AVR, DVSM, YM — są w `src/portable/`, bit w bit jak NASM (`make test-portable-equivalence`); `make PORTABLE=1 OBJDIR=build_portable test-aac-native` buduje i testuje bez NASM; zostają: CMake/pakiet, jądra wizualizacji (`sauti_core`, `fft`, …) i wyniki na prawdziwym ARM64 w CI*) (CMake, CI), pakiet instalacyjny (`.so/.dll/.a`, nagłówki, `pkg-config`, `.cmake`).
 4. **Izolacja `sauti-tables`** i wyłączenie adaptera FFmpeg z wydania; raport pochodzenia danych.
 5. **Koder AAC-LC** (najpierw CBR/VBR stereo z M/S i TNS bez PNS; potem SBR/HE-AAC; model psychoakustyczny własny), test: dekodery FFmpeg/FAAD2 odtwarzają nasze strumienie, a zmierzone SNR/PEAQ-podobne metryki są porównywalne z fdkaac przy tym samym bitrate.
-6. Dalsze dekodery wg SBR-99 (LD, ELD, 960, Main, LTP, USAC, …) i formaty pozostałe (DVSM ADPCM, itd.).
+6. Dalsze dekodery wg SBR-99. **Zrobione:** AAC-LD i AAC-ELD bez SBR (SBR-100), AAC-LC z ramkami 960 / 120 (SBR-101, 2026-11-20). **Kolejność dalej (zatwierdzona przez użytkownika, cel: kompletny AAC):** AAC Main z predykcją i LTP (strumienie z własnego generatora `tools/sauti_aac_gen.c`), USAC / xHE-AAC, SSR / Scalable / BSAC; odłożone: ELD z SBR (tablica CLDFB tylko w źródle FDK: decyzja licencyjna), ER-LC (AOT 17), wielokanałowe LD / ELD, HE-AAC z ramką 960, ELD 480 na prawdziwym strumieniu. Formaty pozostałe (DVSM ADPCM, itd.) poza AAC.
 
 Kolejność 1–4 poprzedza dalsze poszerzanie dekoderów, bo wada architektury (stan globalny, brak API) kosztuje tym więcej, im więcej kodu powstanie.
 

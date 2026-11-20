@@ -2,6 +2,7 @@
  * This stage supports non-MS common-window and independent-window CPE.
  * Never silently ignore mid/side, intensity, SBR, pulse or gain tools. */
 #include "sauti_aac_cpe.h"
+#include "sauti_aac_layout.h"
 #include "sauti_aac_bands.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_adts_crc.h"
@@ -66,7 +67,7 @@ static int channel_parse(const uint8_t *data,size_t length,size_t *pos,
 int sauti_aac_lc_cpe_parse(const uint8_t *raw,size_t length,
                            size_t *bit_offset,unsigned rate,
                            SautiAacCpeData *out,SautiAacReason *reason){
-    if(!raw||!bit_offset||!out||!reason||rate>=13u||
+    if(!raw||!bit_offset||!out||!reason||SAUTI_AAC_IDX_RATE(rate)>=13u||
        length>SIZE_MAX/8u||*bit_offset>length*8u)return 0;
     *reason=SAUTI_AAC_REASON_INVALID_SCE;
     size_t pos=*bit_offset;
@@ -130,10 +131,10 @@ static int apply_ms(const SautiAacCpeData *cpe,unsigned rate,
                 *reason=SAUTI_AAC_REASON_MID_SIDE;return -1;           /* 12 = zarezerwowany */
             }
             const unsigned start=offsets[band],end=offsets[band+1u];
-            if(end<=start || end>(shortwin?128u:1024u))return 0;
+            if(end<=start || end>sauti_aac_layout_window_len(rate,shortwin))return 0;
             for(unsigned w=first_window;
                  w<first_window+ics->group_length[g];w++){
-                const unsigned base=w*(shortwin?128u:1024u);
+                const unsigned base=w*sauti_aac_layout_window_len(rate,shortwin);
                 for(unsigned i=base+start;i<base+end;i++){
                     const float mid=left[i],side=right[i];
                     const float l=mid+side,r=mid-side;
@@ -179,10 +180,10 @@ static int apply_correlated_pns(const SautiAacCpeData *cpe,unsigned rate,
             const double scale=exp2(((double)rs-(double)ls)/4.0);
             if(!isfinite(scale))return 0;
             const unsigned first=offsets[band],last=offsets[band+1u];
-            if(first>=last || last>(shortwin?128u:1024u))return 0;
+            if(first>=last || last>sauti_aac_layout_window_len(rate,shortwin))return 0;
             for(unsigned w=start_window;
                  w<start_window+ics->group_length[g];w++){
-                const unsigned base=w*(shortwin?128u:1024u);
+                const unsigned base=w*sauti_aac_layout_window_len(rate,shortwin);
                 for(unsigned k=first;k<last;k++){
                     const double v=(double)left[base+k]*scale;
                     if(!isfinite(v) || fabs(v)>3.402823466e38)return 0;
@@ -225,10 +226,10 @@ static int apply_intensity(const SautiAacCpeData *cpe,unsigned rate,
             double scale=sign*exp2(-(double)position/4.0);
             if(!isfinite(scale))return 0;
             const unsigned first=offsets[band],last=offsets[band+1u];
-            if(first>=last || last>(shortwin?128u:1024u))return 0;
+            if(first>=last || last>sauti_aac_layout_window_len(rate,shortwin))return 0;
             for(unsigned w=group_start;
                  w<group_start+ics->group_length[g];w++){
-                unsigned base=w*(shortwin?128u:1024u);
+                unsigned base=w*sauti_aac_layout_window_len(rate,shortwin);
                 for(unsigned k=first;k<last;k++){
                     double value=(double)left[base+k]*scale;
                     if(!isfinite(value) || fabs(value)>3.402823466e38)

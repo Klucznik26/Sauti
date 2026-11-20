@@ -19,6 +19,10 @@ sauti_aac_window_overlap_asm:
     cmp r8,128
     je .valid
     cmp r8,1024
+    je .valid
+    cmp r8,120
+    je .valid
+    cmp r8,960
     jne .invalid
 .valid:
     xor r9d,r9d
