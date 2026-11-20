@@ -2197,11 +2197,23 @@ $(OBJDIR)/test_third_party_hardening_plain: tests/test_third_party_hardening.c $
 test-third-party-hardening: $(OBJDIR)/test_third_party_hardening_asan $(OBJDIR)/test_third_party_hardening_plain
 	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_third_party_hardening_asan tests/data/probe_real.ogg tests/data/probe_real.mp3
 	./$(OBJDIR)/test_third_party_hardening_plain tests/data/probe_real.ogg tests/data/probe_real.mp3
+# ograniczenie pracy przewijania MIDI (R2): cisza pomijana dokladnie, budzet dla grajacych glosow, stan zachowany po niepowodzeniu; przez stare i nowe API
+$(OBJDIR)/test_midi_seek_bounds: tests/test_midi_seek_bounds.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O2 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_midi_seek_bounds.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-midi-seek-bounds
+test-midi-seek-bounds: $(OBJDIR)/test_midi_seek_bounds
+	./$(OBJDIR)/test_midi_seek_bounds
 .PHONY: test-maktabasauti-probe-audit
 test-maktabasauti-probe-audit: $(OBJDIR)/test_maktabasauti_probe_audit_asan $(OBJDIR)/test_maktabasauti_probe_audit_pattern $(OBJDIR)/test_maktabasauti_probe_audit_plain
 	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_probe_audit_asan $(MKS_AUDIT_FIXTURES)
 	./$(OBJDIR)/test_maktabasauti_probe_audit_pattern $(MKS_AUDIT_FIXTURES)
 	./$(OBJDIR)/test_maktabasauti_probe_audit_plain $(MKS_AUDIT_FIXTURES)
+
+# zimny start z wielu watkow naraz (swieze procesy): wyscigi inicjalizacji leniwej widoczne tylko przy pierwszym uzyciu
+$(OBJDIR)/test_maktabasauti_coldstart_asan: tests/test_maktabasauti_coldstart.c tests/mks_probe_corpus.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -Itests -o $@ tests/test_maktabasauti_coldstart.c $(MKS_DEPS) -lm -lpthread -no-pie
+$(OBJDIR)/test_maktabasauti_coldstart_tsan: tests/test_maktabasauti_coldstart.c tests/mks_probe_corpus.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=thread $(MKS_INC) -Itests -o $@ tests/test_maktabasauti_coldstart.c $(MKS_DEPS) -lm -lpthread -no-pie
 
 .PHONY: test-maktabasauti-core test-maktabasauti-regression
 test-maktabasauti-core: check-maktabasauti-c99 $(OBJDIR)/test_maktabasauti_core

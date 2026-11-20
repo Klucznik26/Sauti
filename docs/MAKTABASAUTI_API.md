@@ -120,7 +120,7 @@ Test `tests/test_aac_threads.c` ma dziś zapasowy wariant z ASan, bo na tej masz
 
 **Ograniczenia tej wersji (świadomie opisane):**
 1. Opakowania starych dekoderów **nie są strumieniowe**: wczytują całe wejście do pamięci (flaga `NEEDS_FULL_BUFFER`), a każde otwarcie przez rejestr domyślny wczytuje plik, bo stare probe'y dostają cały plik. Strumieniowe moduły (AAC najpierw) zastępują opakowania w etapie 2; API i testy z syntetycznym kodekiem strumieniowym pokazują, że rdzeń to wspiera.
-2. Stare dekodery nie podają przyczyny niepowodzenia: błąd otwarcia mapuje się na `E_UNSUPPORTED_FEATURE`, a niepowodzenie `seek` też; `flush` nie jest dostępny (`E_NOT_IMPLEMENTED`); tagi niedostępne.
+2. Stare dekodery nie podają przyczyny niepowodzenia: błąd otwarcia mapuje się na `E_UNSUPPORTED_FEATURE`, a niepowodzenie `seek`/`reset` na `E_NOT_SEEKABLE` (od 2026-11-20; stan dekodera bez zmian, np. budżet pracy MIDI); `flush` nie jest dostępny (`E_NOT_IMPLEMENTED`); tagi niedostępne.
 3. Maska kanałów dla opakowanych dekoderów jest podawana tylko dla 1, 2, 6 i 8 kanałów (mono, stereo, 5.1, 7.1); w pozostałych przypadkach 0 (nie zgadujemy rozmieszczenia).
 4. Opakowane dekodery oddają `float` (`native_format = F32`); konwersja do `S16/S24/S32/U8/F64` po stronie biblioteki.
 5. Wczytanie całości jest ograniczone do 1 GiB (`E_NO_MEMORY` powyżej).
@@ -135,4 +135,4 @@ Pełny raport: `docs/AUDYT_SOND.md`. Zasady, które rdzeń i moduły muszą spe�
 
 **Wejście (`maktabasauti_io_t`)** — rdzeń nie ufa wartościom zwracanym przez callbacki użytkownika: `read` zwracający więcej niż zażądano daje `E_IO` (bez zapisu poza buforem), kod błędu spoza `E_*` (np. `INT64_MIN`) jest normalizowany do `E_IO` (wcześniej po obcięciu do `int` mógł dać `OK`), `size` jest tylko wskazówką (początkowy bufor całego wejścia ≤ 64 MiB, dalej rośnie wyłącznie o faktycznie odczytane dane, twardy limit 1 GiB), `seek` z dowolnym `offset`/`whence` nie powoduje przepełnienia ze znakiem. Wejście, które nigdy nie zgłasza końca danych, kończy się `E_NO_MEMORY` po 1 GiB przy kodekach wymagających całości (strumieniowe moduły czytają dalej, tylko ile potrzebują).
 
-**Znane, opisane ryzyka:** (R1) rejestr domyślny wczytuje CAŁE wejście, żeby uruchomić sondy starych dekoderów, także dla nieznanych danych; usunie to etap 2 (moduły strumieniowe z sondą po prefiksie); (R2) `seek` w opakowanym dekoderze MIDI jest liniowy w liczbie ramek (uszkodzony plik może deklarować godziny); pozostałe w `docs/AUDYT_SOND.md`.
+**Znane, opisane ryzyka:** (R1) rejestr domyślny wczytuje CAŁE wejście, żeby uruchomić sondy starych dekoderów, także dla nieznanych danych; usunie to etap 2 (moduły strumieniowe z sondą po prefiksie); (R2) `seek` MIDI ma ograniczoną pracę (cisza pomijana, budżet dla grających głosów, `E_NOT_SEEKABLE` po przekroczeniu), docelowo punkty kontrolne; pozostałe w `docs/AUDYT_SOND.md`.

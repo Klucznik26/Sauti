@@ -106,14 +106,14 @@ static maktabasauti_result_t MAKTABASAUTI_CALL legacy_seek(void *state, uint64_t
     legacy_state_t *s = (legacy_state_t *)state;
     (void)flags;
     if (s->info.total_frames && frame > s->info.total_frames) return MAKTABASAUTI_E_OUT_OF_RANGE;
-    if (!s->meta->ops->seek(s->state, frame)) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+    if (!s->meta->ops->seek(s->state, frame)) return MAKTABASAUTI_E_NOT_SEEKABLE;   /* starszy dekoder nie podaje przyczyny: przewijanie nie powiodlo sie (np. budzet pracy MIDI), stan bez zmian */
     *actual = frame;                                     /* starsze dekodery przewijaja dokladnie */
     return MAKTABASAUTI_OK;
 }
 
 static maktabasauti_result_t MAKTABASAUTI_CALL legacy_reset(void *state) {
     legacy_state_t *s = (legacy_state_t *)state;
-    return s->meta->ops->seek(s->state, 0) ? MAKTABASAUTI_OK : MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+    return s->meta->ops->seek(s->state, 0) ? MAKTABASAUTI_OK : MAKTABASAUTI_E_NOT_SEEKABLE;
 }
 
 static void MAKTABASAUTI_CALL legacy_close(void *state) {

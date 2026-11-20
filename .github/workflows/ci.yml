@@ -31,6 +31,8 @@ jobs:
         run: make test-maktabasauti-hostile-io
       - name: "Third-party hardening regressions (stb_vorbis, minimp3)"
         run: make test-third-party-hardening
+      - name: "MIDI seek work bound (silence skipping, budget, state kept after failure)"
+        run: make test-midi-seek-bounds
 
   # WYMAGANE: ThreadSanitizer.  Brak libtsan => REQUIRE_TSAN=1 daje FAIL.
   tsan:
@@ -47,6 +49,10 @@ jobs:
         env:
           REQUIRE_TSAN: "1"
         run: scripts/test_maktabasauti_threads.sh 8 4
+      - name: MaktabaSauti cold start, first use of every codec from many threads at once (fresh processes; lazy-initialisation races)
+        env:
+          REQUIRE_TSAN: "1"
+        run: scripts/test_maktabasauti_coldstart.sh 8 16
 
   asan-ubsan-threads:
     runs-on: ubuntu-24.04

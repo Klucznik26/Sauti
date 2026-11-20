@@ -76,7 +76,14 @@ Zmiany wyłącznie w kodzie bibliotek zewnętrznych są opisane osobno w `third_
 - **R1: wczytanie całości dla sond.** Kodeki z `NEEDS_FULL_BUFFER` dostają przy sondowaniu cały plik, więc każde otwarcie rejestrem domyślnym wczytuje całe wejście do pamięci
   (limit 1 GiB, wzrost tylko o faktycznie odczytane dane), także dla danych, których żaden kodek nie rozpozna. Sama sonda jest O(1), ale nie da się tego zmienić bez zmiany
   semantyki starych sond (część wymaga rozmiaru: ADTS „bez ramek częściowych”, LATM, VOC). Usunie to etap 2 (moduły strumieniowe z sondą po prefiksie 4 KiB).
-- **R2: `seek` MIDI jest liniowy** w liczbie ramek (znane ograniczenie syntezatora bazowego); uszkodzony plik może deklarować godziny. Harness ogranicza odległość `seek`. Do naprawy snapshotami zdarzeń.
+- **R2 (ZABEZPIECZONE 2026-11-20, docelowe rozwiązanie otwarte): `seek` MIDI był liniowy** w liczbie ramek (uszkodzony plik mógł deklarować godziny). Teraz (`sauti_decoder_midi.c`):
+  (1) cisza jest pomijana dokładnie (licznik przeskakuje do ramki najbliższego zdarzenia; wynik bit w bit jak przy symulacji ramka po ramce, test porównuje próbki),
+  (2) przewijanie nie liczy próbek (bez `sin`, ta sama faza), (3) praca przy grających głosach ma budżet 2^30 jednostek (16 na ramkę + 1 na głos; gęsty 5-minutowy utwór ≈ 3,5·10^8, czyli się mieści);
+  po przekroczeniu `seek` zwraca niepowodzenie, **stan syntezatora jest przywracany** (odtwarzanie trwa dalej od tej samej pozycji), przez nowe API: `MAKTABASAUTI_E_NOT_SEEKABLE`.
+  Odczyt do przodu nie jest ograniczany (to zwykłe odtwarzanie), `seek(0)`/`reset` zawsze działa. Testy: `make test-midi-seek-bounds` (cisza 1,4 h: natychmiast; trzy nuty 1,4 h: błąd
+  w ograniczonym czasie i stan zachowany). Uwaga: parser tml odrzuca zbyt duże delty (≥ 2^21 tików), więc deklarowana długość uszkodzonego pliku jest ograniczona do rzędu godzin.
+  **Docelowo (nie zrobione):** punkty kontrolne stanu syntezatora (głosy + kursor zdarzeń, ~3 KiB) co N ramek budowane przy odczycie; `seek` od najbliższego punktu przed celem
+  (koszt O(N) zamiast O(odległość)); punkt kontrolny w ramce 0 już istnieje (`midi_reset`). Wymaga decyzji o N (np. 10 s) i pamięci (3 KiB × długość/10 s).
 - **R3: kody zewnętrzne.** stb_vorbis jest porzucony przez autora (v1.22 z 2021), a fuzzing wykazał w nim kilka błędów; poprawki lokalne usuwają znalezione, **nie dowodzą braku innych**
   (dekoder: setup, residue, floor, IMDCT). Do rozważenia: własny dekoder Vorbis zamiast stb_vorbis w wydaniu. dr_flac i tml: znalezione wyłącznie UB, nie błędy pamięci; nie znaczy to, że fuzzing był wyczerpujący.
 - **R4: pokrycie fuzzingu.** Mutator jest wbudowany (bez pokrycia kodu jak libFuzzer/AFL), korpus bez prawdziwych plików Opus/ALAC/WavPack/SNDH w fazie `open`
@@ -85,10 +92,14 @@ Zmiany wyłącznie w kodzie bibliotek zewnętrznych są opisane osobno w `third_
   z `malloc` jest zatruwana tylko w buildzie testów rdzenia.
 - **R6: moduły zewnętrzne** (przyszłe) mogą naruszyć zasady sondy; rdzeń nie izoluje sondy (brak sandboxa), tylko obcina wynik. Sonda dostaje `const` bufor, ale dla całego wejścia jest to kopia
   rdzenia, więc złośliwa sonda mogłaby ją zmodyfikować; do rozważenia kopia obronna przy włączaniu modułów dynamicznych (etap 3).
-- **R8: inicjalizacja możliwości procesora w dr_flac** (`drflac__init_cpu_caps`: trzy globalne flagi zapisywane leniwie, idempotentnie) jest oznaczona przez autora `DRFLAC_NO_THREAD_SANITIZE`, więc
-  ThreadSanitizer jej nie raportuje; formalnie to wyścig danych o jednakowej wartości zapisu. Pozostałe statyczne dane zapisywalne w dekoderach (tablice AAC `standard_trie`, plany IMDCT) mają
-  inicjalizację atomową i są objęte testem TSan dla AAC. Skan: `nm` obiektów rdzenia i dekoderów (symbole `b/B/d/D`), 2026-11-20.
-- **R7: TSan** nie działa lokalnie (brak libtsan); wynik wielowątkowy lokalnie to ASan/UBSan + porównanie bit w bit; wymagany przebieg TSan jest w CI.
+- **R8 (ROZWIĄZANE 2026-11-20): inicjalizacja możliwości procesora w dr_flac.** Trzy globalne flagi zapisywane leniwie przy każdym otwarciu były wyścigiem danych; autor wyciszał ThreadSanitizer
+  atrybutem `DRFLAC_NO_THREAD_SANITIZE` (od GCC 14 atrybut działa także w gcc przez `__has_feature`, więc nasze CI go nie widziało). Teraz: jedno słowo `drflac__gCpuCaps` zapisywane atomowo
+  (jedna kompletna wartość obliczona lokalnie), odczyt atomowy; nazwy `drflac__gIs*Supported` zostały jako makra-akcesory, więc miejsca użycia i wyniki PCM nie zmieniły się (koszt odczytu = zwykły `mov`).
+  Wszystkie tablice stałe dr_flac są `static const`. Test: `tests/test_maktabasauti_coldstart.c` (`scripts/test_maktabasauti_coldstart.sh`) otwiera i dekoduje cały korpus z wielu
+  jednocześnie startujących wątków w ŚWIEŻYCH procesach (wyścigi inicjalizacji leniwej widać tylko przy pierwszym użyciu w procesie), wynik porównuje ze wzorcem z procesu jednowątkowego;
+  w CI pod TSan (wymagany). Sprawdzono: na oryginalnym dr_flac bez wyciszenia TSan raportuje wyścig w `drflac__init_cpu_caps`, na poprawionym czysto; na oryginalnym `crc32_init` stb_vorbis też.
+  Pozostałe statyczne dane zapisywalne w dekoderach (tablice AAC `standard_trie`, plany IMDCT) mają inicjalizację atomową i są objęte tym samym testem.
+- **R7: TSan lokalnie:** pakiet `libtsan` nie jest zainstalowany; da się go użyć bez roota (`dnf download libtsan`, `rpm2cpio | cpio -idm`, `gcc -L<katalog z libtsan.so> ...`, `LD_LIBRARY_PATH=<katalog>`); wymagany przebieg TSan jest w CI.
 
 ## 5. Jak uruchomić
 
