@@ -17,12 +17,22 @@
  * Wybor wariantu jak w starym rejestrze (kolejnosc: LC stereo, LC mono, LC wielokanalowy, HE mono, HE CPE) wg PIERWSZEJ ramki: ramka musi sie w pelni zdekodowac danym
  * wariantem; strumien HE (SBR w FIL) odrzuca rdzen LC i trafia do HE.  PCM jest bit w bit rowny staremu API (tests/test_maktabasauti_regression.c).
  *
+ * ID3v2 przed pierwsza ramka (znacznik na poczatku pliku, takze z stopka i kilka znacznikow z rzedu) jest pomijany przy otwarciu i po kazdym przewinieciu do poczatku; sonda widzi ramke za
+ * znacznikiem, gdy miesci sie w prefiksie, a przy znaczniku dluzszym od prefiksu zwraca 55 (tuz nad MP3 z tym samym znacznikiem: gdy za znacznikiem nie ma ADTS, open() zawodzi, a rdzen
+ * przechodzi do nastepnego kandydata).  Wejscie NIEprzewijalne obsluguje znaczniki mieszczace sie w oknie czytnika (16 KiB), dluzsze odrzuca bez zuzycia danych.
+ *
  * Opcje: "adts.scan" = "off" wylacza przejscie po naglowkach przy otwarciu (dlugosc nieznana, seek bez sprawdzania zakresu). */
 #include "maktabasauti_aac_engine.h"
+
+static maktabasauti_result_t skip_id3(dec_t *d);
 
 static maktabasauti_result_t adts_fetch(dec_t *d) {
     const maktabasauti_host_t *h = d->host;
     int64_t n, m; aac_adts_hdr_t hd; SautiAacAdts full;
+    if (d->core.frames_in == 0 && d->core.in_offset == 0) {                 /* poczatek strumienia: znaczniki ID3v2 */
+        maktabasauti_result_t sr = skip_id3(d);
+        if (sr != MAKTABASAUTI_OK) return sr;
+    }
     n = h->peek(h->user, d->rd, d->frame, ADTS_HEADER_PEEK);
     if (n < 0) return (maktabasauti_result_t)n;
     if (n == 0) return MAKTABASAUTI_EOF;
@@ -69,8 +79,14 @@ static maktabasauti_result_t adts_resync(dec_t *d) {
 
 /* ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
 
-static int32_t MAKTABASAUTI_CALL adts_probe(const maktabasauti_codec_t *self, const uint8_t *p, size_t n, const char *hint) {
-    aac_adts_hdr_t h, nx; (void)self; (void)hint;
+/* calkowita dlugosc znacznika ID3v2 na poczatku (naglowek 10 B + dane + opcjonalna stopka 10 B) albo 0, gdy to nie jest poprawny naglowek ID3v2 */
+static size_t id3v2_len(const uint8_t *p, size_t n) {
+    if (!p || n < 10u || memcmp(p, "ID3", 3) != 0 || p[3] == 0xFFu || p[4] == 0xFFu || (p[5] & 0x0Fu) != 0u || ((p[6] | p[7] | p[8] | p[9]) & 0x80u)) return 0;
+    return 10u + (((size_t)p[6] << 21) | ((size_t)p[7] << 14) | ((size_t)p[8] << 7) | (size_t)p[9]) + ((p[5] & 0x10u) ? 10u : 0u);
+}
+
+static int32_t probe_at(const uint8_t *p, size_t n) {
+    aac_adts_hdr_t h, nx;
     if (!p || !aac_adts_parse_header(p, n, &h) || h.raw_blocks != 1u) return 0;
     if (n >= (size_t)h.frame_bytes + 7u) {                                /* druga ramka widoczna w prefiksie: lancuch musi sie zgadzac (strumien samosynchronizujacy) */
         if (!aac_adts_parse_header(p + h.frame_bytes, n - h.frame_bytes, &nx) || nx.rate_index != h.rate_index || nx.config != h.config) return 0;
@@ -80,6 +96,51 @@ static int32_t MAKTABASAUTI_CALL adts_probe(const maktabasauti_codec_t *self, co
     if (n < h.frame_bytes) return 70;                                     /* ramka dluzsza niz prefiks (nie da sie sprawdzic lancucha) */
     /* kilka bajtow za ramka (< 7): musza byc poczatkiem synchronizacji nastepnej ramki (strumien urwany w naglowku), inaczej smieci */
     return (p[h.frame_bytes] == 0xFFu && (n - h.frame_bytes < 2u || (p[h.frame_bytes + 1u] & 0xF6u) == 0xF0u)) ? 75 : 0;
+}
+
+static int32_t MAKTABASAUTI_CALL adts_probe(const maktabasauti_codec_t *self, const uint8_t *p, size_t n, const char *hint) {
+    size_t t; unsigned guard; (void)self; (void)hint;
+    for (guard = 0; guard < 8u; guard++) {                                /* kilka znacznikow z rzedu */
+        t = id3v2_len(p, n);
+        if (!t) return probe_at(p, n);
+        if (t + 10u > n) return (t + 7u > n && n >= 10u) ? 55 : probe_at(p + t, n - t);   /* znacznik siega poza prefiks: nie widac, co jest za nim */
+        p += t; n -= t;
+    }
+    return 0;
+}
+
+/* na poczatku strumienia: pomija znaczniki ID3v2 (w jednym kawalku przez seek, gdy wejscie sie przewija; inaczej czytamy je z bufora czytnika, do ktorego prepare je zmiescil) */
+static maktabasauti_result_t skip_id3(dec_t *d) {
+    const maktabasauti_host_t *h = d->host; unsigned guard;
+    for (guard = 0; guard < 8u; guard++) {
+        uint8_t hdr[10]; int64_t n; size_t t;
+        n = h->peek(h->user, d->rd, hdr, sizeof hdr);
+        if (n < 0) return (maktabasauti_result_t)n;
+        t = id3v2_len(hdr, (size_t)n);
+        if (!t) return MAKTABASAUTI_OK;
+        if (d->seekable) {
+            int64_t pos = h->tell(h->user, d->rd);
+            if (pos < 0 || h->seek(h->user, d->rd, pos + (int64_t)t, 0) < 0) return MAKTABASAUTI_E_CORRUPT_DATA;      /* znacznik dluzszy niz plik */
+        } else {
+            uint8_t skip[512]; size_t left = t;
+            while (left) {
+                size_t want = left < sizeof skip ? left : sizeof skip; int64_t m = h->read(h->user, d->rd, skip, want);
+                if (m < 0) return (maktabasauti_result_t)m;
+                if (m == 0) return MAKTABASAUTI_E_TRUNCATED;
+                left -= (size_t)m;
+            }
+        }
+    }
+    return MAKTABASAUTI_OK;
+}
+
+static maktabasauti_result_t adts_prepare(dec_t *d) {
+    const maktabasauti_host_t *h = d->host; uint8_t win[16384]; int64_t n; size_t t;
+    n = h->peek(h->user, d->rd, win, sizeof win);
+    if (n < 0) return (maktabasauti_result_t)n;
+    t = id3v2_len(win, (size_t)n);
+    if (t && !d->seekable && t + ADTS_HEADER_PEEK > (size_t)n) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;   /* znacznik poza oknem czytnika na wejsciu nieprzewijalnym: odrzucamy, nic nie zuzywszy */
+    return MAKTABASAUTI_OK;
 }
 
 
@@ -111,7 +172,7 @@ static maktabasauti_result_t adts_scan(dec_t *d, int64_t resume, uint64_t *count
 }
 
 
-static const aac_container_t adts_container = { "adts", adts_fetch, adts_resync, adts_scan, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+static const aac_container_t adts_container = { "adts", adts_fetch, adts_resync, adts_scan, NULL, NULL, NULL, adts_prepare, NULL, NULL, NULL };
 
 static maktabasauti_result_t MAKTABASAUTI_CALL adts_open(const maktabasauti_codec_t *self, const maktabasauti_host_t *host, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
     return aac_eng_open(self, &adts_container, host, rd, info, state);

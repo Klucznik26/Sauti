@@ -460,6 +460,52 @@ static void test_options_and_tail(const uint8_t *b, size_t n, const Ref *ref, co
     free(t);
 }
 
+/* 10: ID3v2 przed ADTS (rozpoznanie przez rejestr domyslny, wiec takze kolejnosc wzgledem MP3): maly znacznik, ze stopka, dwa z rzedu, DUZY (> prefiks sond 16 KiB), plus ID3v1 na koncu */
+static size_t make_id3(uint8_t *o, size_t body, int footer) {
+    size_t n = 0; o[n++] = 'I'; o[n++] = 'D'; o[n++] = '3'; o[n++] = 4; o[n++] = 0; o[n++] = footer ? 0x10 : 0;
+    o[n++] = (uint8_t)((body >> 21) & 0x7f); o[n++] = (uint8_t)((body >> 14) & 0x7f); o[n++] = (uint8_t)((body >> 7) & 0x7f); o[n++] = (uint8_t)(body & 0x7f);
+    memcpy(o + n, "TIT2", 4); n += 4; memset(o + n, 0x20, body > 4 ? body - 4 : 0); n += body > 4 ? body - 4 : 0;
+    if (footer) { memcpy(o + n, "3DI\4\0\x10", 6); memset(o + n + 6, 0, 4); n += 10; }
+    return n;
+}
+static void test_id3v2(const uint8_t *b, size_t n, const Ref *ref, const char *name) {
+    static const struct { const char *what; size_t body1; int footer; size_t body2; int tail; } v[] = {
+        { "small tag", 40, 0, 0, 0 }, { "tag with footer", 100, 1, 0, 0 }, { "two tags", 60, 0, 30, 0 }, { "tag + ID3v1 tail", 50, 0, 0, 1 }, { "big tag (40 KiB, beyond the probe prefix)", 40000, 0, 0, 0 },
+    };
+    size_t i, mode;
+    for (i = 0; i < sizeof v / sizeof *v; i++) {
+        uint8_t *t = (uint8_t *)malloc(n + 90000), *p = t; size_t tn;
+        p += make_id3(p, v[i].body1, v[i].footer);
+        if (v[i].body2) p += make_id3(p, v[i].body2, 0);
+        memcpy(p, b, n); p += n;
+        if (v[i].tail) { memset(p, 0, 128); memcpy(p, "TAG", 3); p += 128; }
+        tn = (size_t)(p - t);
+        for (mode = 0; mode < 2; mode++) {                                         /* 0 = wejscie przewijalne, 1 = nieprzewijalne */
+            Src s; Mem m; maktabasauti_decoder_t *d = NULL; maktabasauti_stream_info_t info; float *out; size_t got = 0; long retries = 0; maktabasauti_result_t r, rr;
+            memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = t; s.n = tn; s.seekable = (int)(mode == 0); s.size_known = s.seekable;
+            r = open_src(&s, &m, &d, NULL);
+            if (mode == 1 && v[i].body1 > 16000) { CHECK(r != MAKTABASAUTI_OK && !d && s.closed == 0 && m.live == 0, "%s %s non-seekable: a tag beyond the reader window must fail cleanly (%d)", name, v[i].what, (int)r); continue; }
+            CHECK(r == MAKTABASAUTI_OK, "%s %s (%s): open failed (%d)", name, v[i].what, mode ? "non-seekable" : "seekable", (int)r);
+            if (r != MAKTABASAUTI_OK) continue;
+            info.struct_size = sizeof info; maktabasauti_decoder_get_info(d, &info);
+            CHECK(strcmp(info.codec_name, "aac") == 0 && strcmp(info.container_name, "adts") == 0, "%s %s: recognised as %s/%s", name, v[i].what, info.codec_name, info.container_name);
+            if (mode == 0) CHECK(info.total_frames == ref->frames, "%s %s: length %llu vs %zu", name, v[i].what, (unsigned long long)info.total_frames, ref->frames);
+            out = (float *)malloc((ref->frames + 4096) * ref->ch * sizeof(float));
+            rr = drain(d, out, ref->ch, ref->frames + 4096, 1000, &got, &retries);
+            CHECK((rr == MAKTABASAUTI_EOF || (mode == 1 && rr == MAKTABASAUTI_E_CORRUPT_DATA && v[i].tail)) && got == ref->frames && same(out, ref->pcm, got * ref->ch), "%s %s (%s): PCM differs (code %d, %zu/%zu frames)", name, v[i].what, mode ? "non-seekable" : "seekable", (int)rr, got, ref->frames);
+            if (mode == 0) {                                                       /* seek i reset przez znacznik */
+                uint64_t act; float y[2048 * 8]; size_t g = 0;
+                CHECK(maktabasauti_decoder_seek(d, ref->frames / 2, MAKTABASAUTI_SEEK_EXACT, &act) == MAKTABASAUTI_OK && maktabasauti_decoder_read(d, y, 1000, MAKTABASAUTI_FORMAT_F32, &g) == MAKTABASAUTI_OK &&
+                      same(y, ref->pcm + (ref->frames / 2) * ref->ch, g * ref->ch), "%s %s: seek", name, v[i].what);
+                CHECK(maktabasauti_decoder_reset(d) == MAKTABASAUTI_OK && maktabasauti_decoder_read(d, y, 1000, MAKTABASAUTI_FORMAT_F32, &g) == MAKTABASAUTI_OK && same(y, ref->pcm, g * ref->ch), "%s %s: reset (the tag must be skipped again)", name, v[i].what);
+            }
+            free(out); maktabasauti_decoder_close(d);
+            CHECK(m.live == 0 && m.bad == 0, "%s %s: leak", name, v[i].what);
+        }
+        free(t);
+    }
+}
+
 int main(int argc, char **argv) {
     const char *dir = argc > 1 ? argv[1] : "tests/data"; size_t i;
     for (i = 0; i < NFILES; i++) {
@@ -477,6 +523,7 @@ int main(int argc, char **argv) {
         test_seek(b, n, &ref, files[i], 0);
         test_seek(b, n, &ref, files[i], 1);
         if (!g_mp4) test_options_and_tail(b, n, &ref, files[i]);
+        if (!g_adif && !g_loas) test_id3v2(b, n, &ref, files[i]);                       /* tylko ADTS */
         if (!g_mp4 && (i == 0 || i == 2)) { test_memory_seekable(b, n, files[i]); test_seek_long(b, n, files[i]); }          /* LC stereo i HE-AAC (duzy stan) */
         free(ref.pcm); free(b);
     }

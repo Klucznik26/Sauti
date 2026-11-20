@@ -177,7 +177,11 @@ static maktabasauti_result_t produce(dec_t *d) {
         if (fr == MAKTABASAUTI_E_CORRUPT_DATA) {                           /* zla ramka: ustaw wejscie na nastepnej poprawnej, zglos blad (historia dekodera jest juz nieciagla: flush) */
             maktabasauti_result_t rr = d->cont->resync(d);
             if (rr == MAKTABASAUTI_E_WOULD_BLOCK || rr == MAKTABASAUTI_E_IO) return rr;
-            if (rr == MAKTABASAUTI_EOF) d->src_eof = 1;
+            if (rr == MAKTABASAUTI_EOF) {                                  /* do konca wejscia nie ma juz poprawnej ramki: smieci na koncu (ID3v1, APE...) to koniec strumienia, nie blad;
+                                                                            * HE-AAC v2 dostaje przy tym zaleglie wyprowadzenie ostatniego bloku (cisza jako wyprzedzenie) */
+                d->src_eof = 1;
+                if (d->core.frames_in > 0) continue;
+            }
             return MAKTABASAUTI_E_CORRUPT_DATA;
         }
         if (fr == MAKTABASAUTI_E_TRUNCATED) { d->src_eof = 1; return fr; }   /* urwana ramka na koncu: nic wiecej nie przyjdzie */

@@ -144,7 +144,8 @@ static void phase_cross_and_sizes(Guard *g, const corpus_t *c) {
             if (s > 0) { claimers++; g_claims[ci]++; }
             if (it->owner && !strcmp(it->owner, entry_name(ci)) && s <= 0) FAIL("owner codec does not recognise its own file");
             if (it->owner && ci < g_ncodecs && strcmp(it->owner, entry_name(ci)) && s > 0 && strcmp(entry_name(ci), "mp3-minimp3") != 0 &&
-                !(strstr(it->owner, "-adts") && strstr(entry_name(ci), "-adts")))   /* rodzina ADTS (LC/HE) nakłada się z założenia: wygrywa kolejność rejestru; adaptery FFmpeg tez */
+                !(strstr(it->owner, "-adts") && strstr(entry_name(ci), "-adts")) &&
+                !(!strcmp(entry_name(ci), "aac-adts") && !strncmp(it->name, "syn_id3", 7)))   /* ADTS po znaczniku ID3v2: przy znaczniku dluzszym od prefiksu sonda zwraca 55 (open rozstrzyga) */   /* rodzina ADTS (LC/HE) nakłada się z założenia: wygrywa kolejność rejestru; adaptery FFmpeg tez */
                 FAIL("foreign codec %s claims a %s file", entry_name(ci), it->owner);
         }
         if (!claimers && strncmp(it->name, "foreign", 7) && strncmp(it->name, "one", 3) && strncmp(it->name, "few", 3)) FAIL("no codec recognises the file");
