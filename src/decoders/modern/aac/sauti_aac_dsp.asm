@@ -23,6 +23,10 @@ sauti_aac_window_overlap_asm:
     cmp r8,120
     je .valid
     cmp r8,960
+    je .valid
+    cmp r8,768                     ; USAC 768-line frames and their 96-line short windows
+    je .valid
+    cmp r8,96
     jne .invalid
 .valid:
     xor r9d,r9d

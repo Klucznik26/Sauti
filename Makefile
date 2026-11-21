@@ -131,7 +131,7 @@ AAC_HE_ADTS_CPE_QMF_SRC := src/decoders/modern/aac/sauti_aac_he_adts_cpe_qmf.c
 AAC_ADTS_CRC_SRC := src/decoders/modern/aac/sauti_aac_adts_crc.c
 AAC_LC_MULTI_SRC := src/decoders/modern/aac/sauti_aac_lc_multi.c
 AAC_MP4_SRC := src/decoders/modern/aac/sauti_aac_mp4.c src/decoders/modern/aac/sauti_decoder_aac_mp4.c src/decoders/modern/aac/sauti_aac_latm.c src/decoders/modern/aac/sauti_decoder_aac_latm.c src/decoders/modern/aac/sauti_aac_adif.c src/decoders/modern/aac/sauti_decoder_aac_adif.c
-AAC_NATIVE_ADAPTER_DEPS = $(sort $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_LC_MULTI_SRC) $(AAC_MP4_SRC) $(AAC_SBR_ADTS_CPE_DEPS) $(AAC_SBR_CHANNEL_CLI_SRC) src/decoders/modern/aac/sauti_decoder_aac_he.c src/decoders/modern/aac/sauti_aac_er.c src/decoders/modern/aac/sauti_aac_eld_window.c src/decoders/modern/aac/sauti_aac_lcn.c src/decoders/modern/aac/sauti_aac_pred.c src/decoders/modern/aac/sauti_aac_ltp.c src/decoders/modern/aac/sauti_aac_lcm.c)
+AAC_NATIVE_ADAPTER_DEPS = $(sort $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_LC_MULTI_SRC) $(AAC_MP4_SRC) $(AAC_SBR_ADTS_CPE_DEPS) $(AAC_SBR_CHANNEL_CLI_SRC) src/decoders/modern/aac/sauti_decoder_aac_he.c src/decoders/modern/aac/sauti_aac_er.c src/decoders/modern/aac/sauti_aac_eld_window.c src/decoders/modern/aac/sauti_aac_lcn.c src/decoders/modern/aac/sauti_aac_pred.c src/decoders/modern/aac/sauti_aac_ltp.c src/decoders/modern/aac/sauti_aac_lcm.c src/decoders/modern/aac/sauti_usac.c src/decoders/modern/aac/sauti_usac_ac.c src/decoders/modern/aac/sauti_usac_tables.c)
 AAC_LC_SECTIONS_SRC := src/decoders/modern/aac/sauti_aac_lc_sections.c
 AAC_HUFFMAN_SRC := src/decoders/modern/aac/sauti_aac_huffman.c
 AAC_HUFFMAN_ASM := $(OBJDIR)/sauti_aac_huffman.o
@@ -1677,6 +1677,9 @@ $(OBJDIR)/sauti_aac_seek_check: tools/sauti_aac_seek_check.c include/sauti_decod
 # Narzedzie macierzy korpusu AAC (tools/aac_corpus_matrix.py): adaptery natywne -> f32 PCM; nie jest czescia produktu ani testow.
 $(OBJDIR)/sauti_aac_gen: tools/sauti_aac_gen.c $(AAC_NATIVE_ADAPTER_DEPS) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_aac_gen.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
+# USAC (xHE-AAC) stream generator: the repository's own encoder-side counterpart of sauti_usac.c (arithmetic encoder, FD syntax writer); test tool, not a product.
+$(OBJDIR)/sauti_usac_gen: tools/sauti_usac_gen.c src/decoders/modern/aac/sauti_usac_ac.c include/sauti_usac_ac.h include/sauti_usac_tables.h $(AAC_NATIVE_ADAPTER_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_usac_gen.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
 $(OBJDIR)/sauti_er_cli: tools/sauti_er_cli.c include/sauti_aac_er.h $(AAC_NATIVE_ADAPTER_DEPS) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_er_cli.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
 $(OBJDIR)/sauti_aac_adapter_cli: tools/sauti_aac_adapter_cli.c include/sauti_decoder_aac_native.h $(AAC_NATIVE_ADAPTER_DEPS) src/sauti_decoder.c | $(OBJDIR)
@@ -2359,3 +2362,10 @@ test-maktabasauti-core-portable:
 	$(CC) -std=c99 -pedantic -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -Iinclude -Isrc/maktabasauti -o $(OBJDIR)/test_maktabasauti_core_portable \
 	  tests/test_maktabasauti_core.c $(filter-out src/maktabasauti/mks_legacy.c,$(MKS_CORE_SRC)) src/maktabasauti/mks_nolegacy.c -lm
 	./$(OBJDIR)/test_maktabasauti_core_portable
+$(OBJDIR)/sauti_usac_raw: tools/sauti_usac_raw.c include/sauti_usac.h $(AAC_NATIVE_ADAPTER_DEPS) | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_usac_raw.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
+$(OBJDIR)/test_usac: tests/test_usac.c tests/test_usac_vectors.h tests/test_usac_fingerprints.h include/sauti_usac.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_usac.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-usac
+test-usac: $(OBJDIR)/test_usac
+	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_usac

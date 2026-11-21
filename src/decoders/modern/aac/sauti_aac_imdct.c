@@ -57,11 +57,11 @@ static const ImdctPlan *plan_get(size_t n){
 }
 /* DCT-IV y[m] = sum_k X[k] cos(pi/(4N) (2m+1)(2k+1)) for the lengths that are not a power of two: 480 (AAC-LD / ELD frames), 960 and 120 (AAC-LC with frameLengthFlag = 1: long and
  * short windows).  Direct O(N^2) sum over a table of cos(pi j/(4N)), j < 8N, built once per length.  Slower than the FFT path but exact (double) and allocation free. */
-static double dct4_t120[8*120],dct4_t480[8*480],dct4_t960[8*960];
-static atomic_int dct4_state[3];               /* 0 = not built, 1 = being built, 2 = ready */
+static double dct4_t96[8*96],dct4_t120[8*120],dct4_t480[8*480],dct4_t768[8*768],dct4_t960[8*960];
+static atomic_int dct4_state[5];               /* 0 = not built, 1 = being built, 2 = ready */
 static void dct4_direct(const float *x,size_t n,double *y){
-    const unsigned which=n==120u?0u:n==480u?1u:2u;
-    double *table=which==0u?dct4_t120:which==1u?dct4_t480:dct4_t960;
+    const unsigned which=n==120u?0u:n==480u?1u:n==960u?2u:n==96u?3u:4u;
+    double *table=which==0u?dct4_t120:which==1u?dct4_t480:which==2u?dct4_t960:which==3u?dct4_t96:dct4_t768;
     int expected=0;
     const double pi=3.14159265358979323846264338327950288;
     if(atomic_compare_exchange_strong(&dct4_state[which],&expected,1)){
@@ -96,7 +96,7 @@ static void fft_half(AacComplex *a,const ImdctPlan *p){
     }
 }
 int sauti_aac_imdct(const float *spectral,size_t n,float *time_samples){
-    if(!spectral || !time_samples || (n!=128u && n!=512u && n!=480u && n!=1024u && n!=960u && n!=120u))return 0;
+    if(!spectral || !time_samples || (n!=128u && n!=512u && n!=480u && n!=1024u && n!=960u && n!=120u && n!=96u && n!=768u))return 0;
     for(size_t k=0;k<n;k++)if(!isfinite(spectral[k]))return 0;
 #ifdef SAUTI_AAC_DIAG_SHORT_DIRECT_IMDCT
     /* Diagnostic only: direct textbook IMDCT for the 128-bin short
@@ -121,7 +121,7 @@ int sauti_aac_imdct(const float *spectral,size_t n,float *time_samples){
 #endif
     const size_t half=n/2u;
     double y[1024];
-    if(n==480u || n==960u || n==120u){
+    if(n==480u || n==960u || n==120u || n==96u || n==768u){
         dct4_direct(spectral,n,y);
     }else{
         const ImdctPlan *plan=plan_get(n);
