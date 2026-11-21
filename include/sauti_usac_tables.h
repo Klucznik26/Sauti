@@ -12,5 +12,6 @@ extern const uint8_t sauti_usac_num_swb768[13], sauti_usac_num_swb96[13];
 extern const uint8_t sauti_usac_tns_max_bands_1024[13], sauti_usac_tns_max_bands_128[13];
 extern const uint8_t sauti_usac_noise_fill_start[4];       /* [frame_length_short][short window] */
 extern const int sauti_usac_samplerate[32];                /* usacSamplingFrequencyIndex -> Hz, -1 = reserved */
-extern const float sauti_usac_mdst_filt_cur[4][4][7];      /* complex prediction: [window sequence][window shape pair][taps] */
+extern const float sauti_usac_mdst_filt_cur[4][4][7];      /* complex prediction, current frame: [window sequence][window shapes][taps]; DERIVED (sauti_usac_mdst.c, tools/gen_usac_mdst.py) */
+extern const float sauti_usac_mdst_filt_prev[4][4];        /* complex prediction, previous frame: [long sine, long KBD, stop sine, stop KBD][taps]; derived likewise */
 #endif

@@ -16,6 +16,9 @@
 typedef struct { uint8_t b[1 << 18]; size_t n; } Bw;
 static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n & 7u) == 0) w->b[w->n >> 3] = 0; if ((v >> bits) & 1u) w->b[w->n >> 3] |= (uint8_t)(0x80u >> (w->n & 7u)); w->n++; } }
 static int g_probe_ch = -1, g_probe_line = 100;
+/* complex stereo prediction: the encoder-side mirror of the decoder's alpha state */
+static int16_t g_prev_re[8][64], g_prev_im[8][64];
+static unsigned g_prev_ngroups, g_last_seq;
 static uint32_t g_rng = 1;
 static uint32_t rnd(void) { g_rng ^= g_rng << 13; g_rng ^= g_rng >> 17; g_rng ^= g_rng << 5; return g_rng; }
 static int rr(int lo, int hi) { return lo + (int)(rnd() % (uint32_t)(hi - lo + 1)); }
@@ -64,7 +67,7 @@ static void put_spectrum(Bw *w, SautiUsacAcState *s, int reset, unsigned lg, uns
 }
 
 /* ---- stream model --------------------------------------------------------------------------------------------------------------------------------------------------------------- */
-typedef struct { unsigned channels, rate_idx, len, frames, noise_fill, ms, common, tns, shorts, kbd, kbd_first, full_sfb, dense, zero_bands; int gain, amp; } Opt;
+typedef struct { unsigned channels, rate_idx, len, frames, noise_fill, ms, cplx, common, tns, shorts, kbd, kbd_first, full_sfb, dense, zero_bands; int gain, amp; } Opt;
 typedef struct {
     unsigned seq, shape, max_sfb, grouping, ngroups, glen[8], nwin, wlen, stride, nswb, tns_max;
     const uint16_t *swb;
@@ -143,6 +146,39 @@ static void apply_probe(Chan *c, int channel) {                           /* a d
     memset(c->q, 0, sizeof c->q);
     if (channel == g_probe_ch && c->seq != 2u) c->q[0][g_probe_line] = 20;
 }
+static void put_codeword(Bw *w, unsigned book, unsigned symbol);
+static void put_cplx(Bw *w, const Chan *c0, unsigned mss, int indep) {
+    int16_t re[8][64], im[8][64]; uint8_t used[8][64]; unsigned g, sfb, all, pred_dir, complex_coef, use_prev = 0, delta = 0;
+    memset(re, 0, sizeof re); memset(im, 0, sizeof im); memset(used, 0, sizeof used);
+    if ((c0->seq == 2u && g_last_seq != 2u) || (g_last_seq == 2u && c0->seq != 2u)) { memset(g_prev_re, 0, sizeof g_prev_re); memset(g_prev_im, 0, sizeof g_prev_im); }
+    all = rnd() % 3u == 0; put(w, all ? 1u : 0u, 1);
+    for (g = 0; g < c0->ngroups; g++) for (sfb = 0; sfb < mss; sfb += 2u) {
+        unsigned v = 1;
+        if (!all) { v = rnd() % 3u != 0; put(w, v, 1); }
+        used[g][sfb] = (uint8_t)v; if (sfb + 1u < mss) used[g][sfb + 1u] = (uint8_t)v;
+    }
+    pred_dir = rnd() & 1u; complex_coef = rnd() % 4u != 0;
+    put(w, pred_dir, 1); put(w, complex_coef, 1);
+    if (complex_coef && !indep) { use_prev = rnd() & 1u; put(w, use_prev, 1); }
+    if (!indep) { delta = rnd() & 1u; put(w, delta, 1); }
+    if (delta && g_prev_ngroups == 0 && c0->seq == 2u && g_last_seq == 2u) { fprintf(stderr, "generator: delta coding with no previous groups\n"); exit(1); }
+    for (g = 0; g < c0->ngroups; g++) for (sfb = 0; sfb < mss; sfb += 2u) {
+        int last_re = 0, last_im = 0;
+        if (delta) {
+            if (g) { last_re = re[g - 1u][sfb]; last_im = im[g - 1u][sfb]; }
+            else if (c0->seq == 2u && g_last_seq == 2u) { last_re = g_prev_re[g_prev_ngroups - 1u][sfb]; last_im = g_prev_im[g_prev_ngroups - 1u][sfb]; }
+            else { last_re = g_prev_re[g][sfb]; last_im = g_prev_im[g][sfb]; }
+        } else if (sfb) { last_re = re[g][sfb - 1u]; last_im = im[g][sfb - 1u]; }
+        if (used[g][sfb]) {
+            const int tre = rr(-8, 8), tim = rr(-8, 8);
+            put_codeword(w, 0, (unsigned)(last_re - tre + 60)); re[g][sfb] = (int16_t)tre;           /* the decoder reads d and sets alpha = last - d: index = d + 60 */
+            if (complex_coef) { put_codeword(w, 0, (unsigned)(last_im - tim + 60)); im[g][sfb] = (int16_t)tim; }
+        }
+        if (sfb + 1u < mss) { re[g][sfb + 1u] = re[g][sfb]; im[g][sfb + 1u] = im[g][sfb]; }
+    }
+    memset(g_prev_re, 0, sizeof g_prev_re); memset(g_prev_im, 0, sizeof g_prev_im);
+    for (g = 0; g < c0->ngroups; g++) for (sfb = 0; sfb < mss; sfb += 2u) { g_prev_re[g][sfb] = re[g][sfb]; g_prev_im[g][sfb] = im[g][sfb]; }
+}
 static void put_ics_info(Bw *w, const Chan *c) {
     put(w, c->seq, 2); put(w, c->shape, 1);
     if (c->seq == 2u) { put(w, c->max_sfb, 4); put(w, c->grouping, 7); } else put(w, c->max_sfb, 6);
@@ -162,6 +198,11 @@ static void put_tns(Bw *w, const Chan *c) {
         put(w, 1, 1); put(w, 1, 1); put(w, c->tns_len, 4); put(w, c->tns_order, 3); put(w, c->tns_dir, 1); put(w, compress, 1);
         for (i = 0; i < c->tns_order; i++) put(w, (uint32_t)(c->tns_coef[i] & ((1 << width) - 1)), width);
     }
+}
+static void put_codeword(Bw *w, unsigned book, unsigned symbol) {
+    uint32_t code; uint8_t bits;
+    if (!sauti_aac_standard_codeword(book, symbol, &code, &bits)) { fprintf(stderr, "no codeword book %u symbol %u\n", book, symbol); exit(1); }
+    put(w, code, bits);
 }
 static void put_sf(Bw *w, const Chan *c) {
     int prev = c->gain; unsigned g, b;
@@ -205,6 +246,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--amp") && a + 1 < argc) o.amp = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--noise-fill")) o.noise_fill = 1;
         else if (!strcmp(argv[a], "--ms")) o.ms = 1;
+        else if (!strcmp(argv[a], "--cplx")) o.cplx = 1;
         else if (!strcmp(argv[a], "--common")) o.common = 1;
         else if (!strcmp(argv[a], "--tns")) o.tns = 1;
         else if (!strcmp(argv[a], "--on-lr") && a + 1 < argc) g_force_on_lr = atoi(argv[++a]);
@@ -220,7 +262,7 @@ int main(int argc, char **argv) {
         else { fprintf(stderr, "unknown option %s\n", argv[a]); return 2; }
     }
     if (o.channels < 1 || o.channels > 2 || (o.len != 1024 && o.len != 768) || o.rate_idx > 12) { fprintf(stderr, "bad options\n"); return 2; }
-    if (o.ms) o.common = 1;
+    if (o.ms || o.cplx) o.common = 1;
     /* AudioSpecificConfig: object type 42 (escape), sampling index, channel configuration, UsacConfig */
     memset(&asc, 0, sizeof asc);
     put(&asc, 31, 5); put(&asc, 42 - 32, 6); put(&asc, aac_index[o.rate_idx], 4); put(&asc, o.channels, 4);
@@ -244,7 +286,7 @@ int main(int argc, char **argv) {
             put_fd(&w, &o, c, &ac[0], 0, indep, 1);
         } else {
             const int common = o.common ? 1 : (int)(rnd() % 2u);
-            unsigned tns_active = o.tns && (rnd() % 2u), ms_mode = o.ms ? (unsigned)rr(1, 2) : 0u, common_tns = 0, tns_on_lr = 0, max_ste, g, b;
+            unsigned tns_active = o.tns && (rnd() % 2u), ms_mode = o.cplx ? (rnd() % 5u == 0 ? (unsigned)rr(0, 2) : 3u) : (o.ms ? (unsigned)rr(1, 2) : 0u), common_tns = 0, tns_on_lr = 0, max_ste, g, b;
             uint8_t mask[8][64];
             for (i = 0; i < 2u; i++) memset(&ch[i], 0, sizeof ch[i]);
             if (common) {
@@ -274,6 +316,7 @@ int main(int argc, char **argv) {
                 else { put(&w, 0, 1); put(&w, ch[1].max_sfb, ch[1].seq == 2u ? 4u : 6u); }
                 put(&w, ms_mode, 2);
                 if (ms_mode == 1) for (g = 0; g < ch[0].ngroups; g++) for (b = 0; b < max_ste; b++) { mask[g][b] = (uint8_t)(rnd() & 1u); put(&w, mask[g][b], 1); }
+                else if (ms_mode == 3) put_cplx(&w, &ch[0], max_ste, indep);
             }
             if (tns_active) {
                 if (common) { common_tns = rnd() & 1u; put(&w, common_tns, 1); }
@@ -289,6 +332,9 @@ int main(int argc, char **argv) {
             if (getenv("SAUTI_USAC_GEN_TRACE")) fprintf(stderr, "FRAME %u common %d ms %u tns_active %u common_tns %u on_lr %u tns_data %u/%u seq %u\n", f, common, ms_mode, tns_active, common_tns, tns_on_lr, ch[0].tns_data, ch[1].tns_data, ch[0].seq);
             put_fd(&w, &o, &ch[0], &ac[0], common, indep, !common_tns);
             put_fd(&w, &o, &ch[1], &ac[1], common, indep, !common_tns);
+            if (!(common && ms_mode == 3)) { memset(g_prev_re, 0, sizeof g_prev_re); memset(g_prev_im, 0, sizeof g_prev_im); }          /* the decoder's state after a frame without complex prediction */
+            if (common) g_prev_ngroups = ch[0].ngroups;
+            g_last_seq = ch[0].seq;
         }
         { uint32_t n = (uint32_t)((w.n + 7u) / 8u); uint8_t be[4] = { (uint8_t)(n >> 24), (uint8_t)(n >> 16), (uint8_t)(n >> 8), (uint8_t)n }; fwrite(be, 1, 4, fu); fwrite(w.b, 1, n, fu); }
     }

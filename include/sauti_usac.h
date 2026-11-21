@@ -52,6 +52,10 @@ typedef struct {
     float overlap[1024];
     unsigned prev_shape;
     uint32_t noise_seed;
+    float prev_coef[1024];               /* CPE: the final spectrum of the previous frame (what went into the IMDCT): the downmix of the previous frame for complex prediction */
+    /* complex stereo prediction state of a channel pair, kept in its first channel */
+    int16_t alpha_prev_re[8][64], alpha_prev_im[8][64];
+    unsigned prev_ngroups, last_seq, last_shape;     /* window groups, window sequence and shape of the previous frame's first channel */
 } SautiUsacChannel;
 
 typedef struct {

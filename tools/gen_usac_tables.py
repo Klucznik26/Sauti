@@ -58,11 +58,4 @@ o.append(small("uint8_t", "sauti_usac_tns_max_bands_1024", "ff_tns_max_bands_usa
 o.append(small("uint8_t", "sauti_usac_tns_max_bands_128", "ff_tns_max_bands_usac_128[]", 13))
 o.append(small("uint8_t", "sauti_usac_noise_fill_start[4]".split('[')[0], "ff_usac_noise_fill_start_offset[2][2]", 4))
 o.append(small("int", "sauti_usac_samplerate", "ff_aac_usac_samplerate[32]", 32))
-f = nums(body("ff_aac_usac_mdst_filt_cur[4 /* Window */][4 /* Shape */][7]")); assert len(f) == 112
-o.append("const float sauti_usac_mdst_filt_cur[4][4][7] = {")
-for w in range(4):
-    o.append("    {")
-    for s in range(4): o.append("        { " + ", ".join(x + "f" for x in f[(w*4+s)*7:(w*4+s+1)*7]) + " },")
-    o.append("    },")
-o.append("};")
 print("\n".join(o))

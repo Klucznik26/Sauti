@@ -374,6 +374,113 @@ static int fd_channel(const SautiUsacConfig *cfg, const SautiUsacElement *e, Sau
     return 1;
 }
 
+/* ---- complex stereo prediction (ISO/IEC 23003-3 7.7, cplx_pred_data) -------------------------------------------------------------------------------------------------------- */
+#define mdst_prev sauti_usac_mdst_filt_prev                                /* filters of the previous frame's downmix: derived from the definition, see tools/gen_usac_mdst.py */
+typedef struct { uint8_t used[8][64]; int16_t re[8][64], im[8][64]; unsigned pred_dir, complex_coef, use_prev; } Cplx;
+
+static int cplx_parse(SautiUsacBits *b, const Fd *f0, unsigned mss, int indep, SautiUsacChannel *c0, Cplx *cp) {
+    SautiAacHuffNode nodes[SAUTI_AAC_HUFF_MAX_NODES];
+    const size_t count = sauti_aac_standard_tree_build(0, nodes, SAUTI_AAC_HUFF_MAX_NODES);
+    unsigned g, sfb, delta_code_time = 0, i;
+    if (!count) return 0;
+    memset(cp, 0, sizeof *cp);
+    if ((f0->seq == 2u && c0->last_seq != 2u) || (c0->last_seq == 2u && f0->seq != 2u)) { memset(c0->alpha_prev_re, 0, sizeof c0->alpha_prev_re); memset(c0->alpha_prev_im, 0, sizeof c0->alpha_prev_im); }
+    if (!sauti_usac_get(b, 1)) {                                            /* cplx_pred_all = 0: one flag per pair of bands */
+        for (g = 0; g < f0->ngroups; g++) for (sfb = 0; sfb < mss; sfb += 2u) { const uint8_t v = (uint8_t)sauti_usac_get(b, 1); cp->used[g][sfb] = v; if (sfb + 1u < mss) cp->used[g][sfb + 1u] = v; }
+    } else for (g = 0; g < f0->ngroups; g++) for (sfb = 0; sfb < mss; sfb++) cp->used[g][sfb] = 1;
+    cp->pred_dir = sauti_usac_get(b, 1);
+    cp->complex_coef = sauti_usac_get(b, 1);
+    if (cp->complex_coef && !indep) cp->use_prev = sauti_usac_get(b, 1);
+    if (!indep) delta_code_time = sauti_usac_get(b, 1);
+    for (g = 0; g < f0->ngroups; g++) {
+        for (sfb = 0; sfb < mss; sfb += 2u) {
+            int last_re = 0, last_im = 0;
+            if (delta_code_time) {
+                if (g) { last_re = cp->re[g - 1u][sfb]; last_im = cp->im[g - 1u][sfb]; }
+                else if (f0->seq == 2u && c0->last_seq == 2u) {
+                    if (!c0->prev_ngroups) return 0;
+                    last_re = c0->alpha_prev_re[c0->prev_ngroups - 1u][sfb]; last_im = c0->alpha_prev_im[c0->prev_ngroups - 1u][sfb];
+                } else { last_re = c0->alpha_prev_re[g][sfb]; last_im = c0->alpha_prev_im[g][sfb]; }
+            } else if (sfb) { last_re = cp->re[g][sfb - 1u]; last_im = cp->im[g][sfb - 1u]; }
+            if (cp->used[g][sfb]) {
+                int32_t d = 0;
+                if (!sauti_aac_scalefactor_symbol_decode(b->data, (b->nbits + 7u) / 8u, &b->pos, nodes, count, &d)) return 0;
+                cp->re[g][sfb] = (int16_t)(last_re - d);
+                if (cp->complex_coef) {
+                    if (!sauti_aac_scalefactor_symbol_decode(b->data, (b->nbits + 7u) / 8u, &b->pos, nodes, count, &d)) return 0;
+                    cp->im[g][sfb] = (int16_t)(last_im - d);
+                }
+            }
+            if (sfb + 1u < mss) { cp->re[g][sfb + 1u] = cp->re[g][sfb]; cp->im[g][sfb + 1u] = cp->im[g][sfb]; }
+        }
+    }
+    memset(c0->alpha_prev_re, 0, sizeof c0->alpha_prev_re); memset(c0->alpha_prev_im, 0, sizeof c0->alpha_prev_im);
+    for (g = 0; g < f0->ngroups; g++) for (i = 0; i < mss; i += 2u) { c0->alpha_prev_re[g][i] = cp->re[g][i]; c0->alpha_prev_im[g][i] = cp->im[g][i]; }
+    return b->pos <= b->nbits;
+}
+/* out[j] += sign(j) * sum_k tap(k) * in[j + k]; the input is mirrored at both ends (x[-1-k] = x[k], x[n+k] = x[n-1-k]) */
+static float mirrored(const float *in, int n, int i) { if (i < 0) i = -1 - i; if (i >= n) i = 2 * n - 1 - i; return in[i]; }
+static void mdst_cur(const float *in, int n, const float h[7], float *out) {                   /* antisymmetric: taps +c0 +c1 +c2 0 -c2 -c1 -c0 at offsets +3..-3 */
+    int j, i;
+    for (j = 0; j < n; j++) { float s = 0.0f; for (i = 0; i < 3; i++) s += h[i] * (mirrored(in, n, j + 3 - i) - mirrored(in, n, j - 3 + i)); out[j] += s; }
+}
+static void mdst_add_prev(const float *in, int n, const float p[4], float *out) {                  /* symmetric taps, the sign alternates with the line (even: -, odd: +) */
+    int j, i;
+    for (j = 0; j < n; j++) {
+        float s = p[3] * mirrored(in, n, j);
+        for (i = 0; i < 3; i++) s += p[i] * (mirrored(in, n, j - 3 + i) + mirrored(in, n, j + 3 - i));
+        out[j] += (j & 1) ? s : -s;
+    }
+}
+static void cplx_apply(const SautiUsacConfig *cfg, Fd *f0, Fd *f1, unsigned mss, const Cplx *cp, const SautiUsacChannel *c0, const SautiUsacChannel *c1) {
+    const unsigned wlen = f0->wlen, stride = f0->stride;
+    const float dir = cp->pred_dir ? -1.0f : 1.0f;
+    const unsigned cur_shape = f0->shape, prev_shape = c0->last_shape;
+    const unsigned shape_pair = (prev_shape == 0u && cur_shape == 0u) ? 0u : (prev_shape == 1u && cur_shape == 1u) ? 1u : (prev_shape == 0u) ? 2u : 3u;
+    const int after_short = c0->last_seq == 2u || c0->last_seq == 1u;                          /* a stop-start sequence follows an eight-short or a start sequence */
+    unsigned cur_win = f0->seq == 1u ? (after_short ? 3u : 1u) : f0->seq == 3u ? 2u : 0u;
+    unsigned prev_row = (f0->seq == 3u || (f0->seq == 1u && after_short)) ? 2u + prev_shape : prev_shape;
+    float dmx_re[1024], dmx_im[1024], dmx_prev[1024];
+    unsigned g, w = 0, k, sfb;
+    (void)cfg;
+    memset(dmx_prev, 0, sizeof dmx_prev);
+    if (cp->use_prev) {                                                    /* downmix of the previous frame: its last window when this frame has eight short windows */
+        const unsigned off = f0->seq == 2u ? 7u * stride : 0u;
+        for (k = 0; k < wlen; k++) dmx_prev[k] = 0.5f * (c0->prev_coef[off + k] + dir * c1->prev_coef[off + k]);
+    }
+    for (g = 0; g < f0->ngroups; g++) {
+        for (k = 0; k < f0->glen[g]; k++, w++) {
+            float *l = f0->coef + w * stride, *r = f1->coef + w * stride, *re = dmx_re + w * stride, *im = dmx_im + w * stride;
+            unsigned top = f0->swb[mss];
+            for (sfb = 0; sfb < mss; sfb++) {
+                unsigned i;
+                for (i = f0->swb[sfb]; i < f0->swb[sfb + 1u]; i++) re[i] = cp->used[g][sfb] ? l[i] : 0.5f * (l[i] + dir * r[i]);
+            }
+            for (; top < wlen; top++) re[top] = 0.0f;
+            memset(im, 0, wlen * sizeof(float));
+            if (cp->complex_coef) {
+                if (f0->seq == 2u && w != 0) {
+                    mdst_cur(re, (int)wlen, sauti_usac_mdst_filt_cur[0][cur_shape == 1u ? 1u : 0u], im);
+                    mdst_add_prev(dmx_re + (w - 1u) * stride, (int)wlen, mdst_prev[cur_shape], im);
+                } else {
+                    mdst_cur(re, (int)wlen, sauti_usac_mdst_filt_cur[f0->seq == 2u ? 0u : cur_win][shape_pair], im);
+                    if (cp->use_prev) mdst_add_prev(dmx_prev, (int)wlen, mdst_prev[f0->seq == 2u ? prev_shape : prev_row], im);
+                }
+            }
+            for (sfb = 0; sfb < mss; sfb++) {
+                const float a_re = 0.1f * (float)cp->re[g][sfb], a_im = 0.1f * (float)cp->im[g][sfb];
+                unsigned i;
+                if (!cp->used[g][sfb]) continue;
+                for (i = f0->swb[sfb]; i < f0->swb[sfb + 1u]; i++) {
+                    const float side = r[i] - a_re * re[i] - a_im * im[i];
+                    const float left = l[i] + side, right = (l[i] - side) * dir;
+                    l[i] = left; r[i] = right;
+                }
+            }
+        }
+    }
+}
+
 /* One SCE / LFE / CPE.  out[c] = PCM of channel c.  1 ok, 0 malformed, -1 unsupported. */
 static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiUsacBits *b, SautiUsacChannel *chs, int indep, float out[2][1024], unsigned *reason) {
     const unsigned nch = e->type == SAUTI_USAC_CPE ? 2u : 1u;
@@ -383,6 +490,8 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
     int common_window = 0, common_tw = 0, tns_on_lr = 0, ms_mode = 0, r;
     uint8_t ms_mask[8][64];
     unsigned max_sfb_ste = 0;
+    Cplx cp;
+    memset(&cp, 0, sizeof cp);
     memset(fdv, 0, sizeof fdv);
     memset(ms_mask, 0, sizeof ms_mask);
     for (c = 0; c < nch; c++) if (sauti_usac_get(b, 1)) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* core_mode 1: LPD */
@@ -403,7 +512,10 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
                 for (g = 0; g < fd[0].ngroups; g++) for (sfb = 0; sfb < max_sfb_ste; sfb++) ms_mask[g][sfb] = (uint8_t)sauti_usac_get(b, 1);
             } else if (ms_mode == 2) {
                 memset(ms_mask, 1, sizeof ms_mask);
-            } else if (ms_mode == 3) { *reason = SAUTI_AAC_REASON_MID_SIDE; return -1; }   /* complex stereo prediction */
+            } else if (ms_mode == 3) {                                      /* complex stereo prediction (plain stereo only: with MPS212 the field is reserved) */
+                if (e->stereo_config_index) { *reason = SAUTI_AAC_REASON_MID_SIDE; return -1; }
+                if (!cplx_parse(b, &fd[0], max_sfb_ste, indep, &chs[0], &cp)) { *reason = SAUTI_AAC_REASON_MID_SIDE; return 0; }
+            }
         }
         if (e->tw_mdct) { (void)sauti_usac_get(b, 1); *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }
         if (tns_active) {
@@ -428,7 +540,8 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
     }
     if (nch == 2u && common_window) {
         for (c = 0; c < 2u; c++) if (fd[c].tns_present && !tns_on_lr && !tns_apply(&fd[c])) { *reason = SAUTI_AAC_REASON_TNS; return 0; }
-        if (ms_mode) {
+        if (ms_mode == 3) cplx_apply(cfg, &fd[0], &fd[1], max_sfb_ste, &cp, &chs[0], &chs[1]);
+        else if (ms_mode) {
             unsigned win = 0;
             for (g = 0; g < fd[0].ngroups; g++) {
                 for (sfb = 0; sfb < max_sfb_ste; sfb++) {
@@ -445,7 +558,13 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
     }
     for (c = 0; c < nch; c++) {
         if (fd[c].tns_present && (nch == 1u || tns_on_lr || !common_window) && !tns_apply(&fd[c])) { *reason = SAUTI_AAC_REASON_TNS; return 0; }
+        if (nch == 2u) memcpy(chs[c].prev_coef, fd[c].coef, sizeof chs[c].prev_coef);       /* the spectrum that goes into the IMDCT: the previous frame for complex prediction */
         if (!synthesize(cfg, &fd[c], &chs[c], out[c])) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
+    }
+    if (nch == 2u) {
+        if (ms_mode != 3) { memset(chs[0].alpha_prev_re, 0, sizeof chs[0].alpha_prev_re); memset(chs[0].alpha_prev_im, 0, sizeof chs[0].alpha_prev_im); }
+        if (common_window) chs[0].prev_ngroups = fd[0].ngroups;
+        chs[0].last_seq = fd[0].seq; chs[0].last_shape = fd[0].shape;
     }
     return 1;
 }

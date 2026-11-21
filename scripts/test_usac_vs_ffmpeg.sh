@@ -23,12 +23,13 @@ print("%s %.2f dB (lengths %d / %d, peak %.3f)" % ("OK" if snr >= mn and len(a) 
 PY
 }
 fail=0
-for f in m1 m2 m3 m4 m5 s1 s2 s3 s4; do
+for f in m1 m2 m3 m4 m5 s1 s2 s3 s4 c1 c2 c3 c4 c5; do
   ch=1; case "$f" in s*) ch=2;; esac
   python3 -I tools/mp4_dump_aus.py "tests/data/usac_$f.m4a" "$W/$f" >/dev/null
   build/sauti_usac_raw "$W/$f" "$W/$f.sau" 2>/dev/null
   case "$f" in
     m3|m5|s2|s4) echo "usac_$f vs FFmpeg: not compared (FFmpeg's noise filling / TNS of independent windows differ from the standard)" ;;
+    c1|c2|c3|c4|c5) echo "usac_$f vs FFmpeg: not compared (complex prediction: FFmpeg builds the downmix of the predicted bands the wrong way round and has no previous-frame MDST filter)" ;;
     *) ffmpeg -v error -y -i "tests/data/usac_$f.m4a" -f f32le "$W/$f.ff"; r="$(cmp "$W/$f.sau" "$W/$f.ff" "$ch" "$MIN")"; echo "usac_$f vs FFmpeg: $r"; case "$r" in OK*) ;; *) fail=1;; esac ;;
   esac
   if [ -x build/sauti_fdk_raw_oracle ]; then

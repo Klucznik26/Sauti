@@ -89,7 +89,7 @@ static void run(const Stream *s, SautiUsacConfig *cfg, SautiUsacState *st, size_
     }
 }
 static void test_vectors(const Stream *s) {
-    static SautiUsacConfig cfg; static SautiUsacState st; static float pcm[2 * 1024]; double fp[12][2][4]; size_t f; unsigned c, k;
+    static SautiUsacConfig cfg; static SautiUsacState st; static float pcm[2 * 1024]; double fp[64][2][4]; size_t f; unsigned c, k;
     memset(fp, 0, sizeof fp);
     run(s, &cfg, &st, s->frames, pcm, NULL);
     sauti_usac_state_init(&st, &cfg);
@@ -201,16 +201,16 @@ static void test_empty_spectrum(void) {
 
 int main(int argc, char **argv) {
     #define S(n, ch, nf, rate, idx) { "usac_" #n, usac_##n##_asc, sizeof usac_##n##_asc, usac_##n##_aus, usac_##n##_n, sizeof usac_##n##_n / sizeof usac_##n##_n[0], ch, nf, rate, idx, usac_##n##_fp }
-    const Stream streams[9] = { S(m1, 1, 0, 48000, 3), S(m2, 1, 0, 48000, 3), S(m3, 1, 1, 48000, 3), S(m4, 1, 0, 24000, 6), S(m5, 1, 0, 48000, 3), S(s1, 2, 0, 48000, 3), S(s2, 2, 0, 48000, 3), S(s3, 2, 0, 48000, 3), S(s4, 2, 1, 48000, 3) };
+    const Stream streams[14] = { S(m1, 1, 0, 48000, 3), S(m2, 1, 0, 48000, 3), S(m3, 1, 1, 48000, 3), S(m4, 1, 0, 24000, 6), S(m5, 1, 0, 48000, 3), S(s1, 2, 0, 48000, 3), S(s2, 2, 0, 48000, 3), S(s3, 2, 0, 48000, 3), S(s4, 2, 1, 48000, 3), S(c1, 2, 0, 48000, 3), S(c2, 2, 0, 48000, 3), S(c3, 2, 0, 48000, 3), S(c4, 2, 1, 48000, 3), S(c5, 2, 0, 48000, 3) };
     #undef S
     unsigned k;
     if (argc > 1 && !strcmp(argv[1], "--dump")) {                                                            /* build/test_usac --dump > tests/test_usac_fingerprints.h */
         g_dump = 1;
         printf("/* Fingerprints (sum, sum of squares, position-weighted sum, energy of the second difference) of the decoded PCM, written by `build/test_usac --dump` AFTER the decoder agreed with FFmpeg\n * (usac_m1, m2, m4, s1, s3: 134-139 dB) and FDK AAC (all streams, ~83-92 dB) on these streams (scripts/test_usac_vs_ffmpeg.sh); regenerate only after such a comparison. */\n");
-        for (k = 0; k < 9; k++) { printf("static const double usac_%s_fp[12][2][4] = {\n", streams[k].name + 5); test_vectors(&streams[k]); printf("};\n"); }
+        for (k = 0; k < 14; k++) { printf("static const double usac_%s_fp[64][2][4] = {\n", streams[k].name + 5); test_vectors(&streams[k]); printf("};\n"); }
         return g_failures ? 1 : 0;
     }
-    for (k = 0; k < 9; k++) { test_config(&streams[k]); test_vectors(&streams[k]); test_atomic(&streams[k]); test_unsupported(&streams[k]); }
+    for (k = 0; k < 14; k++) { test_config(&streams[k]); test_vectors(&streams[k]); test_atomic(&streams[k]); test_unsupported(&streams[k]); }
     test_config_edges(); test_arguments(); test_extension(); test_empty_spectrum();
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac: all passed\n"); return 0;
