@@ -594,20 +594,16 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
     return 1;
 }
 
-int sauti_usac_decode(const SautiUsacConfig *cfg, SautiUsacState *state, const uint8_t *au, size_t length, float *pcm, SautiAacReason *reason) {
-    SautiAacReason local;
+#define SAUTI_USAC_EXT_AUDIOPREROLL 3u                                      /* usacExtElementType ID_EXT_ELE_AUDIOPREROLL */
+#define SAUTI_USAC_MAX_PREROLL 4u
+
+/* The access unit decoded INTO `next` (a scratch copy of the state: the caller commits or drops it).  preroll_ok = 0 for the access units carried inside a pre-roll payload. */
+static int decode_core(const SautiUsacConfig *cfg, SautiUsacState *next, const uint8_t *au, size_t length, float *pcm, SautiAacReason *reason, int preroll_ok) {
     unsigned why = 0, ch = 0, el, n, c, i;
     int indep, r;
     SautiUsacBits b;
-    SautiUsacState *next;                                                  /* a copy, committed only on success; no shared state: callers may decode on several threads */
     float stage[SAUTI_USAC_MAX_CHANNELS][2048];
-    if (!reason) reason = &local;
-    *reason = SAUTI_AAC_REASON_INVALID_SCE;
-    if (!cfg || !state || !au || !pcm || length > SIZE_MAX / 8u || cfg->out_channels < 1u || cfg->out_channels > SAUTI_USAC_MAX_CHANNELS || cfg->channel_config == 0 || cfg->channel_config > 7u || state->channels != cfg->out_channels) return 0;
     b.data = au; b.nbits = length * 8u; b.pos = 0;
-    next = (SautiUsacState *)malloc(sizeof *next);
-    if (!next) return 0;
-    memcpy(next, state, sizeof *next);
     indep = (int)sauti_usac_get(&b, 1);
     n = cfg->out_frame_len;
     for (el = 0; el < cfg->num_elements; el++) {
@@ -621,7 +617,34 @@ int sauti_usac_decode(const SautiUsacConfig *cfg, SautiUsacState *state, const u
             if (!len) continue;
             if (e->ext_payload_frag) (void)sauti_usac_get(&b, 2);
             if (b.pos > b.nbits || (size_t)len * 8u > b.nbits - b.pos) { *reason = SAUTI_AAC_REASON_INVALID_TRAILING; r = 0; goto fail; }
-            b.pos += (size_t)len * 8u;                                      /* fill, DRC gain, audio pre-roll ...: not decoded */
+            if (e->ext_type == SAUTI_USAC_EXT_AUDIOPREROLL && preroll_ok && !next->primed && el == 0u) {   /* AudioPreRoll(): the access units that precede this one, decoded to prime the state, their PCM dropped */
+                SautiUsacBits p; unsigned cfg_len, num, k; uint8_t *buf = NULL; float *scratch = NULL; int ok = 0, inner = 0; SautiAacReason pwhy = SAUTI_AAC_REASON_INVALID_SCE;
+                p.data = au; p.nbits = b.pos + (size_t)len * 8u; p.pos = b.pos;
+                cfg_len = sauti_usac_escaped(&p, 4, 4, 8);                  /* a UsacConfig repeated in the payload: the configuration of a stream does not change here, skipped */
+                if ((size_t)cfg_len * 8u > p.nbits - (p.pos < p.nbits ? p.pos : p.nbits)) { *reason = SAUTI_AAC_REASON_INVALID_TRAILING; r = 0; goto fail; }
+                p.pos += (size_t)cfg_len * 8u;
+                (void)sauti_usac_get(&p, 1); (void)sauti_usac_get(&p, 1);     /* applyCrossfade, reserved */
+                num = sauti_usac_escaped(&p, 2, 4, 0);
+                if (p.pos > p.nbits || num > SAUTI_USAC_MAX_PREROLL) { *reason = SAUTI_AAC_REASON_INVALID_TRAILING; r = 0; goto fail; }
+                scratch = (float *)malloc((size_t)SAUTI_USAC_MAX_CHANNELS * 2048u * sizeof(float));
+                if (!scratch) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; r = 0; goto fail; }
+                for (k = 0; k < num; k++) {
+                    const unsigned al = sauti_usac_escaped(&p, 16, 16, 0); size_t j;
+                    if (!al || p.pos > p.nbits || (size_t)al * 8u > p.nbits - p.pos) goto preroll_end;
+                    free(buf); buf = (uint8_t *)calloc(al, 1u);
+                    if (!buf) goto preroll_end;
+                    for (j = 0; j < (size_t)al * 8u; j++) { const size_t at = p.pos + j; if ((au[at >> 3] >> (7u - (at & 7u))) & 1u) buf[j >> 3] |= (uint8_t)(0x80u >> (j & 7u)); }
+                    if (k == 0u && !(buf[0] & 0x80u)) goto preroll_end;                 /* the first pre-roll access unit must be independent */
+                    inner = decode_core(cfg, next, buf, al, scratch, &pwhy, 0);
+                    if (inner != 1) goto preroll_end;
+                    p.pos += (size_t)al * 8u;
+                }
+                ok = 1;
+preroll_end:
+                free(buf); free(scratch);
+                if (!ok) { *reason = inner == -1 ? pwhy : SAUTI_AAC_REASON_INVALID_SCE; r = inner == -1 ? -1 : 0; goto fail; }   /* a pre-roll frame the decoder cannot decode (LPD ...) makes the access unit unsupported, not malformed */
+            }
+            b.pos += (size_t)len * 8u;                                      /* fill, DRC gain, ...: not decoded */
             continue;
         }
         if (ch + (e->type == SAUTI_USAC_CPE ? 2u : 1u) > cfg->out_channels) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; r = -1; goto fail; }
@@ -638,11 +661,25 @@ int sauti_usac_decode(const SautiUsacConfig *cfg, SautiUsacState *state, const u
         if (!sauti_aac_lc_multi_output_map(cfg->channel_config, map)) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; r = -1; goto fail; }
         for (c = 0; c < ch; c++) for (i = 0; i < n; i++) pcm[(size_t)i * ch + c] = stage[map[c]][i];
     }
-    memcpy(state, next, sizeof *state);
-    free(next);
+    next->primed = 1u;
     *reason = SAUTI_AAC_REASON_OK;
     return 1;
 fail:
+    return r;
+}
+
+int sauti_usac_decode(const SautiUsacConfig *cfg, SautiUsacState *state, const uint8_t *au, size_t length, float *pcm, SautiAacReason *reason) {
+    SautiAacReason local;
+    SautiUsacState *next;                                                  /* a copy, committed only on success; no shared state: callers may decode on several threads */
+    int r;
+    if (!reason) reason = &local;
+    *reason = SAUTI_AAC_REASON_INVALID_SCE;
+    if (!cfg || !state || !au || !pcm || length > SIZE_MAX / 8u || cfg->out_channels < 1u || cfg->out_channels > SAUTI_USAC_MAX_CHANNELS || cfg->channel_config == 0 || cfg->channel_config > 7u || state->channels != cfg->out_channels) return 0;
+    next = (SautiUsacState *)malloc(sizeof *next);
+    if (!next) return 0;
+    memcpy(next, state, sizeof *next);
+    r = decode_core(cfg, next, au, length, pcm, reason, 1);
+    if (r == 1) memcpy(state, next, sizeof *state);
     free(next);
     return r;
 }

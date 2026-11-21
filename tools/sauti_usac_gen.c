@@ -18,6 +18,7 @@
 typedef struct { uint8_t b[1 << 18]; size_t n; } Bw;
 static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n & 7u) == 0) w->b[w->n >> 3] = 0; if ((v >> bits) & 1u) w->b[w->n >> 3] |= (uint8_t)(0x80u >> (w->n & 7u)); w->n++; } }
 static FILE *g_elem_fu[8];
+static uint8_t hist_au[8][1 << 16]; static size_t hist_len[8];                /* the last access units (ring of 8) that go into a pre-roll payload */
 static int g_lfe_short;                                                      /* diagnostic: the LFE uses an eight-short window from the second frame on (illegal: an LFE has long windows only) */
 static int g_probe_ch = -1, g_probe_line = 100;
 /* complex stereo prediction: the encoder-side mirror of the decoder's alpha state */
@@ -71,7 +72,7 @@ static void put_spectrum(Bw *w, SautiUsacAcState *s, int reset, unsigned lg, uns
 }
 
 /* ---- stream model --------------------------------------------------------------------------------------------------------------------------------------------------------------- */
-typedef struct { unsigned sbr, sbr_start, sbr_stop, core_idx, out_rate; unsigned config, channels, rate_idx, len, frames, noise_fill, ms, cplx, common, tns, shorts, kbd, kbd_first, full_sfb, dense, zero_bands; int gain, amp; } Opt;
+typedef struct { unsigned sbr, sbr_start, sbr_stop, core_idx, out_rate; unsigned config, preroll, preroll_rap, channels, rate_idx, len, frames, noise_fill, ms, cplx, common, tns, shorts, kbd, kbd_first, full_sfb, dense, zero_bands; int gain, amp; } Opt;
 typedef struct {
     unsigned seq, shape, max_sfb, grouping, ngroups, glen[8], nwin, wlen, stride, nswb, tns_max;
     const uint16_t *swb;
@@ -388,6 +389,8 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[a], "--channels") && a + 1 < argc) o.channels = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--config") && a + 1 < argc) o.config = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--lfe-short")) g_lfe_short = 1;
+        else if (!strcmp(argv[a], "--preroll") && a + 1 < argc) o.preroll = (unsigned)atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--preroll-rap")) o.preroll_rap = 1;
         else if (!strcmp(argv[a], "--rate") && a + 1 < argc) o.rate_idx = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--len") && a + 1 < argc) o.len = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--frames") && a + 1 < argc) o.frames = (unsigned)atoi(argv[++a]);
@@ -420,6 +423,12 @@ int main(int argc, char **argv) {
         if (o.config > 7u || o.sbr) { fprintf(stderr, "bad options\n"); return 2; }
         for (nel = 0, o.channels = 0; cfgs[o.config][nel] != 9u; nel++) { layout[nel] = cfgs[o.config][nel]; o.channels += layout[nel] == 1u ? 2u : 1u; }
     } else layout[0] = o.channels == 2u ? 1u : 0u;
+    if (o.preroll) {                                                        /* AUDIO_PREROLL extension element first (it must be): 1..4 preceding access units are carried in the first access unit */
+        unsigned q;
+        if (o.preroll > 4u || nel > 6u) { fprintf(stderr, "bad options\n"); return 2; }
+        for (q = nel; q > 0u; q--) layout[q] = layout[q - 1u];
+        layout[0] = 3u; nel++;
+    }
     if (o.channels < 1 || o.channels > 8 || (!o.config && o.channels > 2) || (o.len != 1024 && o.len != 768) || o.rate_idx > 12) { fprintf(stderr, "bad options\n"); return 2; }
     if (o.ms || o.cplx) o.common = 1;
     if (o.sbr && o.len != 1024u) { fprintf(stderr, "--sbr needs --len 1024 (2:1)\n"); return 2; }
@@ -445,7 +454,8 @@ int main(int argc, char **argv) {
     put(&asc, nel - 1u, 4);                                                /* numElements - 1 (escapedValue(4, 8, 16)) */
     for (el = 0; el < nel; el++) {
         put(&asc, layout[el], 2);                                           /* SCE / CPE / LFE */
-        if (layout[el] != 2u) { put(&asc, 0, 1); put(&asc, o.noise_fill, 1); }   /* tw_mdct = 0, noiseFilling (an LFE has neither) */
+        if (layout[el] == 3u) { put(&asc, 3, 4); put(&asc, 0, 4); put(&asc, 0, 1); put(&asc, 0, 1); }   /* EXT: usacExtElementType = AUDIOPREROLL, config length 0, no default length, no fragmentation */
+        else if (layout[el] != 2u) { put(&asc, 0, 1); put(&asc, o.noise_fill, 1); }   /* tw_mdct = 0, noiseFilling (an LFE has neither) */
     }
     if (o.sbr) {                                                            /* SBR configuration: no harmonic transposer, inter-TES, PVC; default header start / stop, no extra fields */
         const unsigned x1 = g_sbr_el.sbr_freq_scale != 2u || g_sbr_el.sbr_alter_scale != 1u || g_sbr_el.sbr_noise_bands != 2u;
@@ -469,11 +479,25 @@ int main(int argc, char **argv) {
         }
     }
     memset(elst, 0, sizeof elst);
-    for (f = 0; f < o.frames; f++) {
-        const int indep = f == 0 || f % 8u == 0;
+    for (f = 0; f < o.frames + o.preroll; f++) {                            /* the first o.preroll access units are not written: they travel inside the next one */
+        const int indep = f == 0 || f % 8u == 0;                                /* the same schedule with and without pre-roll: the first written access unit depends on the pre-roll ones */
         memset(&w, 0, sizeof w);
         put(&w, (uint32_t)indep, 1);
         for (el = 0; el < nel; el++) {
+        if (layout[el] == 3u) {                                             /* usacExtElementPresent only in the first written access unit */
+            if (o.preroll && (f == o.preroll || (o.preroll_rap && f >= 8u + o.preroll && (f - o.preroll) % 8u == 0))) {   /* the first written access unit and, with --preroll-rap, every 8th after it: a random access point */
+                Bw pb; size_t k, j, bytes; memset(&pb, 0, sizeof pb);
+                put(&pb, 0, 4); put(&pb, 0, 1); put(&pb, 0, 1);                       /* configLen = 0 (escapedValue(4, 4, 8)), applyCrossfade, reserved */
+                if (o.preroll < 3u) put(&pb, o.preroll, 2); else { put(&pb, 3, 2); put(&pb, o.preroll - 3u, 4); }   /* numPreRollFrames: escapedValue(2, 4, 0) */
+                for (k = 0; k < o.preroll; k++) { put(&pb, (uint32_t)hist_len[(f - o.preroll + k) % 8u], 16); for (j = 0; j < hist_len[(f - o.preroll + k) % 8u]; j++) put(&pb, hist_au[(f - o.preroll + k) % 8u][j], 8); }
+                bytes = (pb.n + 7u) / 8u;
+                put(&w, 1, 1); put(&w, 0, 1);                                         /* present, no default length */
+                if (bytes < 255u) put(&w, (uint32_t)bytes, 8); else { put(&w, 255, 8); put(&w, (uint32_t)(bytes - 253u), 16); }
+                for (k = 0; k < bytes; k++) put(&w, pb.b[k], 8);
+            } else put(&w, 0, 1);
+            continue;
+        }
+        {
         ElState *es = &elst[el]; const size_t eb0 = w.n; ac = es->ac; prev_seq = es->prev_seq;
         memcpy(g_prev_re, es->prev_re, sizeof g_prev_re); memcpy(g_prev_im, es->prev_im, sizeof g_prev_im); g_prev_ngroups = es->prev_ngroups; g_last_seq = es->last_seq;
         if (layout[el] == 2u) {                                             /* LFE: no core_mode, no TNS, no noise filling, long windows only */
@@ -549,7 +573,10 @@ int main(int argc, char **argv) {
         }
         memcpy(es->prev_re, g_prev_re, sizeof g_prev_re); memcpy(es->prev_im, g_prev_im, sizeof g_prev_im); es->prev_ngroups = g_prev_ngroups; es->last_seq = g_last_seq;
         }
-        { uint32_t n = (uint32_t)((w.n + 7u) / 8u); uint8_t be[4] = { (uint8_t)(n >> 24), (uint8_t)(n >> 16), (uint8_t)(n >> 8), (uint8_t)n }; fwrite(be, 1, 4, fu); fwrite(w.b, 1, n, fu); }
+        }
+        { uint32_t n = (uint32_t)((w.n + 7u) / 8u); uint8_t be[4] = { (uint8_t)(n >> 24), (uint8_t)(n >> 16), (uint8_t)(n >> 8), (uint8_t)n };
+          memcpy(hist_au[f % 8u], w.b, n); hist_len[f % 8u] = n;                      /* the last 8 access units: the source of the pre-roll payloads */
+          if (f >= o.preroll) { fwrite(be, 1, 4, fu); fwrite(w.b, 1, n, fu); } }
     }
     fclose(fu); for (el = 0; el < nel; el++) if (g_elem_fu[el]) fclose(g_elem_fu[el]);
     (void)rates;

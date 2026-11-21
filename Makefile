@@ -2383,6 +2383,16 @@ $(OBJDIR)/maktabasauti_mutfuzz: tools/maktabasauti_mutfuzz.c $(MKS_DEPS) $(MKS_T
 fuzz-maktabasauti: $(OBJDIR)/maktabasauti_mutfuzz
 	@test -n "$(FUZZ_SEEDS)" || { echo "FUZZ_SEEDS=<files> required"; exit 2; }
 	ASAN_OPTIONS=allocator_may_return_null=1 $(OBJDIR)/maktabasauti_mutfuzz $(FUZZ_ITER) $(FUZZ_SEED) $(FUZZ_SEEDS)
+$(OBJDIR)/test_usac_preroll: tests/test_usac_preroll.c tests/test_usac_pr_vectors.h include/sauti_usac.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_usac_preroll.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-usac-preroll
+test-usac-preroll: $(OBJDIR)/test_usac_preroll
+	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_usac_preroll
+$(OBJDIR)/test_usac_xaac: tests/test_usac_xaac.c tests/test_usac_xaac_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_usac_xaac.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-usac-xaac
+test-usac-xaac: $(OBJDIR)/test_usac_xaac
+	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_usac_xaac
 .PHONY: test-usac-mc
 test-usac-mc: $(OBJDIR)/test_usac_mc
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_usac_mc

@@ -22,6 +22,8 @@
 #             checked as a standalone mono / stereo stream (SAUTI_USAC_GEN_ELEMS: the element's own bits; an LFE behind core_mode 0 and tns_data_present 0), see scripts/test_usac_vs_ffmpeg.sh; FFmpeg reads an LFE like an SCE (core_mode, TNS bits) and fails on k6 / k7; k6long is 70 blocks for the engine (seek over a checkpoint)
 #   usac_k6bad 3 blocks of configuration 6 whose LFE uses an eight-short window from block 1 on (illegal): block 1 must be refused
 #   usac_m1 / m3 / s1 / c1 / e2 / k6 / k6long .loas the same access units in LOAS / LATM (the StreamMuxConfig in every element); usac_k6_same.loas with the configuration only in the first element
+#   usac_qa* / qb*, qra / qrb  AudioPreRoll (usacExtElementType 3, first element): qb carries the first 1..4 access units of qa inside its first access unit, decoding qb must equal qa from that unit on bit for bit (mono, stereo, eSBR mono / stereo); qrb has pre-roll payloads at every 8th
+#             access unit (random access points) that sequential decoding must ignore; usac_prlong.m4a is 70 blocks with such points (the engine: seeks restart from the primed state at the start, checkpoints are primed), qb2 / qb3 .m4a
 #   usac_long mono, 150 frames (the checkpoints of the engine, every 64 blocks, carry the arithmetic context, noise generator, window overlap and shape): FDK only (noise)
 #   usac_m2 also has TNS filters with coef_compress = 1; usac_m3 has entirely empty bands (noise_offset)
 # usage: tests/data/make_usac_fixtures.sh   (needs python3 and a built build/sauti_usac_gen: make build/sauti_usac_gen)
@@ -57,11 +59,26 @@ SBR_HDR2=5,9,2,1,1,2,2,1,1 "$GEN" "$W/e9" --channels 2 --frames 24 --gain 118 --
 "$GEN" "$W/k7" --config 7 --frames 12 --gain 100 --seed 813 --cplx --noise-fill --tns --on-lr 1 --short --kbd >/dev/null
 "$GEN" "$W/k6bad" --config 6 --frames 3 --gain 100 --seed 815 --lfe-short >/dev/null
 "$GEN" "$W/k6long" --config 6 --frames 70 --gain 100 --seed 814 --ms --noise-fill --tns --on-lr 1 --short --kbd >/dev/null
+# AudioPreRoll: stream A (qaN) has no pre-roll, stream B (qbN) carries the first PREROLL access units of the same content inside its first access unit (same seed, same independence schedule),
+# so decoding B must reproduce A from access unit PREROLL on, bit for bit.  qra / qrb: the same stream without / with pre-roll payloads at every 8th access unit (random access points): sequential decoding ignores them.
+"$GEN" "$W/qa1" --channels 1 --frames 15 --gain 118 --seed 931 --noise-fill --short --kbd >/dev/null
+"$GEN" "$W/qb1" --channels 1 --frames 12 --gain 118 --seed 931 --noise-fill --short --kbd --preroll 3 >/dev/null
+"$GEN" "$W/qa2" --channels 2 --frames 13 --gain 118 --seed 932 --ms --short --kbd >/dev/null
+"$GEN" "$W/qb2" --channels 2 --frames 12 --gain 118 --seed 932 --ms --short --kbd --preroll 1 >/dev/null
+"$GEN" "$W/qa3" --channels 1 --frames 14 --gain 118 --seed 933 --sbr --sbr-simple 388 --short --kbd >/dev/null
+"$GEN" "$W/qb3" --channels 1 --frames 12 --gain 118 --seed 933 --sbr --sbr-simple 388 --short --kbd --preroll 2 >/dev/null
+"$GEN" "$W/qa4" --channels 2 --frames 16 --gain 118 --seed 934 --sbr --sbr-simple 900 --ms --short --kbd >/dev/null
+"$GEN" "$W/qb4" --channels 2 --frames 12 --gain 118 --seed 934 --sbr --sbr-simple 900 --ms --short --kbd --preroll 4 >/dev/null
+"$GEN" "$W/qra" --channels 1 --frames 36 --gain 118 --seed 936 --noise-fill --short --kbd --preroll 2 >/dev/null
+"$GEN" "$W/qrb" --channels 1 --frames 36 --gain 118 --seed 936 --noise-fill --short --kbd --preroll 2 --preroll-rap >/dev/null
+"$GEN" "$W/prlong" --channels 1 --frames 70 --gain 118 --seed 935 --noise-fill --short --kbd --tns --preroll 2 --preroll-rap >/dev/null
 "$GEN" "$W/elong" --channels 1 --frames 100 --gain 125 --seed 105 --sbr --sbr-simple 388 --short --kbd >/dev/null
 "$GEN" "$W/long" --channels 1 --frames 150 --gain 118 --seed 80 --noise-fill --zero-bands --short --kbd --tns >/dev/null
 "$GEN" "$W/s4" --channels 2 --frames 12 --gain 142 --seed 79 --ms --noise-fill --zero-bands --short --kbd >/dev/null
 for n in m1 m2 m3 m4 m5 s1 s2 s3 s4 c1 c2 c3 c4 c5 long; do python3 -I ../../tools/mux_raw_aus_mp4.py "$W/$n" "usac_$n.m4a" 1024; done
 for n in k5 k6 k7 k6long; do python3 -I ../../tools/mux_raw_aus_mp4.py "$W/$n" "usac_$n.m4a" 1024; done
+for n in qb2 prlong; do python3 -I ../../tools/mux_raw_aus_mp4.py "$W/$n" "usac_$n.m4a" 1024; done
+python3 -I ../../tools/mux_raw_aus_mp4.py "$W/qb3" "usac_qb3.m4a" 2048
 for n in m1 m3 s1 c1 e2 k6 k6long; do python3 -I ../../tools/mux_raw_aus_loas.py "$W/$n" "usac_$n.loas"; done          # LOAS / LATM: the same access units, the StreamMuxConfig in every element
 python3 -I ../../tools/mux_raw_aus_loas.py "$W/k6" usac_k6_same.loas same        # ... and only in the first one (useSameStreamMux = 1)
 for n in e1 e2 e3 e4 e5 e6 e7 e8 e9 elong; do python3 -I ../../tools/mux_raw_aus_mp4.py "$W/$n" "usac_$n.m4a" 2048; done
@@ -83,6 +100,19 @@ import struct, sys
 d, out = sys.argv[1], sys.argv[2]
 text = ["/* Generated by tests/data/make_usac_fixtures.sh: the AudioSpecificConfig and the access units of three multichannel USAC streams (tools/sauti_usac_gen.c). */\n"]
 for name in ("k5", "k6", "k7", "k6bad"):
+    asc = open("%s/%s.asc" % (d, name), "rb").read(); raw = open("%s/%s.aus" % (d, name), "rb").read(); aus = []; p = 0
+    while p + 4 <= len(raw):
+        n = struct.unpack('>I', raw[p:p+4])[0]; aus.append(raw[p+4:p+4+n]); p += 4 + n
+    text.append("static const uint8_t usac_%s_asc[] = {%s};\n" % (name, ",".join("0x%02x" % b for b in asc)))
+    for i, a in enumerate(aus): text.append("static const uint8_t usac_%s_au%d[] = {%s};\n" % (name, i, ",".join("0x%02x" % b for b in a)))
+    text.append("static const uint8_t *const usac_%s_aus[] = {%s};\nstatic const size_t usac_%s_n[] = {%s};\n" % (name, ",".join("usac_%s_au%d" % (name, i) for i in range(len(aus))), name, ",".join("sizeof usac_%s_au%d" % (name, i) for i in range(len(aus)))))
+open(out, "w").write("".join(text))
+PY
+python3 -I - "$W" ../test_usac_pr_vectors.h <<'PY'
+import struct, sys
+d, out = sys.argv[1], sys.argv[2]
+text = ["/* Generated by tests/data/make_usac_fixtures.sh: the AudioSpecificConfig and the access units of pre-roll USAC streams (tools/sauti_usac_gen.c). */\n"]
+for name in ("qa1", "qb1", "qa2", "qb2", "qa3", "qb3", "qa4", "qb4", "qra", "qrb", "prlong"):
     asc = open("%s/%s.asc" % (d, name), "rb").read(); raw = open("%s/%s.aus" % (d, name), "rb").read(); aus = []; p = 0
     while p + 4 <= len(raw):
         n = struct.unpack('>I', raw[p:p+4])[0]; aus.append(raw[p+4:p+4+n]); p += 4 + n

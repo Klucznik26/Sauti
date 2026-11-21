@@ -53,6 +53,10 @@ jobs:
         run: make test-usac-stream
       - name: "USAC with more than two channels (configurations 5 / 6 / 7: SCE / CPE / LFE, WAVE order, fingerprints of every channel, every truncation and bit flips, LFE rules, engine seeks over a checkpoint, unmapped configurations refused)"
         run: make test-usac-mc
+      - name: "USAC AudioPreRoll (stream with pre-roll == stream without it from that unit on, bit for bit; payloads at random access points ignored; damaged payloads; engine seeks)"
+        run: make test-usac-preroll
+      - name: "USAC streams from an independent encoder (libxaac, synthetic signals): per-block fingerprints of the engine decode, reads of any size, seeks"
+        run: make test-usac-xaac
       - name: "DVSM / AVR streaming (non-seekable input, partial reads, WOULD_BLOCK at every point, truncation, checkpoints, bounded memory)"
         run: make test-maktabasauti-dvs-stream
       - name: "WAV / AIFF streaming (differential vs the old adapters, header matrix, placeholder sizes, float WAV, truncation, mutations, bounded memory)"

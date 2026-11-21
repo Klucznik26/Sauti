@@ -72,6 +72,7 @@ typedef struct {
     SautiUsacSbrState sbr[SAUTI_USAC_MAX_ELEMENTS];       /* eSBR: header and entropy-coding history of every element */
     SautiAacSbrChannel sbr_ch[SAUTI_USAC_MAX_CHANNELS];   /* eSBR: QMF, HF generation and adjustment state of every channel */
     unsigned channels;
+    unsigned primed;                                      /* a frame has been decoded: an AudioPreRoll payload is only decoded while this is 0 (start of decoding, after a seek to the start) */
 } SautiUsacState;
 
 void sauti_usac_state_init(SautiUsacState *state, const SautiUsacConfig *cfg);
