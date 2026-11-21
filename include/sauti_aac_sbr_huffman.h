@@ -30,4 +30,6 @@ int sauti_aac_sbr_huffman_decode(const uint8_t *bytes, size_t size,
                                   size_t *bit_offset,
                                   SautiAacSbrHuffmanBook book,
                                   int32_t *out_delta);
+/* The codeword of a delta (encoder side, used by test tools): 1 = found, 0 = no such symbol. */
+int sauti_aac_sbr_huffman_codeword(SautiAacSbrHuffmanBook book, int32_t delta, uint32_t *code, uint8_t *bits);
 #endif

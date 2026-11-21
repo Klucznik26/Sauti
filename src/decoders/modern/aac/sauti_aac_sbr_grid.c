@@ -22,7 +22,12 @@ static unsigned pointer_bits(unsigned env_count) {
 int sauti_aac_sbr_grid_parse(const uint8_t *data, size_t size,
                              size_t *bit_offset, unsigned time_slots,
                              SautiAacSbrGrid *out) {
-    if (!data || !bit_offset || !out ||
+    return sauti_aac_sbr_grid_parse_max(data, size, bit_offset, time_slots, SAUTI_AAC_SBR_CLASSIC_MAX_ENV, out);
+}
+int sauti_aac_sbr_grid_parse_max(const uint8_t *data, size_t size,
+                                 size_t *bit_offset, unsigned time_slots,
+                                 unsigned max_env, SautiAacSbrGrid *out) {
+    if (!data || !bit_offset || !out || max_env < 1u || max_env > SAUTI_AAC_SBR_MAX_ENV ||
         (time_slots != 15u && time_slots != 16u)) return 0;
     if (size > SIZE_MAX / 8u || *bit_offset > size * 8u) return 0;
 
@@ -36,7 +41,7 @@ int sauti_aac_sbr_grid_parse(const uint8_t *data, size_t size,
     if (next.frame_class == 0u) { /* FIXFIX */
         if (!get(data, size, &pos, 2, &value)) return 0;
         next.env_count = 1u << value;
-        if (next.env_count > SAUTI_AAC_SBR_MAX_ENV ||
+        if (next.env_count > max_env ||
             !get(data, size, &pos, 1, &value)) return 0;
         for (unsigned i = 0; i < next.env_count; ++i)
             next.freq_res[i] = (uint8_t)value;
@@ -68,7 +73,7 @@ int sauti_aac_sbr_grid_parse(const uint8_t *data, size_t size,
         }
 
         next.env_count = leading_rel + trailing_rel + 1u;
-        if (next.env_count > SAUTI_AAC_SBR_MAX_ENV) return 0;
+        if (next.env_count > max_env) return 0;
         if (next.frame_class == 2u)
             border[next.env_count] = (int)time_slots;
         else

@@ -48,20 +48,20 @@ static float *decode_all(const uint8_t *data, size_t n, unsigned channels, size_
     free(buf); maktabasauti_decoder_close(d); *frames_out = total; return pcm;
 }
 
-static void test_equal(const char *path, unsigned channels, const uint8_t *asc, size_t asc_n, const uint8_t *const *au, const size_t *au_n, size_t frames) {
-    static SautiUsacConfig cfg; static SautiUsacState st; static float one[2 * 1024];
+static void test_equal(const char *path, unsigned channels, unsigned flen, const uint8_t *asc, size_t asc_n, const uint8_t *const *au, const size_t *au_n, size_t frames) {
+    static SautiUsacConfig cfg; static SautiUsacState st; static float one[2 * 2048];
     size_t n, got, f; uint8_t *data = slurp(path, &n); float *pcm; SautiAacReason why; maktabasauti_stream_info_t info; maktabasauti_decoder_t *d;
     if (!data) { CHECK(0, "cannot read %s (run from the repository root)", path); return; }
     pcm = decode_all(data, n, channels, 4096, &got, path);
-    CHECK(got == frames * 1024u, "%s: %zu frames, expected %zu", path, got, frames * 1024u);
+    CHECK(got == frames * flen, "%s: %zu frames, expected %zu", path, got, frames * flen);
     CHECK(sauti_usac_asc_parse(asc, asc_n, &cfg) == 1, "%s: asc", path);
     sauti_usac_state_init(&st, &cfg);
-    for (f = 0; pcm && f < frames && f * 1024u + 1024u <= got; f++) {
+    for (f = 0; pcm && f < frames && f * flen + flen <= got; f++) {
         CHECK(sauti_usac_decode(&cfg, &st, au[f], au_n[f], one, &why) == 1, "%s frame %zu", path, f);
-        CHECK(memcmp(one, pcm + f * 1024u * channels, 1024u * channels * sizeof(float)) == 0, "%s: block %zu differs from the direct decode", path, f);
+        CHECK(memcmp(one, pcm + f * flen * channels, flen * channels * sizeof(float)) == 0, "%s: block %zu differs from the direct decode", path, f);
     }
     d = open_mem(data, n, &info, NULL);                                                                     /* the description */
-    if (d) { CHECK((info.flags & MAKTABASAUTI_STREAM_SEEKABLE) && info.total_frames == frames * 1024u && info.native_format == MAKTABASAUTI_FORMAT_F32, "%s: flags %u total %llu", path, (unsigned)info.flags, (unsigned long long)info.total_frames); maktabasauti_decoder_close(d); }
+    if (d) { CHECK((info.flags & MAKTABASAUTI_STREAM_SEEKABLE) && info.total_frames == frames * flen && info.native_format == MAKTABASAUTI_FORMAT_F32, "%s: flags %u total %llu", path, (unsigned)info.flags, (unsigned long long)info.total_frames); maktabasauti_decoder_close(d); }
     free(pcm); free(data);
 }
 static void test_chunks(void) {
@@ -74,12 +74,13 @@ static void test_chunks(void) {
     CHECK(a && b && a_n == b_n && memcmp(a, b, a_n * sizeof(float)) == 0, "reads of 777 and 1024 samples differ");
     free(a); free(b); free(data);
 }
-static void test_seek(void) {                                                                                /* 150 blocks: checkpoints at 64 and 128 */
-    size_t n, frames, got, i; uint8_t *data = slurp("tests/data/usac_long.m4a", &n); maktabasauti_stream_info_t info; maktabasauti_decoder_t *d; float *ref, a[600];
-    static const uint64_t targets[] = { 66000, 65536, 65535, 100000, 1000, 0, 140000, 66000, 131072, 40000, 153000 };
-    if (!data) { CHECK(0, "cannot read usac_long.m4a"); return; }
-    ref = decode_all(data, n, 1, 4096, &frames, "long reference");
-    CHECK(frames == 150u * 1024u, "long: %zu frames", frames);
+static void test_seek(const char *path, size_t blocks, size_t flen, unsigned rate) {                          /* checkpoints every 64 blocks */
+    size_t n, frames, got, i; uint8_t *data = slurp(path, &n); maktabasauti_stream_info_t info; maktabasauti_decoder_t *d; float *ref, a[600];
+    const uint64_t b64 = 64u * flen;
+    const uint64_t targets[] = { b64 + 2000u, b64, b64 - 1u, 100000u % (blocks * flen), 1000, 0, (blocks - 1u) * flen - 3000u, b64 + 2000u, 2u * b64 > blocks * flen ? 1u : 2u * b64, 40000, blocks * flen - 700u };
+    if (!data) { CHECK(0, "cannot read %s", path); return; }
+    ref = decode_all(data, n, 1, 4096, &frames, "seek reference");
+    CHECK(frames == blocks * flen && rate == 48000u, "%s: %zu frames", path, frames);
     d = open_mem(data, n, &info, NULL);
     if (d && ref) {
         for (i = 0; i < sizeof targets / sizeof targets[0]; i++) {
@@ -87,7 +88,7 @@ static void test_seek(void) {                                                   
             maktabasauti_result_t r = maktabasauti_decoder_seek(d, targets[i], MAKTABASAUTI_SEEK_EXACT, NULL);
             CHECK(r == MAKTABASAUTI_OK, "seek %llu -> %d", (unsigned long long)targets[i], (int)r);
             r = maktabasauti_decoder_read(d, a, want, MAKTABASAUTI_FORMAT_F32, &got);
-            CHECK(got == want && memcmp(a, ref + targets[i], want * sizeof(float)) == 0, "seek to %llu differs from sequential decoding", (unsigned long long)targets[i]);
+            CHECK(got == want && memcmp(a, ref + targets[i], want * sizeof(float)) == 0, "%s: seek to %llu differs from sequential decoding", path, (unsigned long long)targets[i]);
         }
         CHECK(maktabasauti_decoder_seek(d, frames + 1u, MAKTABASAUTI_SEEK_EXACT, NULL) != MAKTABASAUTI_OK, "a seek past the end must fail");
         CHECK(maktabasauti_decoder_reset(d) == MAKTABASAUTI_OK && maktabasauti_decoder_read(d, a, 500, MAKTABASAUTI_FORMAT_F32, &got) == MAKTABASAUTI_OK && got == 500u && memcmp(a, ref, 500 * sizeof(float)) == 0, "reset must start over");
@@ -122,13 +123,17 @@ static void test_refusals(void) {
 }
 
 int main(void) {
-    test_equal("tests/data/usac_m1.m4a", 1, usac_m1_asc, sizeof usac_m1_asc, usac_m1_aus, usac_m1_n, sizeof usac_m1_n / sizeof usac_m1_n[0]);
-    test_equal("tests/data/usac_m2.m4a", 1, usac_m2_asc, sizeof usac_m2_asc, usac_m2_aus, usac_m2_n, sizeof usac_m2_n / sizeof usac_m2_n[0]);
-    test_equal("tests/data/usac_m3.m4a", 1, usac_m3_asc, sizeof usac_m3_asc, usac_m3_aus, usac_m3_n, sizeof usac_m3_n / sizeof usac_m3_n[0]);
-    test_equal("tests/data/usac_s1.m4a", 2, usac_s1_asc, sizeof usac_s1_asc, usac_s1_aus, usac_s1_n, sizeof usac_s1_n / sizeof usac_s1_n[0]);
-    test_equal("tests/data/usac_s2.m4a", 2, usac_s2_asc, sizeof usac_s2_asc, usac_s2_aus, usac_s2_n, sizeof usac_s2_n / sizeof usac_s2_n[0]);
-    test_equal("tests/data/usac_s3.m4a", 2, usac_s3_asc, sizeof usac_s3_asc, usac_s3_aus, usac_s3_n, sizeof usac_s3_n / sizeof usac_s3_n[0]);
-    test_chunks(); test_seek(); test_refusals();
+    test_equal("tests/data/usac_m1.m4a", 1, 1024, usac_m1_asc, sizeof usac_m1_asc, usac_m1_aus, usac_m1_n, sizeof usac_m1_n / sizeof usac_m1_n[0]);
+    test_equal("tests/data/usac_m2.m4a", 1, 1024, usac_m2_asc, sizeof usac_m2_asc, usac_m2_aus, usac_m2_n, sizeof usac_m2_n / sizeof usac_m2_n[0]);
+    test_equal("tests/data/usac_m3.m4a", 1, 1024, usac_m3_asc, sizeof usac_m3_asc, usac_m3_aus, usac_m3_n, sizeof usac_m3_n / sizeof usac_m3_n[0]);
+    test_equal("tests/data/usac_s1.m4a", 2, 1024, usac_s1_asc, sizeof usac_s1_asc, usac_s1_aus, usac_s1_n, sizeof usac_s1_n / sizeof usac_s1_n[0]);
+    test_equal("tests/data/usac_s2.m4a", 2, 1024, usac_s2_asc, sizeof usac_s2_asc, usac_s2_aus, usac_s2_n, sizeof usac_s2_n / sizeof usac_s2_n[0]);
+    test_equal("tests/data/usac_s3.m4a", 2, 1024, usac_s3_asc, sizeof usac_s3_asc, usac_s3_aus, usac_s3_n, sizeof usac_s3_n / sizeof usac_s3_n[0]);
+    test_equal("tests/data/usac_c1.m4a", 2, 1024, usac_c1_asc, sizeof usac_c1_asc, usac_c1_aus, usac_c1_n, sizeof usac_c1_n / sizeof usac_c1_n[0]);
+    test_equal("tests/data/usac_e1.m4a", 1, 2048, usac_e1_asc, sizeof usac_e1_asc, usac_e1_aus, usac_e1_n, sizeof usac_e1_n / sizeof usac_e1_n[0]);
+    test_equal("tests/data/usac_e2.m4a", 2, 2048, usac_e2_asc, sizeof usac_e2_asc, usac_e2_aus, usac_e2_n, sizeof usac_e2_n / sizeof usac_e2_n[0]);
+    test_equal("tests/data/usac_e4.m4a", 2, 2048, usac_e4_asc, sizeof usac_e4_asc, usac_e4_aus, usac_e4_n, sizeof usac_e4_n / sizeof usac_e4_n[0]);
+    test_chunks(); test_seek("tests/data/usac_long.m4a", 150, 1024, 48000); test_seek("tests/data/usac_elong.m4a", 100, 2048, 48000); test_refusals();
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_stream: all passed\n"); return 0;
 }

@@ -7,6 +7,7 @@
  *   4. unsupported tools (LPD frames, an SBR configuration) are reported as -1 and change nothing. */
 #define _POSIX_C_SOURCE 200809L
 #include "sauti_usac.h"
+#include "sauti_usac_sbr.h"
 #include "test_usac_vectors.h"
 #include <math.h>
 #include <stdio.h>
@@ -19,7 +20,8 @@ static uint32_t g_rng = 2463534242u;
 static uint32_t rnd(void) { g_rng ^= g_rng << 13; g_rng ^= g_rng >> 17; g_rng ^= g_rng << 5; return g_rng; }
 static int near(double a, double b) { return fabs(a - b) <= 1e-5 * (1.0 + fabs(b)); }
 
-typedef struct { const char *name; const uint8_t *asc; size_t asc_n; const uint8_t *const *au; const size_t *au_n; size_t frames; unsigned channels, noise_fill, rate, rate_index; const double (*fp)[2][4]; } Stream;
+typedef struct { const char *name; const uint8_t *asc; size_t asc_n; const uint8_t *const *au; const size_t *au_n; size_t frames; unsigned channels, noise_fill, rate, rate_index, sbr; const double (*fp)[2][4]; } Stream;
+#define OUT_LEN(s) ((s)->sbr ? 2048u : 1024u)
 #define ASC_BITS 19u                                                          /* object type (11 bits: escape), sampling index (4), channel configuration (4) */
 #include "test_usac_fingerprints.h"
 
@@ -34,8 +36,8 @@ static void test_config(const Stream *s) {
     const int r = sauti_usac_config_parse(s->asc, s->asc_n, ASC_BITS, &c);
     CHECK(r == 1, "%s: config parse %d", s->name, r);
     if (r != 1) return;
-    CHECK(c.sample_rate == s->rate && c.core_rate == s->rate && c.aac_rate_index == s->rate_index, "%s: rate %u / %u / index %u", s->name, c.sample_rate, c.core_rate, c.aac_rate_index);
-    CHECK(c.core_frame_len == 1024u && c.out_frame_len == 1024u && c.sbr_mode == 0u && c.core_sbr_frame_len_idx == 1u, "%s: frame lengths", s->name);
+    CHECK(c.sample_rate == s->rate && c.core_rate == (s->sbr ? s->rate / 2u : s->rate) && c.aac_rate_index == s->rate_index, "%s: rate %u / %u / index %u", s->name, c.sample_rate, c.core_rate, c.aac_rate_index);
+    CHECK(c.core_frame_len == 1024u && c.out_frame_len == OUT_LEN(s) && c.sbr_mode == s->sbr && c.core_sbr_frame_len_idx == (s->sbr ? 3u : 1u), "%s: frame lengths", s->name);
     CHECK(c.channel_config == s->channels && c.out_channels == s->channels && c.num_elements == 1u, "%s: channels %u elements %u", s->name, c.out_channels, c.num_elements);
     CHECK(c.e[0].type == (s->channels == 1u ? SAUTI_USAC_SCE : SAUTI_USAC_CPE) && c.e[0].noise_fill == s->noise_fill && c.e[0].tw_mdct == 0u && c.e[0].stereo_config_index == 0u, "%s: element", s->name);
     CHECK(c.bits_used > 0 && ASC_BITS + c.bits_used <= s->asc_n * 8u, "%s: bits used %zu", s->name, c.bits_used);
@@ -89,7 +91,7 @@ static void run(const Stream *s, SautiUsacConfig *cfg, SautiUsacState *st, size_
     }
 }
 static void test_vectors(const Stream *s) {
-    static SautiUsacConfig cfg; static SautiUsacState st; static float pcm[2 * 1024]; double fp[64][2][4]; size_t f; unsigned c, k;
+    static SautiUsacConfig cfg; static SautiUsacState st; static float pcm[2 * 2048]; double fp[64][2][4]; size_t f; unsigned c, k;
     memset(fp, 0, sizeof fp);
     run(s, &cfg, &st, s->frames, pcm, NULL);
     sauti_usac_state_init(&st, &cfg);
@@ -97,22 +99,22 @@ static void test_vectors(const Stream *s) {
         SautiAacReason why;
         if (sauti_usac_decode(&cfg, &st, s->au[f], s->au_n[f], pcm, &why) != 1) { CHECK(0, "%s frame %zu", s->name, f); return; }
         for (c = 0; c < s->channels; c++) fingerprint(pcm, cfg.out_frame_len, s->channels, c, fp[f][c]);
-        for (c = 0; c < s->channels * 1024u; c++) CHECK(isfinite(pcm[c]), "%s: non-finite output", s->name);
+        for (c = 0; c < s->channels * OUT_LEN(s); c++) CHECK(isfinite(pcm[c]), "%s: non-finite output", s->name);
         if (g_dump) { printf("    { {%.12e, %.12e, %.12e, %.12e}, {%.12e, %.12e, %.12e, %.12e} },\n", fp[f][0][0], fp[f][0][1], fp[f][0][2], fp[f][0][3], fp[f][1][0], fp[f][1][1], fp[f][1][2], fp[f][1][3]); continue; }
         for (c = 0; c < s->channels; c++) for (k = 0; k < 4; k++) CHECK(near(fp[f][c][k], s->fp[f][c][k]), "%s frame %zu ch %u fingerprint %u: %.12e vs %.12e", s->name, f, c, k, fp[f][c][k], s->fp[f][c][k]);
     }
 }
 static void test_atomic(const Stream *s) {
-    static SautiUsacConfig cfg; static SautiUsacState st, before; static float pcm[2 * 1024], keep[2 * 1024]; SautiAacReason why; size_t f, len, i; int round; long accepted = 0, rejected = 0;
+    static SautiUsacConfig cfg; static SautiUsacState st, before; static float pcm[2 * 2048], keep[2 * 2048]; SautiAacReason why; size_t f, len, i; int round; long accepted = 0, rejected = 0;
     CHECK(sauti_usac_config_parse(s->asc, s->asc_n, ASC_BITS, &cfg) == 1, "config");
     sauti_usac_state_init(&st, &cfg);
-    for (i = 0; i < 2 * 1024; i++) keep[i] = pcm[i] = 12345.0f;
+    for (i = 0; i < 2 * 2048; i++) keep[i] = pcm[i] = 12345.0f;
     for (f = 0; f < s->frames; f++) {
         for (len = 0; len <= s->au_n[f]; len++) {                                                           /* every truncation */
             int r; before = st; memcpy(pcm, keep, sizeof pcm);
             r = sauti_usac_decode(&cfg, &st, s->au[f], len, pcm, &why);
             if (r != 1) { CHECK(memcmp(&before, &st, sizeof st) == 0 && memcmp(pcm, keep, sizeof pcm) == 0, "%s frame %zu len %zu: failure (%d) must leave state and output alone", s->name, f, len, r); rejected++; }
-            else { for (i = 0; i < s->channels * 1024u; i++) CHECK(isfinite(pcm[i]), "non-finite output"); st = before; accepted++; }
+            else { for (i = 0; i < s->channels * OUT_LEN(s); i++) CHECK(isfinite(pcm[i]), "non-finite output"); st = before; accepted++; }
         }
         for (round = 0; round < 80; round++) {                                                              /* random bit flips */
             uint8_t b[4096]; int r, nflip = 1 + (int)(rnd() % 4u);
@@ -121,7 +123,7 @@ static void test_atomic(const Stream *s) {
             before = st; memcpy(pcm, keep, sizeof pcm);
             r = sauti_usac_decode(&cfg, &st, b, s->au_n[f], pcm, &why);
             if (r != 1) { CHECK(memcmp(&before, &st, sizeof st) == 0 && memcmp(pcm, keep, sizeof pcm) == 0, "%s frame %zu flip: failure (%d) must leave state and output alone", s->name, f, r); rejected++; }
-            else { for (i = 0; i < s->channels * 1024u; i++) CHECK(isfinite(pcm[i]), "non-finite output after a flip"); st = before; accepted++; }
+            else { for (i = 0; i < s->channels * OUT_LEN(s); i++) CHECK(isfinite(pcm[i]), "non-finite output after a flip"); st = before; accepted++; }
         }
         { SautiUsacState adv = st; (void)sauti_usac_decode(&cfg, &adv, s->au[f], s->au_n[f], pcm, &why); st = adv; }
     }
@@ -129,7 +131,7 @@ static void test_atomic(const Stream *s) {
     CHECK(rejected > 100, "%s: mutations never fail?", s->name);
 }
 static void test_unsupported(const Stream *s) {
-    static SautiUsacConfig cfg; static SautiUsacState st, before; static float pcm[2 * 1024]; uint8_t b[4096]; SautiAacReason why; int r;
+    static SautiUsacConfig cfg; static SautiUsacState st, before; static float pcm[2 * 2048]; uint8_t b[4096]; SautiAacReason why; int r;
     CHECK(sauti_usac_config_parse(s->asc, s->asc_n, ASC_BITS, &cfg) == 1, "config");
     sauti_usac_state_init(&st, &cfg);
     memcpy(b, s->au[0], s->au_n[0]);
@@ -137,12 +139,18 @@ static void test_unsupported(const Stream *s) {
     before = st;
     r = sauti_usac_decode(&cfg, &st, b, s->au_n[0], pcm, &why);
     CHECK(r == -1 && memcmp(&before, &st, sizeof st) == 0, "%s: an LPD frame must be reported as unsupported (%d)", s->name, r);
-    cfg.sbr_mode = 1u;                                                                                      /* a stream configured for SBR: the eSBR payload cannot be decoded yet */
-    r = sauti_usac_decode(&cfg, &st, s->au[0], s->au_n[0], pcm, &why);
-    CHECK(r != 1 && memcmp(&before, &st, sizeof st) == 0, "%s: an SBR stream must not be decoded as plain AAC (%d)", s->name, r);
+    if (!s->sbr) {                                                                                           /* a plain stream read as an SBR stream: the bits after the channel streams are not SBR data */
+        cfg.sbr_mode = 1u;
+        r = sauti_usac_decode(&cfg, &st, s->au[0], s->au_n[0], pcm, &why);
+        CHECK(r != 1 && memcmp(&before, &st, sizeof st) == 0, "%s: a plain stream must not be decoded as SBR (%d)", s->name, r);
+    } else {                                                                                                 /* an SBR stream configured as 4:1 (not implemented): reported, state untouched */
+        cfg.sbr_mode = 3u;
+        r = sauti_usac_decode(&cfg, &st, s->au[0], s->au_n[0], pcm, &why);
+        CHECK(r == -1 && memcmp(&before, &st, sizeof st) == 0, "%s: SBR 4:1 must be reported as unsupported (%d)", s->name, r);
+    }
 }
 static void test_arguments(void) {
-    static SautiUsacConfig cfg; static SautiUsacState st; static float pcm[2 * 1024]; SautiAacReason why;
+    static SautiUsacConfig cfg; static SautiUsacState st; static float pcm[2 * 2048]; SautiAacReason why;
     CHECK(sauti_usac_config_parse(usac_m1_asc, sizeof usac_m1_asc, ASC_BITS, &cfg) == 1, "config");
     sauti_usac_state_init(&st, &cfg);
     CHECK(sauti_usac_decode(NULL, &st, usac_m1_au0, sizeof usac_m1_au0, pcm, &why) == 0 && sauti_usac_decode(&cfg, NULL, usac_m1_au0, sizeof usac_m1_au0, pcm, &why) == 0 &&
@@ -199,19 +207,36 @@ static void test_empty_spectrum(void) {
     #undef PUT
 }
 
+/* usac_sbr_data(): what is not implemented is reported (-1), never decoded as something else */
+static void test_sbr_unsupported(void) {
+    SautiUsacElement e; SautiUsacSbrState st; SautiAacSbrPayloadFrame pl[2]; SautiUsacBits b; unsigned cpl; uint8_t d[8];
+    memset(&e, 0, sizeof e); memset(&st, 0, sizeof st); e.sbr_start_freq = 5; e.sbr_stop_freq = 9; e.sbr_freq_scale = 2; e.sbr_alter_scale = 1; e.sbr_noise_bands = 2; e.sbr_limiter_bands = 2; e.sbr_limiter_gains = 2; e.sbr_interpol_freq = 1; e.sbr_smoothing_mode = 1;
+    memset(d, 0, sizeof d); d[0] = 0x04u;                                                                    /* independent frame: amp_res 0, xover 0000, bs_sbr_preprocessing 1 */
+    b.data = d; b.nbits = sizeof d * 8u; b.pos = 0;
+    CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "bs_sbr_preprocessing = 1 is not implemented");
+    d[0] = 0x00u; b.pos = 0;
+    CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) != -1, "preprocessing 0 is not refused for that reason");
+    e.sbr_harmonic = 1; b.pos = 0; CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "the harmonic transposer is not implemented");
+    e.sbr_harmonic = 0; e.sbr_pvc = 1; b.pos = 0; CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "PVC is not implemented");
+    e.sbr_pvc = 0; e.sbr_intertes = 1; b.pos = 0; CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "inter-TES is not implemented");
+    e.sbr_intertes = 0; memset(d, 0xffu, sizeof d); b.pos = 0; (void)sauti_usac_sbr_parse(&e, 2, &b, 1, 48000, &st, pl, &cpl);   /* garbage must not crash */
+}
+
 int main(int argc, char **argv) {
-    #define S(n, ch, nf, rate, idx) { "usac_" #n, usac_##n##_asc, sizeof usac_##n##_asc, usac_##n##_aus, usac_##n##_n, sizeof usac_##n##_n / sizeof usac_##n##_n[0], ch, nf, rate, idx, usac_##n##_fp }
-    const Stream streams[14] = { S(m1, 1, 0, 48000, 3), S(m2, 1, 0, 48000, 3), S(m3, 1, 1, 48000, 3), S(m4, 1, 0, 24000, 6), S(m5, 1, 0, 48000, 3), S(s1, 2, 0, 48000, 3), S(s2, 2, 0, 48000, 3), S(s3, 2, 0, 48000, 3), S(s4, 2, 1, 48000, 3), S(c1, 2, 0, 48000, 3), S(c2, 2, 0, 48000, 3), S(c3, 2, 0, 48000, 3), S(c4, 2, 1, 48000, 3), S(c5, 2, 0, 48000, 3) };
+    #define S(n, ch, nf, rate, idx) { "usac_" #n, usac_##n##_asc, sizeof usac_##n##_asc, usac_##n##_aus, usac_##n##_n, sizeof usac_##n##_n / sizeof usac_##n##_n[0], ch, nf, rate, idx, 0, usac_##n##_fp }
+    #define SB(n, ch, nf, rate, idx) { "usac_" #n, usac_##n##_asc, sizeof usac_##n##_asc, usac_##n##_aus, usac_##n##_n, sizeof usac_##n##_n / sizeof usac_##n##_n[0], ch, nf, rate, idx, 1, usac_##n##_fp }
+    const Stream streams[21] = { S(m1, 1, 0, 48000, 3), S(m2, 1, 0, 48000, 3), S(m3, 1, 1, 48000, 3), S(m4, 1, 0, 24000, 6), S(m5, 1, 0, 48000, 3), S(s1, 2, 0, 48000, 3), S(s2, 2, 0, 48000, 3), S(s3, 2, 0, 48000, 3), S(s4, 2, 1, 48000, 3), S(c1, 2, 0, 48000, 3), S(c2, 2, 0, 48000, 3), S(c3, 2, 0, 48000, 3), S(c4, 2, 1, 48000, 3), S(c5, 2, 0, 48000, 3), SB(e1, 1, 0, 48000, 6), SB(e2, 2, 0, 48000, 6), SB(e3, 1, 1, 48000, 6), SB(e4, 2, 0, 48000, 6), SB(e5, 1, 0, 48000, 6), SB(e6, 1, 0, 48000, 6), SB(e7, 2, 0, 48000, 6) };
     #undef S
+    #undef SB
     unsigned k;
     if (argc > 1 && !strcmp(argv[1], "--dump")) {                                                            /* build/test_usac --dump > tests/test_usac_fingerprints.h */
         g_dump = 1;
         printf("/* Fingerprints (sum, sum of squares, position-weighted sum, energy of the second difference) of the decoded PCM, written by `build/test_usac --dump` AFTER the decoder agreed with FFmpeg\n * (usac_m1, m2, m4, s1, s3: 134-139 dB) and FDK AAC (all streams, ~83-92 dB) on these streams (scripts/test_usac_vs_ffmpeg.sh); regenerate only after such a comparison. */\n");
-        for (k = 0; k < 14; k++) { printf("static const double usac_%s_fp[64][2][4] = {\n", streams[k].name + 5); test_vectors(&streams[k]); printf("};\n"); }
+        for (k = 0; k < 21; k++) { printf("static const double usac_%s_fp[64][2][4] = {\n", streams[k].name + 5); test_vectors(&streams[k]); printf("};\n"); }
         return g_failures ? 1 : 0;
     }
-    for (k = 0; k < 14; k++) { test_config(&streams[k]); test_vectors(&streams[k]); test_atomic(&streams[k]); test_unsupported(&streams[k]); }
-    test_config_edges(); test_arguments(); test_extension(); test_empty_spectrum();
+    for (k = 0; k < 21; k++) { test_config(&streams[k]); test_vectors(&streams[k]); test_atomic(&streams[k]); test_unsupported(&streams[k]); }
+    test_config_edges(); test_arguments(); test_extension(); test_empty_spectrum(); test_sbr_unsupported();
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac: all passed\n"); return 0;
 }

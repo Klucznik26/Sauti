@@ -9,6 +9,8 @@
 #include "sauti_aac_bands.h"
 #include "sauti_aac_tables.h"
 #include "sauti_usac_tables.h"
+#include "sauti_usac_sbr.h"
+#include "sauti_aac_sbr_huffman.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,7 +69,7 @@ static void put_spectrum(Bw *w, SautiUsacAcState *s, int reset, unsigned lg, uns
 }
 
 /* ---- stream model --------------------------------------------------------------------------------------------------------------------------------------------------------------- */
-typedef struct { unsigned channels, rate_idx, len, frames, noise_fill, ms, cplx, common, tns, shorts, kbd, kbd_first, full_sfb, dense, zero_bands; int gain, amp; } Opt;
+typedef struct { unsigned sbr, sbr_start, sbr_stop, core_idx, out_rate; unsigned channels, rate_idx, len, frames, noise_fill, ms, cplx, common, tns, shorts, kbd, kbd_first, full_sfb, dense, zero_bands; int gain, amp; } Opt;
 typedef struct {
     unsigned seq, shape, max_sfb, grouping, ngroups, glen[8], nwin, wlen, stride, nswb, tns_max;
     const uint16_t *swb;
@@ -82,16 +84,16 @@ static void setup(const Opt *o, Chan *c) {
     const unsigned is_short = c->seq == 2u;
     unsigned count = 0, j;
     if (is_short) {
-        if (o->len == 768u) { c->swb = sauti_usac_swb96[o->rate_idx]; count = sauti_usac_num_swb96[o->rate_idx]; }
-        else sauti_aac_band_offsets(o->rate_idx, 1, &c->swb, &count);
-        c->tns_max = sauti_usac_tns_max_bands_128[o->rate_idx]; c->wlen = o->len / 8u; c->stride = 128u; c->nwin = 8u;
+        if (o->len == 768u) { c->swb = sauti_usac_swb96[o->core_idx]; count = sauti_usac_num_swb96[o->core_idx]; }
+        else sauti_aac_band_offsets(o->core_idx, 1, &c->swb, &count);
+        c->tns_max = sauti_usac_tns_max_bands_128[o->core_idx]; c->wlen = o->len / 8u; c->stride = 128u; c->nwin = 8u;
         c->ngroups = 0; for (j = 0; j < 8u; j++) c->glen[j] = 0; c->glen[0] = 1;
         for (j = 0; j < 7u; j++) { if (c->grouping & (1u << (6u - j))) c->glen[c->ngroups]++; else { c->ngroups++; c->glen[c->ngroups] = 1; } }
         c->ngroups++;
     } else {
-        if (o->len == 768u) { c->swb = sauti_usac_swb768[o->rate_idx]; count = sauti_usac_num_swb768[o->rate_idx]; }
-        else sauti_aac_band_offsets(o->rate_idx, 0, &c->swb, &count);
-        c->tns_max = sauti_usac_tns_max_bands_1024[o->rate_idx]; c->wlen = o->len; c->stride = o->len; c->nwin = 1u; c->ngroups = 1u; c->glen[0] = 1u;
+        if (o->len == 768u) { c->swb = sauti_usac_swb768[o->core_idx]; count = sauti_usac_num_swb768[o->core_idx]; }
+        else sauti_aac_band_offsets(o->core_idx, 0, &c->swb, &count);
+        c->tns_max = sauti_usac_tns_max_bands_1024[o->core_idx]; c->wlen = o->len; c->stride = o->len; c->nwin = 1u; c->ngroups = 1u; c->glen[0] = 1u;
     }
     c->nswb = count;
 }
@@ -228,6 +230,147 @@ static void put_fd(Bw *w, const Opt *o, Chan *c, SautiUsacAcState *ac, int commo
     put(w, 0, 1);                                                          /* fac_data_present */
 }
 
+/* ---- eSBR (usac_sbr_data): random valid data.  The candidate is written into a scratch buffer and checked by the decoder's own parser on a copy of its state (retry until it is accepted),
+ * so every frame is valid by construction; the harmonic transposer, PVC, inter-TES and preprocessing are never used. -------------------------------------------------------------------------- */
+static unsigned g_sbr_simple;                                                 /* diagnostic bits: 4096 header / SbrInfo repeated unchanged after the first frame, 1 only FIXFIX, 2 no time-differential coding, 4 no sinusoids, 8 default header only and never changed, 16 explicit header on the first frame */
+static SautiUsacSbrState g_sbrst;
+static SautiUsacElement g_sbr_el;
+static unsigned g_sbr_trail[2];                                               /* trailing border offset (the grid ends at 16 + t) of the previous frame, per channel */
+static int put_sbr_grid(Bw *sb, unsigned trail, SautiAacSbrGrid *g) {
+    const size_t start = sb->n; size_t pos = start;
+    unsigned cls = trail ? 2u + (rnd() & 1u) : rnd() % 4u, env, i, nl = 0, nt = 0, ptr_bits;
+    if (g_sbr_simple & 1u) cls = 0u;
+    put(sb, cls, 2);
+    if (cls == 0u) { const unsigned v = rnd() % 4u; put(sb, v, 2); put(sb, rnd() & 1u, 1); }
+    else {
+        if (cls == 1u) { nt = rnd() % 4u; put(sb, rnd() % 4u, 2); put(sb, nt, 2); }
+        else if (cls == 2u) { nl = rnd() % 4u; put(sb, trail, 2); put(sb, nl, 2); }
+        else { nl = rnd() % 4u; nt = rnd() % 4u; put(sb, trail, 2); put(sb, rnd() % 4u, 2); put(sb, nl, 2); put(sb, nt, 2); }
+        env = nl + nt + 1u;
+        for (i = 0; i < nl + nt; i++) put(sb, rnd() % 4u, 2);
+        ptr_bits = env > 7u ? 4u : env > 3u ? 3u : env > 1u ? 2u : 1u;               /* ceil(log2(env + 1)) */
+        put(sb, rnd() % (env + 1u), ptr_bits);
+        for (i = 0; i < env; i++) put(sb, rnd() & 1u, 1);
+    }
+    return sauti_aac_sbr_grid_parse_max(sb->b, (sb->n + 7u) / 8u, &pos, 16u, SAUTI_AAC_SBR_MAX_ENV, g) && pos == sb->n;
+}
+static void put_sbr_env(Bw *sb, const SautiAacSbrGrid *g, const SautiAacSbrTables *t, unsigned amp_res, unsigned balanced, const uint8_t *df) {
+    unsigned e, j;
+    const unsigned eff = (g->frame_class == 0u && g->env_count == 1u) ? 0u : amp_res;
+    const int env_t = (int)(eff ? SAUTI_SBR_HUFF_ENV_3_0DB_T : SAUTI_SBR_HUFF_ENV_1_5DB_T) + (balanced ? 2 : 0);
+    uint32_t code; uint8_t bits;
+    for (e = 0; e < g->env_count; e++) {
+        const unsigned n = g->freq_res[e] ? t->n_high : t->n_low;
+        if (df[e]) { for (j = 0; j < n; j++) { if (!sauti_aac_sbr_huffman_codeword((SautiAacSbrHuffmanBook)env_t, rr(-2, 2), &code, &bits)) exit(1); put(sb, code, bits); } continue; }
+        put(sb, balanced ? (uint32_t)rr(4, 10) : (eff ? (uint32_t)rr(8, 14) : (uint32_t)rr(14, 30)), eff ? (balanced ? 5u : 6u) : (balanced ? 6u : 7u));
+        for (j = 1; j < n; j++) { if (!sauti_aac_sbr_huffman_codeword((SautiAacSbrHuffmanBook)(env_t + 1), rr(-2, 2), &code, &bits)) exit(1); put(sb, code, bits); }
+    }
+}
+static void put_sbr_noise(Bw *sb, const SautiAacSbrGrid *g, const SautiAacSbrTables *t, unsigned balanced, const uint8_t *df) {
+    unsigned e, j;
+    uint32_t code; uint8_t bits;
+    for (e = 0; e < g->noise_count; e++) {
+        if (df[e]) {
+            const int book = balanced ? SAUTI_SBR_HUFF_NOISE_BAL_3_0DB_T : SAUTI_SBR_HUFF_NOISE_3_0DB_T;
+            for (j = 0; j < t->n_noise; j++) { if (!sauti_aac_sbr_huffman_codeword((SautiAacSbrHuffmanBook)book, rr(-1, 1), &code, &bits)) exit(1); put(sb, code, bits); }
+            continue;
+        }
+        put(sb, balanced ? (uint32_t)rr(2, 6) : (uint32_t)rr(8, 16), 5);
+        { const int book = balanced ? SAUTI_SBR_HUFF_ENV_BAL_3_0DB_F : SAUTI_SBR_HUFF_ENV_3_0DB_F;
+          for (j = 1; j < t->n_noise; j++) { if (!sauti_aac_sbr_huffman_codeword((SautiAacSbrHuffmanBook)book, rr(-1, 1), &code, &bits)) exit(1); put(sb, code, bits); } }
+    }
+}
+static int sbr_candidate(Bw *sb, const Opt *o, unsigned channels, int indep, const SautiUsacSbrState *work) {
+    unsigned info_present = 1, header_present = 1, cpl = 0, c, i;
+    SautiAacSbrHeader h = work->header;
+    const int repeat = (g_sbr_simple & 4096u) && work->have_header;              /* diagnostic: header and SbrInfo never change after the first frame */
+    SautiAacSbrMaster master; SautiAacSbrTables tables; SautiAacSbrPatches patches;
+    SautiAacSbrGrid grid[2];
+    uint8_t df_e[2][SAUTI_AAC_SBR_MAX_ENV], df_n[2][2];
+    memset(sb, 0, sizeof *sb); memset(df_e, 0, sizeof df_e); memset(df_n, 0, sizeof df_n);
+    if (!indep) { info_present = (g_sbr_simple & 8u) ? 0u : rnd() % 6u == 0; header_present = info_present ? (rnd() & 1u) : 0u; put(sb, info_present, 1); if (info_present) put(sb, header_present, 1); }
+    if (info_present && repeat) { put(sb, h.amp_res, 1); put(sb, h.xover_band, 4); put(sb, 0, 1); }
+    else if (info_present) { h.amp_res = (g_sbr_simple & 256u) ? work->header.amp_res : (rnd() & 1u); h.xover_band = (g_sbr_simple & 256u) ? work->header.xover_band : (unsigned)rr(0, 2); put(sb, h.amp_res, 1); put(sb, h.xover_band, 4); put(sb, 0, 1); }
+    if (header_present && repeat) {                                              /* the same header again (explicit, every field written) */
+        put(sb, 0, 1); put(sb, h.start_freq, 4); put(sb, h.stop_freq, 4); put(sb, 1, 1); put(sb, 1, 1);
+        put(sb, h.freq_scale, 2); put(sb, h.alter_scale, 1); put(sb, h.noise_bands, 2); put(sb, h.limiter_bands, 2); put(sb, h.limiter_gains, 2); put(sb, h.interpol_freq, 1); put(sb, h.smoothing_mode, 1);
+    } else if (header_present && getenv("SBR_HDR")) {                           /* diagnostic: SBR_HDR=start,stop,freq_scale,alter_scale,noise_bands,limiter_bands,limiter_gains,interpol,smoothing */
+        unsigned v[9] = { 5, 9, 2, 1, 2, 2, 2, 1, 1 }; unsigned k = 0; const char *p = getenv("SBR_HDR");
+        while (*p && k < 9u) { v[k++] = (unsigned)strtoul(p, (char **)&p, 10); if (*p == ',') p++; }
+        h.start_freq = v[0]; h.stop_freq = v[1]; h.freq_scale = v[2]; h.alter_scale = v[3]; h.noise_bands = v[4]; h.limiter_bands = v[5]; h.limiter_gains = v[6]; h.interpol_freq = v[7]; h.smoothing_mode = v[8];
+        {   const unsigned x1 = h.freq_scale != 2u || h.alter_scale != 1u || h.noise_bands != 2u, x2 = h.limiter_bands != 2u || h.limiter_gains != 2u || h.interpol_freq != 1u || h.smoothing_mode != 1u;
+            put(sb, 0, 1); put(sb, h.start_freq, 4); put(sb, h.stop_freq, 4); put(sb, x1, 1); put(sb, x2, 1);                 /* only the extras that differ from the defaults are sent */
+            if (x1) { put(sb, h.freq_scale, 2); put(sb, h.alter_scale, 1); put(sb, h.noise_bands, 2); }
+            if (x2) { put(sb, h.limiter_bands, 2); put(sb, h.limiter_gains, 2); put(sb, h.interpol_freq, 1); put(sb, h.smoothing_mode, 1); } }
+    } else if (header_present) {
+        const unsigned dflt = (g_sbr_simple & 128u) ? 1u : (g_sbr_simple & 16u) ? 0u : (rnd() & 1u);
+        put(sb, dflt, 1);
+        h.freq_scale = 2; h.alter_scale = 1; h.noise_bands = 2; h.limiter_bands = 2; h.limiter_gains = 2; h.interpol_freq = 1; h.smoothing_mode = 1;
+        if (dflt) {
+            h.start_freq = g_sbr_el.sbr_start_freq; h.stop_freq = g_sbr_el.sbr_stop_freq; h.freq_scale = g_sbr_el.sbr_freq_scale; h.alter_scale = g_sbr_el.sbr_alter_scale; h.noise_bands = g_sbr_el.sbr_noise_bands;
+            h.limiter_bands = g_sbr_el.sbr_limiter_bands; h.limiter_gains = g_sbr_el.sbr_limiter_gains; h.interpol_freq = g_sbr_el.sbr_interpol_freq; h.smoothing_mode = g_sbr_el.sbr_smoothing_mode;
+        }
+        else {
+            const unsigned x1 = ((g_sbr_simple & 64u) || (g_sbr_simple & 1024u)) ? 0u : (rnd() & 1u), x2 = ((g_sbr_simple & 64u) || (g_sbr_simple & 2048u)) ? 0u : (rnd() & 1u);
+            h.start_freq = (g_sbr_simple & 32u) ? g_sbr_el.sbr_start_freq : (unsigned)rr(3, 8); h.stop_freq = (g_sbr_simple & 32u) ? g_sbr_el.sbr_stop_freq : (unsigned)rr((int)h.start_freq + 3 > 6 ? (int)h.start_freq + 3 : 6, 12);
+            put(sb, h.start_freq, 4); put(sb, h.stop_freq, 4); put(sb, x1, 1); put(sb, x2, 1);
+            if (x1) { h.freq_scale = (unsigned)rr(1, 3); h.alter_scale = rnd() & 1u; h.noise_bands = (unsigned)rr(0, 3); put(sb, h.freq_scale, 2); put(sb, h.alter_scale, 1); put(sb, h.noise_bands, 2); }
+            if (x2) { h.limiter_bands = (unsigned)rr(0, 3); h.limiter_gains = (unsigned)rr(0, 3); h.interpol_freq = rnd() & 1u; h.smoothing_mode = rnd() & 1u; put(sb, h.limiter_bands, 2); put(sb, h.limiter_gains, 2); put(sb, h.interpol_freq, 1); put(sb, h.smoothing_mode, 1); }
+        }
+    }
+    if (!sauti_aac_sbr_payload_build(&h, o->out_rate, &master, &tables, &patches)) return 0;
+    if (channels == 2u) { cpl = g_sbr_trail[0] == g_sbr_trail[1] ? ((g_sbr_simple & 8192u) ? 1u : (g_sbr_simple & 16384u) ? 0u : (rnd() & 1u)) : 0u; put(sb, cpl, 1); }
+    for (c = 0; c < channels; c++) { if (c == 1u && cpl) { grid[1] = grid[0]; break; } if (!put_sbr_grid(sb, g_sbr_trail[c], &grid[c]) || ((g_sbr_simple & 512u) && grid[c].env_count > 5u && grid[c].frame_class != 0u)) return 0; }
+    for (c = 0; c < channels; c++) {                                               /* sbr_dtdf(): the first flag of an independent frame is not transmitted */
+        for (i = 0; i < grid[c].env_count; i++) { df_e[c][i] = (indep && i == 0u) ? 0u : (uint8_t)((g_sbr_simple & 2u) ? 0u : (rnd() & 1u)); if (!(indep && i == 0u)) put(sb, df_e[c][i], 1); }
+        for (i = 0; i < grid[c].noise_count; i++) { df_n[c][i] = (indep && i == 0u) ? 0u : (uint8_t)((g_sbr_simple & 2u) ? 0u : (rnd() & 1u)); if (!(indep && i == 0u)) put(sb, df_n[c][i], 1); }
+    }
+    for (c = 0; c < (cpl || channels == 1u ? 1u : 2u); c++) for (i = 0; i < tables.n_noise; i++) put(sb, rnd() & 3u, 2);     /* sbr_invf() */
+    if (channels == 2u && !cpl) {
+        put_sbr_env(sb, &grid[0], &tables, h.amp_res, 0, df_e[0]); put_sbr_env(sb, &grid[1], &tables, h.amp_res, 0, df_e[1]);
+        put_sbr_noise(sb, &grid[0], &tables, 0, df_n[0]); put_sbr_noise(sb, &grid[1], &tables, 0, df_n[1]);
+    } else for (c = 0; c < channels; c++) { put_sbr_env(sb, &grid[c], &tables, h.amp_res, cpl && c == 1u, df_e[c]); put_sbr_noise(sb, &grid[c], &tables, cpl && c == 1u, df_n[c]); }
+    for (c = 0; c < channels; c++) {                                               /* bs_add_harmonic_flag */
+        const unsigned on = (g_sbr_simple & 4u) ? 0u : rnd() % 3u == 0;
+        put(sb, on, 1);
+        if (on) for (i = 0; i < tables.n_high; i++) put(sb, rnd() & 1u, 1);
+    }
+    return 1;
+}
+static void put_sbr(Bw *w, const Opt *o, unsigned channels, int indep) {
+    unsigned attempt, i;
+    for (attempt = 0; attempt < 20000u; attempt++) {
+        static Bw sb;
+        SautiUsacSbrState trial = g_sbrst; SautiAacSbrPayloadFrame pl[2]; unsigned cpl = 0; SautiUsacBits b; int r;
+        if (!sbr_candidate(&sb, o, channels, indep, &g_sbrst)) continue;
+        b.data = sb.b; b.nbits = sb.n; b.pos = 0;
+        r = sauti_usac_sbr_parse(&g_sbr_el, channels, &b, indep, o->out_rate, &trial, pl, &cpl);
+        if (r != 1 || b.pos != sb.n) continue;
+        {   /* the reference decoder (FDK) treats envelope values above 35 (3 dB steps) / 70 (1.5 dB steps) as a corrupt frame and conceals it: keep the stream inside that range */
+            int ok = 1; unsigned cc, ee, bb;
+            for (cc = 0; cc < channels && ok; cc++)
+                for (ee = 0; ee < pl[cc].grid.env_count && ok; ee++) {
+                    const unsigned eff = (pl[cc].grid.frame_class == 0u && pl[cc].grid.env_count == 1u) ? 0u : trial.header.amp_res;
+                    const unsigned n = pl[cc].grid.freq_res[ee] ? pl[cc].tables.n_high : pl[cc].tables.n_low;
+                    for (bb = 0; bb < n; bb++) if (pl[cc].quant.env[ee][bb] > (eff ? 35u : 70u)) ok = 0;
+                }
+            if (!ok) continue;
+        }
+        if (getenv("SAUTI_USAC_GEN_TRACE")) {
+            unsigned e0; unsigned any_h = 0;
+            for (e0 = 0; e0 < pl[0].tables.n_high; e0++) any_h |= pl[0].harmonic[e0];
+            fprintf(stderr, "SBR ch %u cpl %u hdr start %u stop %u xover %u amp %u fs %u as %u nb %u lim %u/%u interp %u smooth %u | grid class %u env %u freqres %u,%u borders", channels, cpl, trial.header.start_freq, trial.header.stop_freq, trial.header.xover_band, trial.header.amp_res, trial.header.freq_scale, trial.header.alter_scale, trial.header.noise_bands, trial.header.limiter_bands, trial.header.limiter_gains, trial.header.interpol_freq, trial.header.smoothing_mode, pl[0].grid.frame_class, pl[0].grid.env_count, pl[0].grid.freq_res[0], pl[0].grid.freq_res[1]);
+            for (e0 = 0; e0 <= pl[0].grid.env_count; e0++) fprintf(stderr, " %u", pl[0].grid.env_border[e0]);
+            fprintf(stderr, " ptr %u df %u,%u harm %u\n", pl[0].grid.pointer, pl[0].control.df_env[0], pl[0].control.df_noise[0], any_h);
+        }
+        g_sbrst = trial;
+        for (i = 0; i < channels; i++) g_sbr_trail[i] = pl[i].grid.env_border[pl[i].grid.env_count] - 16u;
+        for (i = 0; i < sb.n; i++) put(w, (sb.b[i >> 3] >> (7u - (i & 7u))) & 1u, 1);
+        return;
+    }
+    fprintf(stderr, "generator: no valid SBR frame found\n"); exit(1);
+}
+
 int main(int argc, char **argv) {
     Opt o; const char *prefix; int a; unsigned f, i;
     Bw w, asc; FILE *fa, *fu; char path[1024];
@@ -247,6 +390,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--noise-fill")) o.noise_fill = 1;
         else if (!strcmp(argv[a], "--ms")) o.ms = 1;
         else if (!strcmp(argv[a], "--cplx")) o.cplx = 1;
+        else if (!strcmp(argv[a], "--sbr")) o.sbr = 1;
+        else if (!strcmp(argv[a], "--sbr-simple") && a + 1 < argc) g_sbr_simple = (unsigned)atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--sbr-start") && a + 1 < argc) o.sbr_start = (unsigned)atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--sbr-stop") && a + 1 < argc) o.sbr_stop = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--common")) o.common = 1;
         else if (!strcmp(argv[a], "--tns")) o.tns = 1;
         else if (!strcmp(argv[a], "--on-lr") && a + 1 < argc) g_force_on_lr = atoi(argv[++a]);
@@ -263,12 +410,36 @@ int main(int argc, char **argv) {
     }
     if (o.channels < 1 || o.channels > 2 || (o.len != 1024 && o.len != 768) || o.rate_idx > 12) { fprintf(stderr, "bad options\n"); return 2; }
     if (o.ms || o.cplx) o.common = 1;
+    if (o.sbr && o.len != 1024u) { fprintf(stderr, "--sbr needs --len 1024 (2:1)\n"); return 2; }
+    if (!o.sbr_start) o.sbr_start = 5;
+    if (!o.sbr_stop) o.sbr_stop = 9;
+    o.out_rate = (unsigned)sauti_usac_samplerate[o.rate_idx];
+    { static const unsigned limit[11] = { 92017, 75132, 55426, 46009, 37566, 27713, 23004, 18783, 13856, 11502, 9391 };
+      const unsigned core_rate = o.sbr ? o.out_rate / 2u : o.out_rate; unsigned k;
+      for (k = 0; k < 11u && core_rate < limit[k]; k++) ;
+      o.core_idx = k; }
+    memset(&g_sbr_el, 0, sizeof g_sbr_el); g_sbr_el.sbr_start_freq = o.sbr_start; g_sbr_el.sbr_stop_freq = o.sbr_stop; g_sbr_el.sbr_freq_scale = 2; g_sbr_el.sbr_alter_scale = 1; g_sbr_el.sbr_noise_bands = 2;
+    g_sbr_el.sbr_limiter_bands = 2; g_sbr_el.sbr_limiter_gains = 2; g_sbr_el.sbr_interpol_freq = 1; g_sbr_el.sbr_smoothing_mode = 1;
+    if (getenv("SBR_CFG")) {                                                /* SBR_CFG=start,stop,freq_scale,alter_scale,noise_bands,limiter_bands,limiter_gains,interpol,smoothing: the default header of the configuration */
+        unsigned v[9] = { o.sbr_start, o.sbr_stop, 2, 1, 2, 2, 2, 1, 1 }, k = 0; const char *p = getenv("SBR_CFG");
+        while (*p && k < 9u) { v[k++] = (unsigned)strtoul(p, (char **)&p, 10); if (*p == ',') p++; }
+        o.sbr_start = g_sbr_el.sbr_start_freq = v[0]; o.sbr_stop = g_sbr_el.sbr_stop_freq = v[1]; g_sbr_el.sbr_freq_scale = v[2]; g_sbr_el.sbr_alter_scale = v[3]; g_sbr_el.sbr_noise_bands = v[4];
+        g_sbr_el.sbr_limiter_bands = v[5]; g_sbr_el.sbr_limiter_gains = v[6]; g_sbr_el.sbr_interpol_freq = v[7]; g_sbr_el.sbr_smoothing_mode = v[8];
+    }
     /* AudioSpecificConfig: object type 42 (escape), sampling index, channel configuration, UsacConfig */
     memset(&asc, 0, sizeof asc);
     put(&asc, 31, 5); put(&asc, 42 - 32, 6); put(&asc, aac_index[o.rate_idx], 4); put(&asc, o.channels, 4);
-    put(&asc, o.rate_idx, 5); put(&asc, o.len == 768u ? 0u : 1u, 3); put(&asc, o.channels, 5);
+    put(&asc, o.rate_idx, 5); put(&asc, o.sbr ? 3u : (o.len == 768u ? 0u : 1u), 3); put(&asc, o.channels, 5);
     put(&asc, 0, 4);                                                       /* numElements - 1 = 0 (escapedValue(4, 8, 16)) */
     put(&asc, o.channels == 1u ? 0u : 1u, 2); put(&asc, 0, 1); put(&asc, o.noise_fill, 1);   /* SCE / CPE, tw_mdct = 0, noiseFilling */
+    if (o.sbr) {                                                            /* SBR configuration: no harmonic transposer, inter-TES, PVC; default header start / stop, no extra fields */
+        const unsigned x1 = g_sbr_el.sbr_freq_scale != 2u || g_sbr_el.sbr_alter_scale != 1u || g_sbr_el.sbr_noise_bands != 2u;
+        const unsigned x2 = g_sbr_el.sbr_limiter_bands != 2u || g_sbr_el.sbr_limiter_gains != 2u || g_sbr_el.sbr_interpol_freq != 1u || g_sbr_el.sbr_smoothing_mode != 1u;
+        put(&asc, 0, 3); put(&asc, o.sbr_start, 4); put(&asc, o.sbr_stop, 4); put(&asc, x1, 1); put(&asc, x2, 1);
+        if (x1) { put(&asc, g_sbr_el.sbr_freq_scale, 2); put(&asc, g_sbr_el.sbr_alter_scale, 1); put(&asc, g_sbr_el.sbr_noise_bands, 2); }
+        if (x2) { put(&asc, g_sbr_el.sbr_limiter_bands, 2); put(&asc, g_sbr_el.sbr_limiter_gains, 2); put(&asc, g_sbr_el.sbr_interpol_freq, 1); put(&asc, g_sbr_el.sbr_smoothing_mode, 1); }
+        if (o.channels == 2u) put(&asc, 0, 2);                              /* stereoConfigIndex 0 */
+    }
     put(&asc, 0, 1);                                                       /* usacConfigExtensionPresent */
     snprintf(path, sizeof path, "%s.asc", prefix); fa = fopen(path, "wb"); fwrite(asc.b, 1, (asc.n + 7u) / 8u, fa); fclose(fa);
     snprintf(path, sizeof path, "%s.aus", prefix); fu = fopen(path, "wb");
@@ -284,6 +455,7 @@ int main(int argc, char **argv) {
             put(&w, 0, 1);                                                  /* core_mode */
             put(&w, c->tns_data, 1);
             put_fd(&w, &o, c, &ac[0], 0, indep, 1);
+            if (o.sbr) put_sbr(&w, &o, 1, indep);
         } else {
             const int common = o.common ? 1 : (int)(rnd() % 2u);
             unsigned tns_active = o.tns && (rnd() % 2u), ms_mode = o.cplx ? (rnd() % 5u == 0 ? (unsigned)rr(0, 2) : 3u) : (o.ms ? (unsigned)rr(1, 2) : 0u), common_tns = 0, tns_on_lr = 0, max_ste, g, b;
@@ -332,6 +504,7 @@ int main(int argc, char **argv) {
             if (getenv("SAUTI_USAC_GEN_TRACE")) fprintf(stderr, "FRAME %u common %d ms %u tns_active %u common_tns %u on_lr %u tns_data %u/%u seq %u\n", f, common, ms_mode, tns_active, common_tns, tns_on_lr, ch[0].tns_data, ch[1].tns_data, ch[0].seq);
             put_fd(&w, &o, &ch[0], &ac[0], common, indep, !common_tns);
             put_fd(&w, &o, &ch[1], &ac[1], common, indep, !common_tns);
+            if (o.sbr) put_sbr(&w, &o, 2, indep);
             if (!(common && ms_mode == 3)) { memset(g_prev_re, 0, sizeof g_prev_re); memset(g_prev_im, 0, sizeof g_prev_im); }          /* the decoder's state after a frame without complex prediction */
             if (common) g_prev_ngroups = ch[0].ngroups;
             g_last_seq = ch[0].seq;

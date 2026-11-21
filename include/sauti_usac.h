@@ -1,16 +1,17 @@
 #ifndef SAUTI_USAC_H
 #define SAUTI_USAC_H
 /* USAC (xHE-AAC, MPEG-4 audio object type 42, ISO/IEC 23003-3): UsacConfig parser and the frequency-domain (FD) core decoder.
- * Implemented: UsacConfig (incl. SBR / MPEG Surround / extension element configuration), single channel and channel pair elements and LFE with arithmetic spectral coding, scale factors,
+ * Implemented: eSBR 2:1 in its classic form (sauti_usac_sbr.c), UsacConfig (incl. SBR / MPEG Surround / extension element configuration), single channel and channel pair elements and LFE with arithmetic spectral coding, scale factors,
  * noise filling, TNS, M/S stereo, long / start / stop / eight-short windows of 1024 or 768 lines.  Not yet: LPD (ACELP / TCX) frames, complex stereo prediction, eSBR, MPS212, time-warped MDCT -
  * frames that use them are reported as unsupported (-1) and change nothing. */
 #include "sauti_aac_lc_frame.h"
 #include "sauti_usac_ac.h"
+#include "sauti_aac_sbr_channel.h"
 #include <stddef.h>
 #include <stdint.h>
 
 #define SAUTI_USAC_MAX_ELEMENTS 16u
-#define SAUTI_USAC_MAX_CHANNELS 8u
+#define SAUTI_USAC_MAX_CHANNELS 2u                        /* mono and stereo; the state of a decoder instance is part of every engine checkpoint, so it stays small until more channels are decoded */
 
 enum { SAUTI_USAC_SCE = 0, SAUTI_USAC_CPE = 1, SAUTI_USAC_LFE = 2, SAUTI_USAC_EXT = 3 };
 
@@ -59,13 +60,21 @@ typedef struct {
 } SautiUsacChannel;
 
 typedef struct {
+    SautiAacSbrHeader header;                    /* persists across frames: amp_res / xover from SbrInfo, the rest from the header */
+    uint32_t have_header;
+    SautiAacSbrQuantState quant[2];
+} SautiUsacSbrState;
+
+typedef struct {
     SautiUsacChannel ch[SAUTI_USAC_MAX_CHANNELS];
+    SautiUsacSbrState sbr[SAUTI_USAC_MAX_ELEMENTS];       /* eSBR: header and entropy-coding history of every element */
+    SautiAacSbrChannel sbr_ch[SAUTI_USAC_MAX_CHANNELS];   /* eSBR: QMF, HF generation and adjustment state of every channel */
     unsigned channels;
 } SautiUsacState;
 
 void sauti_usac_state_init(SautiUsacState *state, const SautiUsacConfig *cfg);
 
-/* One access unit (usac_raw_data_block).  pcm receives cfg->out_frame_len x cfg->out_channels interleaved floats.  Atomic: 1 = decoded, 0 = malformed / truncated (state and pcm untouched),
+/* One access unit (usac_raw_data_block).  pcm receives cfg->out_frame_len x cfg->out_channels interleaved floats (1024 or, with 2:1 eSBR, 2048 samples per channel).  Atomic: 1 = decoded, 0 = malformed / truncated (state and pcm untouched),
  * -1 = valid but unsupported (LPD frame, complex prediction, eSBR, MPS212, timewarp).  `reason` may be NULL. */
 int sauti_usac_decode(const SautiUsacConfig *cfg, SautiUsacState *state, const uint8_t *au, size_t length, float *pcm, SautiAacReason *reason);
 #endif

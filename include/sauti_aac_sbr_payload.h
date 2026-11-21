@@ -104,6 +104,10 @@ int sauti_aac_sbr_payload_temporal_parse_ex(
     SautiAacSbrPayloadState *state,SautiAacSbrPayloadFrame *out,
     SautiAacSbrPayloadStage *stage);
 
+/* Shared with the USAC (eSBR) parser: frequency tables of a header at an output rate, and the assembly of a payload frame from its parts. */
+int sauti_aac_sbr_payload_build(const SautiAacSbrHeader *h,unsigned rate,SautiAacSbrMaster *m,SautiAacSbrTables *t,SautiAacSbrPatches *patches);
+int sauti_aac_sbr_payload_frame_finish(SautiAacSbrPayloadFrame *frame,const SautiAacSbrHeader *header,const SautiAacSbrGrid *grid,const SautiAacSbrControl *control,const SautiAacSbrQuantFrame *quant,const SautiAacSbrEnergyFrame *energy,const SautiAacSbrMaster *master,const SautiAacSbrTables *tables,const SautiAacSbrPatches *patches,const uint8_t harmonic[],uint32_t payload_data_bits);
+
 int sauti_aac_sbr_payload_sce_parse_ex(
     const uint8_t *bytes,size_t bytes_count,
     size_t bit_start,size_t payload_bits,unsigned output_rate,

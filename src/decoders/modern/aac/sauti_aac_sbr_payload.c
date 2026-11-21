@@ -19,9 +19,9 @@ static int bits(const uint8_t *data,size_t n,size_t *pos,
                 unsigned width,uint32_t *out) {
     return sauti_aac_bits_read_asm(data,n,pos,width,out);
 }
-static int build(const SautiAacSbrHeader *h,unsigned rate,
-                 SautiAacSbrMaster *m,SautiAacSbrTables *t,
-                 SautiAacSbrPatches *patches) {
+int sauti_aac_sbr_payload_build(const SautiAacSbrHeader *h,unsigned rate,
+                                SautiAacSbrMaster *m,SautiAacSbrTables *t,
+                                SautiAacSbrPatches *patches) {
     SautiAacSbrLimits lim;
     if(!sauti_aac_sbr_limits_compute(rate,h->start_freq,
         h->stop_freq,&lim))return 0;
@@ -115,7 +115,7 @@ static int payload_parse_impl(
         return 0;
     result.header=next.header;
     if(stage)*stage=SAUTI_SBR_PAYLOAD_TABLES;
-    if(!build(&result.header,output_rate,&result.master,
+    if(!sauti_aac_sbr_payload_build(&result.header,output_rate,&result.master,
               &result.tables,&result.patches))
         return 0;
 
@@ -293,7 +293,7 @@ static int cpe_control_parse(const uint8_t *data,size_t size,size_t *pos,
     *out=next;*pos=at;
     return 1;
 }
-static int payload_frame_finish(SautiAacSbrPayloadFrame *frame,
+int sauti_aac_sbr_payload_frame_finish(SautiAacSbrPayloadFrame *frame,
                                 const SautiAacSbrHeader *header,
                                 const SautiAacSbrGrid *grid,
                                 const SautiAacSbrControl *control,
@@ -363,7 +363,7 @@ int sauti_aac_sbr_payload_cpe_parse(
     SautiAacSbrMaster master;
     SautiAacSbrTables tables;
     SautiAacSbrPatches patches;
-    if(!build(&next.header,output_rate,&master,&tables,&patches))return 0;
+    if(!sauti_aac_sbr_payload_build(&next.header,output_rate,&master,&tables,&patches))return 0;
     if(!bits(packed,len,&pos,1u,&v))return 0;
     if(v){
         uint32_t reserved=0u;
@@ -439,7 +439,7 @@ int sauti_aac_sbr_payload_cpe_parse(
     SautiAacSbrPayloadCpeFrame result={0};
     result.coupling=coupling;
     for(unsigned ch=0;ch<2u;ch++)
-        if(!payload_frame_finish(&result.channel[ch],&next.header,&grid[ch],
+        if(!sauti_aac_sbr_payload_frame_finish(&result.channel[ch],&next.header,&grid[ch],
                                  &control[ch],&quant[ch],&energy[ch],&master,
                                  &tables,&patches,harmonic[ch],data_bits))
             return 0;

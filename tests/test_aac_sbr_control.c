@@ -20,7 +20,7 @@ static void layout(SautiAacSbrGrid *grid, SautiAacSbrTables *tables,
                    unsigned env, unsigned freq_noise) {
     memset(grid, 0, sizeof(*grid));
     memset(tables, 0, sizeof(*tables));
-    assert(env >= 1 && env <= SAUTI_AAC_SBR_MAX_ENV);
+    assert(env >= 1 && env <= SAUTI_AAC_SBR_CLASSIC_MAX_ENV);
     assert(freq_noise >= 1 && freq_noise <= SAUTI_AAC_SBR_MAX_NOISE_BANDS);
     grid->env_count = env;
     grid->noise_count = env == 1u ? 1u : 2u;
@@ -53,7 +53,7 @@ static void test_nonbyte_and_values(void) {
            out.df_env[2] == 1u);
     assert(out.df_noise[0] == 0u && out.df_noise[1] == 1u);
     for (unsigned i = 0; i < 4; ++i) assert(out.invf_mode[i] == i);
-    for (unsigned i = 3; i < SAUTI_AAC_SBR_MAX_ENV; ++i)
+    for (unsigned i = 3; i < SAUTI_AAC_SBR_CLASSIC_MAX_ENV; ++i)
         assert(out.df_env[i] == 0u);
     assert(out.invf_mode[4] == 0u);
 }
@@ -156,7 +156,7 @@ static void test_truncation_and_fail_closed(void) {
 
 static void test_matrix(void) {
     unsigned checked = 0, truncated = 0;
-    for (unsigned env = 1; env <= SAUTI_AAC_SBR_MAX_ENV; ++env)
+    for (unsigned env = 1; env <= SAUTI_AAC_SBR_CLASSIC_MAX_ENV; ++env)
       for (unsigned freq_noise = 1; freq_noise <= SAUTI_AAC_SBR_MAX_NOISE_BANDS;
            ++freq_noise)
         for (unsigned prefix = 0; prefix < 8; ++prefix)

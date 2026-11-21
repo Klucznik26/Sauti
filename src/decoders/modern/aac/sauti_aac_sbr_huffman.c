@@ -693,3 +693,20 @@ int sauti_aac_sbr_huffman_decode(const uint8_t *bytes, size_t size,
     }
     return 0;
 }
+
+/* The codeword of `delta` in `book` (the inverse of sauti_aac_sbr_huffman_decode, found by walking the trie): code in the low `bits` bits, MSB first on the wire.  1 = found. */
+static int huff_walk(const SautiSbrHuffTrie *trie, unsigned index, unsigned depth, uint32_t code, int32_t delta, uint32_t *out_code, uint8_t *out_bits) {
+    unsigned bit;
+    if (depth >= 20u) return 0;
+    for (bit = 0; bit < 2u; bit++) {
+        const int branch = trie->node[index][bit];
+        const uint32_t c = (code << 1) | bit;
+        if (branch < 0) { if (-branch - 64 == delta) { *out_code = c; *out_bits = (uint8_t)(depth + 1u); return 1; } }
+        else if ((unsigned)branch < trie->count && huff_walk(trie, (unsigned)branch, depth + 1u, c, delta, out_code, out_bits)) return 1;
+    }
+    return 0;
+}
+int sauti_aac_sbr_huffman_codeword(SautiAacSbrHuffmanBook book, int32_t delta, uint32_t *code, uint8_t *bits) {
+    if (!code || !bits || (unsigned)book >= SAUTI_SBR_HUFF_TABLE_COUNT) return 0;
+    return huff_walk(&sbr_trees[(unsigned)book], 0u, 0u, 0u, delta, code, bits);
+}

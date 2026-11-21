@@ -84,6 +84,14 @@ static int adjust_envelope(const SautiAacSbrPayloadFrame *f,
         curr[k]=ldexp(sum/(double)(hi-lo),30);
         if(!isfinite(curr[k]))return 0;
     }
+    if(!f->header.interpol_freq){                    /* bs_interpol_freq = 0: one measured power per envelope FREQUENCY band (the mean over its subbands), not per subband */
+        for(unsigned b=0u;b<n;b++){
+            double band_sum=0.0;
+            for(unsigned k=freq[b];k<freq[b+1u];k++)band_sum+=curr[k];
+            band_sum/=(double)(freq[b+1u]-freq[b]);
+            for(unsigned k=freq[b];k<freq[b+1u];k++)curr[k]=band_sum;
+        }
+    }
     const unsigned delta=sauti_aac_sbr_env_delta(f,env,before);
     SautiAacSbrGainLimitedFrame limited;
     if(!sauti_aac_sbr_gain_limit_partition_flags(e,curr,q,sine_index,sine_mapped,
@@ -180,7 +188,12 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
     double gseq[(4u+MAX_I)*64u],qseq[(4u+MAX_I)*64u];
     memset(gseq,0,sizeof(gseq));memset(qseq,0,sizeof(qseq));
     const unsigned total=tN-t0;
-    if(!ch->history_valid || ch->have_previous==0u ||
+    /* A header that changes the frequency tables is an SBR reset (14496-3 4.6.18.3.1): the noise / sine phase index starts again at 0 and the smoothing history restarts from the first envelope
+     * (the reference decoder's resetSbrEnvelopeCalc: phaseIndex = 0, startUp = 1). */
+    const SautiAacSbrHeader *ph=ch->have_previous?&ch->previous.header:NULL;
+    const int header_reset=ph && (ph->start_freq!=f->header.start_freq || ph->stop_freq!=f->header.stop_freq || ph->freq_scale!=f->header.freq_scale ||
+                                  ph->alter_scale!=f->header.alter_scale || ph->noise_bands!=f->header.noise_bands || ph->xover_band!=f->header.xover_band);
+    if(!ch->history_valid || ch->have_previous==0u || header_reset ||
        ch->previous.tables.kx!=kx || ch->previous.tables.m!=tab->m){
         for(unsigned j=0u;j<4u;j++)
             for(unsigned k=kx;k<k2;k++){
@@ -200,6 +213,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
                 qseq[(size_t)(4u+i-t0)*64u+k]=adj[e].noise[k];
             }
     const unsigned smoothing=f->bs_smoothing_mode==0u;
+    if(header_reset){next->index_noise=0u;next->index_sine=0u;}
     unsigned index_noise=next->index_noise,index_sine=next->index_sine;
     const unsigned m_max=tab->m;
     for(unsigned e=0u;e<envs;e++){

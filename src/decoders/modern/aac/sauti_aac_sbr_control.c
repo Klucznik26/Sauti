@@ -13,7 +13,7 @@ int sauti_aac_sbr_control_parse(const uint8_t *data, size_t size,
                                  SautiAacSbrControl *out) {
     if (!data || !bit_offset || !grid || !tables || !out ||
         size > SIZE_MAX / 8u || *bit_offset > size * 8u ||
-        grid->env_count < 1u || grid->env_count > SAUTI_AAC_SBR_MAX_ENV ||
+        grid->env_count < 1u || grid->env_count > SAUTI_AAC_SBR_CLASSIC_MAX_ENV ||
         grid->noise_count != (grid->env_count == 1u ? 1u : 2u) ||
         tables->n_noise < 1u ||
         tables->n_noise > SAUTI_AAC_SBR_MAX_NOISE_BANDS ||

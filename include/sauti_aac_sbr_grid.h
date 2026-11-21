@@ -7,8 +7,9 @@
 /* HE-AAC v1 (MPEG-4 SBR), Table 4.69 sbr_grid() time grid.
  * This parses and validates only the time/frequency-resolution grid,
  * not SBR Huffman envelopes, QMF, high-frequency synthesis or PCM.
- * Classic AAC SBR supports at most five envelopes (USAC excluded). */
-#define SAUTI_AAC_SBR_MAX_ENV 5u
+ * Classic AAC SBR supports at most five envelopes; the grid of USAC (eSBR) up to eight (FIXFIX with 1 << 3 envelopes). */
+#define SAUTI_AAC_SBR_CLASSIC_MAX_ENV 5u
+#define SAUTI_AAC_SBR_MAX_ENV 8u
 
 typedef struct {
     uint32_t frame_class;           /* 0 FIXFIX, 1 FIXVAR, 2 VARFIX, 3 VARVAR */
@@ -26,4 +27,8 @@ typedef struct {
 int sauti_aac_sbr_grid_parse(const uint8_t *data, size_t size,
                              size_t *bit_offset, unsigned time_slots,
                              SautiAacSbrGrid *out);
+/* The same with the largest accepted envelope count chosen by the caller (5 classic, 8 for USAC). */
+int sauti_aac_sbr_grid_parse_max(const uint8_t *data, size_t size,
+                                 size_t *bit_offset, unsigned time_slots,
+                                 unsigned max_env, SautiAacSbrGrid *out);
 #endif
