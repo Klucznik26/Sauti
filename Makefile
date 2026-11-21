@@ -2374,3 +2374,8 @@ $(OBJDIR)/test_usac_stream: tests/test_usac_stream.c tests/test_usac_vectors.h i
 .PHONY: test-usac-stream
 test-usac-stream: $(OBJDIR)/test_usac_stream
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_usac_stream
+$(OBJDIR)/test_usac_mc: tests/test_usac_mc.c tests/test_usac_mc_vectors.h tests/test_usac_mc_fingerprints.h include/sauti_usac.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_usac_mc.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-usac-mc
+test-usac-mc: $(OBJDIR)/test_usac_mc
+	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_usac_mc

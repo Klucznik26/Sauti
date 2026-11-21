@@ -1,6 +1,7 @@
 /* USAC (xHE-AAC) UsacConfig parser and frequency-domain core decoder, see sauti_usac.h.  Syntax per ISO/IEC 23003-3 (UsacConfig, UsacFrame, fd_channel_stream, ics_info, tns_data); the transform
  * chain reuses the AAC building blocks (scale-factor Huffman code, TNS data, IMDCT, windows); the spectrum is arithmetic coded (sauti_usac_ac.c). */
 #include "sauti_usac.h"
+#include "sauti_aac_lc_multi.h"
 #include "sauti_usac_sbr.h"
 #include "sauti_usac_tables.h"
 #include "sauti_aac_bands.h"
@@ -120,6 +121,7 @@ int sauti_usac_config_parse(const uint8_t *data, size_t size, size_t bit_offset,
         if (b.pos > b.nbits) return 0;
     }
     if (c.channel_config && total != c.out_channels) return 0;
+    if (c.channel_config > 7u) unsup = 1;                                   /* 6.1 / 7.1 variants / 22.2: the output order is not mapped yet */
     if (sauti_usac_get(&b, 1)) {                                            /* usacConfigExtensionPresent: loudness, stream id, fill - nothing the decoder needs */
         const unsigned n = sauti_usac_escaped(&b, 2, 4, 8) + 1u;
         for (i = 0; i < n; i++) {
@@ -353,7 +355,7 @@ static int fd_channel(const SautiUsacConfig *cfg, const SautiUsacElement *e, Sau
     global_gain = sauti_usac_get(b, 8);
     fd->noise_level = fd->noise_offset = 0;
     if (e->noise_fill) { fd->noise_level = sauti_usac_get(b, 3); fd->noise_offset = sauti_usac_get(b, 5); }
-    if (!common_window) { ics_info(b, fd); if (!fd_setup(cfg, fd)) { *reason = SAUTI_AAC_REASON_INVALID_SCE; return 0; } }
+    if (!common_window) { ics_info(b, fd); if (!fd_setup(cfg, fd) || (e->type == SAUTI_USAC_LFE && fd->seq != 0u)) { *reason = SAUTI_AAC_REASON_INVALID_SCE; return 0; } }   /* an LFE has long windows only */
     if (e->tw_mdct && !common_tw) {
         if (sauti_usac_get(b, 1)) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* tw_data: time-warped MDCT */
     }
@@ -500,9 +502,11 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
     memset(&cp, 0, sizeof cp);
     memset(fdv, 0, sizeof fdv);
     memset(ms_mask, 0, sizeof ms_mask);
-    for (c = 0; c < nch; c++) if (sauti_usac_get(b, 1)) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* core_mode 1: LPD */
+    if (e->type == SAUTI_USAC_LFE) {                                       /* UsacLfeElement: core_mode = 0 is implicit, fd_channel_stream(0, 0, 0, 0, indep): no tns_data_present, no noise filling */
+        if (cfg->sbr_mode) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* an LFE has no eSBR data: the reference upsamples it through the QMF, not implemented */
+    } else for (c = 0; c < nch; c++) if (sauti_usac_get(b, 1)) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* core_mode 1: LPD */
     if (nch == 1u) {
-        fd[0].tns_data_present = sauti_usac_get(b, 1);
+        if (e->type != SAUTI_USAC_LFE) fd[0].tns_data_present = sauti_usac_get(b, 1);
     } else {
         const unsigned tns_active = sauti_usac_get(b, 1);
         common_window = (int)sauti_usac_get(b, 1);
@@ -595,7 +599,7 @@ int sauti_usac_decode(const SautiUsacConfig *cfg, SautiUsacState *state, const u
     float stage[SAUTI_USAC_MAX_CHANNELS][2048];
     if (!reason) reason = &local;
     *reason = SAUTI_AAC_REASON_INVALID_SCE;
-    if (!cfg || !state || !au || !pcm || length > SIZE_MAX / 8u || cfg->out_channels < 1u || cfg->out_channels > 2u || cfg->channel_config == 0 || state->channels != cfg->out_channels) return 0;
+    if (!cfg || !state || !au || !pcm || length > SIZE_MAX / 8u || cfg->out_channels < 1u || cfg->out_channels > SAUTI_USAC_MAX_CHANNELS || cfg->channel_config == 0 || cfg->channel_config > 7u || state->channels != cfg->out_channels) return 0;
     b.data = au; b.nbits = length * 8u; b.pos = 0;
     next = (SautiUsacState *)malloc(sizeof *next);
     if (!next) return 0;
@@ -625,7 +629,11 @@ int sauti_usac_decode(const SautiUsacConfig *cfg, SautiUsacState *state, const u
         ch += e->type == SAUTI_USAC_CPE ? 2u : 1u;
     }
     if (b.pos > b.nbits || ch != cfg->out_channels) { *reason = SAUTI_AAC_REASON_INVALID_TRAILING; r = 0; goto fail; }
-    for (c = 0; c < ch; c++) for (i = 0; i < n; i++) pcm[(size_t)i * ch + c] = stage[c][i];
+    {                                                                       /* stream order (C, L R, Ls Rs, LFE ...) -> WAVE / FFmpeg order, the table of the multichannel AAC decoder */
+        uint8_t map[SAUTI_AAC_LC_MULTI_MAX];
+        if (!sauti_aac_lc_multi_output_map(cfg->channel_config, map)) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; r = -1; goto fail; }
+        for (c = 0; c < ch; c++) for (i = 0; i < n; i++) pcm[(size_t)i * ch + c] = stage[map[c]][i];
+    }
     memcpy(state, next, sizeof *state);
     free(next);
     *reason = SAUTI_AAC_REASON_OK;

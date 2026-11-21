@@ -62,4 +62,42 @@ for f in m1 m2 m3 m4 m5 s1 s2 s3 s4 c1 c2 c3 c4 c5 e1 e2 e3 e4 e5 e6 e7 e8 e9; d
     esac
   else echo "NOTE: no build/sauti_fdk_raw_oracle: FDK comparison skipped"; fi
 done
+# ---- more than two channels (usac_k5 / k6 / k7: configurations 5, 6, 7) ----------------------------------------------------------------------------------------------------------------------
+# FFmpeg decodes k5 (5.0) on every channel; it reads an LFE like an SCE and fails on k6 / k7.  FDK 2.0.3 accepts channel configurations 1 and 2 only, so every ELEMENT is decoded as a standalone mono / stereo stream
+# (SAUTI_USAC_GEN_ELEMS writes the element's own bits; an LFE behind core_mode 0 and tns_data_present 0) and compared with the channels of that element in our decode (WAVE order: map below).
+# The streams are regenerated here (deterministic) and must be identical to the committed fixtures.
+if [ -x build/sauti_fdk_raw_oracle ]; then
+  make -s build/sauti_usac_gen >/dev/null
+  mc() {  # mc NAME CONFIG "generator options"
+    local n="$1" c="$2"; shift 2
+    SAUTI_USAC_GEN_ELEMS=1 build/sauti_usac_gen "$W/$n" --config "$c" "$@" >/dev/null 2>&1
+    python3 -I tools/mp4_dump_aus.py "tests/data/usac_$n.m4a" "$W/${n}f" >/dev/null
+    if ! command cmp -s "$W/$n.aus" "$W/${n}f.aus"; then echo "usac_$n: regenerated stream differs from the fixture"; fail=1; return; fi
+    build/sauti_usac_raw "$W/$n" "$W/$n.sau" 2>/dev/null
+    if [ "$n" = k5 ]; then
+      ffmpeg -v error -y -i "tests/data/usac_$n.m4a" -f f32le "$W/$n.ff"; r="$(cmp "$W/$n.sau" "$W/$n.ff" 5 "$MIN")"; echo "usac_$n vs FFmpeg (5 channels): $r"; case "$r" in OK*) ;; *) fail=1;; esac
+    else echo "usac_$n vs FFmpeg: not compared (FFmpeg reads the LFE like an SCE)"; fi
+    r="$(python3 -I - "$W" "$n" "$c" "${USAC_MC_FDK_MIN_DB:-40}" <<'PY'
+import sys, subprocess, numpy as np
+W, n, cfg, mn = sys.argv[1], sys.argv[2], int(sys.argv[3]), float(sys.argv[4])
+maps = {5: [1, 2, 0, 3, 4], 6: [1, 2, 0, 5, 3, 4], 7: [1, 2, 0, 7, 5, 6, 3, 4]}            # output channel -> stream channel (sauti_aac_lc_multi_output_map)
+lay = {5: [0, 1, 1], 6: [0, 1, 1, 2], 7: [0, 1, 1, 1, 2]}                                   # 0 SCE, 1 CPE, 2 LFE
+m = maps[cfg]; a = np.fromfile("%s/%s.sau" % (W, n), dtype='<f4').reshape(-1, len(m)); off = 0; worst = 999.0; ok = True; txt = []
+for el, t in enumerate(lay[cfg]):
+    k = 2 if t == 1 else 1
+    p = "%s/%s.e%d" % (W, n, el)
+    subprocess.run(["build/sauti_fdk_raw_oracle", p + ".asc", p + ".aus", p + ".fdk"], capture_output=True)
+    b = np.fromfile(p + ".fdk", dtype='<f4').reshape(-1, k)
+    for j in range(k):
+        o = m.index(off + j); r = min(len(a), len(b)); x = a[:r, o]; y = b[:r, j]; e = float(np.sum((x - y) ** 2)); d = float(np.sum(y ** 2))
+        snr = 999.0 if e == 0 else 10 * np.log10(max(d, 1e-30) / e); worst = min(worst, snr); ok = ok and snr >= mn and len(a) == len(b) and d > 0; txt.append("%.0f" % snr)
+    off += k
+print("%s worst %.1f dB (elements: %s)" % ("OK" if ok else "FAIL", worst, " ".join(txt)))
+PY
+)"; echo "usac_$n vs FDK (per element): $r"; case "$r" in OK*) ;; *) fail=1;; esac
+  }
+  mc k5 5 --frames 12 --gain 125 --seed 811 --ms --short --kbd
+  mc k6 6 --frames 12 --gain 100 --seed 812 --ms --noise-fill --tns --on-lr 1 --short --kbd
+  mc k7 7 --frames 12 --gain 100 --seed 813 --cplx --noise-fill --tns --on-lr 1 --short --kbd
+fi
 exit $fail

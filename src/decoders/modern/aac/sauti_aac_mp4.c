@@ -97,7 +97,7 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     if(aot==31u){ unsigned e=getbits(asc,n,&bit,6); if(e==0xffffffffu)return 0; aot=32u+e; }
     if(aot==42u){                                                             /* USAC (xHE-AAC): UsacConfig() niesie czestotliwosc, kanaly i uklad ramki; jednostki dostepu nie sa ADTS */
         SautiUsacConfig uc;
-        if(sauti_usac_asc_parse(asc,n,&uc)!=1||uc.out_channels<1u||uc.out_channels>2u||n>sizeof(info->asc))return 0;
+        if(sauti_usac_asc_parse(asc,n,&uc)!=1||uc.out_channels<1u||uc.out_channels>SAUTI_USAC_MAX_CHANNELS||uc.channel_config>7u||n>sizeof(info->asc))return 0;
         info->aot=42u;info->rate_index=uc.aac_rate_index;info->sample_rate=uc.sample_rate;info->channel_config=uc.channel_config;info->frame480=0u;
         memcpy(info->asc,asc,n);info->asc_len=(unsigned)n;
         return 1;

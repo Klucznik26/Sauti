@@ -17,6 +17,8 @@
 
 typedef struct { uint8_t b[1 << 18]; size_t n; } Bw;
 static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n & 7u) == 0) w->b[w->n >> 3] = 0; if ((v >> bits) & 1u) w->b[w->n >> 3] |= (uint8_t)(0x80u >> (w->n & 7u)); w->n++; } }
+static FILE *g_elem_fu[8];
+static int g_lfe_short;                                                      /* diagnostic: the LFE uses an eight-short window from the second frame on (illegal: an LFE has long windows only) */
 static int g_probe_ch = -1, g_probe_line = 100;
 /* complex stereo prediction: the encoder-side mirror of the decoder's alpha state */
 static int16_t g_prev_re[8][64], g_prev_im[8][64];
@@ -69,7 +71,7 @@ static void put_spectrum(Bw *w, SautiUsacAcState *s, int reset, unsigned lg, uns
 }
 
 /* ---- stream model --------------------------------------------------------------------------------------------------------------------------------------------------------------- */
-typedef struct { unsigned sbr, sbr_start, sbr_stop, core_idx, out_rate; unsigned channels, rate_idx, len, frames, noise_fill, ms, cplx, common, tns, shorts, kbd, kbd_first, full_sfb, dense, zero_bands; int gain, amp; } Opt;
+typedef struct { unsigned sbr, sbr_start, sbr_stop, core_idx, out_rate; unsigned config, channels, rate_idx, len, frames, noise_fill, ms, cplx, common, tns, shorts, kbd, kbd_first, full_sfb, dense, zero_bands; int gain, amp; } Opt;
 typedef struct {
     unsigned seq, shape, max_sfb, grouping, ngroups, glen[8], nwin, wlen, stride, nswb, tns_max;
     const uint16_t *swb;
@@ -371,16 +373,21 @@ static void put_sbr(Bw *w, const Opt *o, unsigned channels, int indep) {
     fprintf(stderr, "generator: no valid SBR frame found\n"); exit(1);
 }
 
+/* state of one element: the arithmetic coder contexts, the window sequence history and the complex prediction history of its channels */
+typedef struct { SautiUsacAcState ac[2]; unsigned prev_seq[2]; int16_t prev_re[8][64], prev_im[8][64]; unsigned prev_ngroups, last_seq; } ElState;
+
 int main(int argc, char **argv) {
     Opt o; const char *prefix; int a; unsigned f, i;
     Bw w, asc; FILE *fa, *fu; char path[1024];
-    Chan ch[2]; SautiUsacAcState ac[2]; unsigned prev_seq[2] = { 0, 0 };
+    Chan ch[2]; SautiUsacAcState *ac; unsigned *prev_seq; unsigned layout[8] = { 0 }, nel = 1, el; static ElState elst[8];
     const unsigned rates[13] = { 96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350 };
     if (argc < 2) { fprintf(stderr, "usage: sauti_usac_gen PREFIX [options]\n"); return 2; }
     prefix = argv[1];
     memset(&o, 0, sizeof o); o.channels = 1; o.rate_idx = 3; o.len = 1024; o.frames = 20; o.gain = 90; o.amp = 12;
     for (a = 2; a < argc; a++) {
         if (!strcmp(argv[a], "--channels") && a + 1 < argc) o.channels = (unsigned)atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--config") && a + 1 < argc) o.config = (unsigned)atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--lfe-short")) g_lfe_short = 1;
         else if (!strcmp(argv[a], "--rate") && a + 1 < argc) o.rate_idx = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--len") && a + 1 < argc) o.len = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--frames") && a + 1 < argc) o.frames = (unsigned)atoi(argv[++a]);
@@ -408,7 +415,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--dense")) o.dense = 1;
         else { fprintf(stderr, "unknown option %s\n", argv[a]); return 2; }
     }
-    if (o.channels < 1 || o.channels > 2 || (o.len != 1024 && o.len != 768) || o.rate_idx > 12) { fprintf(stderr, "bad options\n"); return 2; }
+    if (o.config) {                                                         /* channel configurations 1..7: SCE / CPE / LFE elements in stream order (0 = SCE, 1 = CPE, 2 = LFE) */
+        static const unsigned cfgs[8][6] = { { 0 }, { 0, 9 }, { 1, 9 }, { 0, 1, 9 }, { 0, 1, 0, 9 }, { 0, 1, 1, 9 }, { 0, 1, 1, 2, 9 }, { 0, 1, 1, 1, 2, 9 } };
+        if (o.config > 7u || o.sbr) { fprintf(stderr, "bad options\n"); return 2; }
+        for (nel = 0, o.channels = 0; cfgs[o.config][nel] != 9u; nel++) { layout[nel] = cfgs[o.config][nel]; o.channels += layout[nel] == 1u ? 2u : 1u; }
+    } else layout[0] = o.channels == 2u ? 1u : 0u;
+    if (o.channels < 1 || o.channels > 8 || (!o.config && o.channels > 2) || (o.len != 1024 && o.len != 768) || o.rate_idx > 12) { fprintf(stderr, "bad options\n"); return 2; }
     if (o.ms || o.cplx) o.common = 1;
     if (o.sbr && o.len != 1024u) { fprintf(stderr, "--sbr needs --len 1024 (2:1)\n"); return 2; }
     if (!o.sbr_start) o.sbr_start = 5;
@@ -428,10 +440,13 @@ int main(int argc, char **argv) {
     }
     /* AudioSpecificConfig: object type 42 (escape), sampling index, channel configuration, UsacConfig */
     memset(&asc, 0, sizeof asc);
-    put(&asc, 31, 5); put(&asc, 42 - 32, 6); put(&asc, aac_index[o.rate_idx], 4); put(&asc, o.channels, 4);
-    put(&asc, o.rate_idx, 5); put(&asc, o.sbr ? 3u : (o.len == 768u ? 0u : 1u), 3); put(&asc, o.channels, 5);
-    put(&asc, 0, 4);                                                       /* numElements - 1 = 0 (escapedValue(4, 8, 16)) */
-    put(&asc, o.channels == 1u ? 0u : 1u, 2); put(&asc, 0, 1); put(&asc, o.noise_fill, 1);   /* SCE / CPE, tw_mdct = 0, noiseFilling */
+    put(&asc, 31, 5); put(&asc, 42 - 32, 6); put(&asc, aac_index[o.rate_idx], 4); put(&asc, o.config ? o.config : o.channels, 4);
+    put(&asc, o.rate_idx, 5); put(&asc, o.sbr ? 3u : (o.len == 768u ? 0u : 1u), 3); put(&asc, o.config ? o.config : o.channels, 5);
+    put(&asc, nel - 1u, 4);                                                /* numElements - 1 (escapedValue(4, 8, 16)) */
+    for (el = 0; el < nel; el++) {
+        put(&asc, layout[el], 2);                                           /* SCE / CPE / LFE */
+        if (layout[el] != 2u) { put(&asc, 0, 1); put(&asc, o.noise_fill, 1); }   /* tw_mdct = 0, noiseFilling (an LFE has neither) */
+    }
     if (o.sbr) {                                                            /* SBR configuration: no harmonic transposer, inter-TES, PVC; default header start / stop, no extra fields */
         const unsigned x1 = g_sbr_el.sbr_freq_scale != 2u || g_sbr_el.sbr_alter_scale != 1u || g_sbr_el.sbr_noise_bands != 2u;
         const unsigned x2 = g_sbr_el.sbr_limiter_bands != 2u || g_sbr_el.sbr_limiter_gains != 2u || g_sbr_el.sbr_interpol_freq != 1u || g_sbr_el.sbr_smoothing_mode != 1u;
@@ -443,12 +458,28 @@ int main(int argc, char **argv) {
     put(&asc, 0, 1);                                                       /* usacConfigExtensionPresent */
     snprintf(path, sizeof path, "%s.asc", prefix); fa = fopen(path, "wb"); fwrite(asc.b, 1, (asc.n + 7u) / 8u, fa); fclose(fa);
     snprintf(path, sizeof path, "%s.aus", prefix); fu = fopen(path, "wb");
-    memset(ac, 0, sizeof ac);
+    if (getenv("SAUTI_USAC_GEN_ELEMS")) {                                   /* diagnostic: every element as a standalone mono (SCE, LFE) / stereo (CPE) stream PREFIX.eN.asc / .aus (the element bits behind the indep bit, an LFE behind core_mode 0 and tns_data_present 0): FDK cannot read channel configurations above 2 */
+        for (el = 0; el < nel; el++) {
+            Bw a2; const unsigned cc = layout[el] == 1u ? 2u : 1u; memset(&a2, 0, sizeof a2);
+            put(&a2, 31, 5); put(&a2, 42 - 32, 6); put(&a2, aac_index[o.rate_idx], 4); put(&a2, cc, 4); put(&a2, o.rate_idx, 5); put(&a2, o.len == 768u ? 0u : 1u, 3); put(&a2, cc, 5); put(&a2, 0, 4);
+            put(&a2, layout[el] == 1u ? 1u : 0u, 2); put(&a2, 0, 1); put(&a2, layout[el] == 2u ? 0u : o.noise_fill, 1); put(&a2, 0, 1);
+            snprintf(path, sizeof path, "%s.e%u.asc", prefix, el); fa = fopen(path, "wb"); fwrite(a2.b, 1, (a2.n + 7u) / 8u, fa); fclose(fa);
+            snprintf(path, sizeof path, "%s.e%u.aus", prefix, el); g_elem_fu[el] = fopen(path, "wb");
+        }
+    }
+    memset(elst, 0, sizeof elst);
     for (f = 0; f < o.frames; f++) {
         const int indep = f == 0 || f % 8u == 0;
         memset(&w, 0, sizeof w);
         put(&w, (uint32_t)indep, 1);
-        if (o.channels == 1u) {
+        for (el = 0; el < nel; el++) {
+        ElState *es = &elst[el]; const size_t eb0 = w.n; ac = es->ac; prev_seq = es->prev_seq;
+        memcpy(g_prev_re, es->prev_re, sizeof g_prev_re); memcpy(g_prev_im, es->prev_im, sizeof g_prev_im); g_prev_ngroups = es->prev_ngroups; g_last_seq = es->last_seq;
+        if (layout[el] == 2u) {                                             /* LFE: no core_mode, no TNS, no noise filling, long windows only */
+            Opt ol = o; Chan *c = &ch[0]; ol.noise_fill = 0; ol.tns = 0; ol.shorts = (unsigned)(g_lfe_short != 0);
+            memset(c, 0, sizeof *c); c->seq = (g_lfe_short && f >= 1u) ? 2u : 0u; c->shape = 0; c->grouping = c->seq == 2u ? (unsigned)rr(0, 127) : 0u; setup(&ol, c); fill_content(&ol, c, 0); c->tns_data = 0;
+            put_fd(&w, &ol, c, &ac[0], 0, indep, 0);
+        } else if (layout[el] == 0u) {
             Chan *c = &ch[0]; memset(c, 0, sizeof *c);
             c->seq = next_seq(prev_seq[0], &o); prev_seq[0] = c->seq; c->shape = (o.kbd && (f > 0 || o.kbd_first)) ? ((f == 0) ? 1u : (rnd() & 1u)) : 0u;
             c->grouping = c->seq == 2u ? (unsigned)rr(0, 127) : 0u; setup(&o, c); fill_content(&o, c, 0);
@@ -509,9 +540,17 @@ int main(int argc, char **argv) {
             if (common) g_prev_ngroups = ch[0].ngroups;
             g_last_seq = ch[0].seq;
         }
+        if (g_elem_fu[el]) {
+            Bw wl; size_t k; uint32_t n; uint8_t be[4]; memset(&wl, 0, sizeof wl);
+            put(&wl, (uint32_t)indep, 1); if (layout[el] == 2u) { put(&wl, 0, 1); put(&wl, 0, 1); }
+            for (k = eb0; k < w.n; k++) put(&wl, (uint32_t)((w.b[k >> 3] >> (7u - (k & 7u))) & 1u), 1);
+            n = (uint32_t)((wl.n + 7u) / 8u); be[0] = (uint8_t)(n >> 24); be[1] = (uint8_t)(n >> 16); be[2] = (uint8_t)(n >> 8); be[3] = (uint8_t)n; fwrite(be, 1, 4, g_elem_fu[el]); fwrite(wl.b, 1, n, g_elem_fu[el]);
+        }
+        memcpy(es->prev_re, g_prev_re, sizeof g_prev_re); memcpy(es->prev_im, g_prev_im, sizeof g_prev_im); es->prev_ngroups = g_prev_ngroups; es->last_seq = g_last_seq;
+        }
         { uint32_t n = (uint32_t)((w.n + 7u) / 8u); uint8_t be[4] = { (uint8_t)(n >> 24), (uint8_t)(n >> 16), (uint8_t)(n >> 8), (uint8_t)n }; fwrite(be, 1, 4, fu); fwrite(w.b, 1, n, fu); }
     }
-    fclose(fu);
+    fclose(fu); for (el = 0; el < nel; el++) if (g_elem_fu[el]) fclose(g_elem_fu[el]);
     (void)rates;
     fprintf(stderr, "wrote %u frames: %u channel(s), %u lines, rate index %u\n", o.frames, o.channels, o.len, o.rate_idx);
     return 0;

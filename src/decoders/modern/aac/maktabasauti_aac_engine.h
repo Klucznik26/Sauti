@@ -49,8 +49,8 @@ typedef struct {
         he_state_t he;
         SautiAacErState er;
         SautiAacLcnState lcn;                            /* V_ER z er_aot == 2: AAC-LC z ramka 960 */
-        SautiUsacState usac;                             /* V_ER z er_aot == 42: USAC (xHE-AAC), sauti_usac */
     } u;
+    SautiUsacState *usac_hs;                             /* V_ER z er_aot == 42: USAC (xHE-AAC), sauti_usac: stan na stercie (ok. 250 KiB), kopiowany gleboko jak lcm */
     SautiAacLcmState *lcm;                               /* AAC Main / LTP wielokanalowy (sauti_aac_lcm): stan na stercie (230 KiB), kopiowany gleboko przy punktach kontrolnych (lcm_dup) */
     uint64_t frames_in;                                  /* ramki ADTS zdekodowane */
     uint64_t pcm_out;                                    /* bloki PCM wyprodukowane (LC: = frames_in; HE-PS: o jeden mniej, patrz he_produce) */

@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 #define SAUTI_USAC_MAX_ELEMENTS 16u
-#define SAUTI_USAC_MAX_CHANNELS 2u                        /* mono and stereo; the state of a decoder instance is part of every engine checkpoint, so it stays small until more channels are decoded */
+#define SAUTI_USAC_MAX_CHANNELS 8u                        /* channel configurations 1..7 (up to 7.1); the state of a decoder instance (about 250 KiB) lives on the heap of the engine and is copied deeply at checkpoints */
 
 enum { SAUTI_USAC_SCE = 0, SAUTI_USAC_CPE = 1, SAUTI_USAC_LFE = 2, SAUTI_USAC_EXT = 3 };
 
