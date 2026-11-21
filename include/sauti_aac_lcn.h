@@ -12,7 +12,9 @@
 typedef struct {
     unsigned rate_index;       /* sampling_frequency_index of the core, 0..12 (0..11 for Main) */
     unsigned channel_config;   /* 1 or 2 */
+    unsigned er;               /* 1: error-resilient syntax without resilience tools (object types 17 ER AAC LC and 19 ER AAC LTP with `ltp`): no element ids / ID_END, see SAUTI_AAC_IDX_ER_FLAG; `frame960` selects 960 lines (LC only) */
     unsigned ltp;              /* 1: AAC LTP (object type 4): 1024 lines, ics_info ltp_data, long-term prediction from the decoder's own output (sauti_aac_ltp.h); exclusive with `main` */
+    unsigned frame960;         /* with `main`: frameLengthFlag = 1, 960 lines per frame (the predictor works on the first 960 states); not defined for LTP */
     unsigned main;             /* 1: AAC Main (object type 1): 1024 lines per frame, ics_info predictor_data, backward-adaptive prediction (sauti_aac_pred.h); 0: AAC-LC with 960 lines */
 } SautiAacLcnConfig;
 typedef struct {
@@ -26,4 +28,16 @@ void sauti_aac_lcn_state_init(SautiAacLcnState *state);
 /* Decodes one access unit to interleaved float PCM (channels x 960).  Atomic: on failure state and `pcm` are unchanged.  1 decoded, 0 malformed / truncated, -1 valid but unsupported
  * (SBR in a fill element, LFE / CCE / PCE elements, gain control, intensity outside a common-window pair). */
 int sauti_aac_lcn_decode(const SautiAacLcnConfig *config,SautiAacLcnState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason);
+/* The same for an access unit carried in an ADTS frame WITH error check (protection_absent = 0): `adts_header` points at the 7 header bytes, `crc` is the 16-bit value from the frame; the
+ * CRC-16 over the header and the protected bits of the channel element (the first 192 bits after its id, plus for a CPE the first 128 bits of the second channel; zero-padded when shorter)
+ * must match, otherwise 0 (malformed) and nothing changes. */
+int sauti_aac_lcn_decode_adts(const SautiAacLcnConfig *config,SautiAacLcnState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,const uint8_t adts_header[7],unsigned crc);
+/* Element level (shared with the multichannel decoder sauti_aac_lcm.h): the state pointers of one channel (pred / ltp may be NULL when the profile does not use them). */
+typedef struct { SautiAacLcSynthesis *syn; SautiAacPredState *pred; SautiAacLtpState *ltp; } SautiAacLcnChannel;
+unsigned sauti_aac_lcn_index(const SautiAacLcnConfig *config);       /* the packed index (rate + layout + profile flag) of a configuration */
+/* One channel element (id 0 SCE, 1 CPE, 3 LFE) that starts at bit `at` (its id included): parse, dequantise, PNS / M/S / intensity, prediction, synthesis, LTP buffer update.  The channel
+ * states and *pns_seed advance in place (callers work on copies and drop them on failure); *pos = end of the element; out[0] (out[1] for a CPE) = output in decoder units.  1 / 0 / -1.
+ * adts_header / adts_crc as in sauti_aac_lcn_decode_adts (NULL = no check). */
+int sauti_aac_lcn_element(const SautiAacLcnConfig *config,unsigned idx,unsigned id,const uint8_t *au,size_t length,size_t at,size_t *pos,
+                          SautiAacLcnChannel ch[2],uint32_t *pns_seed,float out[2][1024],SautiAacReason *reason,const uint8_t *adts_header,unsigned adts_crc);
 #endif

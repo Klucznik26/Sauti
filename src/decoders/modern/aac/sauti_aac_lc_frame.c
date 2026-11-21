@@ -26,7 +26,8 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
      * carrying an encoder identification string. Inspect each FIL
      * extension before skipping it; never discard SBR/PS or arbitrary
      * unknown extensions, which may alter output sample rate/content. */
-    for(;;){
+    const unsigned er=SAUTI_AAC_IDX_IS_ER(rate_index);
+    for(;!er;){
         size_t probe=pos;
         uint32_t id=0;
         if(!read(raw,length,&probe,3,&id))return 0;
@@ -36,12 +37,14 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
         if(skipped==-1){*reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;return -1;}
         if(skipped!=1)return 0;
     }
-    size_t probe=pos;
-    uint32_t first_id=0;
-    if(!read(raw,length,&probe,3,&first_id))return 0;
-    if(first_id!=element_id){
-        *reason=SAUTI_AAC_REASON_UNSUPPORTED_PREFIX;
-        return -1;
+    if(!er){
+        size_t probe=pos;
+        uint32_t first_id=0;
+        if(!read(raw,length,&probe,3,&first_id))return 0;
+        if(first_id!=element_id){
+            *reason=SAUTI_AAC_REASON_UNSUPPORTED_PREFIX;
+            return -1;
+        }
     }
     SautiAacScePrefix sce;
     if(!sauti_aac_lc_sce_prefix_parse_idx(raw,length,&pos,element_id,rate_index,&sce)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
@@ -70,15 +73,17 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
         have_pulse=1u;
     }
     if(!read(raw,length,&pos,1,&flag))return 0;
+    uint32_t tns_flag=flag;
     if(flag){
         next.tns_present=1u;
-        if(!sauti_aac_tns_parse(raw,length,&pos,&next.ics,&next.tns)){
+        if(!er && !sauti_aac_tns_parse(raw,length,&pos,&next.ics,&next.tns)){
             *reason=SAUTI_AAC_REASON_INVALID_SCE;
             return 0;
         }
-    } /* tns_data_present */
+    } /* tns_data_present (ER syntax: the data follows the gain_control_data_present flag) */
     if(!read(raw,length,&pos,1,&flag))return 0;
     if(flag){*reason=SAUTI_AAC_REASON_GAIN_CONTROL;return -1;} /* gain_control_data_present */
+    if(er && tns_flag && !sauti_aac_tns_parse(raw,length,&pos,&next.ics,&next.tns)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
     for(unsigned i=0;i<next.sections.section_count;i++)
         if(next.sections.sections[i].codebook>=14u){*reason=SAUTI_AAC_REASON_INTENSITY;return -1;}
     if(!sauti_aac_lc_spectral_data_parse(raw,length,&pos,rate_index,

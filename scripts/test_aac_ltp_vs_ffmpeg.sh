@@ -5,6 +5,8 @@
 #   FAAD2 (libfaad.so.2 through tools/sauti_faad_raw_oracle.c) only as a coarse second opinion, ~70-82 dB: its long-term buffer is coarser, so the bound is LTP_FAAD_MIN_DB (default 55; a structural
 #     difference gives < 20 dB).  Used on files up to 32 kHz (below that FAAD2 enables implicit SBR and doubles the output rate).
 # bounds: LTP_MIN_DB (default 130).  SKIP, stated loudly, exit 0 without ffmpeg / numpy / libfaad: that is not a proof of agreement.
+# Multichannel files (channel_configuration 3..7) go to FFmpeg only; the *_crc.aac files (ADTS with the error check) decode like the plain ADTS stream (FFmpeg ignores the check; the check
+# itself is exercised by the test).
 # usage: scripts/test_aac_ltp_vs_ffmpeg.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -31,14 +33,14 @@ print("%s %.2f dB at lag %d over %d frames (lengths %d / %d)" % ("OK" if best an
 PY
 }
 fail=0
-files="ltp_st.m4a ltp_st.aac ltp_st.loas ltp_mono.m4a ltp_long.m4a ltp_var.m4a $(cd tests/data && ls ltp_r[01][0-9].m4a)"
+files="ltp_st.m4a ltp_st.aac ltp_st_crc.aac ltp_st.loas ltp_c3_long.m4a ltp_c4.m4a ltp_c5.m4a ltp_c6.m4a ltp_c6_pns.m4a ltp_c7.m4a ltp_mono.m4a ltp_long.m4a ltp_var.m4a $(cd tests/data && ls ltp_r[01][0-9].m4a)"
 for f in $files; do
-  ch=2; case "$f" in ltp_mono*|ltp_long*) ch=1;; esac
+  ch=2; case "$f" in ltp_mono*|ltp_long*) ch=1;; ltp_c3*) ch=3;; ltp_c4*) ch=4;; ltp_c5*) ch=5;; ltp_c6*) ch=6;; ltp_c7*) ch=8;; esac
   build/maktabasauti_cli "tests/data/$f" "$W/s.sau" | sed "s/^/$f: /"
   ffmpeg -v error -y -i "tests/data/$f" -f f32le "$W/s.ff"; r="$(cmp "$W/s.sau" "$W/s.ff" "$ch" "$MIN" 0)"; echo "$f vs FFmpeg: $r"; case "$r" in OK*) ;; *) fail=1;; esac
   if [ "$HAVE_FAAD" = 1 ]; then
     case "$f" in
-      *.aac|*.loas|ltp_r06*|ltp_r07*|ltp_r08*|ltp_r09*|ltp_r10*|ltp_r11*|ltp_r12*) ;;
+      *.aac|*.loas|ltp_c[3-7]*|ltp_r06*|ltp_r07*|ltp_r08*|ltp_r09*|ltp_r10*|ltp_r11*|ltp_r12*) ;;
       *) python3 -I tools/mp4_dump_aus.py "tests/data/$f" "$W/s" >/dev/null
          build/sauti_faad_raw_oracle "$W/s.asc" "$W/s.aus" "$W/s.faad" >/dev/null 2>&1
          r="$(cmp "$W/s.sau" "$W/s.faad" "$ch" "$FMIN" 2500)"; echo "$f vs FAAD2:  $r"; case "$r" in OK*) ;; *) fail=1;; esac ;;

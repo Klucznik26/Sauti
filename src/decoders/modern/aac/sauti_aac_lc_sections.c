@@ -78,8 +78,8 @@ int sauti_aac_lc_sce_prefix_parse_idx(const uint8_t *data,size_t length,
     SautiAacScePrefix next;
     memset(&next,0,sizeof(next));
     size_t pos=*bit_offset;
-    uint32_t id;
-    if(!bits(data,length,&pos,3,&id) || id!=element_id ||
+    uint32_t id=element_id;
+    if((!(idx&0x40000u) && (!bits(data,length,&pos,3,&id) || id!=element_id)) ||      /* ER syntax (SAUTI_AAC_IDX_ER_FLAG): no element id */
        !bits(data,length,&pos,4,&next.instance_tag) ||
        !bits(data,length,&pos,8,&next.global_gain) ||
        !sauti_aac_ics_info_parse_idx(data,length,&pos,idx,&next.ics) ||

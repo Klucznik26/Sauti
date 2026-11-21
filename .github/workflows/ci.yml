@@ -45,6 +45,8 @@ jobs:
         run: make test-aac-main
       - name: "AAC LTP (ltp_data parsing, forward MDCT / window weights / analysis TNS against their definitions, prediction against an independent model, fingerprints, every truncation and bit flips incl. the time buffers, MP4 == ADTS == LOAS, exact seek over checkpoints, 13 sampling rates, refusals)"
         run: make test-aac-ltp
+      - name: "ER AAC LC / LTP syntax (equivalence with the plain syntax, fingerprints, LOAS == MP4, every truncation and bit flips for stereo and 5.1, refusals)"
+        run: make test-aac-er-syntax
       - name: "DVSM / AVR streaming (non-seekable input, partial reads, WOULD_BLOCK at every point, truncation, checkpoints, bounded memory)"
         run: make test-maktabasauti-dvs-stream
       - name: "WAV / AIFF streaming (differential vs the old adapters, header matrix, placeholder sizes, float WAV, truncation, mutations, bounded memory)"

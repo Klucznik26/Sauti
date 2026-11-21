@@ -41,9 +41,9 @@ int sauti_aac_er_asc_parse(const uint8_t *asc,size_t length,SautiAacErAsc *out){
     if(sfi==15u)return -1;                                                    /* explicit 24-bit sampling frequency */
     if(sfi>12u)return 0;
     if(!get(asc,length,&pos,4,&chan))return 0;
-    if(aot!=SAUTI_AAC_AOT_ER_LD && aot!=SAUTI_AAC_AOT_ER_ELD)return -1;
+    if(aot!=SAUTI_AAC_AOT_ER_LD && aot!=SAUTI_AAC_AOT_ER_ELD && aot!=17u && aot!=19u)return -1;      /* 17 / 19: ER AAC LC / LTP (same GASpecificConfig as AAC-LD, decoded by sauti_aac_lcn) */
     a.aot=aot;a.rate_index=sfi;a.channel_config=chan;
-    if(aot==SAUTI_AAC_AOT_ER_LD){
+    if(aot!=SAUTI_AAC_AOT_ER_ELD){
         uint32_t frame_flag=0,core=0,ext=0;
         if(!get(asc,length,&pos,1,&frame_flag) || !get(asc,length,&pos,1,&core) || !get(asc,length,&pos,1,&ext))return 0;   /* GASpecificConfig */
         if(core)return -1;                                                    /* dependsOnCoreCoder: scalable AAC, not supported */
@@ -77,7 +77,7 @@ int sauti_aac_er_asc_parse(const uint8_t *asc,size_t length,SautiAacErAsc *out){
             }
         }
     }
-    if(aot==SAUTI_AAC_AOT_ER_LD || !a.ld_sbr){
+    if(aot!=SAUTI_AAC_AOT_ER_ELD || !a.ld_sbr){
         if(!get(asc,length,&pos,2,&ep))return 0;                              /* epConfig */
         if(ep)return -1;
     }

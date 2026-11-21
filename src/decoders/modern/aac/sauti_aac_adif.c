@@ -3,6 +3,7 @@
 #include "sauti_aac_cpe.h"
 #include "sauti_aac_lc_frame.h"
 #include "sauti_aac_syntax.h"
+#include "sauti_aac_layout.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -49,7 +50,7 @@ int sauti_aac_adif_probe(const uint8_t *data,size_t size){
 }
 /* Dlugosc jednego raw_data_block() w bajtach (od `raw`, w danych o dlugosci `length`); 0 = blad albo ucięty. */
 typedef struct { SautiAacCpeData cpe; SautiAacLcMonoData mono; } Scratch;     /* wlasnosc jednego wywolania sauti_aac_adif_to_adts: bez stanu globalnego */
-static size_t block_length(const uint8_t *raw,size_t length,unsigned rate_index,unsigned channels,Scratch *sc){
+static size_t block_length(const uint8_t *raw,size_t length,unsigned rate_index,unsigned channels,Scratch *sc){      /* rate_index: z flaga Main / LTP, gdy profil nie jest LC */
     SautiAacCpeData *cpe=&sc->cpe;
     SautiAacLcMonoData *mono=&sc->mono;
     size_t pos=0;
@@ -151,8 +152,9 @@ int sauti_aac_adif_parse_header(const uint8_t *data,size_t size,SautiAacAdifHead
     if(type==0u&&!skip(&b,20))return 0;
     Pce pce;
     if(!parse_pce(&b,&pce))return 0;
-    if(pce.object_type!=1u||pce.rate_index>12u||pce.front!=1u||pce.other!=0u)return 0;
-    memset(h,0,sizeof(*h));
+    if((pce.object_type!=0u&&pce.object_type!=1u&&pce.object_type!=3u)||pce.rate_index>12u||pce.front!=1u||pce.other!=0u)return 0;      /* Main, LC albo LTP */
+    if(pce.object_type==0u&&pce.rate_index>11u)return 0;                                                                                 /* Main: brak PRED_SFB_MAX dla 7350 Hz */
+    memset(h,0,sizeof(*h));h->object_type=pce.object_type;
     h->rate_index=pce.rate_index;h->sample_rate=rates[pce.rate_index];h->channels=pce.front_cpe?2u:1u;
     h->bitstream_type=type;h->bitrate=rate;h->header_bytes=b.pos/8u;
     return 1;
@@ -160,5 +162,6 @@ int sauti_aac_adif_parse_header(const uint8_t *data,size_t size,SautiAacAdifHead
 size_t sauti_aac_adif_scratch_size(void){return sizeof(Scratch);}
 size_t sauti_aac_adif_block_length(const uint8_t *raw,size_t length,const SautiAacAdifHeader *h,void *scratch){
     if(!raw||!h||!scratch)return 0;
-    return block_length(raw,length,h->rate_index,h->channels,(Scratch *)scratch);
+    const unsigned idx=h->rate_index|(h->object_type==0u?SAUTI_AAC_IDX_MAIN_FLAG:h->object_type==3u?SAUTI_AAC_IDX_LTP_FLAG:0u);
+    return block_length(raw,length,idx,h->channels,(Scratch *)scratch);
 }

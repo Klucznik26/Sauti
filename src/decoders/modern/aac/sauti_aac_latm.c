@@ -64,7 +64,7 @@ static int parse_asc_er(Br *b,Config *c,unsigned aot){
     const size_t bits=avail<sizeof(buf)*8u?avail:sizeof(buf)*8u;
     memset(buf,0,sizeof(buf));
     { Br t=*b;for(i=0;i<bits;i++){uint32_t v=0;if(!get(&t,1,&v))return 0;if(v)buf[i>>3]|=(uint8_t)(0x80u>>(i&7u));} }
-    if(sauti_aac_er_asc_parse(buf,(bits+7u)/8u,&er)!=1||er.ld_sbr||er.bits>bits||er.channel_config<1u||er.channel_config>2u)return 0;
+    if(sauti_aac_er_asc_parse(buf,(bits+7u)/8u,&er)!=1||er.ld_sbr||(aot==19u&&er.frame480)||er.bits>bits||er.channel_config<1u||(er.channel_config>2u&&aot!=17u&&aot!=19u))return 0;
     if(!skip(b,er.bits))return 0;
     c->aot=aot;c->rate_index=er.rate_index;c->sample_rate=rates[er.rate_index];c->channel_config=er.channel_config;c->frame480=er.frame480;c->sbr=c->ps=0;
     return 1;
@@ -72,7 +72,7 @@ static int parse_asc_er(Br *b,Config *c,unsigned aot){
 static int parse_asc(Br *b,Config *c){
     unsigned aot=0,ext_index=0,ext_rate=0;
     c->frame480=0;
-    { Br peek=*b;unsigned a=0;if(get_aot(&peek,&a)&&(a==23u||a==39u))return parse_asc_er(b,c,a); }
+    { Br peek=*b;unsigned a=0;if(get_aot(&peek,&a)&&(a==17u||a==19u||a==23u||a==39u))return parse_asc_er(b,c,a); }
     if(!get_aot(b,&aot)||!get_rate(b,&c->rate_index,&c->sample_rate))return 0;
     if(c->rate_index>12u)return 0;                       /* czestotliwosc jawna: poza tablica ADTS */
     uint32_t chan=0,flag=0;
@@ -87,7 +87,7 @@ static int parse_asc(Br *b,Config *c){
     c->aot=aot;
     /* GASpecificConfig */
     if(!get(b,1,&flag))return 0;
-    if(flag&&(aot==1u||aot==4u))return 0;               /* AAC Main / LTP: tylko 1024 linii */
+    if(flag&&(aot==4u||(aot==1u&&(c->channel_config<1u||c->channel_config>2u))))return 0;      /* 960 linii: AAC Main mono / stereo; LTP nie ma wariantu 960 */
     if(flag){                                            /* frameLengthFlag 1 = 960 linii: LC, mono i stereo (sauti_aac_lcn); SBR zglaszany w ASC jest tylko zapisany, a jednostki z SBR odrzuca dekoder */
         if(c->channel_config<1u||c->channel_config>2u)return 0;
         c->frame480=1u;
@@ -200,7 +200,7 @@ int sauti_aac_latm_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t
         }
         if(!ok){free(out);return 0;}
     }
-    if(!frames||!cfg.have||cfg.aot==1u||cfg.aot==4u||cfg.aot==23u||cfg.aot==39u||(cfg.aot==2u&&cfg.frame480)){free(out);return 0;}                  /* AAC-LD / ELD: tylko sciezka strumieniowa silnika (jednostki nie sa ADTS) */
+    if(!frames||!cfg.have||cfg.aot==1u||cfg.aot==4u||cfg.aot==17u||cfg.aot==19u||cfg.aot==23u||cfg.aot==39u||(cfg.aot==2u&&cfg.frame480)){free(out);return 0;}                  /* AAC-LD / ELD: tylko sciezka strumieniowa silnika (jednostki nie sa ADTS) */
     memset(info,0,sizeof(*info));
     info->aot=cfg.aot;info->rate_index=cfg.rate_index;info->sample_rate=cfg.sample_rate;info->channel_config=cfg.channel_config;
     info->sbr=cfg.sbr;info->ps=cfg.ps;info->frames=frames;
@@ -232,7 +232,7 @@ int sauti_aac_latm_convert_element(SautiAacLatmState *st,const uint8_t *payload,
         if(!slot||slot>8184u||b.nbits-b.pos<(size_t)slot*8u)return -1;
         const unsigned l=7u+slot;
         if(w+l>cap)return -1;
-        if(cfg->aot==1u||cfg->aot==4u||cfg->aot==23u||cfg->aot==39u||(cfg->aot==2u&&cfg->frame480))(void)sauti_aac_er_wrap_header(out+w,cfg->aot,cfg->rate_index,cfg->channel_config,cfg->frame480,slot);     /* AAC-LD / ELD i LC z ramka 960: naglowek wewnetrzny silnika */
+        if(cfg->aot==1u||cfg->aot==4u||cfg->aot==17u||cfg->aot==19u||cfg->aot==23u||cfg->aot==39u||(cfg->aot==2u&&cfg->frame480))(void)sauti_aac_er_wrap_header(out+w,cfg->aot,cfg->rate_index,cfg->channel_config,cfg->frame480,slot);     /* AAC-LD / ELD i LC z ramka 960: naglowek wewnetrzny silnika */
         else{
         out[w+0]=0xff;out[w+1]=0xf1;
         out[w+2]=(uint8_t)(0x40u|(cfg->rate_index<<2)|((cfg->channel_config>>2)&1u));

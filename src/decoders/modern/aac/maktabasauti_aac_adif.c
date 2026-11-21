@@ -74,7 +74,7 @@ static maktabasauti_result_t adif_fetch(dec_t *d) {
     if ((size_t)m != len) return MAKTABASAUTI_E_IO;
     l = 7u + len;
     d->frame[0] = 0xff; d->frame[1] = 0xf1;
-    d->frame[2] = (uint8_t)(0x40u | (p->hd.rate_index << 2) | ((p->hd.channels >> 2) & 1u));
+    d->frame[2] = (uint8_t)((p->hd.object_type << 6) | (p->hd.rate_index << 2) | ((p->hd.channels >> 2) & 1u));        /* ADTS profile = PCE profile: 0 Main, 1 LC, 3 LTP */
     d->frame[3] = (uint8_t)(((p->hd.channels & 3u) << 6) | ((l >> 11) & 3u));
     d->frame[4] = (uint8_t)(l >> 3);
     d->frame[5] = (uint8_t)(((l & 7u) << 5) | 0x1fu);

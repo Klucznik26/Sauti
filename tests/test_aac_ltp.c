@@ -20,6 +20,7 @@
 #include "sauti_aac_syntax.h"
 #include "sauti_aac_bands.h"
 #include "sauti_aac_layout.h"
+#include "sauti_aac_lcm.h"
 #include "test_aac_ltp_vectors.h"
 #include <math.h>
 #include <stdio.h>
@@ -182,11 +183,12 @@ static void test_prediction(void) {
 
 /* ---- 4. access units through sauti_aac_lcn_decode ------------------------------------------------------------------------------------------------------------- */
 typedef struct { const char *name; unsigned rate_index, channels; const uint8_t *const *au; const size_t *au_n; size_t frames; const double (*fp)[2][4]; } Stream;
-static void fingerprint(const float *pcm, unsigned n, unsigned ch, double out[2][4]) {
+static void fingerprint(const float *pcm, unsigned n, unsigned ch, double out[2][4]) {                    /* channel 0 and (for more than two channels) the last channel */
     unsigned c, i;
-    for (c = 0; c < ch; c++) {
+    for (c = 0; c < (ch < 2 ? ch : 2u); c++) {
+        const unsigned chan = c == 0 ? 0 : ch - 1;
         double s1 = 0, s2 = 0, s3 = 0, s4 = 0;
-        for (i = 0; i < n; i++) { const double v = (double)pcm[i * ch + c]; s1 += v; s2 += v * v; s3 += v * (double)(i + 1) / (double)n; if (i >= 2) { const double d = v - 2.0 * (double)pcm[(i - 1) * ch + c] + (double)pcm[(i - 2) * ch + c]; s4 += d * d; } }
+        for (i = 0; i < n; i++) { const double v = (double)pcm[i * ch + chan]; s1 += v; s2 += v * v; s3 += v * (double)(i + 1) / (double)n; if (i >= 2) { const double d = v - 2.0 * (double)pcm[(i - 1) * ch + chan] + (double)pcm[(i - 2) * ch + chan]; s4 += d * d; } }
         out[c][0] = s1; out[c][1] = s2; out[c][2] = s3; out[c][3] = s4;
     }
 }
@@ -278,7 +280,7 @@ static void test_files(void) {
         CHECK(finite && peak > 0.0005f && peak < 20.0f, "%s: peak %.4f (not silent, finite)", files[k].path, (double)peak);
         fingerprint(pcm, (unsigned)frames, files[k].channels, fp);
         if (g_dump) printf("    { \"%s\", %u, %u, %u, { {%.12e, %.12e, %.12e, %.12e}, {%.12e, %.12e, %.12e, %.12e} } }%s", files[k].path, files[k].channels, files[k].rate, files[k].frames, fp[0][0], fp[0][1], fp[0][2], fp[0][3], fp[1][0], fp[1][1], fp[1][2], fp[1][3], g_eol);
-        else for (c = 0; c < files[k].channels; c++) for (j = 0; j < 4; j++) CHECK(near(fp[c][j], files[k].fp[c][j]), "%s ch %u whole-file fingerprint %u: %.12e vs %.12e", files[k].path, c, j, fp[c][j], files[k].fp[c][j]);
+        else for (c = 0; c < (files[k].channels < 2 ? files[k].channels : 2u); c++) for (j = 0; j < 4; j++) CHECK(near(fp[c][j], files[k].fp[c][j]), "%s ch %u whole-file fingerprint %u: %.12e vs %.12e", files[k].path, c, j, fp[c][j], files[k].fp[c][j]);
         if (k < 3) {                                                                                         /* the three containers of ltp_st carry the same access units */
             one = decode_all(data, n, files[k].channels, files[k].rate, 1, &one_frames, "1-sample reads");
             CHECK(one && one_frames == frames && memcmp(one, pcm, frames * files[k].channels * sizeof(float)) == 0, "%s: 1-sample reads differ", files[k].path);
@@ -330,12 +332,161 @@ static void test_refusals_files(void) {
     CHECK(patched == 1u, "the AudioSpecificConfig of the fixture was found %u times", patched);
     free(data);
 }
+
 static void test_config(void) {
     SautiAacLcnConfig c; unsigned r, cc;
     for (r = 0; r <= 13; r++) for (cc = 0; cc <= 8; cc++) {
         cfg_ltp(&c, r, cc); CHECK(sauti_aac_lcn_frame_samples(&c) == ((r <= 12 && (cc == 1 || cc == 2)) ? 1024u : 0u), "LTP rate %u config %u: %u", r, cc, sauti_aac_lcn_frame_samples(&c));
         c.main = 1; CHECK(sauti_aac_lcn_frame_samples(&c) == 0u, "Main and LTP together are refused");
     }
+}
+
+/* ---- multichannel (sauti_aac_lcm): channel_configuration 3..7 ------------------------------------------------------------------------------------------------- */
+static void test_lcm_config(void) {
+    SautiAacLcnConfig c; unsigned r, cc;
+    for (r = 0; r <= 13; r++) for (cc = 0; cc <= 8; cc++) {
+        static const unsigned want[8] = { 0, 0, 0, 3, 4, 5, 6, 8 };
+        memset(&c, 0, sizeof c); c.rate_index = r; c.channel_config = cc; c.ltp = 1;
+        CHECK(sauti_aac_lcm_channels(&c) == ((cc <= 7 && r <= 12) ? want[cc] : 0u), "multichannel rate %u config %u: %u", r, cc, sauti_aac_lcm_channels(&c));
+        c.main = 1; c.ltp = 1; CHECK(sauti_aac_lcm_channels(&c) == 0u, "Main and LTP together");
+        memset(&c, 0, sizeof c); c.rate_index = r; c.channel_config = cc; CHECK(sauti_aac_lcm_channels(&c) == 0u, "neither Main nor LTP");
+    }
+}
+static void test_lcm_atomic(void) {
+    static SautiAacLcmState st, before; SautiAacLcnConfig cfg; float pcm[8 * 1024], keep[8 * 1024]; SautiAacReason why; size_t f, len, i; int round; long accepted = 0, rejected = 0;
+    static const uint8_t *const au[] = { ltp_c6_au0, ltp_c6_au1, ltp_c6_au2 }; static const size_t au_n[] = { sizeof ltp_c6_au0, sizeof ltp_c6_au1, sizeof ltp_c6_au2 };
+    memset(&cfg, 0, sizeof cfg); cfg.rate_index = 3; cfg.channel_config = 6; cfg.ltp = 1;
+    CHECK(sauti_aac_lcm_channels(&cfg) == 6u, "5.1");
+    sauti_aac_lcm_state_init(&st, &cfg);
+    for (i = 0; i < 8 * 1024; i++) keep[i] = pcm[i] = 12345.0f;
+    for (f = 0; f < 3; f++) {
+        for (len = 0; len <= au_n[f]; len++) {                                                               /* every truncation */
+            int r; before = st; memcpy(pcm, keep, sizeof pcm);
+            r = sauti_aac_lcm_decode(&cfg, &st, au[f], len, pcm, &why);
+            if (r != 1) { CHECK(memcmp(&before, &st, sizeof st) == 0 && memcmp(pcm, keep, sizeof pcm) == 0, "5.1 frame %zu len %zu: failure (%d) must leave state and output alone", f, len, r); rejected++; }
+            else { for (i = 0; i < 6u * 1024u; i++) CHECK(isfinite(pcm[i]), "non-finite output"); st = before; accepted++; }
+        }
+        for (round = 0; round < 60; round++) {                                                               /* random bit flips */
+            uint8_t b[4096]; int r, nflip = 1 + (int)(rnd() % 4u);
+            memcpy(b, au[f], au_n[f]);
+            while (nflip--) { const size_t at = rnd() % au_n[f]; b[at] ^= (uint8_t)(1u << (rnd() & 7u)); }
+            before = st; memcpy(pcm, keep, sizeof pcm);
+            r = sauti_aac_lcm_decode(&cfg, &st, b, au_n[f], pcm, &why);
+            if (r != 1) { CHECK(memcmp(&before, &st, sizeof st) == 0 && memcmp(pcm, keep, sizeof pcm) == 0, "5.1 frame %zu flip: failure (%d) must leave state and output alone", f, r); rejected++; }
+            else { st = before; accepted++; }
+        }
+        { SautiAacLcmState adv = st; sauti_aac_lcm_decode(&cfg, &adv, au[f], au_n[f], pcm, &why); st = adv; }
+    }
+    printf("5.1 ltp: %ld accepted, %ld rejected mutated or truncated access units\n", accepted, rejected);
+    CHECK(rejected > 50, "5.1: mutations never fail?");
+    { SautiAacLcnConfig bad = cfg; static const uint8_t none[1] = { 0 }; bad.channel_config = 2; CHECK(sauti_aac_lcm_decode(&bad, &st, none, 1, pcm, &why) == 0, "a stereo configuration is not for the multichannel decoder"); }
+}
+static void test_lcm_seek(void) {                                                                           /* 70 frames of 3 channels: the checkpoint at 64 carries the heap-allocated per-channel state */
+    size_t n, frames, got, i; uint8_t *data = slurp("tests/data/ltp_c3_long.m4a", &n); maktabasauti_stream_info_t info; maktabasauti_decoder_t *d; float *ref, a[3 * 500];
+    static const uint64_t targets[] = { 66000, 65536, 65535, 30000, 1000, 0, 71000, 66000, 40000 };
+    if (!data) { CHECK(0, "cannot read tests/data/ltp_c3_long.m4a"); return; }
+    ref = decode_all(data, n, 3, 48000, 4096, &frames, "multichannel seek reference");
+    d = open_mem(data, n, &info, NULL);
+    if (d && ref) {
+        for (i = 0; i < sizeof targets / sizeof targets[0]; i++) {
+            const size_t want = targets[i] + 500u <= frames ? 500u : (size_t)(frames - targets[i]);
+            maktabasauti_result_t r = maktabasauti_decoder_seek(d, targets[i], MAKTABASAUTI_SEEK_EXACT, NULL);
+            CHECK(r == MAKTABASAUTI_OK, "seek %llu -> %d", (unsigned long long)targets[i], (int)r);
+            r = maktabasauti_decoder_read(d, a, want, MAKTABASAUTI_FORMAT_F32, &got);
+            CHECK(got == want && memcmp(a, ref + targets[i] * 3u, want * 3u * sizeof(float)) == 0, "seek to %llu differs from sequential decoding (multichannel state)", (unsigned long long)targets[i]);
+        }
+    } else CHECK(0, "seek test setup");
+    if (d) maktabasauti_decoder_close(d);
+    free(ref); free(data);
+}
+/* ---- ADTS error check and ADIF ---------------------------------------------------------------------------------------------------------------------------------- */
+static size_t read_until_error(const uint8_t *data, size_t n, unsigned channels, float *out, size_t cap, int *result) {
+    maktabasauti_stream_info_t info; maktabasauti_decoder_t *d = open_mem(data, n, &info, NULL); size_t total = 0, got; maktabasauti_result_t r = MAKTABASAUTI_OK;
+    *result = 0;
+    if (!d) { *result = -999; return 0; }
+    CHECK(info.channels == channels, "channels %u", (unsigned)info.channels);
+    while (total < cap) {
+        r = maktabasauti_decoder_read(d, out + total * channels, 1024 < cap - total ? 1024 : cap - total, MAKTABASAUTI_FORMAT_F32, &got);
+        total += got;
+        if (r != MAKTABASAUTI_OK) break;
+    }
+    *result = (int)r; maktabasauti_decoder_close(d); return total;
+}
+static void test_crc_and_adif(void) {
+    size_t n_ref, n_crc, n_bad, n_adif; uint8_t *ref = slurp("tests/data/ltp_st.aac", &n_ref), *crc = slurp("tests/data/ltp_st_crc.aac", &n_crc), *bad = slurp("tests/data/ltp_st_crcbad.aac", &n_bad), *adif = slurp("tests/data/ltp_st.adif", &n_adif);
+    static float a[2 * 41 * 1024], b[2 * 41 * 1024]; size_t fa, fb; int ra, rb;
+    if (!ref || !crc || !bad || !adif) { CHECK(0, "cannot read the CRC / ADIF fixtures"); free(ref); free(crc); free(bad); free(adif); return; }
+    fa = read_until_error(ref, n_ref, 2, a, 41u * 1024u, &ra);
+    CHECK(fa == 40u * 1024u && ra == (int)MAKTABASAUTI_EOF, "plain ADTS: %zu frames, result %d", fa, ra);
+    fb = read_until_error(crc, n_crc, 2, b, 41u * 1024u, &rb);                                               /* protection_absent = 0: the CRC of every frame is checked and matches */
+    CHECK(fb == fa && rb == (int)MAKTABASAUTI_EOF && memcmp(a, b, fa * 2u * sizeof(float)) == 0, "ADTS with the error check decodes like the plain stream (%zu frames, result %d)", fb, rb);
+    fb = read_until_error(bad, n_bad, 2, b, 41u * 1024u, &rb);                                               /* a wrong CRC in access unit 7: the seven frames before it, then corrupt data */
+    CHECK(fb == 7u * 1024u && rb == (int)MAKTABASAUTI_E_CORRUPT_DATA && memcmp(a, b, fb * 2u * sizeof(float)) == 0, "a wrong CRC stops the stream after 7 frames: %zu frames, result %d", fb, rb);
+    fb = read_until_error(adif, n_adif, 2, b, 41u * 1024u, &rb);                                             /* ADIF carries the same raw_data_blocks */
+    CHECK(fb == fa && rb == (int)MAKTABASAUTI_EOF && memcmp(a, b, fa * 2u * sizeof(float)) == 0, "ADIF decodes like ADTS (%zu frames, result %d)", fb, rb);
+    { size_t off_c = 0, off_p = 0, i; unsigned rejected = 0, plain_ok = 0;                                    /* damage one protected byte of frame 5 in the CRC stream and in the plain stream */
+      for (i = 0; i < 5; i++) { off_c += (((size_t)crc[off_c + 3] & 3u) << 11) | ((size_t)crc[off_c + 4] << 3) | ((size_t)crc[off_c + 5] >> 5); off_p += (((size_t)ref[off_p + 3] & 3u) << 11) | ((size_t)ref[off_p + 4] << 3) | ((size_t)ref[off_p + 5] >> 5); }
+      for (i = 0; i < 12; i++) {
+          uint8_t *d2 = (uint8_t *)malloc(n_crc), *d3 = (uint8_t *)malloc(n_ref);
+          memcpy(d2, crc, n_crc); memcpy(d3, ref, n_ref); d2[off_c + 9 + 2 + i] ^= 0x10u; d3[off_p + 7 + 2 + i] ^= 0x10u;
+          fb = read_until_error(d2, n_crc, 2, b, 41u * 1024u, &rb); if ((rb == (int)MAKTABASAUTI_E_CORRUPT_DATA || rb == (int)MAKTABASAUTI_E_UNSUPPORTED_FEATURE) && fb == 5u * 1024u) rejected++;   /* parse-level refusals come before the CRC comparison */
+          fb = read_until_error(d3, n_ref, 2, b, 41u * 1024u, &rb); if (rb == (int)MAKTABASAUTI_EOF) plain_ok++;
+          free(d2); free(d3);
+      }
+      CHECK(rejected == 12u, "a flipped protected bit of frame 5 is caught by the CRC (%u of 12)", rejected);
+      CHECK(plain_ok >= 3u, "the same damage without the CRC mostly decodes (%u of 12): the CRC, not the parser, is what rejects it", plain_ok); }
+    free(ref); free(crc); free(bad); free(adif);
+}
+
+/* ---- every channel of the multichannel files: decoded PCM fingerprints (the file-level tests above pin only two channels) ------------------------------------------------------ */
+static const char *const ltp_mc_path[] = { "tests/data/ltp_c3.m4a", "tests/data/ltp_c4.m4a", "tests/data/ltp_c5.m4a", "tests/data/ltp_c6.m4a", "tests/data/ltp_c7.m4a", "tests/data/ltp_c3_long.m4a", "tests/data/ltp_c6_pns.m4a" };
+static const unsigned ltp_mc_channels[] = { 3, 4, 5, 6, 8, 3, 6 };
+#define ltp_MC_FILES (sizeof ltp_mc_path / sizeof ltp_mc_path[0])
+#include "test_aac_ltp_mc_fingerprints.h"
+static void fingerprint_channel(const float *pcm, size_t n, unsigned ch, unsigned chan, double out[4]) {
+    double s1 = 0, s2 = 0, s3 = 0, s4 = 0; size_t i;
+    for (i = 0; i < n; i++) { const double v = (double)pcm[i * ch + chan]; s1 += v; s2 += v * v; s3 += v * (double)(i + 1) / (double)n; if (i >= 2) { const double d = v - 2.0 * (double)pcm[(i - 1) * ch + chan] + (double)pcm[(i - 2) * ch + chan]; s4 += d * d; } }
+    out[0] = s1; out[1] = s2; out[2] = s3; out[3] = s4;
+}
+static void test_lcm_files(int dump) {
+    unsigned k, c, j;
+    if (dump) printf("static const size_t ltp_mc_frames[%u] = {", (unsigned)ltp_MC_FILES);
+    for (k = 0; k < ltp_MC_FILES; k++) {
+        size_t n, frames; uint8_t *data = slurp(ltp_mc_path[k], &n); float *pcm;
+        if (!data) { CHECK(0, "cannot read %s", ltp_mc_path[k]); continue; }
+        pcm = decode_all(data, n, ltp_mc_channels[k], 48000, 4096, &frames, ltp_mc_path[k]);
+        if (dump) { printf("%s%zu", k ? ", " : " ", frames); free(pcm); free(data); continue; }
+        CHECK(frames == ltp_mc_frames[k], "%s: %zu frames, expected %zu", ltp_mc_path[k], frames, ltp_mc_frames[k]);
+        for (c = 0; pcm && c < ltp_mc_channels[k]; c++) { double fp[4]; fingerprint_channel(pcm, frames, ltp_mc_channels[k], c, fp); for (j = 0; j < 4; j++) CHECK(near(fp[j], ltp_mc_fp[k][c][j]), "%s ch %u fingerprint %u: %.12e vs %.12e", ltp_mc_path[k], c, j, fp[j], ltp_mc_fp[k][c][j]); }
+        free(pcm); free(data);
+    }
+    if (dump) { printf(" };\nstatic const double ltp_mc_fp[%u][8][4] = {\n", (unsigned)ltp_MC_FILES);
+        for (k = 0; k < ltp_MC_FILES; k++) { size_t n, frames; uint8_t *data = slurp(ltp_mc_path[k], &n); float *pcm = data ? decode_all(data, n, ltp_mc_channels[k], 48000, 4096, &frames, ltp_mc_path[k]) : NULL;
+            printf("    {\n"); for (c = 0; pcm && c < ltp_mc_channels[k]; c++) { double fp[4]; fingerprint_channel(pcm, frames, ltp_mc_channels[k], c, fp); printf("        {%.12e, %.12e, %.12e, %.12e},\n", fp[0], fp[1], fp[2], fp[3]); } printf("    },\n"); free(pcm); free(data); }
+        printf("};\n"); }
+}
+
+/* ---- edges of sauti_aac_lcm_decode: a byte after the end of the block, more elements than the configuration has channels  ------------------------------------------------------ */
+static void test_lcm_edges(void) {
+    SautiAacLcnConfig cfg, cfg7; static SautiAacLcmState st, before; SautiAacReason why; float pcm[8 * 1024], keep[8 * 1024]; const size_t n = sizeof ltp_c6_au0; size_t i, last = 0, nbits; uint8_t buf[4096], over[8192]; int r;
+    memset(&cfg, 0, sizeof cfg); cfg.rate_index = 3; cfg.channel_config = 6; cfg.ltp = 1; cfg7 = cfg; cfg7.channel_config = 7;
+    for (i = 0; i < 8 * 1024; i++) keep[i] = pcm[i] = 12345.0f;
+    sauti_aac_lcm_state_init(&st, &cfg);
+    memcpy(buf, ltp_c6_au0, n); buf[n] = 0;                                                                   /* one whole byte after the padding of the block: not a valid block */
+    before = st; r = sauti_aac_lcm_decode(&cfg, &st, buf, n + 1u, pcm, &why);
+    CHECK(r != 1 && memcmp(&before, &st, sizeof st) == 0 && memcmp(pcm, keep, sizeof pcm) == 0, "a byte after the block must be refused (%d) and change nothing", r);
+    r = sauti_aac_lcm_decode(&cfg, &st, ltp_c6_au0, n, pcm, &why); CHECK(r == 1, "the block itself decodes (%d)", r); st = before;
+    for (i = 0; i < n * 8u; i++) if (ltp_c6_au0[i >> 3] & (0x80u >> (i & 7u))) last = i;                       /* the last 1 bit is the last bit of ID_END (111), the padding is zero */
+    CHECK(last >= 2u && ((ltp_c6_au0[(last - 2u) >> 3] >> (7u - ((last - 2u) & 7u))) & 1u) && ((ltp_c6_au0[(last - 1u) >> 3] >> (7u - ((last - 1u) & 7u))) & 1u), "ID_END found");
+    memset(over, 0, sizeof over); nbits = 0;                                                                  /* the elements of the 5.1 block twice (12 channels) in a 7.1 (8 channels) configuration */
+    for (i = 0; i < last - 2u; i++) { if (ltp_c6_au0[i >> 3] & (0x80u >> (i & 7u))) over[nbits >> 3] |= (uint8_t)(0x80u >> (nbits & 7u)); nbits++; }
+    for (i = 0; i < n * 8u; i++) { if (ltp_c6_au0[i >> 3] & (0x80u >> (i & 7u))) over[nbits >> 3] |= (uint8_t)(0x80u >> (nbits & 7u)); nbits++; }
+    sauti_aac_lcm_state_init(&st, &cfg7); before = st; for (i = 0; i < 8 * 1024; i++) pcm[i] = 12345.0f;
+    r = sauti_aac_lcm_decode(&cfg7, &st, over, (nbits + 7u) / 8u, pcm, &why);
+    CHECK(r != 1 && memcmp(&before, &st, sizeof st) == 0 && memcmp(pcm, keep, sizeof pcm) == 0, "9 channels of elements in an 8 channel configuration must be refused (%d) and change nothing", r);
+    { SautiAacLcnConfig e = cfg; memset(&e, 0, sizeof e); e.rate_index = 3; e.channel_config = 6; e.main = 1; e.er = 1; CHECK(sauti_aac_lcm_channels(&e) == 0u, "Main and ER together");
+      e.main = 0; e.ltp = 1; CHECK(sauti_aac_lcm_channels(&e) == 6u, "ER LTP is a valid combination"); e.er = 0; e.frame960 = 1; CHECK(sauti_aac_lcm_channels(&e) == 0u, "960 lines with more than two channels");
+      e.ltp = 0; e.main = 1; CHECK(sauti_aac_lcm_channels(&e) == 0u, "Main 960 with more than two channels"); }
 }
 
 int main(int argc, char **argv) {
@@ -347,6 +498,10 @@ int main(int argc, char **argv) {
         { "ltp stereo 48 kHz", 3, 2, st_au, st_n, 8, ltp_st_fp },
         { "ltp mono 44.1 kHz", 4, 1, mono_au, mono_n, 8, ltp_mono_fp } };
     unsigned k;
+    if (argc > 1 && !strcmp(argv[1], "--dump-mc")) {                                                         /* build/test_aac_ltp --dump-mc > tests/test_aac_ltp_mc_fingerprints.h */
+        printf("/* Per-channel fingerprints of every channel of the multichannel ltp files (same four sums as the other fingerprints), written by `build/test_aac_ltp --dump-mc` AFTER the decoder agreed with\n * FFmpeg (scripts/test_aac_ltp_vs_ffmpeg.sh, channel configurations 3..7); regenerate only after such a comparison. */\n");
+        test_lcm_files(1); return g_failures ? 1 : 0;
+    }
     if (argc > 1 && !strcmp(argv[1], "--dump")) {                                                            /* build/test_aac_ltp --dump > tests/test_aac_ltp_fingerprints.h */
         g_dump = 1;
         printf("/* Fingerprints of the decoded PCM (sum, sum of squares, position-weighted sum, energy of the second difference), written by `build/test_aac_ltp --dump` AFTER the decoder agreed with\n * FFmpeg (~136 dB) and FAAD2 (~60-80 dB) on these streams (scripts/test_aac_ltp_vs_ffmpeg.sh); regenerate only after such a comparison. */\n");
@@ -357,7 +512,7 @@ int main(int argc, char **argv) {
     }
     test_ics_info(); test_transforms(); test_prediction(); test_config();
     for (k = 0; k < 2; k++) { test_vectors(&streams[k]); test_atomic(&streams[k]); }
-    test_files(); test_seek(); test_refusals_files();
+    test_files(); test_seek(); test_lcm_config(); test_lcm_atomic(); test_lcm_seek(); test_lcm_files(0); test_lcm_edges(); test_crc_and_adif(); test_refusals_files();
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_aac_ltp: all passed\n"); return 0;
 }

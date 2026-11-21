@@ -4,7 +4,7 @@
  *   cmake -S . -B build -DBUILD_SHARED_LIBS=ON -DBUILD_PROGRAMS=OFF && cmake --build build
  * build the tool against THAT tree: cc -O2 -I$FDK/libAACdec/include -I$FDK/libSYS/include -o build/sauti_fdk_raw_oracle tools/sauti_fdk_raw_oracle.c -L$FDK/build -lfdk-aac -Wl,-rpath,$FDK/build
  * usage: sauti_fdk_raw_oracle ASC.bin AUS.bin OUT.f32   (inputs from tools/mp4_dump_aus.py)
- *        sauti_fdk_raw_oracle --loas IN.loas OUT.f32     (a LOAS/LATM stream decoded by the library's own transport layer). */
+ *        sauti_fdk_raw_oracle --loas IN.loas OUT.f32     (a LOAS/LATM stream decoded by the library's own transport layer)\n *        sauti_fdk_raw_oracle --adts IN.aac OUT.f32      (an ADTS stream; prints the number of frames and of CRC errors the library found). */
 #include "aacdecoder_lib.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +12,24 @@
 static unsigned char *slurp(const char *p,long *n){FILE *f=fopen(p,"rb");unsigned char *b;if(!f)return NULL;fseek(f,0,SEEK_END);*n=ftell(f);fseek(f,0,SEEK_SET);b=malloc((size_t)*n+1);if(fread(b,1,(size_t)*n,f)!=(size_t)*n)return NULL;fclose(f);return b;}
 int main(int argc,char **argv){
     long asc_n,aus_n,pos=0,frames=0,errs=0;unsigned char *asc,*aus;HANDLE_AACDECODER h;static INT_PCM pcm[8*2048];FILE *o;
+    if(argc==4&&!strcmp(argv[1],"--adts")){                                 /* an ADTS stream through the library's transport layer; counts the CRC errors it reports (the library checks the ADTS error check) */
+        long n=0,pos=0,frames=0,crc_errors=0,other=0;unsigned char *b=slurp(argv[2],&n);HANDLE_AACDECODER h=aacDecoder_Open(TT_MP4_ADTS,1);FILE *o=fopen(argv[3],"wb");static INT_PCM pcm[8*2048];static float f[8*2048];
+        if(!b||!o)return 2;
+        (void)aacDecoder_SetParam(h,AAC_PCM_LIMITER_ENABLE,0);
+        while(pos<n){
+            UINT valid,chunk=(UINT)(n-pos<4096?n-pos:4096);UCHAR *buf[1];UINT sz[1];AAC_DECODER_ERROR e;
+            buf[0]=b+pos;sz[0]=chunk;valid=chunk;e=aacDecoder_Fill(h,buf,sz,&valid);pos+=chunk-valid;
+            for(;;){
+                e=aacDecoder_DecodeFrame(h,pcm,(INT)(sizeof pcm/sizeof pcm[0]),0);
+                if(e==AAC_DEC_OK){CStreamInfo *si=aacDecoder_GetStreamInfo(h);size_t k,m=(size_t)si->frameSize*(size_t)si->numChannels;for(k=0;k<m;k++)f[k]=(float)((double)pcm[k]/2147483648.0);fwrite(f,sizeof(float),m,o);frames++;}
+                else if(e==AAC_DEC_NOT_ENOUGH_BITS)break;
+                else if(e==AAC_DEC_CRC_ERROR)crc_errors++;
+                else if(e!=AAC_DEC_TRANSPORT_SYNC_ERROR){other++;break;}
+            }
+            if(valid==chunk&&chunk==0)break;
+        }
+        fclose(o);fprintf(stderr,"frames %ld crc_errors %ld other_errors %ld\n",frames,crc_errors,other);return 0;
+    }
     if(argc==4&&!strcmp(argv[1],"--loas")){
         long n=0,pos=0,frames=0;unsigned char *b=slurp(argv[2],&n);HANDLE_AACDECODER h=aacDecoder_Open(TT_MP4_LOAS,1);FILE *o=fopen(argv[3],"wb");(void)aacDecoder_SetParam(h,AAC_PCM_LIMITER_ENABLE,0);static INT_PCM pcm[8*2048];static float f[8*2048];
         if(!b||!o)return 2;

@@ -131,7 +131,7 @@ AAC_HE_ADTS_CPE_QMF_SRC := src/decoders/modern/aac/sauti_aac_he_adts_cpe_qmf.c
 AAC_ADTS_CRC_SRC := src/decoders/modern/aac/sauti_aac_adts_crc.c
 AAC_LC_MULTI_SRC := src/decoders/modern/aac/sauti_aac_lc_multi.c
 AAC_MP4_SRC := src/decoders/modern/aac/sauti_aac_mp4.c src/decoders/modern/aac/sauti_decoder_aac_mp4.c src/decoders/modern/aac/sauti_aac_latm.c src/decoders/modern/aac/sauti_decoder_aac_latm.c src/decoders/modern/aac/sauti_aac_adif.c src/decoders/modern/aac/sauti_decoder_aac_adif.c
-AAC_NATIVE_ADAPTER_DEPS = $(sort $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_LC_MULTI_SRC) $(AAC_MP4_SRC) $(AAC_SBR_ADTS_CPE_DEPS) $(AAC_SBR_CHANNEL_CLI_SRC) src/decoders/modern/aac/sauti_decoder_aac_he.c src/decoders/modern/aac/sauti_aac_er.c src/decoders/modern/aac/sauti_aac_eld_window.c src/decoders/modern/aac/sauti_aac_lcn.c src/decoders/modern/aac/sauti_aac_pred.c src/decoders/modern/aac/sauti_aac_ltp.c)
+AAC_NATIVE_ADAPTER_DEPS = $(sort $(AAC_NATIVE_ADAPTER_SRC) $(AAC_CPE_SRC) $(AAC_LC_MULTI_SRC) $(AAC_MP4_SRC) $(AAC_SBR_ADTS_CPE_DEPS) $(AAC_SBR_CHANNEL_CLI_SRC) src/decoders/modern/aac/sauti_decoder_aac_he.c src/decoders/modern/aac/sauti_aac_er.c src/decoders/modern/aac/sauti_aac_eld_window.c src/decoders/modern/aac/sauti_aac_lcn.c src/decoders/modern/aac/sauti_aac_pred.c src/decoders/modern/aac/sauti_aac_ltp.c src/decoders/modern/aac/sauti_aac_lcm.c)
 AAC_LC_SECTIONS_SRC := src/decoders/modern/aac/sauti_aac_lc_sections.c
 AAC_HUFFMAN_SRC := src/decoders/modern/aac/sauti_aac_huffman.c
 AAC_HUFFMAN_ASM := $(OBJDIR)/sauti_aac_huffman.o
@@ -2246,13 +2246,18 @@ $(OBJDIR)/test_aac_er: tests/test_aac_er.c src/decoders/modern/aac/sauti_aac_er.
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -Iinclude -o $@ tests/test_aac_er.c src/sauti_decoder.c $(filter-out src/decoders/modern/aac/sauti_aac_er.c,$(AAC_NATIVE_ADAPTER_DEPS)) -lm -no-pie
 $(OBJDIR)/test_aac_lc960: tests/test_aac_lc960.c tests/test_aac_lc960_vectors.h tests/test_aac_lc960_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_aac_lc960.c $(MKS_DEPS) -lm -lpthread -no-pie
-$(OBJDIR)/test_aac_main: tests/test_aac_main.c tests/test_aac_main_vectors.h tests/test_aac_main_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+$(OBJDIR)/test_aac_main: tests/test_aac_main.c tests/test_aac_main_vectors.h tests/test_aac_main_fingerprints.h tests/test_aac_main_mc_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_aac_main.c $(MKS_DEPS) -lm -lpthread -no-pie
-$(OBJDIR)/test_aac_ltp: tests/test_aac_ltp.c tests/test_aac_ltp_vectors.h tests/test_aac_ltp_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+$(OBJDIR)/test_aac_ltp: tests/test_aac_ltp.c tests/test_aac_ltp_vectors.h tests/test_aac_ltp_fingerprints.h tests/test_aac_ltp_mc_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_aac_ltp.c $(MKS_DEPS) -lm -lpthread -no-pie
 .PHONY: test-aac-ltp
 test-aac-ltp: $(OBJDIR)/test_aac_ltp
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_aac_ltp
+$(OBJDIR)/test_aac_er_syntax: tests/test_aac_er_syntax.c tests/test_aac_er_syntax_vectors.h tests/test_aac_er_syntax_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_aac_er_syntax.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-aac-er-syntax
+test-aac-er-syntax: $(OBJDIR)/test_aac_er_syntax
+	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_aac_er_syntax
 .PHONY: test-aac-main
 test-aac-main: $(OBJDIR)/test_aac_main
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_aac_main

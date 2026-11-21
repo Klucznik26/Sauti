@@ -7,6 +7,7 @@
 #include "sauti_aac_cpe.h"
 #include "sauti_aac_er.h"
 #include "sauti_aac_lcn.h"
+#include "sauti_aac_lcm.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_he_adts_cpe.h"
 #include "sauti_aac_he_adts_mono.h"
@@ -48,6 +49,7 @@ typedef struct {
         SautiAacErState er;
         SautiAacLcnState lcn;                            /* V_ER z er_aot == 2: AAC-LC z ramka 960 */
     } u;
+    SautiAacLcmState *lcm;                               /* AAC Main / LTP wielokanalowy (sauti_aac_lcm): stan na stercie (230 KiB), kopiowany gleboko przy punktach kontrolnych (lcm_dup) */
     uint64_t frames_in;                                  /* ramki ADTS zdekodowane */
     uint64_t pcm_out;                                    /* bloki PCM wyprodukowane (LC: = frames_in; HE-PS: o jeden mniej, patrz he_produce) */
     int64_t in_offset;                                   /* pozycja wejscia nastepnej, jeszcze nie pobranej ramki */

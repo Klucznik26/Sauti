@@ -66,7 +66,8 @@ static maktabasauti_result_t adts_resync(dec_t *d) {
         for (i = first ? 1u : 0u; i + 7u <= (size_t)n; i++) {
             aac_adts_hdr_t nx;
             if (win[i] != 0xFFu || (win[i + 1] & 0xF6u) != 0xF0u || !aac_adts_parse_header(win + i, (size_t)n - i, &hd)) continue;
-            if (i + (size_t)hd.frame_bytes + 7u <= (size_t)n && !aac_adts_parse_header(win + i + hd.frame_bytes, (size_t)n - i - hd.frame_bytes, &nx)) continue;   /* widac nastepna ramke: musi byc poprawna */
+            if (i + (size_t)hd.frame_bytes + 7u <= (size_t)n) { if (!aac_adts_parse_header(win + i + hd.frame_bytes, (size_t)n - i - hd.frame_bytes, &nx) || nx.rate_index != hd.rate_index || nx.config != hd.config) continue; }   /* widac nastepna ramke: musi byc poprawna, z tym samym lancuchem parametrow (jak w probe_at) */
+            else if (hd.rate_index != d->rate_index || hd.config != d->config) continue;   /* nastepnej ramki nie widac: kandydat musi miec parametry trwajacego strumienia (profile Main / LTP zwiekszyly liczbe falszywych naglowkow; zmiana parametrow potwierdzona lancuchem przechodzi wyzej) */
             if (i) { int64_t rd = h->read(h->user, d->rd, win, i); if (rd < 0) return (maktabasauti_result_t)rd; }
             return MAKTABASAUTI_OK;
         }

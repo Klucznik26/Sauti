@@ -16,6 +16,10 @@
 /* bit 17: the stream is AAC LTP (object type 4): ics_info carries ltp_data (long-term prediction from the decoder's own output) instead of the Main predictor */
 #define SAUTI_AAC_IDX_LTP_FLAG 0x20000u
 #define SAUTI_AAC_IDX_IS_LTP(idx) (((unsigned)(idx) & SAUTI_AAC_IDX_LTP_FLAG) != 0u)
+/* bit 18: error-resilient syntax without resilience tools (object types 17 ER AAC LC and 19 ER AAC LTP, epConfig 0): the raw_data_block has no element ids, no ID_END, no DSE / FIL, each element
+ * starts with its 4-bit instance tag, and tns_data follows the gain_control_data_present flag */
+#define SAUTI_AAC_IDX_ER_FLAG 0x40000u
+#define SAUTI_AAC_IDX_IS_ER(idx) (((unsigned)(idx) & SAUTI_AAC_IDX_ER_FLAG) != 0u)
 /* Length of one transform window of the layout in `idx`: the stride of the natural [window][line] spectrum layout of short windows and the number of lines of a long window. */
 static inline unsigned sauti_aac_layout_window_len(unsigned idx, unsigned short_window) {
     switch (SAUTI_AAC_IDX_LAYOUT(idx)) {

@@ -45,13 +45,15 @@ static int channel_parse(const uint8_t *data,size_t length,size_t *pos,
         have_pulse=1u;
     }
     if(!get(data,length,pos,1,&v))return 0;
+    const uint32_t tns_flag=v;
     if(v){
         ch->tns_present=1u;
-        if(!sauti_aac_tns_parse(data,length,pos,&ch->ics,&ch->tns))
+        if(!SAUTI_AAC_IDX_IS_ER(rate) && !sauti_aac_tns_parse(data,length,pos,&ch->ics,&ch->tns))
             return 0;
     }
     if(!get(data,length,pos,1,&v))return 0;
     if(v){*reason=SAUTI_AAC_REASON_GAIN_CONTROL;return -1;}
+    if(SAUTI_AAC_IDX_IS_ER(rate) && tns_flag && !sauti_aac_tns_parse(data,length,pos,&ch->ics,&ch->tns))return 0;      /* ER syntax: tns_data follows the gain_control_data_present flag */
     for(unsigned i=0;i<ch->sections.section_count;i++)
         if(ch->sections.sections[i].codebook>=14u && !allow_intensity){
             *reason=SAUTI_AAC_REASON_INTENSITY;return -1;
@@ -73,7 +75,7 @@ int sauti_aac_lc_cpe_parse(const uint8_t *raw,size_t length,
     *reason=SAUTI_AAC_REASON_INVALID_SCE;
     size_t pos=*bit_offset;
     uint32_t id=0,tag=0,common=0;
-    if(!get(raw,length,&pos,3,&id)||id!=1u ||
+    if((!SAUTI_AAC_IDX_IS_ER(rate) && (!get(raw,length,&pos,3,&id)||id!=1u)) ||      /* ER syntax: no element id */
        !get(raw,length,&pos,4,&tag) ||
        !get(raw,length,&pos,1,&common))return 0;
     (void)tag;
