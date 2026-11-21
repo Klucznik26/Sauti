@@ -1,6 +1,7 @@
 /* USAC (xHE-AAC) UsacConfig parser and frequency-domain core decoder, see sauti_usac.h.  Syntax per ISO/IEC 23003-3 (UsacConfig, UsacFrame, fd_channel_stream, ics_info, tns_data); the transform
  * chain reuses the AAC building blocks (scale-factor Huffman code, TNS data, IMDCT, windows); the spectrum is arithmetic coded (sauti_usac_ac.c). */
 #include "sauti_usac.h"
+#include "sauti_usac_lpd.h"
 #include "sauti_aac_lc_multi.h"
 #include "sauti_usac_sbr.h"
 #include "sauti_usac_tables.h"
@@ -159,7 +160,7 @@ int sauti_usac_asc_parse(const uint8_t *asc, size_t size, SautiUsacConfig *out) 
 void sauti_usac_state_init(SautiUsacState *s, const SautiUsacConfig *cfg) {
     unsigned i, ch = 0;
     memset(s, 0, sizeof *s);
-    for (i = 0; i < SAUTI_USAC_MAX_CHANNELS; i++) s->ch[i].prev_shape = 0xffu;
+    for (i = 0; i < SAUTI_USAC_MAX_CHANNELS; i++) { s->ch[i].prev_shape = 0xffu; sauti_usac_lpd_state_init(&s->ch[i].lpd, cfg->core_rate); }
     s->channels = cfg->out_channels < SAUTI_USAC_MAX_CHANNELS ? cfg->out_channels : SAUTI_USAC_MAX_CHANNELS;
     for (i = 0; i < SAUTI_USAC_MAX_CHANNELS; i++) { (void)sauti_aac_sbr_channel_init(&s->sbr_ch[i]); if (cfg->sbr_mode == 2u) s->sbr_ch[i].analysis_bands = 24u; }
     for (i = 0; i < cfg->num_elements; i++) {                              /* the noise generator starts at 0x3039 (first channel) / 0x10932 (second channel of a pair) */
@@ -349,6 +350,7 @@ static int synthesize(const SautiUsacConfig *cfg, Fd *fd, SautiUsacChannel *ch, 
     memcpy(ch->overlap, next, n * sizeof(float));
     for (i = 0; i < n; i++) pcm[i] *= SAUTI_USAC_OUT_SCALE;
     ch->prev_shape = fd->shape;
+    ch->fd_decoded = 1;
     return 1;
 }
 
@@ -490,6 +492,44 @@ static void cplx_apply(const SautiUsacConfig *cfg, Fd *f0, Fd *f1, unsigned mss,
     }
 }
 
+/* An SCE / CPE whose channels are all LPD.  (An LPD frame after an FD frame and the FD frame after an LPD one need the transition (FAC, windows): -1 for now.) */
+static int lpd_element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiUsacBits *b, SautiUsacChannel *chs, SautiUsacSbrState *sbrst, SautiAacSbrChannel *sbrch, int indep, float out[2][2048], unsigned *reason) {
+    const unsigned nch = e->type == SAUTI_USAC_CPE ? 2u : 1u;
+    SautiUsacLpdFrame *lf = (SautiUsacLpdFrame *)malloc(2u * sizeof *lf);
+    SautiAacSbrPayloadFrame sbr_pl[2];
+    SautiAacSbrComplex *grid = NULL;
+    float core[2][1024];
+    unsigned c, i, sbr_cpl = 0;
+    int r = 1;
+    if (!lf) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
+    if (e->stereo_config_index) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; r = -1; goto done; }
+    for (c = 0; c < nch; c++) if (chs[c].fd_decoded) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; r = -1; goto done; }
+    for (c = 0; c < nch; c++)
+        if (!sauti_usac_lpd_parse(b, cfg->core_frame_len, indep, &chs[c].ac, &lf[c])) { *reason = SAUTI_AAC_REASON_INVALID_SCE; r = 0; goto done; }
+    if (cfg->sbr_mode == 3u) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; r = -1; goto done; }
+    if (cfg->sbr_mode) {                                                    /* usac_sbr_data() follows the channel streams */
+        r = sauti_usac_sbr_parse(e, nch, b, indep, cfg->sample_rate, sbrst, sbr_pl, &sbr_cpl);
+        if (r != 1) { *reason = r < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SCE; goto done; }
+    }
+    for (c = 0; c < nch; c++) {
+        float pcm[1024];
+        const int d = sauti_usac_lpd_decode(&chs[c].lpd, &lf[c], cfg->core_frame_len, &chs[c].noise_seed, pcm);
+        if (d != 1) { *reason = d < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SYNTH; r = d < 0 ? -1 : 0; goto done; }
+        for (i = 0; i < cfg->core_frame_len; i++) core[c][i] = pcm[i] * (1.0f / 32768.0f);
+        if (!cfg->sbr_mode) memcpy(out[c], core[c], cfg->core_frame_len * sizeof(float));
+    }
+    if (cfg->sbr_mode) {
+        grid = (SautiAacSbrComplex *)malloc(sizeof(SautiAacSbrComplex) * SAUTI_AAC_SBR_CHANNEL_GRID);
+        if (!grid) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; r = 0; goto done; }
+        for (c = 0; c < nch; c++)
+            if (!sauti_aac_sbr_channel_frame(&sbrch[c], core[c], &sbr_pl[c], grid) || !sauti_aac_sbr_channel_synthesize(&sbrch[c], grid, out[c])) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; r = 0; goto done; }
+    }
+    r = 1;
+done:
+    free(grid); free(lf);
+    return r;
+}
+
 /* One SCE / LFE / CPE.  out[c] = PCM of channel c.  1 ok, 0 malformed, -1 unsupported. */
 static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiUsacBits *b, SautiUsacChannel *chs, SautiUsacSbrState *sbrst, SautiAacSbrChannel *sbrch, int indep, float out[2][2048], unsigned *reason) {
     const unsigned nch = e->type == SAUTI_USAC_CPE ? 2u : 1u;
@@ -508,7 +548,15 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
     memset(ms_mask, 0, sizeof ms_mask);
     if (e->type == SAUTI_USAC_LFE) {                                       /* UsacLfeElement: core_mode = 0 is implicit, fd_channel_stream(0, 0, 0, 0, indep): no tns_data_present, no noise filling */
         if (cfg->sbr_mode) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* an LFE has no eSBR data: the reference upsamples it through the QMF, not implemented */
-    } else for (c = 0; c < nch; c++) if (sauti_usac_get(b, 1)) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* core_mode 1: LPD */
+    } else {
+        unsigned core_mode[2] = { 0, 0 };
+        for (c = 0; c < nch; c++) core_mode[c] = sauti_usac_get(b, 1);
+        if (core_mode[0] || core_mode[1]) {                                 /* core_mode 1: LPD (ACELP / TCX) */
+            if (core_mode[0] != core_mode[nch - 1u] || e->tw_mdct) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* a pair of one FD and one LPD channel, time-warped MDCT */
+            return lpd_element(cfg, e, b, chs, sbrst, sbrch, indep, out, reason);
+        }
+    }
+    for (c = 0; c < nch; c++) if (chs[c].lpd.prev_lpd) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* an FD frame after an LPD frame: the transition (FAC, windows) is not implemented yet */
     if (nch == 1u) {
         if (e->type != SAUTI_USAC_LFE) fd[0].tns_data_present = sauti_usac_get(b, 1);
     } else {

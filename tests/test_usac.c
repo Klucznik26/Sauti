@@ -138,7 +138,8 @@ static void test_unsupported(const Stream *s) {
     b[0] ^= 0x40u;                                                                                          /* bit 1: core_mode of the first channel = 1: an LPD frame */
     before = st;
     r = sauti_usac_decode(&cfg, &st, b, s->au_n[0], pcm, &why);
-    CHECK(r == -1 && memcmp(&before, &st, sizeof st) == 0, "%s: an LPD frame must be reported as unsupported (%d)", s->name, r);
+    CHECK((r == 1 || memcmp(&before, &st, sizeof st) == 0) && r >= -1 && r <= 1, "%s: a frame forced to core_mode 1 (LPD) is decoded or refused, and a refusal leaves the state untouched (%d)", s->name, r);
+    if (r == 1) st = before;
     if (!s->sbr) {                                                                                           /* a plain stream read as an SBR stream: the bits after the channel streams are not SBR data */
         cfg.sbr_mode = 1u;
         r = sauti_usac_decode(&cfg, &st, s->au[0], s->au_n[0], pcm, &why);

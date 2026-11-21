@@ -49,7 +49,7 @@ jobs:
         run: make test-aac-er-syntax
       - name: "USAC (xHE-AAC) frequency-domain core (UsacConfig, arithmetic spectral coding, noise filling, TNS, M/S, fingerprints of every channel, every truncation and bit flips, unsupported tools)"
         run: make test-usac
-      - name: "USAC in MP4 through the engine (bit-exact with the direct decode, reads of any size, exact seeks over checkpoints, reset, LPD refused, truncated files)"
+      - name: "USAC in MP4 through the engine (bit-exact with the direct decode, reads of any size, exact seeks over checkpoints, reset, LPD streams of an independent encoder, truncated files)"
         run: make test-usac-stream
       - name: "USAC with more than two channels (configurations 5 / 6 / 7: SCE / CPE / LFE, WAVE order, fingerprints of every channel, every truncation and bit flips, LFE rules, engine seeks over a checkpoint, unmapped configurations refused)"
         run: make test-usac-mc
@@ -57,6 +57,8 @@ jobs:
         run: make test-usac-preroll
       - name: "USAC streams from an independent encoder (libxaac, synthetic signals): per-block fingerprints of the engine decode, reads of any size, seeks"
         run: make test-usac-xaac
+      - name: "USAC LPD core (ACELP / TCX, ISO/IEC 23003-3): the algebraic vector quantiser on the RE8 lattice, LSF / LSP / LPC chain, random bit strings through the syntax layer and the decoder (ASan / UBSan)"
+        run: make test-usac-lpd
       - name: "DVSM / AVR streaming (non-seekable input, partial reads, WOULD_BLOCK at every point, truncation, checkpoints, bounded memory)"
         run: make test-maktabasauti-dvs-stream
       - name: "WAV / AIFF streaming (differential vs the old adapters, header matrix, placeholder sizes, float WAV, truncation, mutations, bounded memory)"

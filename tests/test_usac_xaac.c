@@ -83,7 +83,7 @@ static void test_fixture(const Fx *x) {
             pcm2 = d ? read_all(d, x->channels, 333, &frames2) : NULL;
             CHECK(pcm2 && frames2 == frames && memcmp(pcm, pcm2, frames * x->channels * sizeof(float)) == 0, "%s: reads of another size give other PCM", x->name);
             if (d && pcm) {                                                                              /* exact seeks: the start primes the decoder again from the pre-roll, mid-stream blocks come from checkpoints or the start */
-                const uint64_t t[] = { 0, 3u * x->block + 17u, x->block, 20u * x->block, 2u * x->block - 1u, 0 };
+                const uint64_t t[] = { 0, 3u * x->block + 17u, x->block, (20u + 1u) * x->block + 600u <= frames ? 20u * x->block : 9u * x->block, 2u * x->block - 1u, 0 };
                 for (i = 0; i < sizeof t / sizeof t[0]; i++) {
                     const size_t want = t[i] + 600u <= frames ? 600u : (size_t)(frames - t[i]);
                     CHECK(maktabasauti_decoder_seek(d, t[i], MAKTABASAUTI_SEEK_EXACT, NULL) == MAKTABASAUTI_OK, "%s: seek %llu", x->name, (unsigned long long)t[i]);
@@ -101,15 +101,16 @@ static void test_fixture(const Fx *x) {
 
 int main(int argc, char **argv) {
     const Fx fx[] = { { "x1", "tests/data/usac_x1.m4a", 1, 2048, 34, 48000, x1_fp }, { "x2", "tests/data/usac_x2.m4a", 1, 2048, 34, 48000, x2_fp }, { "x3", "tests/data/usac_x3.m4a", 2, 2048, 34, 48000, x3_fp }, { "x4", "tests/data/usac_x4.m4a", 2, 1024, 69, 48000, x4_fp },
-                      { "x5", "tests/data/usac_x5.m4a", 2, 2048, NB5, 48000, x5_fp }, { "x6", "tests/data/usac_x6.m4a", 2, 2048, NB6, 44100, x6_fp }, { "x7", "tests/data/usac_x7.m4a", 1, 2048, NB7, 32000, x7_fp } };
+                      { "x5", "tests/data/usac_x5.m4a", 2, 2048, NB5, 48000, x5_fp }, { "x6", "tests/data/usac_x6.m4a", 2, 2048, NB6, 44100, x6_fp }, { "x7", "tests/data/usac_x7.m4a", 1, 2048, NB7, 32000, x7_fp },
+                      { "l1", "tests/data/usac_l1.m4a", 1, 1024, NBL1, 16000, l1_fp }, { "l2", "tests/data/usac_l2.m4a", 1, 1024, NBL2, 24000, l2_fp }, { "l3", "tests/data/usac_l3.m4a", 1, 1024, NBL3, 16000, l3_fp } };
     unsigned k;
     if (argc > 1 && !strcmp(argv[1], "--dump")) {                                                       /* build/test_usac_xaac --dump > tests/test_usac_xaac_fingerprints.h */
         g_dump = 1;
         printf("/* Per-block fingerprints (sum, sum of squares, position weighted sum, second difference energy) of the decoded PCM of the libxaac-encoded fixtures, written by `build/test_usac_xaac --dump` AFTER the decode agreed\n * with libxaac's decoder (scripts/test_usac_vs_xaac.sh: 73-79 dB). Only the first MAXB blocks of each stream. */\n#define MAXB 40\n");
-        for (k = 0; k < 7; k++) test_fixture(&fx[k]);
+        for (k = 0; k < 10; k++) test_fixture(&fx[k]);
         return g_failures ? 1 : 0;
     }
-    for (k = 0; k < 7; k++) test_fixture(&fx[k]);
+    for (k = 0; k < 10; k++) test_fixture(&fx[k]);
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_xaac: all passed\n"); return 0;
 }

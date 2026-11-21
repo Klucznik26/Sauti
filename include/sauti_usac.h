@@ -6,6 +6,7 @@
  * frames that use them are reported as unsupported (-1) and change nothing. */
 #include "sauti_aac_lc_frame.h"
 #include "sauti_usac_ac.h"
+#include "sauti_usac_lpd_dec.h"
 #include "sauti_aac_sbr_channel.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -59,6 +60,8 @@ typedef struct {
     /* complex stereo prediction state of a channel pair, kept in its first channel */
     int16_t alpha_prev_re[8][64], alpha_prev_im[8][64];
     unsigned prev_ngroups, last_seq, last_shape;     /* window groups, window sequence and shape of the previous frame's first channel */
+    SautiUsacLpdState lpd;                           /* the LPD (ACELP / TCX) core of this channel */
+    unsigned fd_decoded;                             /* an FD frame has been decoded since the start (LPD frames after it need the FD -> LPD transition) */
 } SautiUsacChannel;
 
 typedef struct {

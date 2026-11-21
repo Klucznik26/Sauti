@@ -2,6 +2,20 @@
 
 Stan: 2026-11-21. Cel: **własna** implementacja bez obowiązkowej zależności od libxaac; libxaac (Apache 2.0, `~/Sauti-tools/libxaac`, commit 2fbadd5, poza repozytorium) służy jako niezależny wzorzec testowy i źródło strumieni. Zasada użytkownika: **nic nie jest kopiowane automatycznie**; każdy element (kod, tablica, stała) przeznaczony do biblioteki musi mieć udokumentowane pochodzenie i zgodność licencyjną (wpis w rejestrze `docs/BIBLIOTEKA_PLAN.md`: źródło, plik / linie, commit, licencja, suma kontrolna wyciągniętych danych, zgoda).
 
+## 0. Stan wykonania (2026-11-21, SBR-110)
+
+| Etap | Stan | Uwagi |
+|---|---|---|
+| L0 składnia | ZROBIONY | `sauti_usac_lpd.c`; surowe indeksy; `fac_data()` zrobione, ale NIEPODŁĄCZONE do strumienia FD (flaga po widmie FD nadal „nieobsługiwane”) |
+| L1 LPC | ZROBIONY | AVQ RE8, LSF, LSP, LPC, interpolacja; LSF zgodne z libxaac co do 0,000000 Hz |
+| L2 ACELP | ZROBIONY | bit w bit względem float libxaac; start ramki zaczynającej się od ACELP po FD: `-1` |
+| L3 TCX | ZROBIONY | 98 – 130 dB względem float libxaac, 72 – 78 dB względem 16-bitowego `xaacdec` |
+| L4 FAC / przejścia | CZĘŚCIOWO | FAC wewnątrz ramki LPD (ACELP ↔ TCX) zrobione; przejścia FD ↔ LPD, okna `ccfl/4`, FAC w ramce FD, `lpd_bpf_fix` na początku ramki FD: NIE |
+| L5 CPE / eSBR | CZĘŚCIOWO | para kanałów obu LPD i eSBR 2:1 podłączone (bez wzorca stereo LPD: koder libxaac nie dał testowego strumienia); jeden kanał FD + jeden LPD: `-1` |
+| L6 silnik | ZROBIONY dla strumieni LPD | stan LPD w stanie kanału (kopiowany na punktach kontrolnych), seek, pre-roll, fuzzing |
+
+Tablice: pochodzenie i zgoda: `docs/BIBLIOTEKA_PLAN.md` (rejestr), generator `tools/gen_usac_lpd_tables.py`.
+
 ## 1. Czym jest LPD i co już mamy
 
 W USAC każda ramka kanału ma `core_mode`: 0 = FD (MDCT + kodowanie arytmetyczne; mamy), 1 = LPD (liniowa predykcja: 4 podramki po 256 próbek rdzenia, `lpd_mode` wybiera na każdą ćwiartkę ACELP albo TCX 256 / 512 / 1024). Wykryte dziś: nasz dekoder rozpoznaje `core_mode = 1` i zwraca „nieobsługiwane” (−1) bez błędnego dekodowania (także gdy LPD siedzi w pre-rollu). Brakuje całej ścieżki LPD.

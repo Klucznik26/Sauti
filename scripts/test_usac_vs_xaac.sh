@@ -3,7 +3,7 @@
 # OUTSIDE this repository, default ~/Sauti-tools/libxaac/build).  It outputs 16-bit PCM, our decoder float: the comparison allows a constant delay (searched, the decoders differ by 22 samples at 48 kHz) and requires
 # USAC_XAAC_MIN_DB (default 65) over the whole file; the measured values are 72-83 dB (libxaac is fixed point).  Before AudioPreRoll was implemented these streams agreed at 4.7-30 dB: the eSBR noise sequence starts at
 # the phase the two pre-roll access units leave it at.  libxaac's 16-bit output wraps around (no saturation) on a sample beyond full scale; such samples are left out of the comparison.  SKIP (exit 0, stated loudly) without xaacdec / numpy.
-# x5-x7 are eSBR 8:3 (768-line core); x6 is compared on the left channel only (see below).
+# x5-x7 are eSBR 8:3 (768-line core); x6 is compared on the left channel only (see below).  l1-l3 have the LPD core (ACELP / TCX, no SBR): the same comparison (the 16-bit output of libxaac limits it to about 78 dB).
 # usage: scripts/test_usac_vs_xaac.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -13,9 +13,9 @@ python3 -c 'import numpy' 2>/dev/null || { echo "SKIP: no numpy"; exit 0; }
 make -s build/sauti_usac_raw >/dev/null
 W="$(mktemp -d "${TMPDIR:-/tmp}/sauti-xaacdec.XXXXXX")"; trap 'rm -rf -- "$W"' EXIT
 fail=0
-for n in x1 x2 x3 x4 x5 x6 x7; do
+for n in x1 x2 x3 x4 x5 x6 x7 l1 l2 l3; do
   ch=1; ts=24000; fl=1024; cmpc=all                                            # channels, time scale (core rate), core frame length, channels compared
-  case "$n" in x3|x4) ch=2;; x5) ch=2; ts=18000; fl=768;; x6) ch=2; ts=16537; fl=768; cmpc=0;; x7) ts=12000; fl=768;; esac
+  case "$n" in x3|x4) ch=2;; x5) ch=2; ts=18000; fl=768;; x6) ch=2; ts=16537; fl=768; cmpc=0;; x7) ts=12000; fl=768;; l1|l3) ts=16000;; l2) ts=24000;; esac
   python3 -I tools/mp4_dump_aus.py "tests/data/usac_$n.m4a" "$W/$n" >/dev/null
   python3 -I - "$W" "$n" "$ts" "$fl" <<'PY'
 import struct, sys
