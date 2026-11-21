@@ -31,6 +31,7 @@
 
 typedef struct {
     uint32_t ready;
+    uint32_t analysis_bands;                          /* 0 / 32: 1024 core samples per frame through the 32-band QMF; 24: eSBR 8:3, 768 core samples through the 24-band QMF (set by the USAC decoder after init) */
     uint64_t frames;
     SautiAacSbrQmfAnalysisState analysis;
     SautiAacSbrQmfSynthWindowState synth;
@@ -50,7 +51,7 @@ typedef struct {
 
 int sauti_aac_sbr_channel_init(SautiAacSbrChannel *ch);
 
-/* core: 1024 core-rate PCM samples of this frame; payload: the parsed SBR data of this frame (temporal parse, borders may run past
+/* core: 1024 core-rate PCM samples of this frame (768 when analysis_bands == 24); payload: the parsed SBR data of this frame (temporal parse, borders may run past
  * the frame). grid: 32*64 complex, low band below kx, HF in [kx, kx+m), zero above. Returns 1, or 0 with *ch and grid unchanged. */
 int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
                                 const SautiAacSbrPayloadFrame *payload,

@@ -80,7 +80,7 @@ int sauti_usac_config_parse(const uint8_t *data, size_t size, size_t bit_offset,
     div = c.sbr_mode == 2u ? 3u : 1u;
     c.core_rate = (unsigned)((uint64_t)c.sample_rate * div / mult);
     c.out_frame_len = c.core_frame_len * mult / div;
-    c.aac_rate_index = rate_index_of(c.core_rate);
+    c.aac_rate_index = rate_index_of(c.sbr_mode == 2u ? c.core_rate * 4u / 3u : c.core_rate);   /* 8:3: a 768-line core at core_rate resolves the spectrum like a 1024-line core at 4/3 of it; the band tables follow that rate (libxaac streams, SBR-109) */
     c.channel_config = sauti_usac_get(&b, 5);
     if (c.channel_config) {
         if (c.channel_config > 15u || !chans[c.channel_config]) return 0;
@@ -161,7 +161,7 @@ void sauti_usac_state_init(SautiUsacState *s, const SautiUsacConfig *cfg) {
     memset(s, 0, sizeof *s);
     for (i = 0; i < SAUTI_USAC_MAX_CHANNELS; i++) s->ch[i].prev_shape = 0xffu;
     s->channels = cfg->out_channels < SAUTI_USAC_MAX_CHANNELS ? cfg->out_channels : SAUTI_USAC_MAX_CHANNELS;
-    for (i = 0; i < SAUTI_USAC_MAX_CHANNELS; i++) (void)sauti_aac_sbr_channel_init(&s->sbr_ch[i]);
+    for (i = 0; i < SAUTI_USAC_MAX_CHANNELS; i++) { (void)sauti_aac_sbr_channel_init(&s->sbr_ch[i]); if (cfg->sbr_mode == 2u) s->sbr_ch[i].analysis_bands = 24u; }
     for (i = 0; i < cfg->num_elements; i++) {                              /* the noise generator starts at 0x3039 (first channel) / 0x10932 (second channel of a pair) */
         const SautiUsacElement *e = &cfg->e[i];
         if (e->type == SAUTI_USAC_EXT) continue;
@@ -547,7 +547,7 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
         r = fd_channel(cfg, e, b, &chs[c], &fd[c], common_window, common_tw, indep, reason);
         if (r != 1) return r;
     }
-    if (e->stereo_config_index || (cfg->sbr_mode && cfg->sbr_mode != 1u)) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* MPS212 payload / eSBR other than 2:1 */
+    if (e->stereo_config_index || (cfg->sbr_mode == 3u)) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* MPS212 payload / eSBR 4:1 */
     if (cfg->sbr_mode) {                                                    /* usac_sbr_data() follows the channel streams */
         r = sauti_usac_sbr_parse(e, nch, b, indep, cfg->sample_rate, sbrst, sbr_pl, &sbr_cpl);
         if (r != 1) { *reason = r < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SCE; return r; }

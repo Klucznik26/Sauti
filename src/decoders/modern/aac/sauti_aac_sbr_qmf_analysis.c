@@ -107,3 +107,70 @@ int sauti_aac_sbr_qmf_analyze_32(
     *state=next;
     return 1;
 }
+
+/* 8:3 constants, both found against libxaac's decoder on real eSBR 8:3 streams (docs SBR-109), not copied from it: the gain is the 32-band factor 2 times 32/24 (the window of a bank with fewer bands sums to less: a 1 kHz tone goes
+ * through 24-band analysis and the 64-band synthesis at unity), and the phase offset is M/64 instead of the 1/2 of M = 32 (0.5: 31 dB against libxaac, 0.375: 72 dB, 0.625: 25 dB). */
+#define SAUTI_QMF24_GAIN (8.0/3.0)
+#define SAUTI_QMF24_PHASE 0.375
+int sauti_aac_sbr_qmf_analyze_24(
+    const float *pcm,
+    size_t pcm_count,
+    unsigned slots,
+    SautiAacSbrComplex *output,
+    size_t output_count,
+    SautiAacSbrQmfAnalysisState *state){
+    enum{M=24,H=SAUTI_AAC_SBR_QMF_ANALYSIS_24_HISTORY};
+    if(!pcm || !output || !state || state->ready>1u || (!state->ready && state->samples_consumed!=0u) ||
+       (state->samples_consumed%M)!=0u || slots<1u || slots>SAUTI_AAC_SBR_QMF_ANALYSIS_SLOTS ||
+       pcm_count<(size_t)slots*M || output_count<(size_t)slots*32u ||
+       state->samples_consumed>UINT64_MAX-(uint64_t)slots*M)
+        return 0;
+    for(unsigned i=0;i<H;i++){
+        const float v=state->history[i];
+        if(!isfinite(v) || (!state->ready && v!=0.0f))return 0;
+    }
+    float taps[H];
+    for(unsigned i=0;i<H;i++){
+        const unsigned pos=8u*i,i0=pos/3u,rem=pos%3u;      /* position 8*i/3 = i0 + rem/3 */
+        float a=0.0f,b=0.0f;
+        if(!sauti_aac_sbr_qmf_synth_window_coefficient(i0,&a))return 0;
+        if(rem){
+            if(!sauti_aac_sbr_qmf_synth_window_coefficient(i0+1u,&b))return 0;
+            taps[i]=(float)(((double)a*(double)(3u-rem)+(double)b*(double)rem)/3.0);
+        }else taps[i]=a;
+    }
+    double phase_re[M][2*M],phase_im[M][2*M];
+    for(unsigned k=0;k<M;k++)
+        for(unsigned n=0;n<2u*M;n++){
+            const double theta=(SAUTI_PI/(2.0*M))*((double)k+0.5)*(2.0*(double)n-SAUTI_QMF24_PHASE);
+            phase_re[k][n]=SAUTI_QMF24_GAIN*cos(theta);
+            phase_im[k][n]=SAUTI_QMF24_GAIN*sin(theta);
+        }
+    SautiAacSbrQmfAnalysisState next=*state;
+    SautiAacSbrComplex staged[SAUTI_AAC_SBR_QMF_ANALYSIS_SLOTS*32u];
+    memset(staged,0,sizeof(staged));
+    for(unsigned t=0;t<slots;t++){
+        const float *block=pcm+(size_t)t*M;
+        for(unsigned i=0;i<M;i++)if(!isfinite(block[i]))return 0;
+        memmove(next.history+M,next.history,(H-M)*sizeof(float));
+        for(unsigned i=0;i<M;i++)next.history[M-1u-i]=block[i];
+        next.ready=1u;
+        double u[2*M];
+        for(unsigned n=0;n<2u*M;n++){
+            double sum=0.0;
+            for(unsigned j=0;j<5u;j++){const unsigned ix=n+2u*M*j;sum+=(double)next.history[ix]*(double)taps[ix];}
+            u[n]=sum;
+        }
+        for(unsigned k=0;k<M;k++){
+            double re=0.0,im=0.0;
+            for(unsigned n=0;n<2u*M;n++){re+=u[n]*phase_re[k][n];im+=u[n]*phase_im[k][n];}
+            if(!isfinite(re) || !isfinite(im) || fabs(re)>FLT_MAX || fabs(im)>FLT_MAX)return 0;
+            staged[(size_t)t*32u+k].re=(float)re;
+            staged[(size_t)t*32u+k].im=(float)im;
+        }
+    }
+    next.samples_consumed+=(uint64_t)slots*M;
+    memcpy(output,staged,(size_t)slots*32u*sizeof(staged[0]));
+    *state=next;
+    return 1;
+}

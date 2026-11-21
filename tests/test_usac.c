@@ -222,6 +222,25 @@ static void test_sbr_unsupported(void) {
     e.sbr_intertes = 0; memset(d, 0xffu, sizeof d); b.pos = 0; (void)sauti_usac_sbr_parse(&e, 2, &b, 1, 48000, &st, pl, &cpl);   /* garbage must not crash */
 }
 
+/* The AudioSpecificConfigs libxaac writes for eSBR 8:3 (768-line core) at five output rates, from tests/data/make_usac_xaac_fixtures.sh-style synthetic input (`xaacenc -aot:42 -usac:1 -esbr:1 -ccfl_idx:2`).  Which scalefactor-band
+ * table the 768-line core uses was found by decoding those streams with every candidate table: only the one of 4/3 of the core rate leaves every access unit decodable (16 kHz out -> core 6 kHz: tables 11-12; 24 -> 9: 8-10;
+ * 32 -> 12: 8-10; 44.1 -> 16.5: 6-7; 48 -> 18: 6-7) - docs SBR-109. */
+static void test_768_band_tables(void) {
+    static const struct { uint8_t asc[23]; unsigned rate, core, rate_index; } t[5] = {
+        { { 0xf9,0x50,0x48,0x42,0x2c,0xc0,0x40,0x08,0x18,0x01,0x5c,0x80,0x00,0x0a,0x00,0x04,0x00,0x12,0xb7,0x08,0xcb,0x16,0x00 }, 16000, 6000, 11 },
+        { { 0xf9,0x4c,0x46,0x42,0x2c,0xc0,0x40,0x08,0x18,0x01,0x5c,0x80,0x00,0x0a,0x00,0x04,0x00,0x12,0xbc,0x08,0xcc,0x16,0x00 }, 24000, 9000, 9 },
+        { { 0xf9,0x4a,0x45,0x42,0x2c,0xc0,0x40,0x08,0x18,0x01,0x5c,0x80,0x00,0x0a,0x00,0x04,0x00,0x12,0xc1,0x08,0xcd,0x96,0x00 }, 32000, 12000, 8 },
+        { { 0xf9,0x48,0x44,0x42,0x2c,0xc0,0x40,0x08,0x18,0x01,0x5c,0x80,0x00,0x0a,0x00,0x04,0x00,0x13,0xca,0x08,0xcf,0x16,0x00 }, 44100, 16537, 7 },
+        { { 0xf9,0x46,0x43,0x42,0x2c,0xc0,0x40,0x08,0x18,0x01,0x5c,0x80,0x00,0x0a,0x00,0x04,0x00,0x12,0xc2,0x08,0xcd,0x96,0x00 }, 48000, 18000, 6 } };
+    unsigned i;
+    for (i = 0; i < 5; i++) {
+        SautiUsacConfig c;
+        CHECK(sauti_usac_asc_parse(t[i].asc, sizeof t[i].asc, &c) == 1, "768 asc %u parses", i);
+        CHECK(c.core_frame_len == 768u && c.sbr_mode == 2u && c.sample_rate == t[i].rate && c.core_rate == t[i].core, "768 asc %u: rate %u core %u", i, c.sample_rate, c.core_rate);
+        CHECK(c.aac_rate_index == t[i].rate_index, "768 asc %u: band table index %u, expected %u", i, c.aac_rate_index, t[i].rate_index);
+    }
+}
+
 int main(int argc, char **argv) {
     #define S(n, ch, nf, rate, idx) { "usac_" #n, usac_##n##_asc, sizeof usac_##n##_asc, usac_##n##_aus, usac_##n##_n, sizeof usac_##n##_n / sizeof usac_##n##_n[0], ch, nf, rate, idx, 0, usac_##n##_fp }
     #define SB(n, ch, nf, rate, idx) { "usac_" #n, usac_##n##_asc, sizeof usac_##n##_asc, usac_##n##_aus, usac_##n##_n, sizeof usac_##n##_n / sizeof usac_##n##_n[0], ch, nf, rate, idx, 1, usac_##n##_fp }
@@ -236,7 +255,7 @@ int main(int argc, char **argv) {
         return g_failures ? 1 : 0;
     }
     for (k = 0; k < 23; k++) { test_config(&streams[k]); test_vectors(&streams[k]); test_atomic(&streams[k]); test_unsupported(&streams[k]); }
-    test_config_edges(); test_arguments(); test_extension(); test_empty_spectrum(); test_sbr_unsupported();
+    test_config_edges(); test_768_band_tables(); test_arguments(); test_extension(); test_empty_spectrum(); test_sbr_unsupported();
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac: all passed\n"); return 0;
 }

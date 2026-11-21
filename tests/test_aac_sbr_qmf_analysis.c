@@ -230,12 +230,74 @@ static void test_invalid_data_atomicity(void){
 #undef BAD
     puts("SBR-27: corrupted history, late NaN/Inf, overflow and buffer rollback PASS");
 }
+/* eSBR 8:3: the 24-band bank.  The reference below is written independently of the implementation (long double, window read straight from the 640-tap prototype at 8*i/3, the figure 4.42 modulation with M = 24,
+ * gain 2*32/M and phase offset M/64); the constants are the ones found against libxaac's decoder on real 8:3 streams (docs SBR-109). */
+static long double tap24(unsigned i){
+    const unsigned pos=8u*i,i0=pos/3u,rem=pos%3u;
+    float a=0.0f,b=0.0f;
+    assert(sauti_aac_sbr_qmf_synth_window_coefficient(i0,&a));
+    if(!rem)return a;
+    assert(sauti_aac_sbr_qmf_synth_window_coefficient(i0+1u,&b));
+    return ((long double)a*(3u-rem)+(long double)b*rem)/3.0L;
+}
+static void test_24_band_bank(void){
+    enum{M=24,SL=4};
+    float pcm[SL*M];
+    for(unsigned i=0;i<SL*M;i++)pcm[i]=(float)((int)((i*11u+3u)%29u)-14)*0.0625f;
+    SautiAacSbrComplex out[SL*32u],split[SL*32u],guard[2];
+    memset(out,0xa5,sizeof(out));memset(split,0xa5,sizeof(split));
+    SautiAacSbrQmfAnalysisState state={0},st2={0};
+    assert(sauti_aac_sbr_qmf_analyze_24(pcm,SL*M,SL,out,SL*32u,&state));
+    assert(state.ready==1u && state.samples_consumed==SL*M);
+    long double hist[10u*M];memset(hist,0,sizeof(hist));
+    for(unsigned t=0;t<SL;t++){
+        memmove(hist+M,hist,(10u*M-M)*sizeof(long double));
+        for(unsigned i=0;i<M;i++)hist[M-1u-i]=pcm[t*M+i];
+        long double u[2u*M];
+        for(unsigned n=0;n<2u*M;n++){
+            long double sum=0.0L;
+            for(unsigned j=0;j<5u;j++)sum+=hist[n+2u*M*j]*tap24(n+2u*M*j);
+            u[n]=sum;
+        }
+        for(unsigned k=0;k<32u;k++){
+            long double re=0.0L,im=0.0L;
+            if(k<M)for(unsigned n=0;n<2u*M;n++){
+                const long double th=(PI_L/(2.0L*M))*((long double)k+0.5L)*(2.0L*n-(long double)M/64.0L);
+                re+=u[n]*(8.0L/3.0L)*cosl(th);im+=u[n]*(8.0L/3.0L)*sinl(th);
+            }
+            near(out[t*32u+k].re,(double)re);near(out[t*32u+k].im,(double)im);
+            if(k>=M)assert(out[t*32u+k].re==0.0f && out[t*32u+k].im==0.0f);
+        }
+    }
+    assert(sauti_aac_sbr_qmf_analyze_24(pcm,2u*M,2u,split,2u*32u,&st2));              /* the same four slots in two calls */
+    assert(sauti_aac_sbr_qmf_analyze_24(pcm+2u*M,2u*M,2u,split+2u*32u,2u*32u,&st2));
+    assert(memcmp(split,out,sizeof(out))==0 && memcmp(&st2,&state,sizeof(state))==0);
+    memcpy(guard,out,sizeof(guard));
+    SautiAacSbrComplex keep[SL*32u];memcpy(keep,out,sizeof(keep));
+    SautiAacSbrQmfAnalysisState bad={0},before;
+#define BAD24(X,IC,SL_,OC,ST) do{assert(!sauti_aac_sbr_qmf_analyze_24((X),(IC),(SL_),out,(OC),(ST)));assert(memcmp(out,keep,sizeof(out))==0);assert(memcmp(&bad,&before,sizeof(bad))==0);}while(0)
+    before=bad;
+    BAD24(NULL,SL*M,SL,SL*32u,&bad);
+    BAD24(pcm,SL*M-1u,SL,SL*32u,&bad);
+    BAD24(pcm,SL*M,0u,SL*32u,&bad);
+    BAD24(pcm,SL*M,S+1u,SL*32u,&bad);
+    BAD24(pcm,SL*M,SL,SL*32u-1u,&bad);
+    pcm[3u*M+5u]=NAN;BAD24(pcm,SL*M,SL,SL*32u,&bad);
+    pcm[3u*M+5u]=0.0f;
+    bad.samples_consumed=M+1u;before=bad;BAD24(pcm,SL*M,SL,SL*32u,&bad);    /* not a multiple of 24 */
+    bad=(SautiAacSbrQmfAnalysisState){0};bad.ready=1u;bad.history[239u]=INFINITY;before=bad;BAD24(pcm,SL*M,SL,SL*32u,&bad);
+    bad=(SautiAacSbrQmfAnalysisState){0};bad.ready=1u;bad.samples_consumed=UINT64_MAX/M*M;before=bad;BAD24(pcm,SL*M,SL,SL*32u,&bad);
+#undef BAD24
+    puts("eSBR 8:3: 24-band complex QMF analysis (interpolated 240-tap window, gain 2*32/24, phase M/64), streaming and rollback PASS");
+}
+
 int main(void){
     test_first_slot_reference_vectors();
     test_impulse_10_slot_polyphase_history();
     test_40_slots_independent_math_and_split();
     test_cutoff_channel_isolation_and_alias();
     test_invalid_data_atomicity();
+    test_24_band_bank();
     puts("PASS HE-AAC SBR-27 32-band complex QMF analysis: 320-tap window, streaming, rollback");
     return 0;
 }

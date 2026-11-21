@@ -56,4 +56,17 @@ int sauti_aac_sbr_qmf_analyze_32(
     size_t output_count,
     SautiAacSbrQmfAnalysisState *state);
 
+/* eSBR 8:3 (USAC, 768-line core): 24-band complex QMF analysis, 24 chronological samples per slot.  The 240-tap window is the 640-tap prototype read at the positions 8*i/3 with linear interpolation
+ * (i = 0..239; the generalisation of "every second coefficient" of the 32-band bank: i*640/(10*M)); the modulation is that of Figure 4.42 with M in place of 32, the gain 2*32/M (unity through the 64-band synthesis) and the phase offset M/64 instead of 1/2:
+ *   X[k] = 2*(32/M) * SUM_{n=0..2M-1} u[n] * exp(i*pi/(2M)*(k+0.5)*(2*n-M/64)),  u[n] = SUM_{j=0..4} x[n+2M*j] * C24[n+2M*j].
+ * state->history holds 240 samples (newest first); samples_consumed advances by slots*24.  Same staging / error contract as the 32-band function; output slots are 32 wide, bands >= 24 are exactly zero. */
+#define SAUTI_AAC_SBR_QMF_ANALYSIS_24_HISTORY 240u
+int sauti_aac_sbr_qmf_analyze_24(
+    const float *pcm,
+    size_t pcm_count,
+    unsigned slots,
+    SautiAacSbrComplex *output,
+    size_t output_count,
+    SautiAacSbrQmfAnalysisState *state);
+
 #endif

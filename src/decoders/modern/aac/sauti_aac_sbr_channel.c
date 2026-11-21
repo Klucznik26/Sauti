@@ -135,14 +135,18 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
     if(t0>6u || tN<SLOTS || tN>MAX_I)return 0;
     for(unsigned e=0u;e<envs;e++)
         if(f->env_edges[e+1u]<=f->env_edges[e])return 0;
-    for(unsigned i=0u;i<1024u;i++)if(!isfinite(core[i]))return 0;
+    const unsigned core_len=ch->analysis_bands==24u?768u:1024u;
+    if(ch->analysis_bands!=0u && ch->analysis_bands!=24u && ch->analysis_bands!=32u)return 0;
+    for(unsigned i=0u;i<core_len;i++)if(!isfinite(core[i]))return 0;
 
     SautiAacSbrChannel staged=*ch;                    /* committed only when the whole frame succeeded */
     SautiAacSbrChannel *next=&staged;
 
     /* 1. QMF analysis and the 40-slot low-band window */
     SautiAacSbrComplex low[SLOTS*32u];
-    if(!sauti_aac_sbr_qmf_analyze_32(core,1024u,SLOTS,32u,low,SLOTS*32u,&next->analysis))return 0;
+    if(ch->analysis_bands==24u){
+        if(!sauti_aac_sbr_qmf_analyze_24(core,768u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;
+    }else if(!sauti_aac_sbr_qmf_analyze_32(core,1024u,SLOTS,32u,low,SLOTS*32u,&next->analysis))return 0;
     SautiAacSbrComplex xlow[40u*32u];
     memcpy(xlow,next->low_history,sizeof(next->low_history));
     memcpy(xlow+8u*32u,low,sizeof(low));
