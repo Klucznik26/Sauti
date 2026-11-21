@@ -83,3 +83,21 @@ Kolejność 1–4 poprzedza dalsze poszerzanie dekoderów, bo wada architektury 
 ## Stan wykonania (2026-11-19, etap 1 MaktabaSauti)
 
 Rdzeń MaktabaSauti (`src/maktabasauti/`, API w `include/maktabasauti/`) jest zaimplementowany i przetestowany w wersji rozwojowej 0.1.0-dev (ABI niestabilne, niezamrożone; wersja 1.0 nie jest ogłaszana do czasu sprawdzenia z rzeczywistymi, strumieniowymi kodekami). Opis, decyzje (własność wejścia tylko po sukcesie, `seek` po przycięciu gapless, kontrakt alokatora bez `realloc`) i ograniczenia: `MAKTABASAUTI_API.md` §4, §5, §12. Dotychczasowa funkcjonalność Sauti jest zachowana: PCM przez nowe API jest identyczny bit w bit ze starym na wszystkich fixturach AAC, a stare API zostaje jako warstwa `sauti_legacy_decoder_*`. CI wymaga ThreadSanitizera dla testów wielowątkowych starego i nowego API. **Moduły strumieniowe (stan 2026-11-20):** AAC (ADTS, LOAS, ADIF, MP4 także z wejścia nieprzewijalnego), AVR, DVSM, WAV, AIFF, VOC i FLAC działają bez wczytywania pliku (wejście nieprzewijalne, `E_WOULD_BLOCK`, pamięć niezależna od długości); opakowania z pełnym buforem zostają dla Vorbis, MIDI, YM, MP3 i DTM (format modułowy). Szczegóły i różnice względem starych adapterów: `MAKTABASAUTI_API.md` §14.
+
+## Otwarte decyzje i blokady rodziny AAC (stan 2026-11-21)
+
+Co jest zrobione, co zostaje i **od czego zależy** — jedna tabela dla decyzji użytkownika. „Wzorzec” = dekoder, z którym można porównać wynik (FFmpeg 8.x, FDK 2.0.3 z 32-bitowym PCM, FAAD2 2.11.4 jako `libfaad.so.2`).
+
+| Element | Czego brakuje | Wzorzec dziś | Odblokowanie |
+|---|---|---|---|
+| USAC LPD (ACELP / TCX / FAC), przejścia FD ↔ LPD | tablice ROM (książki LSF, AVQ, filtry ACELP, okna FAC), ok. 8 000 linii logiki | tylko FDK (i tylko konfiguracje 1–2) | zgoda na tablice z kodu o zgodnej licencji (patrz niżej) |
+| eSBR 8:3 i 4:1 (768 linii rdzenia), harmoniczny transposer (HBE), PVC, inter-TES | okna QMF 24 / 16 pasm, tablice PVC / HBE | tylko FDK | jw. |
+| MPS212 (stereo parametryczne USAC) | tablice kwantyzacji i dekorelatorów | FDK (FFmpeg robi tylko downmix) | jw. |
+| ELD + SBR (CLDFB) | tablica okna CLDFB | FDK | jw. (decyzja czeka od 2026-11-20) |
+| LFE z eSBR (upsampling QMF), konfiguracje kanałów > 7, jawne pozycje kanałów, wielokanałowe eSBR w generatorze | logika, bez nowych tablic; brak wzorca dla wielokanałowych (FDK 2.0.3 czyta w USAC tylko konfiguracje 1–2, FFmpeg czyta LFE jak SCE) | brak | wzorzec wielokanałowy (np. libxaac, niżej) |
+| AAC SSR (AOT 3), Scalable (AOT 6), BSAC (AOT 22) | tablice z normy (PQF SSR, tablice Huffmana BSAC), składnia warstw | **żaden**: FAAD2 2.11.4 odrzuca AOT 3 i 6 (`NeAACDecInit2` = −1), FFmpeg nie ma SSR / BSAC i odrzuca Scalable, FDK nie ma | norma ISO/IEC 14496-3 (tekst) albo dekoder referencyjny |
+| HE-AAC 960, LTP 960 | — | brak | brak wzorca |
+
+**Propozycja odblokowania: libxaac (ittiam-systems/libxaac, Apache 2.0).** To pełny dekoder **i koder** xHE-AAC (USAC: FD, LPD z ACELP / TCX, eSBR z HBE, PVC, MPS212, wielokanałowość, DRC) na licencji Apache 2.0 — zgodnej z rozdawaniem tablic w bibliotece (wymaga zachowania noty i pliku NOTICE; daje też jawną licencję patentową współautorów kodu, **bez** rozstrzygania patentów MPEG-D / xHE-AAC jako całości, to nadal kwestia dla prawnika). Dawałby: (1) **drugi wzorzec** dla wielokanałowego USAC, LFE, LPD i eSBR 8:3 / 4:1 (FDK 2.0.3 ich nie czyta), (2) **koder** do tworzenia prawdziwych strumieni testowych (dziś mamy tylko własny generator losowych strumieni), (3) źródło tablic z licencją, którą można wpisać do rejestru powyżej (jak tablice z FFmpeg). Stan: repozytorium sklonowane do `~/Sauti-tools/libxaac` (poza repozytorium Sauti), **nie zbudowane**: automatyczny tryb Claude Code zablokował kompilację pobranego kodu, więc budowa wymaga Twojej zgody (jedna komenda: `cmake -S ~/Sauti-tools/libxaac -B ~/Sauti-tools/libxaac/build && cmake --build ~/Sauti-tools/libxaac/build -j`). Bez zgody na tablice z libxaac / FDK zostaje wyprowadzanie z samej normy (wymaga jej tekstu).
+
+**Wykonane wcześniej, niezależne od powyższego:** USAC FD (SCE / CPE / LFE, do 8 kanałów, TNS, M/S, predykcja zespolona z własnymi, wyprowadzonymi filtrami MDST, szum, okna), eSBR 2:1 w postaci klasycznej, MP4 i LOAS / LATM, silnik z seekiem; AAC Main / LTP (także wielokanałowe), LC 960, ER (LD / ELD bez SBR, ER LC / LTP), HE-AAC v1 / v2.

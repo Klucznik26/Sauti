@@ -2376,6 +2376,13 @@ test-usac-stream: $(OBJDIR)/test_usac_stream
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_usac_stream
 $(OBJDIR)/test_usac_mc: tests/test_usac_mc.c tests/test_usac_mc_vectors.h tests/test_usac_mc_fingerprints.h include/sauti_usac.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_usac_mc.c $(MKS_DEPS) -lm -lpthread -no-pie
+$(OBJDIR)/maktabasauti_mutfuzz: tools/maktabasauti_mutfuzz.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tools/maktabasauti_mutfuzz.c $(MKS_DEPS) -lm -lpthread -no-pie
+# mutation fuzzer for the engine (ASan / UBSan): make fuzz-maktabasauti FUZZ_SEEDS="tests/data/usac_*.m4a ..." [FUZZ_ITER=2000 FUZZ_SEED=1]
+.PHONY: fuzz-maktabasauti
+fuzz-maktabasauti: $(OBJDIR)/maktabasauti_mutfuzz
+	@test -n "$(FUZZ_SEEDS)" || { echo "FUZZ_SEEDS=<files> required"; exit 2; }
+	ASAN_OPTIONS=allocator_may_return_null=1 $(OBJDIR)/maktabasauti_mutfuzz $(FUZZ_ITER) $(FUZZ_SEED) $(FUZZ_SEEDS)
 .PHONY: test-usac-mc
 test-usac-mc: $(OBJDIR)/test_usac_mc
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_usac_mc
