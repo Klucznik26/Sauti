@@ -150,9 +150,17 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
     /* 2. inverse filtering: LPC over 38 equations of the 40-slot window, chirp */
     SautiAacSbrLpcCoeffs lpc;
     SautiAacSbrChirp chirp=next->chirp;
-    if(chirp.ready && chirp.count!=tab->n_noise)memset(&chirp,0,sizeof(chirp));
+    const SautiAacSbrChirp chirp_before=chirp;
+    /* A header that changes the number of noise bands does not clear the bandwidth factors and the previous inverse-filter modes: they are
+     * kept per band index (the reference decoder never clears them on a reset, and the entries above the new count stay as they were). */
+    if(chirp.ready && chirp.count!=tab->n_noise)chirp.count=tab->n_noise;
     if(!sauti_aac_sbr_lpc_estimate_2(xlow,40u*32u,38u,&lpc) ||
        !sauti_aac_sbr_chirp_update(f->control.invf_mode,tab->n_noise,&chirp))return 0;
+    if(chirp_before.ready)
+        for(unsigned j=tab->n_noise;j<SAUTI_AAC_SBR_MAX_NOISE_BANDS;j++){
+            chirp.bw[j]=chirp_before.bw[j];
+            chirp.previous_mode[j]=chirp_before.previous_mode[j];
+        }
     next->chirp=chirp;
 
     /* 3. HF carrier for the slots this frame owns: i in [t0, tN), taken from X_low[i..i+2] */
@@ -188,7 +196,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
     double gseq[(4u+MAX_I)*64u],qseq[(4u+MAX_I)*64u];
     memset(gseq,0,sizeof(gseq));memset(qseq,0,sizeof(qseq));
     const unsigned total=tN-t0;
-    /* A header that changes the frequency tables is an SBR reset (14496-3 4.6.18.3.1): the noise / sine phase index starts again at 0 and the smoothing history restarts from the first envelope
+    /* A header that changes the frequency tables is an SBR reset (14496-3 4.6.18.3.1): the noise phase index starts again at 0 (the sine phase index does not) and the smoothing history restarts from the first envelope
      * (the reference decoder's resetSbrEnvelopeCalc: phaseIndex = 0, startUp = 1). */
     const SautiAacSbrHeader *ph=ch->have_previous?&ch->previous.header:NULL;
     const int header_reset=ph && (ph->start_freq!=f->header.start_freq || ph->stop_freq!=f->header.stop_freq || ph->freq_scale!=f->header.freq_scale ||
@@ -213,7 +221,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
                 qseq[(size_t)(4u+i-t0)*64u+k]=adj[e].noise[k];
             }
     const unsigned smoothing=f->bs_smoothing_mode==0u;
-    if(header_reset){next->index_noise=0u;next->index_sine=0u;}
+    if(header_reset)next->index_noise=0u;                /* the sine phase index keeps running: the reference decoder clears only the noise index on a reset */
     unsigned index_noise=next->index_noise,index_sine=next->index_sine;
     const unsigned m_max=tab->m;
     for(unsigned e=0u;e<envs;e++){

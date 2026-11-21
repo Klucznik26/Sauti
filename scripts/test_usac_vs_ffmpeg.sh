@@ -42,12 +42,13 @@ print("%s median %.2f dB, 90%% %.2f dB, max %.2f dB (%d bands)" % ("OK" if len(d
 PY
 }
 fail=0
-for f in m1 m2 m3 m4 m5 s1 s2 s3 s4 c1 c2 c3 c4 c5 e1 e2 e3 e4 e5 e6 e7; do
-  ch=1; case "$f" in s*|c*|e2|e4|e7) ch=2;; esac
+for f in m1 m2 m3 m4 m5 s1 s2 s3 s4 c1 c2 c3 c4 c5 e1 e2 e3 e4 e5 e6 e7 e8 e9; do
+  ch=1; case "$f" in s*|c*|e2|e4|e7|e9) ch=2;; esac
   python3 -I tools/mp4_dump_aus.py "tests/data/usac_$f.m4a" "$W/$f" >/dev/null
   build/sauti_usac_raw "$W/$f" "$W/$f.sau" 2>/dev/null
   case "$f" in
     m3|m5|s2|s4) echo "usac_$f vs FFmpeg: not compared (FFmpeg's noise filling / TNS of independent windows differ from the standard)" ;;
+    e8|e9) echo "usac_$f vs FFmpeg: not compared (a header with one noise band: FFmpeg stops with 'Invalid vDk0' and falls back to upsampling)" ;;
     e3|e4|e6|e7) echo "usac_$f vs FFmpeg: not compared (explicit headers: FFmpeg reads two stray bits; it also ignores SbrInfo xover changes and mishandles some sinusoids)" ;;
     c1|c2|c3|c4|c5) echo "usac_$f vs FFmpeg: not compared (complex prediction: FFmpeg builds the downmix of the predicted bands the wrong way round and has no previous-frame MDST filter)" ;;
     *) ffmpeg -v error -y -i "tests/data/usac_$f.m4a" -f f32le "$W/$f.ff"; fm="$MIN"; case "$f" in e*) fm="${USAC_SBR_MIN_DB:-95}";; esac; r="$(cmp "$W/$f.sau" "$W/$f.ff" "$ch" "$fm")"; echo "usac_$f vs FFmpeg: $r"; case "$r" in OK*) ;; *) fail=1;; esac ;;

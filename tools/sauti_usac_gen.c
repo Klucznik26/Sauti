@@ -290,12 +290,12 @@ static int sbr_candidate(Bw *sb, const Opt *o, unsigned channels, int indep, con
     memset(sb, 0, sizeof *sb); memset(df_e, 0, sizeof df_e); memset(df_n, 0, sizeof df_n);
     if (!indep) { info_present = (g_sbr_simple & 8u) ? 0u : rnd() % 6u == 0; header_present = info_present ? (rnd() & 1u) : 0u; put(sb, info_present, 1); if (info_present) put(sb, header_present, 1); }
     if (info_present && repeat) { put(sb, h.amp_res, 1); put(sb, h.xover_band, 4); put(sb, 0, 1); }
-    else if (info_present) { h.amp_res = (g_sbr_simple & 256u) ? work->header.amp_res : (rnd() & 1u); h.xover_band = (g_sbr_simple & 256u) ? work->header.xover_band : (unsigned)rr(0, 2); put(sb, h.amp_res, 1); put(sb, h.xover_band, 4); put(sb, 0, 1); }
+    else if (info_present) { h.amp_res = ((g_sbr_simple & 256u) || (g_sbr_simple & 32768u)) ? work->header.amp_res : (rnd() & 1u); h.xover_band = ((g_sbr_simple & 256u) || (g_sbr_simple & 65536u)) ? work->header.xover_band : (unsigned)rr(0, 2); put(sb, h.amp_res, 1); put(sb, h.xover_band, 4); put(sb, 0, 1); }
     if (header_present && repeat) {                                              /* the same header again (explicit, every field written) */
         put(sb, 0, 1); put(sb, h.start_freq, 4); put(sb, h.stop_freq, 4); put(sb, 1, 1); put(sb, 1, 1);
         put(sb, h.freq_scale, 2); put(sb, h.alter_scale, 1); put(sb, h.noise_bands, 2); put(sb, h.limiter_bands, 2); put(sb, h.limiter_gains, 2); put(sb, h.interpol_freq, 1); put(sb, h.smoothing_mode, 1);
-    } else if (header_present && getenv("SBR_HDR")) {                           /* diagnostic: SBR_HDR=start,stop,freq_scale,alter_scale,noise_bands,limiter_bands,limiter_gains,interpol,smoothing */
-        unsigned v[9] = { 5, 9, 2, 1, 2, 2, 2, 1, 1 }; unsigned k = 0; const char *p = getenv("SBR_HDR");
+    } else if (header_present && (getenv("SBR_HDR") || (work->have_header && getenv("SBR_HDR2")))) {   /* diagnostic: SBR_HDR2 (the same list) applies only after the first header, so it is a real change; SBR_HDR=start,stop,freq_scale,alter_scale,noise_bands,limiter_bands,limiter_gains,interpol,smoothing */
+        unsigned v[9] = { 5, 9, 2, 1, 2, 2, 2, 1, 1 }; unsigned k = 0; const char *p = (work->have_header && getenv("SBR_HDR2")) ? getenv("SBR_HDR2") : getenv("SBR_HDR");
         while (*p && k < 9u) { v[k++] = (unsigned)strtoul(p, (char **)&p, 10); if (*p == ',') p++; }
         h.start_freq = v[0]; h.stop_freq = v[1]; h.freq_scale = v[2]; h.alter_scale = v[3]; h.noise_bands = v[4]; h.limiter_bands = v[5]; h.limiter_gains = v[6]; h.interpol_freq = v[7]; h.smoothing_mode = v[8];
         {   const unsigned x1 = h.freq_scale != 2u || h.alter_scale != 1u || h.noise_bands != 2u, x2 = h.limiter_bands != 2u || h.limiter_gains != 2u || h.interpol_freq != 1u || h.smoothing_mode != 1u;
