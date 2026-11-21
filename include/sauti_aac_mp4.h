@@ -24,6 +24,8 @@ typedef struct {
     uint32_t gapless;             /* 1 = jest iTunSMPB */
     uint64_t gapless_priming;     /* probki do pominiecia na poczatku */
     uint64_t gapless_samples;     /* dlugosc po przycieciu (0 = bez ograniczenia) */
+    uint8_t asc[256];             /* AudioSpecificConfig (kopia z esds): tylko USAC (aot 42), dla ktorego konfiguracja jest czescia strumienia */
+    unsigned asc_len;
 } SautiAacMp4Info;
 
 /* 1 = zbudowano strumien ADTS (`*adts` z malloc, zwolnic free()), 0 = nie dotyczy / nieobslugiwane / bledne. */

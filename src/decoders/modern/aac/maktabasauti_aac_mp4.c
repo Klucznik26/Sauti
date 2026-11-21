@@ -172,7 +172,7 @@ static maktabasauti_result_t live_prepare(dec_t *d, mp4_priv_t *p) {
 }
 static void wrap_adts(dec_t *d, const mp4_priv_t *p, uint32_t sz) {
     const size_t l = 7u + sz;
-    if (p->mi.aot == 1u || p->mi.aot == 4u || p->mi.aot == 17u || p->mi.aot == 19u || p->mi.aot == 23u || p->mi.aot == 39u || (p->mi.aot == 2u && p->mi.frame480)) { d->frame_len = aac_er_wrap(d->frame, p->mi.aot, p->mi.rate_index, p->mi.channel_config, p->mi.frame480, sz); return; }
+    if (p->mi.aot == 1u || p->mi.aot == 4u || p->mi.aot == 17u || p->mi.aot == 19u || p->mi.aot == 23u || p->mi.aot == 39u || p->mi.aot == 42u || (p->mi.aot == 2u && p->mi.frame480)) { d->frame_len = aac_er_wrap(d->frame, p->mi.aot, p->mi.rate_index, p->mi.channel_config, p->mi.frame480, sz); return; }
     d->frame[0] = 0xff; d->frame[1] = 0xf1;
     d->frame[2] = (uint8_t)(0x40u | (p->mi.rate_index << 2) | ((p->mi.channel_config >> 2) & 1u));
     d->frame[3] = (uint8_t)(((p->mi.channel_config & 3u) << 6) | ((l >> 11) & 3u));
@@ -219,13 +219,18 @@ static maktabasauti_result_t live_fetch(dec_t *d, mp4_priv_t *p) {
     }
 }
 
+/* USAC: the engine needs the UsacConfig of the stream (the access units carry no parameters); parsed again from the copy of the esds bytes that sauti_aac_mp4_index_new validated */
+static void usac_setup(dec_t *d, const mp4_priv_t *p) {
+    d->usac_ready = 0;
+    if (p->mi.aot == 42u && p->mi.asc_len && sauti_usac_asc_parse(p->mi.asc, p->mi.asc_len, &d->usac) == 1) d->usac_ready = 1;
+}
 static maktabasauti_result_t mp4_prepare(dec_t *d) {
     const maktabasauti_host_t *h = d->host; mp4_priv_t *p; SautiAacMp4Alloc al; int64_t fsize, at; int pass;
     maktabasauti_result_t r;
     p = (mp4_priv_t *)h->alloc(h->user, sizeof *p);
     if (!p) return MAKTABASAUTI_E_NO_MEMORY;
     memset(p, 0, sizeof *p); d->cptr = p;
-    if (!d->seekable) return live_prepare(d, p);
+    if (!d->seekable) { r = live_prepare(d, p); if (r == MAKTABASAUTI_OK) usac_setup(d, p); return r; }
     al.user = (void *)h; al.alloc = a_alloc; al.free = a_free;
     fsize = h->size(h->user, d->rd);
     for (pass = 0; pass < 2; pass++) {                                                  /* 1: moov, 2: moof (po znalezieniu moov) */
@@ -255,6 +260,7 @@ static maktabasauti_result_t mp4_prepare(dec_t *d) {
     }
     if (!p->idx || sauti_aac_mp4_index_count(p->idx) == 0) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     p->pos = 0;
+    usac_setup(d, p);
     return h->seek(h->user, d->rd, 0, 0) < 0 ? MAKTABASAUTI_E_NOT_SEEKABLE : MAKTABASAUTI_OK;
 }
 

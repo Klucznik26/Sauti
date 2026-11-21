@@ -2,8 +2,8 @@
 # USAC (xHE-AAC) frequency-domain streams (tests/data/usac_*.m4a, tools/sauti_usac_gen.c) against two independent decoders.
 #   FFmpeg (float; 125-139 dB; the first frame of every stream has the sine window: FDK takes the first frame's own window shape as the previous one, FFmpeg sine) on the streams whose tools it implements the way the standard does: it seeds the noise generator of the first channel with 0 (FDK and the standard: 0x3039), skips noise
 #   filling at noise_level 0 (the generator still advances) and never applies the TNS of independent windows, so usac_m3 and usac_s2 are not compared with it.
-#   FDK AAC 32-bit (tools/sauti_fdk_raw_oracle.c, see its header; limiter off): ~90 dB at best (its noise floor is about -143 dB RMS), every stream.  Open: with tns_active = 1 and tns_on_lr = 0 together
-#   with M/S FDK differs from FFmpeg and from this decoder (see docs/AAC_FAMILY_ASM.md SBR-105); the fixtures avoid that combination for FDK.
+#   FDK AAC 32-bit (tools/sauti_fdk_raw_oracle.c, see its header; limiter off): ~90 dB at best (its noise floor is about -143 dB RMS), every stream.  Known FDK 2.0.3 defect: with tns_active = 1, tns_on_lr = 0 and M/S it forgets to update the spectrum exponent after the M/S
+#   (left x0.5, right scaled by its old exponent; docs/AAC_FAMILY_ASM.md SBR-105), the fixtures avoid that combination for FDK.
 # bounds: USAC_MIN_DB (FFmpeg, default 120), USAC_FDK_MIN_DB (default 80).  SKIP (exit 0, stated loudly) without ffmpeg / numpy / the FDK oracle.
 # usage: scripts/test_usac_vs_ffmpeg.sh
 set -euo pipefail

@@ -1,5 +1,6 @@
 /* ISO BMFF -> ADTS dla AAC (patrz sauti_aac_mp4.h).  Kazdy odczyt jest sprawdzany wzgledem rozmiaru pliku; zadnych wskaznikow poza bufor, zadnych przepelnien rozmiarow. */
 #include "sauti_aac_mp4.h"
+#include "sauti_usac.h"
 #include "sauti_aac_er.h"
 #include <stdlib.h>
 #include <string.h>
@@ -65,7 +66,7 @@ static int descriptor(View v,size_t *pos,unsigned *tag,View *body){
     return 1;
 }
 /* esds -> AudioSpecificConfig (kopia bajtow w asc[], dlugosc w *asc_len). */
-static int parse_esds(View e,uint8_t asc[64],size_t *asc_len){
+static int parse_esds(View e,uint8_t asc[256],size_t *asc_len){
     if(e.n<4u)return 0;
     View d={e.p+4,e.n-4};size_t pos=0;unsigned tag;View body;
     if(!descriptor(d,&pos,&tag,&body)||tag!=0x03u||body.n<3u)return 0;       /* ES_Descriptor: ES_ID(2), flagi(1) [opcjonalne pola] */
@@ -77,7 +78,7 @@ static int parse_esds(View e,uint8_t asc[64],size_t *asc_len){
     if(!descriptor(sub,&sp,&tag,&dcd)||tag!=0x04u||dcd.n<13u)return 0;       /* DecoderConfigDescriptor */
     if(dcd.p[0]!=0x40u)return 0;                                              /* MPEG-4 Audio */
     View in={dcd.p+13,dcd.n-13};size_t ip=0;View dsi;
-    if(!descriptor(in,&ip,&tag,&dsi)||tag!=0x05u||dsi.n<2u||dsi.n>64u)return 0;
+    if(!descriptor(in,&ip,&tag,&dsi)||tag!=0x05u||dsi.n<2u||dsi.n>256u)return 0;
     memcpy(asc,dsi.p,dsi.n);*asc_len=dsi.n;
     return 1;
 }
@@ -94,6 +95,13 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     size_t bit=0;
     unsigned aot=getbits(asc,n,&bit,5);
     if(aot==31u){ unsigned e=getbits(asc,n,&bit,6); if(e==0xffffffffu)return 0; aot=32u+e; }
+    if(aot==42u){                                                             /* USAC (xHE-AAC): UsacConfig() niesie czestotliwosc, kanaly i uklad ramki; jednostki dostepu nie sa ADTS */
+        SautiUsacConfig uc;
+        if(sauti_usac_asc_parse(asc,n,&uc)!=1||uc.out_channels<1u||uc.out_channels>2u||n>sizeof(info->asc))return 0;
+        info->aot=42u;info->rate_index=uc.aac_rate_index;info->sample_rate=uc.sample_rate;info->channel_config=uc.channel_config;info->frame480=0u;
+        memcpy(info->asc,asc,n);info->asc_len=(unsigned)n;
+        return 1;
+    }
     const unsigned ri=getbits(asc,n,&bit,4);
     if(aot==0xffffffffu||ri==0xffffffffu||ri>=13u)return 0;                  /* 15 (jawna czestotliwosc) nie mieści sie w ADTS */
     const unsigned cc=getbits(asc,n,&bit,4);
@@ -188,7 +196,7 @@ int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t 
         const size_t children=base+20u+extra;
         if(children>e.end)continue;
         View esds_parent={stsd.p+children,e.end-children},esds;
-        uint8_t asc[64];size_t asc_len=0;
+        uint8_t asc[256];size_t asc_len=0;
         /* esds jest dzieckiem wpisu mp4a; QuickTime (wersja 1/2 wpisu, stare M4A/MOV) chowa go w pudelku `wave` (frma, mp4a, esds, terminator) */
         int have_esds=find_child(esds_parent,FOURCC('e','s','d','s'),&esds);
         if(!have_esds){
@@ -198,7 +206,7 @@ int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t 
         if(!have_esds||!parse_esds(esds,asc,&asc_len))continue;
         SautiAacMp4Info inf;memset(&inf,0,sizeof(inf));
         if(!parse_asc(asc,asc_len,&inf))continue;
-        if(inf.aot==1u||inf.aot==4u||inf.aot==17u||inf.aot==19u||inf.aot==23u||inf.aot==39u||(inf.aot==2u&&inf.frame480))continue;                              /* AAC-LD / ELD nie da sie zapisac jako ADTS (sciezka strumieniowa silnika owija je wlasnym naglowkiem) */
+        if(inf.aot==1u||inf.aot==4u||inf.aot==17u||inf.aot==19u||inf.aot==23u||inf.aot==39u||inf.aot==42u||(inf.aot==2u&&inf.frame480))continue;                              /* AAC-LD / ELD nie da sie zapisac jako ADTS (sciezka strumieniowa silnika owija je wlasnym naglowkiem) */
         /* Lista jednostek dostepu: z tablic probek (stbl) i z fragmentow (moof/trun) - plik moze miec jedno, drugie albo oba. */
         Sample *list=NULL;size_t nlist=0,caplist=0;
         {
@@ -401,7 +409,7 @@ SautiAacMp4Index *sauti_aac_mp4_index_new(const SautiAacMp4Alloc *a,const uint8_
         const size_t children=base+20u+extra;
         if(children>e.end)continue;
         View esds_parent={stsd.p+children,e.end-children},esds;
-        uint8_t asc[64];size_t asc_len=0;
+        uint8_t asc[256];size_t asc_len=0;
         int have_esds=find_child(esds_parent,FOURCC('e','s','d','s'),&esds);
         if(!have_esds){
             View wave;

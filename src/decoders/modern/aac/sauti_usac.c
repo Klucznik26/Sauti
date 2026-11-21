@@ -134,6 +134,20 @@ int sauti_usac_config_parse(const uint8_t *data, size_t size, size_t bit_offset,
     return unsup ? -1 : 1;
 }
 
+int sauti_usac_asc_parse(const uint8_t *asc, size_t size, SautiUsacConfig *out) {
+    SautiUsacBits b;
+    unsigned aot;
+    if (!asc || !out || size < 3u || size > SIZE_MAX / 8u) return 0;
+    b.data = asc; b.nbits = size * 8u; b.pos = 0;
+    aot = sauti_usac_get(&b, 5);
+    if (aot == 31u) aot = 32u + sauti_usac_get(&b, 6);
+    if (aot != 42u) return 0;
+    if (sauti_usac_get(&b, 4) == 15u) (void)sauti_usac_get(&b, 24);
+    (void)sauti_usac_get(&b, 4);
+    if (b.pos > b.nbits) return 0;
+    return sauti_usac_config_parse(asc, size, b.pos, out);
+}
+
 void sauti_usac_state_init(SautiUsacState *s, const SautiUsacConfig *cfg) {
     unsigned i, ch = 0;
     memset(s, 0, sizeof *s);

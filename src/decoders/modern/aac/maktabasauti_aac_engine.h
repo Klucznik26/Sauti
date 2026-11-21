@@ -14,6 +14,7 @@
 #include "sauti_aac_he_ps_bridge.h"
 #include "sauti_aac_lc_multi.h"
 #include "sauti_aac_sbr_channel.h"
+#include "sauti_usac.h"
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
@@ -48,6 +49,7 @@ typedef struct {
         he_state_t he;
         SautiAacErState er;
         SautiAacLcnState lcn;                            /* V_ER z er_aot == 2: AAC-LC z ramka 960 */
+        SautiUsacState usac;                             /* V_ER z er_aot == 42: USAC (xHE-AAC), sauti_usac */
     } u;
     SautiAacLcmState *lcm;                               /* AAC Main / LTP wielokanalowy (sauti_aac_lcm): stan na stercie (230 KiB), kopiowany gleboko przy punktach kontrolnych (lcm_dup) */
     uint64_t frames_in;                                  /* ramki ADTS zdekodowane */
@@ -68,6 +70,8 @@ typedef struct {
     variant_t variant;
     unsigned config;                                     /* channel_configuration z ADTS */
     unsigned rate_index, core_rate, core_channels, crc_present;
+    SautiUsacConfig usac;                                /* USAC (er_aot == 42): konfiguracja z ASC, ustawiana przez kontener (stala w calym strumieniu) */
+    unsigned usac_ready;
     unsigned er_aot, er_480;                             /* V_ER: typ obiektu (23 / 39; 2 = AAC-LC z ramka 960 bez narzedzi ER) i dlugosc ramki 480 zamiast 512 */
     unsigned out_channels, out_rate, frame_pcm, ps_mode;
     SautiAacLcLayout layout;                             /* tylko config 0 (PCE) */

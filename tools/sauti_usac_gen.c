@@ -15,6 +15,7 @@
 
 typedef struct { uint8_t b[1 << 18]; size_t n; } Bw;
 static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n & 7u) == 0) w->b[w->n >> 3] = 0; if ((v >> bits) & 1u) w->b[w->n >> 3] |= (uint8_t)(0x80u >> (w->n & 7u)); w->n++; } }
+static int g_probe_ch = -1, g_probe_line = 100;
 static uint32_t g_rng = 1;
 static uint32_t rnd(void) { g_rng ^= g_rng << 13; g_rng ^= g_rng >> 17; g_rng ^= g_rng << 5; return g_rng; }
 static int rr(int lo, int hi) { return lo + (int)(rnd() % (uint32_t)(hi - lo + 1)); }
@@ -137,6 +138,11 @@ static void fill_content(const Opt *o, Chan *c, int keep_ics) {
     c->tns_len = (unsigned)rr(2, c->seq == 2u ? 7 : 30); c->tns_order = (unsigned)rr(1, c->seq == 2u ? 7 : 12); c->tns_dir = rnd() & 1u;
     for (i = 0; i < 20; i++) c->tns_coef[i] = rr(-3, 3);
 }
+static void apply_probe(Chan *c, int channel) {                           /* a diagnostic: only one line of one channel is nonzero (a value of 20 at line --probe-line) */
+    if (g_probe_ch < 0) return;
+    memset(c->q, 0, sizeof c->q);
+    if (channel == g_probe_ch && c->seq != 2u) c->q[0][g_probe_line] = 20;
+}
 static void put_ics_info(Bw *w, const Chan *c) {
     put(w, c->seq, 2); put(w, c->shape, 1);
     if (c->seq == 2u) { put(w, c->max_sfb, 4); put(w, c->grouping, 7); } else put(w, c->max_sfb, 6);
@@ -205,6 +211,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--tns-compress")) { o.tns = 1; g_tns_compress = 1; }
         else if (!strcmp(argv[a], "--kbd-first")) { o.kbd = 1; o.kbd_first = 1; }
         else if (!strcmp(argv[a], "--zero-bands")) o.zero_bands = 1;
+        else if (!strcmp(argv[a], "--probe") && a + 2 < argc) { g_probe_ch = atoi(argv[++a]); g_probe_line = atoi(argv[++a]); }
         else if (!strcmp(argv[a], "--tns-neutral")) { o.tns = 1; g_tns_neutral = 1; }
         else if (!strcmp(argv[a], "--short")) o.shorts = 1;
         else if (!strcmp(argv[a], "--kbd")) o.kbd = 1;
@@ -249,6 +256,7 @@ int main(int argc, char **argv) {
                 ch[1].max_sfb = (rnd() % 3u == 0) ? (unsigned)rr((int)(ch[0].nswb / 2u), (int)ch[0].nswb) : ch[0].max_sfb;
                 if (o.full_sfb) ch[1].max_sfb = ch[0].max_sfb;
                 fill_content(&o, &ch[1], 1);
+                apply_probe(&ch[0], 0); apply_probe(&ch[1], 1);
             } else {
                 const unsigned seq = next_seq(prev_seq[0], &o);                 /* both channels follow the same window sequence (a transition the standard forbids would make the decoders disagree) */
                 prev_seq[0] = prev_seq[1] = seq;

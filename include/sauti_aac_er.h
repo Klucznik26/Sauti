@@ -56,7 +56,7 @@ static inline size_t sauti_aac_er_wrap_header(uint8_t out[7],unsigned aot,unsign
     out[3]=(uint8_t)(((channel_config&3u)<<6)|(((aot==1u||aot==17u)?(frame480&1u):0u)<<4)|((l>>11)&3u));        /* Main with 960 lines: the `home` bit */
     out[4]=(uint8_t)(l>>3);
     out[5]=(uint8_t)(((l&7u)<<5)|0x1fu);
-    out[6]=(uint8_t)(aot==17u?0x40u:(aot==19u?0x44u:0xfcu));                                          /* the buffer-fullness field carries the ER LC / ER LTP code (real values are 0x3f in the top six bits) */
+    out[6]=(uint8_t)(aot==17u?0x40u:(aot==19u?0x44u:(aot==42u?0x48u:0xfcu)));                                          /* the buffer-fullness field carries the ER LC / ER LTP code (real values are 0x3f in the top six bits) */
     return l;
 }
 

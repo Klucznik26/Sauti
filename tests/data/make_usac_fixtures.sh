@@ -10,6 +10,7 @@
 #   usac_m5   mono, KBD already in the first frame                    FDK only (FFmpeg takes a sine window as the previous one)
 #   usac_s3   stereo, common window, M/S, common TNS on L/R (tns_on_lr = 1), KBD   FFmpeg, FDK
 #   usac_s4   stereo, noise filling with empty bands, M/S              FDK only (noise generator, see usac_m3)
+#   usac_long mono, 150 frames (the checkpoints of the engine, every 64 blocks, carry the arithmetic context, noise generator, window overlap and shape): FDK only (noise)
 #   usac_m2 also has TNS filters with coef_compress = 1; usac_m3 has entirely empty bands (noise_offset)
 # usage: tests/data/make_usac_fixtures.sh   (needs python3 and a built build/sauti_usac_gen: make build/sauti_usac_gen)
 set -euo pipefail
@@ -25,8 +26,9 @@ W="$(mktemp -d "${TMPDIR:-/tmp}/sauti-usac.XXXXXX")"; trap 'rm -rf -- "${W:?}"' 
 "$GEN" "$W/s1" --channels 2 --frames 12 --gain 125 --seed 74 --ms --short --kbd >/dev/null
 "$GEN" "$W/s2" --channels 2 --frames 12 --gain 75 --seed 75 --tns --short --dense >/dev/null
 "$GEN" "$W/s3" --channels 2 --frames 12 --gain 125 --seed 78 --ms --tns --on-lr 1 --short --kbd >/dev/null
+"$GEN" "$W/long" --channels 1 --frames 150 --gain 118 --seed 80 --noise-fill --zero-bands --short --kbd --tns >/dev/null
 "$GEN" "$W/s4" --channels 2 --frames 12 --gain 142 --seed 79 --ms --noise-fill --zero-bands --short --kbd >/dev/null
-for n in m1 m2 m3 m4 m5 s1 s2 s3 s4; do python3 -I ../../tools/mux_raw_aus_mp4.py "$W/$n" "usac_$n.m4a" 1024; done
+for n in m1 m2 m3 m4 m5 s1 s2 s3 s4 long; do python3 -I ../../tools/mux_raw_aus_mp4.py "$W/$n" "usac_$n.m4a" 1024; done
 python3 -I - "$W" ../test_usac_vectors.h <<'PY'
 import struct, sys
 d, out = sys.argv[1], sys.argv[2]
