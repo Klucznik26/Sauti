@@ -13,6 +13,9 @@
 /* bit 16: the stream is AAC Main (ISO/IEC 14496-3 object type 1): ics_info carries predictor_data and the decoder runs the backward-adaptive predictors; a plain index is AAC-LC */
 #define SAUTI_AAC_IDX_MAIN_FLAG 0x10000u
 #define SAUTI_AAC_IDX_IS_MAIN(idx) (((unsigned)(idx) & SAUTI_AAC_IDX_MAIN_FLAG) != 0u)
+/* bit 17: the stream is AAC LTP (object type 4): ics_info carries ltp_data (long-term prediction from the decoder's own output) instead of the Main predictor */
+#define SAUTI_AAC_IDX_LTP_FLAG 0x20000u
+#define SAUTI_AAC_IDX_IS_LTP(idx) (((unsigned)(idx) & SAUTI_AAC_IDX_LTP_FLAG) != 0u)
 /* Length of one transform window of the layout in `idx`: the stride of the natural [window][line] spectrum layout of short windows and the number of lines of a long window. */
 static inline unsigned sauti_aac_layout_window_len(unsigned idx, unsigned short_window) {
     switch (SAUTI_AAC_IDX_LAYOUT(idx)) {

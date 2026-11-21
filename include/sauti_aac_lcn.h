@@ -2,6 +2,7 @@
 #define SAUTI_AAC_LCN_H
 #include "sauti_aac_cpe.h"
 #include "sauti_aac_layout.h"
+#include "sauti_aac_ltp.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -11,14 +12,16 @@
 typedef struct {
     unsigned rate_index;       /* sampling_frequency_index of the core, 0..12 (0..11 for Main) */
     unsigned channel_config;   /* 1 or 2 */
+    unsigned ltp;              /* 1: AAC LTP (object type 4): 1024 lines, ics_info ltp_data, long-term prediction from the decoder's own output (sauti_aac_ltp.h); exclusive with `main` */
     unsigned main;             /* 1: AAC Main (object type 1): 1024 lines per frame, ics_info predictor_data, backward-adaptive prediction (sauti_aac_pred.h); 0: AAC-LC with 960 lines */
 } SautiAacLcnConfig;
 typedef struct {
     SautiAacLcSynthesis channel[2];
     SautiAacPredState pred[2];    /* Main only */
+    SautiAacLtpState ltp[2];      /* LTP only */
 } SautiAacLcnState;
 
-unsigned sauti_aac_lcn_frame_samples(const SautiAacLcnConfig *config);       /* 960 (LC) or 1024 (Main), or 0 for an unsupported configuration */
+unsigned sauti_aac_lcn_frame_samples(const SautiAacLcnConfig *config);       /* 960 (LC) or 1024 (Main, LTP), or 0 for an unsupported configuration */
 void sauti_aac_lcn_state_init(SautiAacLcnState *state);
 /* Decodes one access unit to interleaved float PCM (channels x 960).  Atomic: on failure state and `pcm` are unchanged.  1 decoded, 0 malformed / truncated, -1 valid but unsupported
  * (SBR in a fill element, LFE / CCE / PCE elements, gain control, intensity outside a common-window pair). */

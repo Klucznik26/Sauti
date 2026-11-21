@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Test tool (not a product): wraps the raw access units of tools/sauti_aac_gen.c (PREFIX.asc / PREFIX.aus) in ADTS, one header per access unit (no CRC), the profile field taken from the
-AudioSpecificConfig's object type (1 = Main -> profile 0, 2 = LC -> profile 1).  usage: mux_raw_aus_adts.py PREFIX OUT.aac   (frames of 1024 lines only: ADTS cannot carry 960)."""
+AudioSpecificConfig's object type (1 = Main -> profile 0, 2 = LC -> profile 1, 4 = LTP -> profile 3).  usage: mux_raw_aus_adts.py PREFIX OUT.aac   (frames of 1024 lines only: ADTS cannot carry 960)."""
 import struct, sys
 
 def main():
@@ -8,7 +8,7 @@ def main():
     asc = open(prefix + '.asc', 'rb').read(); raw = open(prefix + '.aus', 'rb').read()
     bits = ''.join(format(b, '08b') for b in asc)
     aot = int(bits[:5], 2); sfi = int(bits[5:9], 2); ch = int(bits[9:13], 2)
-    if aot not in (1, 2): raise SystemExit("only AOT 1 (Main) and 2 (LC)")
+    if aot not in (1, 2, 4): raise SystemExit("only AOT 1 (Main), 2 (LC) and 4 (LTP)")
     p = 0; res = b''
     while p + 4 <= len(raw):
         n = struct.unpack('>I', raw[p:p+4])[0]; au = raw[p+4:p+4+n]; p += 4 + n

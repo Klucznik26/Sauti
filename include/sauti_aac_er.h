@@ -47,12 +47,12 @@ typedef struct {
 int sauti_aac_er_asc_parse(const uint8_t *asc,size_t length,SautiAacErAsc *out);
 
 /* AAC-LD / ELD access units cannot be written in ADTS (the profile field has 2 bits), and the engine passes frames in ADTS form, so containers wrap them in a 7-byte INTERNAL header that
- * is not valid ADTS: the `layer` field is 01 (always 00 in real ADTS), the profile field is 0 for AAC-LD (23), 1 for AAC-ELD (39), 2 for AAC-LC with 960-line frames (aot 2, sauti_aac_lcn.h) and 3 for AAC Main (aot 1, same decoder), the private bit is the 480-line (LD / ELD) frame flag; sampling
+ * is not valid ADTS: the `layer` field is 01 (always 00 in real ADTS), the profile field is 0 for AAC-LD (23), 1 for AAC-ELD (39), 2 for AAC-LC with 960-line frames (aot 2, sauti_aac_lcn.h) and 3 for AAC Main (aot 1, same decoder; with the private bit set: AAC LTP, aot 4), the private bit is the 480-line (LD / ELD) frame flag; sampling
  * frequency index, channel configuration and frame length are as in ADTS.  The header never leaves the engine.  Returns the frame length (7 + au_length). */
 static inline size_t sauti_aac_er_wrap_header(uint8_t out[7],unsigned aot,unsigned rate_index,unsigned channel_config,unsigned frame480,uint32_t au_length){
     const size_t l=7u+au_length;
     out[0]=0xff;out[1]=0xf3;
-    out[2]=(uint8_t)(((aot==2u?2u:(aot==1u?3u:(aot==SAUTI_AAC_AOT_ER_ELD?1u:0u)))<<6)|(rate_index<<2)|((frame480&1u)<<1)|((channel_config>>2)&1u));
+    out[2]=(uint8_t)(((aot==2u?2u:((aot==1u||aot==4u)?3u:(aot==SAUTI_AAC_AOT_ER_ELD?1u:0u)))<<6)|(rate_index<<2)|((((aot==4u)?1u:frame480)&1u)<<1)|((channel_config>>2)&1u));
     out[3]=(uint8_t)(((channel_config&3u)<<6)|((l>>11)&3u));
     out[4]=(uint8_t)(l>>3);
     out[5]=(uint8_t)(((l&7u)<<5)|0x1fu);

@@ -11,6 +11,19 @@ static int read(const uint8_t *data,size_t size,size_t *pos,
                 unsigned bits,uint32_t *out){
     return sauti_aac_bits_read_asm(data,size,pos,bits,out);
 }
+int sauti_aac_ltp_data_parse(const uint8_t *data,size_t size,size_t *bit_offset,SautiAacIcsInfo *ics){
+    if(!data||!bit_offset||!ics||ics->max_sfb>63u)return 0;
+    size_t pos=*bit_offset;uint32_t lag=0,coef=0,v=0;uint8_t used[40];
+    memset(used,0,sizeof used);
+    if(!read(data,size,&pos,11,&lag)||!read(data,size,&pos,3,&coef))return 0;
+    const unsigned n=ics->max_sfb<40u?ics->max_sfb:40u;
+    for(unsigned sfb=0;sfb<n;sfb++){
+        if(!read(data,size,&pos,1,&v))return 0;
+        used[sfb]=(uint8_t)v;
+    }
+    ics->ltp_present=1u;ics->ltp_lag=(uint16_t)lag;ics->ltp_coef=(uint8_t)coef;memcpy(ics->ltp_used,used,sizeof used);
+    *bit_offset=pos;return 1;
+}
 unsigned sauti_aac_pred_sfb_max(unsigned sfi){
     static const unsigned char max[13]={33,33,38,40,40,40,41,41,37,37,37,34,0};
     return sfi<13u?max[sfi]:0u;
@@ -38,7 +51,11 @@ int sauti_aac_ics_info_parse_idx(const uint8_t *data,size_t size,
         next.group_length[0]=1;
         if(!read(data,size,&pos,6,&next.max_sfb) ||
            !read(data,size,&pos,1,&r))return 0;
-        if(r){                                              /* predictor_data_present: AAC Main only */
+        if(r && (idx&0x20000u)){                            /* predictor_data_present with the LTP flag: ltp_data_present, ltp_data */
+            next.predictor_present=1u;
+            if(!read(data,size,&pos,1,&v))return 0;
+            if(v && !sauti_aac_ltp_data_parse(data,size,&pos,&next))return 0;
+        }else if(r){                                        /* predictor_data_present: AAC Main only */
             if(!(idx&0x10000u))return 0;                   /* SAUTI_AAC_IDX_MAIN_FLAG (kept literal: this file does not include the layout header) */
             const unsigned limit=sauti_aac_pred_sfb_max(idx&0xffu);
             if(!limit)return 0;

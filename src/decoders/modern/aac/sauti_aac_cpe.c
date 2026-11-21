@@ -79,9 +79,16 @@ int sauti_aac_lc_cpe_parse(const uint8_t *raw,size_t length,
     (void)tag;
     SautiAacCpeData parsed={0};
     parsed.common_window=common;
-    SautiAacIcsInfo shared={0};
+    SautiAacIcsInfo shared={0},shared1={0};
     if(common){
         if(!sauti_aac_ics_info_parse_idx(raw,length,&pos,rate,&shared))return 0;
+        shared1=shared;
+        if(SAUTI_AAC_IDX_IS_LTP(rate) && shared.predictor_present){      /* AAC LTP: the second channel's own ltp_data_present / ltp_data follow the shared ics_info */
+            uint32_t present=0;
+            if(!get(raw,length,&pos,1,&present))return 0;
+            shared1.ltp_present=0;
+            if(present && !sauti_aac_ltp_data_parse(raw,length,&pos,&shared1))return 0;
+        }
         uint32_t mask=0;
         if(!get(raw,length,&pos,2,&mask)||mask==3u)return 0;
         parsed.ms_mask_present=mask;
@@ -98,7 +105,7 @@ int sauti_aac_lc_cpe_parse(const uint8_t *raw,size_t length,
     for(unsigned ch=0;ch<2;ch++){
         if(ch==1u)parsed.crc_second_ics_bit=pos;
         int status=channel_parse(raw,length,&pos,rate,
-                                common?&shared:NULL,&parsed.channel[ch],
+                                common?(ch==1u?&shared1:&shared):NULL,&parsed.channel[ch],
                                 reason,common && ch==1u);
         if(status!=1)return status;
     }

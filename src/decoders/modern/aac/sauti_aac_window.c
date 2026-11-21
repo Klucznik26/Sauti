@@ -52,6 +52,25 @@ int sauti_aac_window_generate(unsigned n,unsigned shape,float *window){
     }
     return 1;
 }
+/* The weights of the 2n-sample window of a long, long-start or long-stop frame: first half the rising slope of the previous frame's shape, second half the falling slope of the current one;
+ * start / stop frames replace one long slope by 1 / a short slope / 0 (the geometry of sauti_aac_window_synth_n).  Not defined for EIGHT_SHORT. */
+int sauti_aac_window_long_weights(unsigned n,unsigned sequence,unsigned previous_shape,unsigned current_shape,float *weight){
+    if((n!=1024u && n!=960u) || sequence>3u || sequence==2u || previous_shape>1u || current_shape>1u || !weight)return 0;
+    const unsigned ns=n/8u,lead=(n-ns)/2u;
+    float long_prev[2048],long_curr[2048],short_prev[256],short_curr[256];
+    if(!sauti_aac_window_generate(n,previous_shape,long_prev) ||
+       !sauti_aac_window_generate(n,current_shape,long_curr) ||
+       !sauti_aac_window_generate(ns,previous_shape,short_prev) ||
+       !sauti_aac_window_generate(ns,current_shape,short_curr))return 0;
+    for(unsigned i=0;i<2u*n;i++){
+        float w;
+        if(sequence==0u)w=i<n?long_prev[i]:long_curr[i];
+        else if(sequence==1u)w=i<n?long_prev[i]:i<n+lead?1.0f:i<n+lead+ns?short_curr[ns+(i-(n+lead))]:0.0f;
+        else w=i<lead?0.0f:i<lead+ns?short_prev[i-lead]:i<n?1.0f:long_curr[i];
+        weight[i]=w;
+    }
+    return 1;
+}
 int sauti_aac_window_synth_n(unsigned n,unsigned sequence,unsigned previous_shape,
                              unsigned current_shape,const float *imdct,
                              const float *previous_overlap,
@@ -63,29 +82,15 @@ int sauti_aac_window_synth_n(unsigned n,unsigned sequence,unsigned previous_shap
         if(!isfinite(imdct[i]))return 0;
     for(unsigned i=0;i<n;i++)
         if(!isfinite(previous_overlap[i]))return 0;
-    float long_prev[2048],long_curr[2048],short_prev[256],short_curr[256];
-    if(!sauti_aac_window_generate(n,previous_shape,long_prev) ||
-       !sauti_aac_window_generate(n,current_shape,long_curr) ||
-       !sauti_aac_window_generate(ns,previous_shape,short_prev) ||
-       !sauti_aac_window_generate(ns,current_shape,short_curr))return 0;
     float frame[2048]={0};
-    if(sequence==0u){
-        for(unsigned i=0;i<n;i++){
-            frame[i]=imdct[i]*long_prev[i];
-            frame[n+i]=imdct[n+i]*long_curr[n+i];
-        }
-    }else if(sequence==1u){
-        for(unsigned i=0;i<n;i++)frame[i]=imdct[i]*long_prev[i];
-        for(unsigned i=n;i<n+lead;i++)frame[i]=imdct[i];
-        for(unsigned i=n+lead;i<n+lead+ns;i++)
-            frame[i]=imdct[i]*short_curr[ns+(i-(n+lead))];
-    }else if(sequence==3u){
-        for(unsigned i=lead;i<lead+ns;i++)
-            frame[i]=imdct[i]*short_prev[i-lead];
-        for(unsigned i=lead+ns;i<n;i++)frame[i]=imdct[i];
-        for(unsigned i=n;i<2u*n;i++)
-            frame[i]=imdct[i]*long_curr[i];
+    if(sequence!=2u){
+        float weight[2048];
+        if(!sauti_aac_window_long_weights(n,sequence,previous_shape,current_shape,weight))return 0;
+        for(unsigned i=0;i<2u*n;i++)frame[i]=imdct[i]*weight[i];
     }else{
+        float short_prev[256],short_curr[256];
+        if(!sauti_aac_window_generate(ns,previous_shape,short_prev) ||
+           !sauti_aac_window_generate(ns,current_shape,short_curr))return 0;
         /* First short rising half uses previous shape; all subsequent
          * rising halves and all falling halves use current shape. */
         for(unsigned block=0;block<8;block++){

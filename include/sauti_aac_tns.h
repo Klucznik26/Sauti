@@ -28,6 +28,9 @@ int sauti_aac_tns_apply(const SautiAacTnsData *tns,
                         const SautiAacIcsInfo *ics,unsigned sample_rate_index,
                         float spectral[1024]);
 
+/* The encoder-side (analysis) filter of the same data: A(z) = 1 + sum lpc z^-k applied to the original values, the inverse of sauti_aac_tns_apply.  AAC LTP runs the predicted spectrum through it. */
+int sauti_aac_tns_analysis(const SautiAacTnsData *tns,const SautiAacIcsInfo *ics,unsigned sample_rate_index,float spectral[1024]);
+
 /* Consume tns_data() immediately after tns_data_present=1.
  * Output and bit position are atomic on error.
  * Parsing is distinct from applying inverse TNS. */

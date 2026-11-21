@@ -12,9 +12,11 @@ int aac_adts_parse_header(const uint8_t *p, size_t n, aac_adts_hdr_t *h) {
     h->er = layer; h->er_aot = 0u; h->er_480 = 0u;
     if (layer) {
         if (!prot_absent) return 0;                                      /* naglowek wewnetrzny nigdy nie ma CRC */
-        h->er_aot = (p[2] >> 6) == 1u ? 39u : ((p[2] >> 6) == 0u ? 23u : ((p[2] >> 6) == 2u ? 2u : 1u));          /* 2 = AAC-LC z ramka 960, 3 = AAC Main */
+        h->er_aot = (p[2] >> 6) == 1u ? 39u : ((p[2] >> 6) == 0u ? 23u : ((p[2] >> 6) == 2u ? 2u : 1u));          /* 2 = AAC-LC z ramka 960, 3 = AAC Main (z bitem prywatnym: AAC LTP) */
         h->er_480 = (unsigned)(p[2] >> 1) & 1u;
-    } else if ((p[2] >> 6) == 0u) { h->er = 1u; h->er_aot = 1u; h->er_480 = 0u; }    /* profil 0 = AAC Main: ta sama sciezka co ramki z naglowkiem wewnetrznym (dekoder sauti_aac_lcn) */
+        if (h->er_aot == 1u && h->er_480) { h->er_aot = 4u; h->er_480 = 0u; }
+    } else if ((p[2] >> 6) == 3u) { h->er = 1u; h->er_aot = 4u; h->er_480 = 0u; }                              /* profil 3 = AAC LTP */
+    else if ((p[2] >> 6) == 0u) { h->er = 1u; h->er_aot = 1u; h->er_480 = 0u; }    /* profil 0 = AAC Main: ta sama sciezka co ramki z naglowkiem wewnetrznym (dekoder sauti_aac_lcn) */
     else if ((p[2] >> 6) != 1u) return 0;                                /* profil 1 = AAC-LC */
     sfi = (unsigned)(p[2] >> 2) & 15u;
     if (sfi > 12u) return 0;
@@ -52,7 +54,7 @@ static void core_reset(dec_t *d) {
         if (d->config == 0u) (void)sauti_aac_lc_multi_init_layout(&d->core.u.multi, &d->layout, 0);
         else (void)sauti_aac_lc_multi_init(&d->core.u.multi, d->config, 0);
         break;
-    case V_ER: if (d->er_aot == 2u || d->er_aot == 1u) sauti_aac_lcn_state_init(&d->core.u.lcn); else sauti_aac_er_state_init(&d->core.u.er); break;
+    case V_ER: if (d->er_aot == 2u || d->er_aot == 1u || d->er_aot == 4u) sauti_aac_lcn_state_init(&d->core.u.lcn); else sauti_aac_er_state_init(&d->core.u.er); break;
     case V_HE_MONO: case V_HE_CPE: {
         he_state_t *s = &d->core.u.he;
         memset(s, 0, sizeof *s);
@@ -105,8 +107,8 @@ static void he_ps_hold(const SautiAacPsFrame *prev, SautiAacPsFrame *out) {
 /* AAC-LD / AAC-ELD: jednostka dostepu za 7-bajtowym naglowkiem wewnetrznym */
 static prod_t decode_er(dec_t *d) {
     SautiAacErConfig c; SautiAacReason reason = SAUTI_AAC_REASON_OK; int r;
-    if (d->er_aot == 2u || d->er_aot == 1u) {                                /* AAC-LC z ramka 960 albo AAC Main */
-        SautiAacLcnConfig lc; lc.rate_index = d->rate_index; lc.channel_config = d->config; lc.main = d->er_aot == 1u;
+    if (d->er_aot == 2u || d->er_aot == 1u || d->er_aot == 4u) {            /* AAC-LC z ramka 960, AAC Main albo AAC LTP */
+        SautiAacLcnConfig lc; lc.rate_index = d->rate_index; lc.channel_config = d->config; lc.main = d->er_aot == 1u; lc.ltp = d->er_aot == 4u;
         r = sauti_aac_lcn_decode(&lc, &d->core.u.lcn, d->frame + 7u, d->frame_len - 7u, d->cache, &reason);
         if (r == 1 && !all_finite(d->cache, (size_t)d->frame_pcm * d->out_channels)) r = 0;
         return r == 1 ? P_OK : (r < 0 ? P_UNSUPPORTED : P_FAIL);
@@ -252,7 +254,7 @@ static void fill_info(const dec_t *d, maktabasauti_stream_info_t *info) {
     info->total_frames = d->trimmed ? d->avail : (d->total_known ? d->known_frames * d->frame_pcm : MAKTABASAUTI_UNKNOWN_LENGTH);
     info->flags = d->seekable ? MAKTABASAUTI_STREAM_SEEKABLE : 0u;
     strcpy(info->codec_name, "aac"); strncpy(info->container_name, d->cont->name, sizeof info->container_name - 1u);
-    strcpy(info->codec_profile, d->variant == V_ER ? (d->er_aot == 39u ? "ELD" : (d->er_aot == 2u ? "LC" : (d->er_aot == 1u ? "Main" : "LD"))) : (d->variant >= V_HE_MONO ? "HE-AAC" : "LC"));
+    strcpy(info->codec_profile, d->variant == V_ER ? (d->er_aot == 39u ? "ELD" : (d->er_aot == 2u ? "LC" : (d->er_aot == 1u ? "Main" : (d->er_aot == 4u ? "LTP" : "LD")))) : (d->variant >= V_HE_MONO ? "HE-AAC" : "LC"));
 }
 
 maktabasauti_result_t MAKTABASAUTI_CALL aac_eng_get_info(const void *state, maktabasauti_stream_info_t *info) {
@@ -416,7 +418,7 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
     if (hd.er) {                                                       /* AAC-LD / AAC-ELD: jeden wariant, bez wykrywania */
         SautiAacErConfig c; unsigned n;
         c.aot = hd.er_aot; c.rate_index = hd.rate_index; c.frame480 = hd.er_480; c.channel_config = hd.config;
-        if (hd.er_aot == 2u || hd.er_aot == 1u) { SautiAacLcnConfig lc; lc.rate_index = hd.rate_index; lc.channel_config = hd.config; lc.main = hd.er_aot == 1u; n = sauti_aac_lcn_frame_samples(&lc); }
+        if (hd.er_aot == 2u || hd.er_aot == 1u || hd.er_aot == 4u) { SautiAacLcnConfig lc; lc.rate_index = hd.rate_index; lc.channel_config = hd.config; lc.main = hd.er_aot == 1u; lc.ltp = hd.er_aot == 4u; n = sauti_aac_lcn_frame_samples(&lc); }
         else n = sauti_aac_er_frame_samples(&c);
         if (!n || hd.crc_present) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
         d->variant = V_ER; d->er_aot = hd.er_aot; d->er_480 = hd.er_480;

@@ -104,9 +104,9 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
         info->aot=aot;info->rate_index=er.rate_index;info->sample_rate=rates[er.rate_index];info->channel_config=er.channel_config;info->frame480=er.frame480;
         return 1;
     }
-    if(aot!=1u&&aot!=2u&&aot!=5u&&aot!=29u)return 0;                         /* Main, LC, albo HE/HEv2 (rdzen LC + SBR w FIL) */
+    if(aot!=1u&&aot!=2u&&aot!=5u&&aot!=29u&&aot!=4u)return 0;                         /* Main, LC, albo HE/HEv2 (rdzen LC + SBR w FIL) */
     info->frame480=0u;
-    if(aot==1u){                                                              /* AAC Main: 1024 linii (frameLengthFlag 1 nie jest obslugiwane), mono i stereo */
+    if(aot==1u||aot==4u){                                                    /* AAC Main / AAC LTP: 1024 linii (frameLengthFlag 1 nie jest obslugiwane), mono i stereo */
         if(getbits(asc,n,&bit,1)!=0u)return 0;
         info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cc;info->frame480=0u;return cc>=1u&&cc<=2u;
     }
@@ -197,7 +197,7 @@ int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t 
         if(!have_esds||!parse_esds(esds,asc,&asc_len))continue;
         SautiAacMp4Info inf;memset(&inf,0,sizeof(inf));
         if(!parse_asc(asc,asc_len,&inf))continue;
-        if(inf.aot==1u||inf.aot==23u||inf.aot==39u||(inf.aot==2u&&inf.frame480))continue;                              /* AAC-LD / ELD nie da sie zapisac jako ADTS (sciezka strumieniowa silnika owija je wlasnym naglowkiem) */
+        if(inf.aot==1u||inf.aot==4u||inf.aot==23u||inf.aot==39u||(inf.aot==2u&&inf.frame480))continue;                              /* AAC-LD / ELD nie da sie zapisac jako ADTS (sciezka strumieniowa silnika owija je wlasnym naglowkiem) */
         /* Lista jednostek dostepu: z tablic probek (stbl) i z fragmentow (moof/trun) - plik moze miec jedno, drugie albo oba. */
         Sample *list=NULL;size_t nlist=0,caplist=0;
         {

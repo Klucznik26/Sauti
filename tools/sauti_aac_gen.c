@@ -16,6 +16,7 @@
  *   --quiet Q        lowers global_gain by Q steps (4 steps = 6 dB): the default levels are far above full scale (peak ~100), which clips in fixed-point decoders such as FDK; 36 keeps the peak below 1
  *   --full-sfb       max_sfb always the full number of bands (constant across frames)
  *   --pns-quiet      noise bands 20 octaves below the signal (the noise itself is negligible in the PCM; for tests of what PNS does to other tools)
+ *   --ltp            AAC LTP (object type 4): random ltp_data (lag 0..2047, gain index, used flags) in the long windows; --ltp-max-coef I limits the gain index (0..7)
  *   --main           AAC Main (object type 1): random predictor_data (prediction_used flags, resets) in the long windows
  *   --level G        global_gain and every scalefactor kept within G..G+12 (3 octaves) instead of a random walk over ~10 octaves: a controlled level; 136 gives a peak of about 0.3 with the default amplitude
  *   --pns            one band in six becomes a perceptual-noise-substitution band (codebook 13); --pns-den N: one in N (1 = every band)
@@ -74,10 +75,11 @@ static void put_spectrum(Bw *w, unsigned book, const int *q, unsigned n) {      
 typedef struct {
     int q[1024];                                   /* natural layout: [window][line] (one window for long sequences) */
     unsigned pred, pred_n, pred_reset, pred_group; uint8_t pred_used[41];            /* AAC Main predictor_data of the (shared) ics_info */
+    unsigned ltp_mode, ltp_present, ltp_lag, ltp_coef, ltp_n; uint8_t ltp_used[40];            /* AAC LTP ltp_data (own to each channel) */
     unsigned seq, shape, max_sfb, groups, group_len[8];
     unsigned book[8][64]; int sf[8][64]; unsigned gain; int tns; unsigned tns_len, tns_order, tns_dir; int tns_coef[20];
 } Chan;
-typedef struct { unsigned frame, rate, channels, main, predmode, fullsfb, pnsquiet, ms, msall, tns, pns, amp, shorts, kbd, quiet, level; const uint16_t *off, *soff; unsigned bands, sbands; } Cfg;
+typedef struct { unsigned frame, rate, channels, main, ltp, ltpmax, predmode, fullsfb, pnsquiet, ms, msall, tns, pns, amp, shorts, kbd, quiet, level; const uint16_t *off, *soff; unsigned bands, sbands; } Cfg;
 
 static unsigned g_prev_seq;                                                         /* window sequence of the previous frame (shared by both channels: common_window) */
 static void pick_sequence(const Cfg *c, unsigned *seq) {
@@ -134,6 +136,17 @@ static void fill_pred(const Cfg *c, Chan *ch) {                                 
     if (c->predmode == 3) { ch->pred = 1; ch->pred_reset = 0; for (i = 0; i < ch->pred_n; i++) ch->pred_used[i] = 1; }     /* everything used, no reset */
     if (c->predmode == 4) { ch->pred = 1; ch->pred_reset = 1; for (i = 0; i < ch->pred_n; i++) ch->pred_used[i] = 1; }     /* everything used, with reset groups */
 }
+static void fill_ltp(const Cfg *c, Chan *ch) {                                          /* random ltp_data for a long window of an AAC LTP stream */
+    unsigned i;
+    ch->ltp_mode = 1; ch->ltp_n = ch->max_sfb < 40u ? ch->max_sfb : 40u;
+    ch->pred = rr(0, 3) != 0; ch->ltp_present = rr(0, 3) != 0; ch->ltp_lag = (unsigned)rr(0, 2047); ch->ltp_coef = (unsigned)rr(0, (int)c->ltpmax);
+    for (i = 0; i < ch->ltp_n; i++) ch->ltp_used[i] = rr(0, 2) != 0;
+}
+static void put_ltp(Bw *w, const Chan *ch) {                                            /* ltp_data_present, then ltp_data */
+    unsigned i;
+    put(w, ch->ltp_present, 1);
+    if (ch->ltp_present) { put(w, ch->ltp_lag, 11); put(w, ch->ltp_coef, 3); for (i = 0; i < ch->ltp_n; i++) put(w, ch->ltp_used[i], 1); }
+}
 static void put_ics_info(Bw *w, const Chan *ch) {
     put(w, 0, 1); put(w, ch->seq, 2); put(w, ch->shape, 1);
     if (ch->seq == 2u) {
@@ -143,7 +156,8 @@ static void put_ics_info(Bw *w, const Chan *ch) {
     } else {
         unsigned i;
         put(w, ch->max_sfb, 6); put(w, ch->pred, 1);                                    /* max_sfb, predictor_data_present */
-        if (ch->pred) { put(w, ch->pred_reset, 1); if (ch->pred_reset) put(w, ch->pred_group, 5); for (i = 0; i < ch->pred_n; i++) put(w, ch->pred_used[i], 1); }
+        if (ch->pred && ch->ltp_mode) put_ltp(w, ch);
+        else if (ch->pred) { put(w, ch->pred_reset, 1); if (ch->pred_reset) put(w, ch->pred_group, 5); for (i = 0; i < ch->pred_n; i++) put(w, ch->pred_used[i], 1); }
     }
 }
 static void put_sections(Bw *w, const Chan *ch) {
@@ -222,6 +236,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--pns")) c.pns = 6;
         else if (!strcmp(argv[a], "--pns-den") && a + 1 < argc) c.pns = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--main")) c.main = 1;
+        else if (!strcmp(argv[a], "--ltp")) { c.ltp = 1; c.ltpmax = 7; }
+        else if (!strcmp(argv[a], "--ltp-max-coef") && a + 1 < argc) { c.ltp = 1; c.ltpmax = (unsigned)atoi(argv[++a]); }
         else if (!strcmp(argv[a], "--pns-quiet")) c.pnsquiet = 1;
         else if (!strcmp(argv[a], "--full-sfb")) c.fullsfb = 1;
         else if (!strcmp(argv[a], "--pred-mode") && a + 1 < argc) c.predmode = (unsigned)atoi(argv[++a]);
@@ -237,7 +253,7 @@ int main(int argc, char **argv) {
     { const unsigned lay = c.frame == 960 ? SAUTI_AAC_LAYOUT_960 : SAUTI_AAC_LAYOUT_1024;
       if (!sauti_aac_band_offsets(SAUTI_AAC_IDX(c.rate, lay), 0, &c.off, &c.bands) || !sauti_aac_band_offsets(SAUTI_AAC_IDX(c.rate, lay), 1, &c.soff, &c.sbands)) { fprintf(stderr, "no band table for this frame length / rate\n"); return 2; } }
     /* AudioSpecificConfig: AOT 2, rate, channel config, frameLengthFlag, dependsOnCoreCoder 0, extensionFlag 0 */
-    memset(&asc, 0, sizeof asc); put(&asc, c.main ? 1u : 2u, 5); put(&asc, c.rate, 4); put(&asc, c.channels, 4); put(&asc, c.frame == 960 ? 1u : 0u, 1); put(&asc, 0, 1); put(&asc, 0, 1);
+    memset(&asc, 0, sizeof asc); put(&asc, c.main ? 1u : c.ltp ? 4u : 2u, 5); put(&asc, c.rate, 4); put(&asc, c.channels, 4); put(&asc, c.frame == 960 ? 1u : 0u, 1); put(&asc, 0, 1); put(&asc, 0, 1);
     snprintf(path, sizeof path, "%s.asc", argv[1]); fa = fopen(path, "wb"); if (!fa) return 2; fwrite(asc.b, 1, (asc.n + 7) / 8, fa); fclose(fa);
     snprintf(path, sizeof path, "%s.aus", argv[1]); fb = fopen(path, "wb"); if (!fb) return 2;
     for (f = 0; f < frames; f++) {
@@ -249,13 +265,13 @@ int main(int argc, char **argv) {
             for (k = 0; k < 8; k++) { if (k == 0 || (rnd() % 3u) == 0) group_len[groups++] = 1; else group_len[groups - 1]++; win++; }
             max_sfb = (c.sbands > 4 && !c.fullsfb && (rnd() & 3u)) ? (unsigned)rr((int)c.sbands / 2, (int)c.sbands) : c.sbands; if (max_sfb > 15u) max_sfb = 15u; (void)win;
         } else { groups = 1; group_len[0] = 1; max_sfb = (c.bands > 8 && !c.fullsfb && (rnd() & 3u)) ? (unsigned)rr((int)c.bands / 2, (int)c.bands) : c.bands; }
-        if (c.channels == 1) { make_channel(&c, &ch[0], seq, shape, max_sfb, group_len, groups); if (c.main && seq != 2u) fill_pred(&c, &ch[0]); put(&w, 0, 3); put(&w, 0, 4); put_channel(&w, &c, &ch[0], 1); }
+        if (c.channels == 1) { make_channel(&c, &ch[0], seq, shape, max_sfb, group_len, groups); if (c.main && seq != 2u) fill_pred(&c, &ch[0]); if (c.ltp && seq != 2u) fill_ltp(&c, &ch[0]); put(&w, 0, 3); put(&w, 0, 4); put_channel(&w, &c, &ch[0], 1); }
         else {
             unsigned ms_mask = 0, b, g; uint8_t used[8][64] = { { 0 } };
-            make_channel(&c, &ch[0], seq, shape, max_sfb, group_len, groups); make_channel(&c, &ch[1], seq, shape, max_sfb, group_len, groups); if (c.main && seq != 2u) fill_pred(&c, &ch[0]);
+            make_channel(&c, &ch[0], seq, shape, max_sfb, group_len, groups); make_channel(&c, &ch[1], seq, shape, max_sfb, group_len, groups); if (c.main && seq != 2u) fill_pred(&c, &ch[0]); if (c.ltp && seq != 2u) { fill_ltp(&c, &ch[0]); fill_ltp(&c, &ch[1]); }
             if (c.ms) { ms_mask = c.msall ? 2u : (unsigned)rr(0, 2); for (g = 0; g < groups; g++) for (b = 0; b < max_sfb; b++) used[g][b] = (uint8_t)(ms_mask == 2 ? 1 : (ms_mask == 1 ? (rnd() & 1u) : 0u)); }
             put(&w, 1, 3); put(&w, 0, 4); put(&w, 1, 1);                                  /* ID_CPE, tag, common_window */
-            put_ics_info(&w, &ch[0]); put(&w, ms_mask, 2);
+            put_ics_info(&w, &ch[0]); if (c.ltp && seq != 2u && ch[0].pred) put_ltp(&w, &ch[1]); put(&w, ms_mask, 2);
             if (ms_mask == 1) for (g = 0; g < groups; g++) for (b = 0; b < max_sfb; b++) put(&w, used[g][b], 1);
             put_channel(&w, &c, &ch[0], 0); put_channel(&w, &c, &ch[1], 0);
         }

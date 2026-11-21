@@ -58,9 +58,9 @@ int sauti_aac_tns_parse(const uint8_t *data,size_t size,size_t *bit_offset,
     return 1;
 }
 
-int sauti_aac_tns_apply(const SautiAacTnsData *tns,
-                        const SautiAacIcsInfo *ics,unsigned rate,
-                        float spectral[1024]){
+static int tns_run(const SautiAacTnsData *tns,
+                   const SautiAacIcsInfo *ics,unsigned rate,
+                   float spectral[1024],int analysis){
     if(!tns||!ics||!spectral||SAUTI_AAC_IDX_RATE(rate)>=13u||
        ics->window_sequence>3u)return 0;
     const unsigned shortwin=ics->window_sequence==2u;
@@ -71,10 +71,10 @@ int sauti_aac_tns_apply(const SautiAacTnsData *tns,
     const unsigned mmm=sauti_aac_tns_max_bands(rate,shortwin);
     if(!mmm)return 0;
     const unsigned cap=mmm<ics->max_sfb?mmm:ics->max_sfb;
-    float next[1024];
+    float next[1024],orig[1024];
     for(unsigned i=0;i<1024;i++){
         if(!isfinite(spectral[i]))return 0;
-        next[i]=spectral[i];
+        next[i]=orig[i]=spectral[i];
     }
     const double pi=3.14159265358979323846264338327950288;
     for(unsigned w=0;w<windows;w++){
@@ -119,6 +119,10 @@ int sauti_aac_tns_apply(const SautiAacTnsData *tns,
             for(unsigned m=0;m<stop-start;m++,index+=direction){
                 float value=next[index];
                 const unsigned past=m<f->order?m:f->order;
+                if(analysis){                                                          /* the FIR the encoder applied: previous ORIGINAL values */
+                    for(unsigned k=1;k<=past;k++)
+                        value+=lpc[k-1u]*orig[index-(int)k*direction];
+                }else
                 for(unsigned k=1;k<=past;k++)
                     value-=lpc[k-1u]*next[index-(int)k*direction];
                 if(!isfinite(value))return 0;
@@ -128,4 +132,14 @@ int sauti_aac_tns_apply(const SautiAacTnsData *tns,
     }
     memcpy(spectral,next,sizeof(next));
     return 1;
+}
+int sauti_aac_tns_apply(const SautiAacTnsData *tns,
+                        const SautiAacIcsInfo *ics,unsigned rate,
+                        float spectral[1024]){
+    return tns_run(tns,ics,rate,spectral,0);
+}
+int sauti_aac_tns_analysis(const SautiAacTnsData *tns,
+                           const SautiAacIcsInfo *ics,unsigned rate,
+                           float spectral[1024]){
+    return tns_run(tns,ics,rate,spectral,1);
 }

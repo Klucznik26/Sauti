@@ -14,12 +14,14 @@ static int get(const uint8_t *data,size_t length,size_t *pos,unsigned width,uint
 }
 unsigned sauti_aac_lcn_frame_samples(const SautiAacLcnConfig *c){
     if(!c || c->channel_config<1u || c->channel_config>2u)return 0u;
+    if(c->main && c->ltp)return 0u;
     if(c->main)return c->rate_index<=11u?1024u:0u;                          /* no PRED_SFB_MAX for 7350 Hz */
+    if(c->ltp)return c->rate_index<=12u?1024u:0u;
     return c->rate_index<=12u?960u:0u;
 }
 void sauti_aac_lcn_state_init(SautiAacLcnState *state){
     memset(state,0,sizeof(*state));
-    for(unsigned c=0;c<2;c++){(void)sauti_aac_lc_synthesis_init(&state->channel[c],0u);sauti_aac_pred_reset(&state->pred[c]);}
+    for(unsigned c=0;c<2;c++){(void)sauti_aac_lc_synthesis_init(&state->channel[c],0u);sauti_aac_pred_reset(&state->pred[c]);sauti_aac_ltp_reset(&state->ltp[c]);}
 }
 /* data_stream_element(): tag(4), data_byte_align_flag(1), count(8) [+ esc_count(8)], optional byte alignment, count bytes */
 static int skip_dse(const uint8_t *data,size_t length,size_t *pos){
@@ -46,7 +48,7 @@ int sauti_aac_lcn_decode(const SautiAacLcnConfig *cfg,SautiAacLcnState *state,co
     *reason=SAUTI_AAC_REASON_INVALID_SCE;
     const unsigned n=sauti_aac_lcn_frame_samples(cfg);
     if(!n || !state || !au || !pcm || length>SIZE_MAX/8u)return 0;
-    const unsigned idx=cfg->main?(SAUTI_AAC_IDX(cfg->rate_index,SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_MAIN_FLAG):SAUTI_AAC_IDX(cfg->rate_index,SAUTI_AAC_LAYOUT_960);
+    const unsigned idx=cfg->main?(SAUTI_AAC_IDX(cfg->rate_index,SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_MAIN_FLAG):cfg->ltp?(SAUTI_AAC_IDX(cfg->rate_index,SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_LTP_FLAG):SAUTI_AAC_IDX(cfg->rate_index,SAUTI_AAC_LAYOUT_960);
     const unsigned channels=cfg->channel_config;
     SautiAacLcnState next=*state;
     float out[2][1024],mix[2*1024];
@@ -74,6 +76,7 @@ int sauti_aac_lcn_decode(const SautiAacLcnConfig *cfg,SautiAacLcnState *state,co
             float spectral[1024];
             if(!dequantize(mono,idx,&next.channel[0].pns_seed,spectral) ||
                (cfg->main && !predict_mono(&next.pred[0],mono,idx,spectral)) ||
+               (cfg->ltp && !sauti_aac_ltp_apply(&next.ltp[0],&mono->ics,idx,next.channel[0].previous_shape,mono->tns_present?&mono->tns:NULL,spectral)) ||
                !sauti_aac_lc_synthesis_spectral(&next.channel[0],&mono->ics,mono->tns_present?&mono->tns:NULL,idx,spectral,out[0])){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;status=0;goto done;}
         }else{
             cpe=(SautiAacCpeData *)calloc(1,sizeof(*cpe));
@@ -85,12 +88,16 @@ int sauti_aac_lcn_decode(const SautiAacLcnConfig *cfg,SautiAacLcnState *state,co
             uint32_t seed=next.channel[0].pns_seed;
             status=sauti_aac_cpe_spectra_pred(cpe,idx,&seed,spectral,cfg->main?next.pred:NULL,reason);
             if(status!=1)goto done;
+            if(cfg->ltp)
+                for(unsigned c=0;c<2;c++)
+                    if(!sauti_aac_ltp_apply(&next.ltp[c],&cpe->channel[c].ics,idx,next.channel[c].previous_shape,cpe->channel[c].tns_present?&cpe->channel[c].tns:NULL,spectral[c])){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;status=0;goto done;}
             next.channel[0].pns_seed=next.channel[1].pns_seed=seed;
             for(unsigned c=0;c<2;c++)
                 if(!sauti_aac_lc_synthesis_spectral(&next.channel[c],&cpe->channel[c].ics,cpe->channel[c].tns_present?&cpe->channel[c].tns:NULL,idx,spectral[c],out[c])){
                     *reason=SAUTI_AAC_REASON_INVALID_SYNTH;status=0;goto done;
                 }
         }
+        if(cfg->ltp)for(unsigned c=0;c<channels;c++)sauti_aac_ltp_update(&next.ltp[c],out[c],next.channel[c].overlap);
         done=1;
     }
     status=done?1:0;

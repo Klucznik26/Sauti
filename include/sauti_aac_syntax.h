@@ -19,6 +19,11 @@ typedef struct {
     uint8_t predictor_reset;     /* predictor_reset */
     uint8_t predictor_reset_group; /* predictor_reset_group_number, 1..30 (0: none) */
     uint8_t prediction_used[41]; /* per scalefactor band below min(max_sfb, PRED_SFB_MAX) */
+    /* AAC LTP ltp_data (only with the LTP flag of the index, long windows) */
+    uint8_t ltp_present;         /* ltp_data_present */
+    uint16_t ltp_lag;            /* 0..2047 samples */
+    uint8_t ltp_coef;            /* index 0..7 into the LTP gain table */
+    uint8_t ltp_used[40];        /* ltp_long_used per scalefactor band below min(max_sfb, 40) */
 } SautiAacIcsInfo;
 
 int sauti_aac_ics_info_parse(const uint8_t *bytes,size_t size,
@@ -26,6 +31,8 @@ int sauti_aac_ics_info_parse(const uint8_t *bytes,size_t size,
 /* The same for a packed index (sauti_aac_layout.h): with SAUTI_AAC_IDX_MAIN_FLAG the predictor_data of AAC Main (predictor_reset, reset group, prediction_used per band) is parsed;
  * without it predictor_data_present = 1 fails as before (AAC-LC).  The band limit PRED_SFB_MAX comes from the sampling_frequency_index; 7350 Hz has none (fails). */
 int sauti_aac_ics_info_parse_idx(const uint8_t *bytes,size_t size,size_t *bit_offset,unsigned idx,SautiAacIcsInfo *info);
+/* ltp_data() of AAC LTP: lag (11), coefficient index (3) and one used flag per band below min(max_sfb, 40); fills the ltp_* fields of `ics` (max_sfb must be set).  Atomic. */
+int sauti_aac_ltp_data_parse(const uint8_t *bytes,size_t size,size_t *bit_offset,SautiAacIcsInfo *ics);
 /* Number of scalefactor bands the Main predictor covers (ISO/IEC 14496-3 4.6.7, Table 4.? PRED_SFB_MAX), 0 for an unsupported rate. */
 unsigned sauti_aac_pred_sfb_max(unsigned sampling_frequency_index);
 

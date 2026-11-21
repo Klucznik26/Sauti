@@ -19,4 +19,7 @@ int sauti_aac_window_synth_n(unsigned n,unsigned sequence,unsigned previous_shap
                              unsigned current_shape,const float *imdct,
                              const float *previous_overlap,
                              float *pcm,float *next_overlap);
+/* Weights of the 2n-sample window of a long / long-start / long-stop frame (n 1024 or 960): rising slope of the previous shape, falling slope of the current one, start / stop frames with their
+ * flat and short parts; 0 for EIGHT_SHORT or bad arguments.  sauti_aac_window_synth_n multiplies the IMDCT output by exactly these weights. */
+int sauti_aac_window_long_weights(unsigned n,unsigned sequence,unsigned previous_shape,unsigned current_shape,float *weight);
 #endif
