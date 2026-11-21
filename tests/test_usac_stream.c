@@ -17,6 +17,8 @@
 static int g_failures;
 #define CHECK(cond, ...) do { if (!(cond)) { g_failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
+static uint32_t g_rng = 88172645u;
+static uint32_t rnd(void) { g_rng ^= g_rng << 13; g_rng ^= g_rng >> 17; g_rng ^= g_rng << 5; return g_rng; }
 static uint8_t *slurp(const char *path, size_t *n) {
     FILE *f = fopen(path, "rb"); uint8_t *b; long len;
     if (!f) return NULL;
@@ -122,6 +124,78 @@ static void test_refusals(void) {
     free(data);
 }
 
+/* ---- LOAS / LATM: the same access units in an AudioSyncStream ------------------------------------------------------------------------------------------------------------------------------- */
+static float *read_all(const uint8_t *data, size_t n, unsigned *channels, size_t chunk, size_t *frames_out, maktabasauti_result_t *last, char *container) {
+    maktabasauti_stream_info_t info; maktabasauti_decoder_t *d = open_mem(data, n, &info, NULL); float *pcm = NULL, *buf; size_t total = 0, got, cap = 0; maktabasauti_result_t r = MAKTABASAUTI_OK;
+    *frames_out = 0; *last = MAKTABASAUTI_E_UNSUPPORTED_FORMAT; if (container) container[0] = 0; *channels = 0;
+    if (!d) return NULL;
+    *channels = info.channels; if (container) { strncpy(container, info.container_name, 15); container[15] = 0; }
+    buf = (float *)malloc(chunk * info.channels * sizeof(float));
+    for (;;) {
+        r = maktabasauti_decoder_read(d, buf, chunk, MAKTABASAUTI_FORMAT_F32, &got);
+        if (got) { if (total + got > cap) { cap = (total + got) * 2u; pcm = (float *)realloc(pcm, cap * info.channels * sizeof(float)); } memcpy(pcm + total * info.channels, buf, got * info.channels * sizeof(float)); total += got; }
+        if (r != MAKTABASAUTI_OK) break;
+    }
+    free(buf); maktabasauti_decoder_close(d); *frames_out = total; *last = r; return pcm;
+}
+static void test_loas_equal(const char *mp4, const char *loas, unsigned channels) {                               /* the engine decodes LOAS / LATM exactly like MP4: same PCM, any read size */
+    size_t n1, n2, f1, f2, f3; uint8_t *a = slurp(mp4, &n1), *b = slurp(loas, &n2); unsigned c1, c2, c3; maktabasauti_result_t r1, r2, r3; char cn1[16], cn2[16], cn3[16]; float *p1, *p2, *p3;
+    if (!a || !b) { CHECK(0, "cannot read %s / %s", mp4, loas); free(a); free(b); return; }
+    p1 = read_all(a, n1, &c1, 4096, &f1, &r1, cn1); p2 = read_all(b, n2, &c2, 4096, &f2, &r2, cn2); p3 = read_all(b, n2, &c3, 333, &f3, &r3, cn3);
+    CHECK(p1 && p2 && p3 && c2 == channels && c1 == channels && c3 == channels && !strcmp(cn1, "mp4") && !strcmp(cn2, "loas"), "%s: %u ch, container '%s'", loas, c2, cn2);
+    CHECK(r2 == MAKTABASAUTI_EOF && f2 == f1 && f3 == f1 && f1 > 0, "%s: %zu / %zu / %zu frames, end %d", loas, f2, f3, f1, (int)r2);
+    if (p1 && p2 && p3 && f1 == f2 && f1 == f3) CHECK(memcmp(p1, p2, f1 * channels * sizeof(float)) == 0 && memcmp(p1, p3, f1 * channels * sizeof(float)) == 0, "%s: PCM differs from the MP4 decode", loas);
+    free(p1); free(p2); free(p3); free(a); free(b);
+}
+static void test_loas_hostile(const char *mp4, const char *loas, unsigned channels) {
+    size_t n1, n2, f1, f, i; uint8_t *a = slurp(mp4, &n1), *b = slurp(loas, &n2), *w; unsigned c; maktabasauti_result_t r; float *ref, *p; int round;
+    if (!a || !b) { CHECK(0, "cannot read %s / %s", mp4, loas); free(a); free(b); return; }
+    ref = read_all(a, n1, &c, 4096, &f1, &r, NULL);
+    for (i = 40; i < n2; i += 211u) {                                                                           /* every 211th truncation: what was complete decodes identically, nothing crashes */
+        p = read_all(b, i, &c, 4096, &f, &r, NULL);
+        CHECK(f <= f1 && (!f || (p && ref && memcmp(p, ref, f * channels * sizeof(float)) == 0)), "%s truncated at %zu: %zu frames differ from the reference", loas, i, f);
+        free(p);
+    }
+    w = (uint8_t *)malloc(n2);
+    for (round = 0; round < 60; round++) {                                                                      /* bit flips: no crash, no unbounded output */
+        memcpy(w, b, n2); w[rnd() % n2] ^= (uint8_t)(1u << (rnd() & 7u)); if (round & 1) w[rnd() % n2] ^= (uint8_t)(1u << (rnd() & 7u));
+        p = read_all(w, n2, &c, 4096, &f, &r, NULL); CHECK(f <= f1 + 2048u, "%s flipped: %zu frames", loas, f); free(p);
+    }
+    free(w); free(ref); free(a); free(b);
+}
+static size_t put_bits(uint8_t *buf, size_t pos, uint32_t v, unsigned n) { while (n--) { if ((v >> n) & 1u) buf[pos >> 3] |= (uint8_t)(0x80u >> (pos & 7u)); pos++; } return pos; }
+static void test_loas_long_config(void) {                                                                      /* an AudioSpecificConfig longer than the engine keeps (96 bytes): refused, never copied past the buffer */
+    static SautiUsacConfig c; static uint8_t el[2048], out[3 * 2048 + 8]; size_t asc_bits = 0, pos, k, o = 0, total; unsigned i; size_t n; uint8_t *data; maktabasauti_stream_info_t info; maktabasauti_decoder_t *d;
+    CHECK(sauti_usac_asc_parse_at(usac_m1_asc, sizeof usac_m1_asc, 0, &c, &asc_bits) == 1 && asc_bits > 20u, "m1 asc");
+    for (i = 0; i < 3u; i++) {
+        memset(el, 0, sizeof el); pos = 0;
+        pos = put_bits(el, pos, 0, 1);                                                                           /* useSameStreamMux = 0 */
+        pos = put_bits(el, pos, 0, 1); pos = put_bits(el, pos, 1, 1); pos = put_bits(el, pos, 0, 6); pos = put_bits(el, pos, 0, 4); pos = put_bits(el, pos, 0, 3);
+        for (k = 0; k + 1u < asc_bits; k++) pos = put_bits(el, pos, (usac_m1_asc[k >> 3] >> (7u - (k & 7u))) & 1u, 1);   /* the ASC up to its usacConfigExtensionPresent bit */
+        pos = put_bits(el, pos, 1, 1); pos = put_bits(el, pos, 0, 2); pos = put_bits(el, pos, 0, 4);              /* extension present, one extension, type 0 */
+        pos = put_bits(el, pos, 15, 4); pos = put_bits(el, pos, 235, 8);                                         /* length 250 bytes */
+        for (k = 0; k < 250u; k++) pos = put_bits(el, pos, 0, 8);
+        pos = put_bits(el, pos, 0, 3); pos = put_bits(el, pos, 0xff, 8); pos = put_bits(el, pos, 0, 1); pos = put_bits(el, pos, 0, 1);
+        { size_t l = sizeof usac_m1_au0; pos = put_bits(el, pos, (uint32_t)l, 8); for (k = 0; k < l; k++) pos = put_bits(el, pos, usac_m1_au0[k], 8); }
+        if (i == 0) { size_t bits = 0; SautiUsacConfig lc; CHECK(sauti_usac_asc_parse_at(el, (pos + 7u) / 8u, 1u + 1u + 1u + 6u + 4u + 3u, &lc, &bits) == 1 && bits > 96u * 8u, "the long configuration is a valid UsacConfig (%zu bits)", bits); }
+        total = (pos + 7u) / 8u; out[o++] = 0x56u; out[o++] = (uint8_t)(0xE0u | (total >> 8)); out[o++] = (uint8_t)total; memcpy(out + o, el, total); o += total;
+    }
+    data = out; n = o;
+    d = open_mem(data, n, &info, NULL);
+    CHECK(d == NULL, "a configuration longer than the engine keeps must be refused at open");
+    if (d) maktabasauti_decoder_close(d);
+}
+static void loas_change(const char *first, const char *second) {                                               /* a different configuration in the middle: the first part decodes, then the stream ends with an error (FORMAT_CHANGED, or UNSUPPORTED_FEATURE when the engine cannot reconfigure USAC; also when only the UsacConfig differs, not the rate or channels) */
+    size_t n1, n2, f1, f; uint8_t *a = slurp(first, &n1), *b = slurp(second, &n2), *w; unsigned c; maktabasauti_result_t r; float *ref, *p;
+    if (!a || !b) { CHECK(0, "cannot read %s / %s", first, second); free(a); free(b); return; }
+    ref = read_all(a, n1, &c, 4096, &f1, &r, NULL);
+    w = (uint8_t *)malloc(n1 + n2); memcpy(w, a, n1); memcpy(w + n1, b, n2);
+    p = read_all(w, n1 + n2, &c, 4096, &f, &r, NULL);
+    CHECK(f == f1 && p && ref && memcmp(p, ref, f1 * c * sizeof(float)) == 0 && (r == MAKTABASAUTI_E_FORMAT_CHANGED || r == MAKTABASAUTI_E_UNSUPPORTED_FEATURE), "%s then %s: %zu frames (first part %zu), end %d", first, second, f, f1, (int)r);
+    free(p); free(ref); free(w); free(a); free(b);
+}
+static void test_loas_config_change(void) { loas_change("tests/data/usac_m3.loas", "tests/data/usac_s1.loas"); loas_change("tests/data/usac_m3.loas", "tests/data/usac_m1.loas"); }
+
 int main(void) {
     test_equal("tests/data/usac_m1.m4a", 1, 1024, usac_m1_asc, sizeof usac_m1_asc, usac_m1_aus, usac_m1_n, sizeof usac_m1_n / sizeof usac_m1_n[0]);
     test_equal("tests/data/usac_m2.m4a", 1, 1024, usac_m2_asc, sizeof usac_m2_asc, usac_m2_aus, usac_m2_n, sizeof usac_m2_n / sizeof usac_m2_n[0]);
@@ -133,6 +207,9 @@ int main(void) {
     test_equal("tests/data/usac_e1.m4a", 1, 2048, usac_e1_asc, sizeof usac_e1_asc, usac_e1_aus, usac_e1_n, sizeof usac_e1_n / sizeof usac_e1_n[0]);
     test_equal("tests/data/usac_e2.m4a", 2, 2048, usac_e2_asc, sizeof usac_e2_asc, usac_e2_aus, usac_e2_n, sizeof usac_e2_n / sizeof usac_e2_n[0]);
     test_equal("tests/data/usac_e4.m4a", 2, 2048, usac_e4_asc, sizeof usac_e4_asc, usac_e4_aus, usac_e4_n, sizeof usac_e4_n / sizeof usac_e4_n[0]);
+    test_loas_equal("tests/data/usac_m3.m4a", "tests/data/usac_m3.loas", 1); test_loas_equal("tests/data/usac_s1.m4a", "tests/data/usac_s1.loas", 2); test_loas_equal("tests/data/usac_c1.m4a", "tests/data/usac_c1.loas", 2);
+    test_loas_equal("tests/data/usac_e2.m4a", "tests/data/usac_e2.loas", 2); test_loas_equal("tests/data/usac_k6.m4a", "tests/data/usac_k6.loas", 6); test_loas_equal("tests/data/usac_k6.m4a", "tests/data/usac_k6_same.loas", 6);
+    test_loas_long_config(); test_loas_hostile("tests/data/usac_s1.m4a", "tests/data/usac_s1.loas", 2); test_loas_hostile("tests/data/usac_k6.m4a", "tests/data/usac_k6_same.loas", 6); test_loas_config_change();
     test_chunks(); test_seek("tests/data/usac_long.m4a", 150, 1024, 48000); test_seek("tests/data/usac_elong.m4a", 100, 2048, 48000); test_refusals();
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_stream: all passed\n"); return 0;

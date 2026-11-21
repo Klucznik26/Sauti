@@ -39,6 +39,13 @@ static int pop_frame(dec_t *d, loas_priv_t *p) {
     return 1;
 }
 
+/* USAC: the stream's AudioSpecificConfig (from the first StreamMuxConfig) becomes the engine's UsacConfig, as the MP4 container does at open */
+static void usac_setup_from_latm(dec_t *d, const loas_priv_t *p) {
+    const uint8_t *asc; size_t n;
+    if (d->usac_ready || !sauti_aac_latm_usac_asc(&p->st, &asc, &n)) return;
+    if (sauti_usac_asc_parse(asc, n, &d->usac) == 1) d->usac_ready = 1;
+}
+
 static maktabasauti_result_t loas_fetch(dec_t *d) {
     const maktabasauti_host_t *h = d->host; loas_priv_t *p = priv_of(d);
     if (!p) return MAKTABASAUTI_E_NO_MEMORY;
@@ -66,11 +73,13 @@ static maktabasauti_result_t loas_fetch(dec_t *d) {
         if (rc == -1) return MAKTABASAUTI_E_CORRUPT_DATA;
         if (rc == -2) {                                                   /* zmiana konfiguracji w srodku strumienia: przyjmujemy nowa i konwertujemy element jeszcze raz;
                                                                             * silnik zauwazy inne parametry w naglowkach ADTS i zglosi E_FORMAT_CHANGED */
+            if (d->usac_ready) return MAKTABASAUTI_E_FORMAT_CHANGED;           /* USAC: the engine would go on with a new UsacConfig over the old decoder state (the ADTS-style header does not show the difference) */
             sauti_aac_latm_state_init(&p->st);
             rc = sauti_aac_latm_convert_element(&p->st, p->elem + 3, len, p->q, sizeof p->q, p->lens, 64u, &cnt);
             if (rc == 0) continue;
             if (rc != 1) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
         }
+        usac_setup_from_latm(d, p);
         p->n = cnt; p->next = 0; p->off = 0;
         (void)pop_frame(d, p);
         return MAKTABASAUTI_OK;
@@ -144,7 +153,7 @@ static maktabasauti_result_t MAKTABASAUTI_CALL loas_open(const maktabasauti_code
 }
 
 const maktabasauti_codec_t maktabasauti_aac_loas_desc = {
-    sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "aac-loas", "AAC in LOAS/LATM (LC, HE-AAC v1/v2), streaming", "maktabasauti_aac",
+    sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "aac-loas", "AAC in LOAS/LATM (LC, HE-AAC v1/v2, ER, Main / LTP, USAC), streaming", "maktabasauti_aac",
     MAKTABASAUTI_CODEC_FLAG_STREAMING | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
     loas_probe, loas_open, aac_eng_read, aac_eng_seek, aac_eng_reset, aac_eng_flush, NULL, aac_eng_last_error, aac_eng_get_info, aac_eng_close, { NULL }, { NULL }
 };

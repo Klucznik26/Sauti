@@ -138,11 +138,11 @@ static maktabasauti_decoder_t *open_mem(const uint8_t *data, size_t n, maktabasa
     info->struct_size = sizeof *info; (void)maktabasauti_decoder_get_info(d, info);
     return d;
 }
-static float *decode_all(const uint8_t *data, size_t n, unsigned channels, size_t chunk, size_t *frames_out, const char *name) {
+static float *decode_all_c(const uint8_t *data, size_t n, unsigned channels, size_t chunk, size_t *frames_out, const char *name, const char *container) {
     maktabasauti_stream_info_t info; maktabasauti_decoder_t *d = open_mem(data, n, &info, NULL); float *pcm = NULL, *buf; size_t total = 0, got, cap = 0; maktabasauti_result_t r;
     *frames_out = 0;
     if (!d) { CHECK(0, "%s: open", name); return NULL; }
-    CHECK(info.channels == channels && info.sample_rate == 48000u && strcmp(info.codec_profile, "USAC") == 0 && strcmp(info.container_name, "mp4") == 0, "%s: %u ch %u Hz profile '%s' container '%s'", name, (unsigned)info.channels, (unsigned)info.sample_rate, info.codec_profile, info.container_name);
+    CHECK(info.channels == channels && info.sample_rate == 48000u && strcmp(info.codec_profile, "USAC") == 0 && strcmp(info.container_name, container) == 0, "%s: %u ch %u Hz profile '%s' container '%s'", name, (unsigned)info.channels, (unsigned)info.sample_rate, info.codec_profile, info.container_name);
     buf = (float *)malloc(chunk * channels * sizeof(float));
     for (;;) {
         r = maktabasauti_decoder_read(d, buf, chunk, MAKTABASAUTI_FORMAT_F32, &got);
@@ -152,6 +152,7 @@ static float *decode_all(const uint8_t *data, size_t n, unsigned channels, size_
     }
     free(buf); maktabasauti_decoder_close(d); *frames_out = total; return pcm;
 }
+static float *decode_all(const uint8_t *data, size_t n, unsigned channels, size_t chunk, size_t *frames_out, const char *name) { return decode_all_c(data, n, channels, chunk, frames_out, name, "mp4"); }
 static void test_engine(const Stream *s, const char *path) {
     static SautiUsacConfig cfg; static SautiUsacState st; static float one[8 * 1024];
     size_t n, got, got2, f; uint8_t *data = slurp(path, &n); float *pcm, *pcm2; SautiAacReason why; maktabasauti_stream_info_t info; maktabasauti_decoder_t *d;
@@ -169,12 +170,12 @@ static void test_engine(const Stream *s, const char *path) {
     if (d) { CHECK((info.flags & MAKTABASAUTI_STREAM_SEEKABLE) && info.total_frames == s->frames * 1024u && info.native_format == MAKTABASAUTI_FORMAT_F32, "%s: flags %u total %llu", path, (unsigned)info.flags, (unsigned long long)info.total_frames); maktabasauti_decoder_close(d); }
     free(pcm); free(pcm2); free(data);
 }
-static void test_seek(const char *path, unsigned channels, size_t blocks) {                                                         /* checkpoints every 64 blocks: the channel state is heap data copied deeply */
+static void test_seek(const char *path, unsigned channels, size_t blocks, const char *container) {                                                         /* checkpoints every 64 blocks: the channel state is heap data copied deeply */
     size_t n, frames, got, i; uint8_t *data = slurp(path, &n); maktabasauti_stream_info_t info; maktabasauti_decoder_t *d; float *ref, a[6 * 500];
     const uint64_t b64 = 64u * 1024u;
     const uint64_t targets[] = { b64 + 2000u, b64, b64 - 1u, 30000u, 1000, 0, blocks * 1024u - 3000u, b64 + 2000u, 40000, blocks * 1024u - 700u };
     if (!data) { CHECK(0, "cannot read %s", path); return; }
-    ref = decode_all(data, n, channels, 4096, &frames, "seek reference");
+    ref = decode_all_c(data, n, channels, 4096, &frames, "seek reference", container);
     CHECK(frames == blocks * 1024u, "%s: %zu frames", path, frames);
     d = open_mem(data, n, &info, NULL);
     if (d && ref) {
@@ -216,7 +217,7 @@ int main(int argc, char **argv) {
     for (k = 0; k < 3; k++) { test_config(&streams[k]); test_vectors(&streams[k]); test_atomic(&streams[k]); }
     test_config_edges(); test_lfe_short();
     test_engine(&streams[0], "tests/data/usac_k5.m4a"); test_engine(&streams[1], "tests/data/usac_k6.m4a"); test_engine(&streams[2], "tests/data/usac_k7.m4a");
-    test_seek("tests/data/usac_k6long.m4a", 6, 70);
+    test_seek("tests/data/usac_k6long.m4a", 6, 70, "mp4"); test_seek("tests/data/usac_k6long.loas", 6, 70, "loas");
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_mc: all passed\n"); return 0;
 }

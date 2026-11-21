@@ -457,6 +457,7 @@ int main(int argc, char **argv) {
     }
     put(&asc, 0, 1);                                                       /* usacConfigExtensionPresent */
     snprintf(path, sizeof path, "%s.asc", prefix); fa = fopen(path, "wb"); fwrite(asc.b, 1, (asc.n + 7u) / 8u, fa); fclose(fa);
+    snprintf(path, sizeof path, "%s.ascbits", prefix); fa = fopen(path, "w"); fprintf(fa, "%zu\n", (size_t)asc.n); fclose(fa);      /* the exact length of the AudioSpecificConfig in bits (tools/mux_raw_aus_loas.py) */
     snprintf(path, sizeof path, "%s.aus", prefix); fu = fopen(path, "wb");
     if (getenv("SAUTI_USAC_GEN_ELEMS")) {                                   /* diagnostic: every element as a standalone mono (SCE, LFE) / stereo (CPE) stream PREFIX.eN.asc / .aus (the element bits behind the indep bit, an LFE behind core_mode 0 and tns_data_present 0): FDK cannot read channel configurations above 2 */
         for (el = 0; el < nel; el++) {

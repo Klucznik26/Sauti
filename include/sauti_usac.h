@@ -47,6 +47,8 @@ int sauti_usac_config_parse(const uint8_t *data, size_t size, size_t bit_offset,
 /* The whole AudioSpecificConfig of an MP4 / LOAS stream: object type 42 (escape 31 + 6 bits), samplingFrequencyIndex (4 bits, 15 = explicit 24-bit rate), channelConfiguration (4 bits), then UsacConfig().
  * Result as sauti_usac_config_parse; 0 for any other object type. */
 int sauti_usac_asc_parse(const uint8_t *asc, size_t size, SautiUsacConfig *out);
+/* The same for an AudioSpecificConfig that starts at bit `bit_offset` of `data` (LOAS / LATM: the StreamMuxConfig carries it behind other fields); `*asc_bits` = its length in bits (header + UsacConfig). */
+int sauti_usac_asc_parse_at(const uint8_t *data, size_t size, size_t bit_offset, SautiUsacConfig *out, size_t *asc_bits);
 
 typedef struct {
     SautiUsacAcState ac;

@@ -21,6 +21,7 @@
 #   usac_k5 / k6 / k7 / k6long channel configurations 5, 6, 7 (5.0, 5.1, 7.1; SCE / CPE / LFE elements): k5 is FFmpeg-friendly (no noise filling, no TNS: FFmpeg 139 dB on every channel); k6 / k7 carry noise filling, TNS on L/R, M/S (k7: complex prediction): FDK reads only configurations 1 and 2, so every element is
 #             checked as a standalone mono / stereo stream (SAUTI_USAC_GEN_ELEMS: the element's own bits; an LFE behind core_mode 0 and tns_data_present 0), see scripts/test_usac_vs_ffmpeg.sh; FFmpeg reads an LFE like an SCE (core_mode, TNS bits) and fails on k6 / k7; k6long is 70 blocks for the engine (seek over a checkpoint)
 #   usac_k6bad 3 blocks of configuration 6 whose LFE uses an eight-short window from block 1 on (illegal): block 1 must be refused
+#   usac_m1 / m3 / s1 / c1 / e2 / k6 / k6long .loas the same access units in LOAS / LATM (the StreamMuxConfig in every element); usac_k6_same.loas with the configuration only in the first element
 #   usac_long mono, 150 frames (the checkpoints of the engine, every 64 blocks, carry the arithmetic context, noise generator, window overlap and shape): FDK only (noise)
 #   usac_m2 also has TNS filters with coef_compress = 1; usac_m3 has entirely empty bands (noise_offset)
 # usage: tests/data/make_usac_fixtures.sh   (needs python3 and a built build/sauti_usac_gen: make build/sauti_usac_gen)
@@ -61,6 +62,8 @@ SBR_HDR2=5,9,2,1,1,2,2,1,1 "$GEN" "$W/e9" --channels 2 --frames 24 --gain 118 --
 "$GEN" "$W/s4" --channels 2 --frames 12 --gain 142 --seed 79 --ms --noise-fill --zero-bands --short --kbd >/dev/null
 for n in m1 m2 m3 m4 m5 s1 s2 s3 s4 c1 c2 c3 c4 c5 long; do python3 -I ../../tools/mux_raw_aus_mp4.py "$W/$n" "usac_$n.m4a" 1024; done
 for n in k5 k6 k7 k6long; do python3 -I ../../tools/mux_raw_aus_mp4.py "$W/$n" "usac_$n.m4a" 1024; done
+for n in m1 m3 s1 c1 e2 k6 k6long; do python3 -I ../../tools/mux_raw_aus_loas.py "$W/$n" "usac_$n.loas"; done          # LOAS / LATM: the same access units, the StreamMuxConfig in every element
+python3 -I ../../tools/mux_raw_aus_loas.py "$W/k6" usac_k6_same.loas same        # ... and only in the first one (useSameStreamMux = 1)
 for n in e1 e2 e3 e4 e5 e6 e7 e8 e9 elong; do python3 -I ../../tools/mux_raw_aus_mp4.py "$W/$n" "usac_$n.m4a" 2048; done
 python3 -I - "$W" ../test_usac_vectors.h <<'PY'
 import struct, sys

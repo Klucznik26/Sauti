@@ -62,6 +62,16 @@ for f in m1 m2 m3 m4 m5 s1 s2 s3 s4 c1 c2 c3 c4 c5 e1 e2 e3 e4 e5 e6 e7 e8 e9; d
     esac
   else echo "NOTE: no build/sauti_fdk_raw_oracle: FDK comparison skipped"; fi
 done
+# ---- LOAS / LATM (usac_*.loas: the same access units, the StreamMuxConfig in every element): FDK reads the AudioSyncStream itself (--loas), so the LATM framing is checked by an independent decoder; FFmpeg does not read USAC in LATM.
+if [ -x build/sauti_fdk_raw_oracle ]; then
+  for f in m3 s1 c1 e2; do
+    ch=1; case "$f" in s1|c1|e2) ch=2;; esac
+    python3 -I tools/mp4_dump_aus.py "tests/data/usac_$f.m4a" "$W/l$f" >/dev/null; build/sauti_usac_raw "$W/l$f" "$W/l$f.sau" 2>/dev/null
+    build/sauti_fdk_raw_oracle --loas "tests/data/usac_$f.loas" "$W/l$f.fdk" >/dev/null 2>&1
+    bound="$FMIN"; case "$f" in e2) bound="$SMIN";; esac
+    r="$(cmp "$W/l$f.sau" "$W/l$f.fdk" "$ch" "$bound")"; echo "usac_$f.loas vs FDK (LOAS):    $r"; case "$r" in OK*) ;; *) fail=1;; esac
+  done
+fi
 # ---- more than two channels (usac_k5 / k6 / k7: configurations 5, 6, 7) ----------------------------------------------------------------------------------------------------------------------
 # FFmpeg decodes k5 (5.0) on every channel; it reads an LFE like an SCE and fails on k6 / k7.  FDK 2.0.3 accepts channel configurations 1 and 2 only, so every ELEMENT is decoded as a standalone mono / stereo stream
 # (SAUTI_USAC_GEN_ELEMS writes the element's own bits; an LFE behind core_mode 0 and tns_data_present 0) and compared with the channels of that element in our decode (WAVE order: map below).

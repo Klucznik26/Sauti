@@ -34,7 +34,7 @@ int main(int argc,char **argv){
         long n=0,pos=0,frames=0;unsigned char *b=slurp(argv[2],&n);HANDLE_AACDECODER h=aacDecoder_Open(TT_MP4_LOAS,1);FILE *o=fopen(argv[3],"wb");(void)aacDecoder_SetParam(h,AAC_PCM_LIMITER_ENABLE,0);static INT_PCM pcm[8*2048];static float f[8*2048];
         if(!b||!o)return 2;
         while(pos<n){
-            UINT valid,chunk=(UINT)(n-pos<4096?n-pos:4096);UCHAR *buf[1];UINT sz[1];AAC_DECODER_ERROR e;
+            UINT valid,chunk=(UINT)(n-pos<(1<<20)?n-pos:(1<<20))  /* the whole file at once: with 4096-byte pieces FDK loses a LOAS element that straddles a piece boundary (usac_c1.loas: one frame of 24) */;UCHAR *buf[1];UINT sz[1];AAC_DECODER_ERROR e;
             buf[0]=b+pos;sz[0]=chunk;valid=chunk;e=aacDecoder_Fill(h,buf,sz,&valid);pos+=chunk-valid;
             for(;;){
                 e=aacDecoder_DecodeFrame(h,pcm,(INT)(sizeof pcm/sizeof pcm[0]),0);
