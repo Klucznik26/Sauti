@@ -8007,3 +8007,11 @@ Test: `test_24_band_bank` w `tests/test_aac_sbr_qmf_analysis.c` (niezależny wzo
 **Narzędzia.** Generator dostał `--sbr41` (eSBR 4:1 z `--hbe 1`, `--sbr-start 7 --sbr-stop 9`: dla 4:1 większość par start / stop jest odrzucana przez tablice częstotliwości); fixtury `usac_z5`, `z6`; `make_usac_mps_fixtures.sh` przyjmuje `ccfl_idx`.
 
 **Otwarte:** MPS przy eSBR 8:3 (odmowa), stereoConfigIndex 3.
+
+### SBR-124 — USAC: MPEG Surround 212 przy eSBR 8:3 (2026-11-22)
+
+**Zakres i wynik.** Odmowa MPS przy eSBR 8:3 (rdzeń 768 linii, 24-pasmowa analiza QMF, 32 sloty) zdjęta; etap upmiksu jest ten sam co przy 2:1 (32 sloty), więc zadziałał od razu: strumień z encodera libxaac (`-ccfl_idx:2 -mps:1`, `usac_z7`) **75,2 dB** wobec `xaacdec` i **81,6 dB** wobec FDK (po stałym wzmocnieniu 1,995 normalizacji głośności). Resztka przy 8:3: analiza 24-pasmowa rdzenia drugiego kanału (`sauti_aac_sbr_qmf_analyze_24`, 768 próbek), 31 pasm hybrydowych, opóźnienie względem zwykłej analizy 0 w pasmach 0..2 i 6 slotów w pasmach 3..23 (jak przy 2:1; wyznaczone korelacją siatki z zrzutem libxaac, 1,000, skala √2); encoder także tu wpisuje prawdziwy drugi kanał, więc `usac_z8` (z7 z `bsResidualBands` = 8) jest prawdziwym testem: **76,5 dB** wobec `xaacdec`, **81,9 dB** wobec FDK.
+
+**Zamknięty zakres MPS212 bez stereoConfigIndex 3** dla wszystkich współczynników eSBR (2:1, 4:1, 8:3).
+
+**Otwarte:** stereoConfigIndex 3 (pseudo-LR + eSBR po upmiksie), rdzeń LPD w elemencie z MPS, kilka zestawów parametrów na ramkę z kształtowaniem czasowym.
