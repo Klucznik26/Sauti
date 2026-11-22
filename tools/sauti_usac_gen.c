@@ -21,7 +21,7 @@ static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n &
 static FILE *g_elem_fu[8];
 static uint8_t hist_au[8][1 << 16]; static size_t hist_len[8];                /* the last access units (ring of 8) that go into a pre-roll payload */
 static int g_pvc;                                                            /* --pvc N: predictive vector coding in the SBR configuration; mono streams only.  1 the header mode switches at random between classic and PVC modes 1 / 2, 2 mode 1 only, 3 mode 2 only, 4 modes 1 / 2 without classic frames */
-static int g_mps_tsd, g_mps_gesval = -1, g_mps_gesnear, g_mps_ges, g_mps_envq, g_mps_stp, g_mps_anti, g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr, g_mps_phase, g_mps_opd;   /* --mps-phase 1: phase coding (IPD / OPD) with one IPD set per frame, --mps-opd M: bsOpdSmoothingMode */   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
+static int g_mps_pslr, g_mps_tsd, g_mps_gesval = -1, g_mps_gesnear, g_mps_ges, g_mps_envq, g_mps_stp, g_mps_anti, g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr, g_mps_phase, g_mps_opd;   /* --mps-phase 1: phase coding (IPD / OPD) with one IPD set per frame, --mps-opd M: bsOpdSmoothingMode */   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
 static int g_hbe;                                                            /* --hbe N: harmonic transposer (bs_harmonicSBR): 1 random mix of sbrPatchingMode 0 / 1 frames, 2 always the transposer; random oversampling flag and sbrPitchInBins (0, 12, 24, 36 and 1..127) */
 static int g_intertes;                                                       /* --intertes: inter-subband temporal envelope shaping in the SBR configuration, random bs_temp_shape / mode after every envelope */
 static int g_lfe_short;                                                      /* diagnostic: the LFE uses an eight-short window from the second frame on (illegal: an LFE has long windows only) */
@@ -540,6 +540,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--mps-ges") && a + 1 < argc) g_mps_ges = atoi(argv[++a]);    /* bsTempShapeConfig 2 (GES); N as for --mps-stp */
         else if (!strcmp(argv[a], "--mps-ges-val") && a + 1 < argc) g_mps_gesval = atoi(argv[++a]);   /* only envelope leaves with this value (diagnostic) */
         else if (!strcmp(argv[a], "--mps-tsd") && a + 1 < argc) g_mps_tsd = atoi(argv[++a]);   /* bsTempShapeConfig 3 (TSD); N as for --mps-stp */
+        else if (!strcmp(argv[a], "--mps-pseudo-lr")) g_mps_pslr = 1;                    /* bsPseudoLr = 1 (stereoConfigIndex 2 / 3): the core channels are rotated by 45 degrees */
         else if (!strcmp(argv[a], "--mps-ges-near")) g_mps_gesnear = 1;                     /* envelope values near 1 (2^(v / (q + 2) - 1) in 0.8 .. 2): a realistic envelope instead of a random one */
         else if (!strcmp(argv[a], "--mps-envq") && a + 1 < argc) g_mps_envq = atoi(argv[++a]);  /* bsEnvQuantMode of the GES envelope */
         else if (!strcmp(argv[a], "--mps-phase") && a + 1 < argc) g_mps_phase = atoi(argv[++a]);
@@ -624,7 +625,7 @@ int main(int argc, char **argv) {
             put(&asc, (uint32_t)g_mps, 2);                                  /* stereoConfigIndex */
             if (g_mps) {                                                    /* Mps212Config: 28 parameter bands, no temporal shaping, no phase coding, one parameter set per frame */
                 put(&asc, 1, 3); put(&asc, (uint32_t)g_mps_fgain, 3); put(&asc, g_mps_stp ? 1u : (g_mps_ges ? 2u : (g_mps_tsd ? 3u : 0u)), 2); put(&asc, (uint32_t)g_mps_decorr, 2); put(&asc, 0, 1); put(&asc, (uint32_t)g_mps_phase, 1); put(&asc, 0, 1);
-                if (g_mps >= 2) { put(&asc, (uint32_t)g_mps_res, 5); put(&asc, 0, 1); }
+                if (g_mps >= 2) { put(&asc, (uint32_t)g_mps_res, 5); put(&asc, (uint32_t)g_mps_pslr, 1); }
                 if (g_mps_ges) put(&asc, (uint32_t)g_mps_envq, 1);                  /* bsEnvQuantMode (temporal shaping configuration 2) */
             }
         }

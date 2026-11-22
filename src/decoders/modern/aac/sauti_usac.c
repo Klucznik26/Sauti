@@ -678,6 +678,11 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
         if (nch == 2u) memcpy(chs[c].prev_coef, fd[c].coef, sizeof chs[c].prev_coef);       /* the spectrum that goes into the IMDCT: the previous frame for complex prediction */
         { const int sr = synthesize(cfg, &fd[c], &chs[c], cfg->sbr_mode ? core[c] : out[c]); if (sr != 1) { *reason = sr < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SYNTH; return sr < 0 ? -1 : 0; } }
     }
+    if (nch == 2u && e->stereo_config_index >= 2u && e->mps_pseudo_lr && cfg->sbr_mode) {   /* bsPseudoLr: the two core channels are an M / S pair rotated by 45 degrees, undone before eSBR and the upmix */
+        const float k = 0.7071067812f;
+        unsigned i;
+        for (i = 0; i < cfg->core_frame_len; i++) { const float a = core[0][i], d = core[1][i]; core[0][i] = (a + d) * k; core[1][i] = (a - d) * k; }
+    }
     if (cfg->sbr_mode) {                                                    /* the core output goes through the QMF / HF generation / adjustment chain of HE-AAC */
         SautiAacSbrComplex *grid = (SautiAacSbrComplex *)malloc(sizeof(SautiAacSbrComplex) * 6u * SAUTI_AAC_SBR_CHANNEL_GRID);
         if (!grid) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }

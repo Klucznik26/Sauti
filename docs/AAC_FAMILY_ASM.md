@@ -7991,3 +7991,9 @@ Test: `test_24_band_bank` w `tests/test_aac_sbr_qmf_analysis.c` (niezależny wzo
 **Zamknięty zakres MPS212 bez stereoConfigIndex 3:** kształtowanie czasowe STP (SBR-119), GES (SBR-120, otwarta niezgodność z FDK), TSD (SBR-121); faza (SBR-118); resztka (SBR-117).
 
 **Otwarte:** stereoConfigIndex 3 (pseudo-LR, eSBR po upmiksie), resztka przy eSBR 4:1 i 8:3, rdzeń LPD w elemencie z MPS, kilka zestawów parametrów na ramkę z kształtowaniem czasowym (niezweryfikowane).
+
+### SBR-122 — USAC: bsPseudoLr (stereoConfigIndex 2 i 3) (2026-11-22)
+
+**Znalezisko i poprawka.** Flaga `bsPseudoLr` konfiguracji MPS212 była parsowana, ale nigdzie nieużywana: strumień z tą flagą byłby dekodowany błędnie po cichu. Przy `bsPseudoLr = 1` dwa kanały rdzenia są parą M / S obróconą o 45°, cofaną w dziedzinie czasu przed eSBR i upmiksem: `a' = (a + b) / √2`, `b' = (a − b) / √2` (stała 0,7071067812 jak w libxaac). Zaimplementowane w `sauti_usac.c` (po IMDCT obu kanałów, przed łańcuchem eSBR).
+
+**Weryfikacja.** Metodą różnicową (ten sam strumień z flagą włączoną i wyłączoną, generator `--mps-pseudo-lr`): efekt zgadza się z FDK z korelacją **0,9993** i stosunkiem amplitud **1,000**; `usac_y16` vs FDK **32 dB** bez wzmocnienia, a po usunięciu obrotu **2,4 dB** (test ma więc zęby); wobec `xaacdec` 13,6 dB (losowy eSBR). Odcisk w `test_usac_xaac` pilnuje regresji.
