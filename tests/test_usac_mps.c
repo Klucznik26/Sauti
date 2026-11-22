@@ -155,8 +155,8 @@ static void test_signal(void) {
     }
     CHECK(ok, "signal above band_count");
     /* refusals */
-    memset(&d, 0, sizeof d); c.phase_coding = 1;
-    CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 32, in, NULL, 0, o0, o1), "phase coding accepted"); c.phase_coding = 0;
+    memset(&d, 0, sizeof d); c.phase_coding = 1; { const unsigned r0 = c.residual; c.residual = 1;
+    CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 32, in, NULL, 0, o0, o1), "phase coding with the prediction upmix accepted"); c.residual = r0; } c.phase_coding = 0;
     c.residual_bands = 3; CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 32, in, NULL, 0, o0, o1), "residual bands accepted"); c.residual_bands = 0;
     c.temp_shape = 3; CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 32, in, NULL, 0, o0, o1), "TSD accepted"); c.temp_shape = 0;
     CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 80, in, NULL, 0, o0, o1) && !sauti_usac_mps212_apply(&d, &c, &f, 2, 32, in, NULL, 0, o0, o1) && !sauti_usac_mps212_apply(&d, &c, &f, 65, 32, in, NULL, 0, o0, o1), "bad slots / band count accepted");
@@ -289,8 +289,84 @@ static void test_residual(void) {
     c.residual_bands = 6; CHECK(!sauti_usac_mps212_apply(&da, &c, &f, 40, 32, in, r0, 2, a0, a1), "a residual grid of 2 bands accepted");
 }
 
+/* stereoConfigIndex 1 (rotation upmix), with and without phase coding: golden files of libxaac's upmix for usac_y4..y6, and the phase properties */
+static void test_golden_phase(void) {
+    FILE *fp = fopen("tests/data/mps_phase_golden.bin", "rb");
+    int32_t ns, si;
+    static SautiUsacMpsDec d; static SautiUsacMpsFrame f; static float inb[32 * 54 * 2]; static SautiAacSbrComplex in[32 * 64], o0[32 * 64], o1[32 * 64];
+    if (!fp) { CHECK(0, "cannot read tests/data/mps_phase_golden.bin (run from the repository root)"); return; }
+    { char m[4]; if (fread(m, 1, 4, fp) != 4 || memcmp(m, "MPSF", 4) || fread(&ns, 4, 1, fp) != 1) { CHECK(0, "phase golden header"); fclose(fp); return; } }
+    for (si = 0; si < ns; si++) {
+        int32_t sh[3], fr;
+        SautiUsacMpsConfig c = cfg1;
+        if (fread(sh, 4, 3, fp) != 3) { CHECK(0, "phase golden set %d header", (int)si); break; }
+        memset(&d, 0, sizeof d); c.residual = 0; c.phase_coding = (unsigned)sh[0]; c.bands_phase = 10; c.decorr = (unsigned)sh[1];
+        for (fr = 0; fr < sh[2]; fr++) {
+            int32_t hd[7], cld[28], icc[28], ipd[28], i, s, b, ch;
+            if (fread(hd, 4, 7, fp) != 7 || fread(cld, 4, 28, fp) != 28 || fread(icc, 4, 28, fp) != 28 || fread(ipd, 4, 28, fp) != 28 || fread(inb, 4, 32u * 54u * 2u, fp) != 32u * 54u * 2u) { CHECK(0, "phase golden set %d frame %d truncated", (int)si, (int)fr); break; }
+            memset(&f, 0, sizeof f); f.num_sets = (unsigned)hd[1]; f.param_bands = (unsigned)hd[2]; f.param_slot[0] = (unsigned)hd[3]; f.phase_mode = (unsigned)hd[4]; f.opd_smoothing = (unsigned)hd[5]; f.ipd_coarse[0] = (unsigned)hd[6];
+            for (i = 0; i < 28; i++) { f.cld_idx[0][i] = cld[i]; f.icc_idx[0][i] = icc[i]; f.ipd_idx[0][i] = ipd[i]; }
+            memset(in, 0, sizeof in);
+            for (s = 0; s < 32; s++) for (b = 0; b < 54; b++) { in[s * 64 + b].re = inb[(s * 54 + b) * 2] / 32768.0f; in[s * 64 + b].im = inb[(s * 54 + b) * 2 + 1] / 32768.0f; }
+            CHECK(sauti_usac_mps212_apply(&d, &c, &f, (unsigned)hd[0], 32, in, NULL, 0, o0, o1), "phase golden set %d frame %d refused", (int)si, (int)fr);
+            for (ch = 0; ch < 2; ch++) {
+                double exp4[4], got[4] = { 0, 0, 0, 0 }, scale; const SautiAacSbrComplex *o = ch ? o1 : o0;
+                if (fread(exp4, 8, 4, fp) != 4) { CHECK(0, "phase golden set %d frame %d sums", (int)si, (int)fr); break; }
+                if (fr < 3) continue;
+                for (s = 0; s < 32; s++) for (b = 0; b < 54; b++) {
+                    const double re = o[s * 64 + b].re * 32768.0, im = o[s * 64 + b].im * 32768.0, w = ((double)s * 131.0 + (double)b * 7.0 + 1.0) / (32.0 * 64.0);
+                    got[0] += re; got[1] += im; got[2] += re * re + im * im; got[3] += (re + 2.0 * im) * w;
+                }
+                scale = sqrt(exp4[2] * 32.0 * 54.0) + 1e-9;
+                for (i = 0; i < 4; i++) CHECK(fabs(got[i] - exp4[i]) <= (i == 2 ? 3e-5 * exp4[2] : 3e-5 * scale) + 1e-9, "phase golden set %d (phase %d, decorr %d) frame %d channel %d sum %d: %.9g, libxaac %.9g", (int)si, (int)sh[0], (int)sh[1], (int)fr, (int)ch, (int)i, got[i], exp4[i]);
+            }
+        }
+    }
+    fclose(fp);
+}
+
+static void test_phase(void) {
+    /* a steady tone in hybrid band 10 only (QMF band 3, parameter band 8: inside the 10 bands that carry phases), the same parameters in every band, IPD index 4 (pi / 2), CLD 0 and ICC 0: the two outputs are the tone rotated by their own phases, so the phase difference
+     * between them (left minus right) is the IPD; with phase coding off the outputs are in phase (ICC 0 = fully coherent, no decorrelated part) */
+    static SautiUsacMpsDec da, db; static SautiUsacMpsFrame f; static SautiAacSbrComplex in[32 * 64], a0[32 * 64], a1[32 * 64], b0[32 * 64], b1[32 * 64];
+    SautiUsacMpsConfig c = cfg1;
+    unsigned s, fr, i;
+    double pa = 0, pb = 0, ea = 0, eb = 0;
+    memset(&f, 0, sizeof f); f.num_sets = 1; f.param_bands = 28; f.param_slot[0] = 31; f.phase_mode = 1;
+    for (i = 0; i < 28u; i++) { f.cld_idx[0][i] = 0; f.icc_idx[0][i] = 0; f.ipd_idx[0][i] = 4; }
+    c.residual = 0;
+    for (fr = 0; fr < 6u; fr++) {
+        for (s = 0; s < 32u; s++) { const double ph = 0.4 * (double)(fr * 32u + s); in[s * 64 + 3].re = (float)(0.01 * cos(ph)); in[s * 64 + 3].im = (float)(0.01 * sin(ph)); }
+        c.phase_coding = 0; CHECK(sauti_usac_mps212_apply(&da, &c, &f, 40, 32, in, NULL, 0, a0, a1), "no phase refused");
+        c.phase_coding = 1; c.bands_phase = 10; CHECK(sauti_usac_mps212_apply(&db, &c, &f, 40, 32, in, NULL, 0, b0, b1), "phase refused");
+        if (fr >= 3u) for (s = 0; s < 32u; s++) {
+            const double ar = a0[s * 64 + 3].re, ai = a0[s * 64 + 3].im, br = a1[s * 64 + 3].re, bi = a1[s * 64 + 3].im;                  /* without phase coding: left and right in phase */
+            const double cr = b0[s * 64 + 3].re, ci = b0[s * 64 + 3].im, dr = b1[s * 64 + 3].re, di = b1[s * 64 + 3].im;
+            pa += (ar * br + ai * bi); ea += sqrt((ar * ar + ai * ai) * (br * br + bi * bi));
+            pb += (cr * dr + ci * di); eb += sqrt((cr * cr + ci * ci) * (dr * dr + di * di));
+        }
+    }
+    CHECK(pa > 0.9 * ea, "without phase coding left and right are not in phase (%g of %g)", pa, ea);
+    CHECK(fabs(pb) < 0.2 * eb, "an IPD of pi/2 does not put the outputs in quadrature (cos %g)", pb / (eb + 1e-30));
+    {   /* bsPhaseMode = 0: the IPD data of the frame is not used, the outputs stay in phase */
+        static SautiUsacMpsDec dm; double pm = 0, em = 0;
+        f.phase_mode = 0; c.phase_coding = 1; c.residual = 0; c.bands_phase = 10;
+        for (fr = 0; fr < 6u; fr++) {
+            for (s = 0; s < 32u; s++) { const double ph = 0.4 * (double)(fr * 32u + s); in[s * 64 + 3].re = (float)(0.01 * cos(ph)); in[s * 64 + 3].im = (float)(0.01 * sin(ph)); }
+            CHECK(sauti_usac_mps212_apply(&dm, &c, &f, 40, 32, in, NULL, 0, a0, a1), "phase mode 0 refused");
+            if (fr >= 3u) for (s = 0; s < 32u; s++) { pm += a0[s * 64 + 3].re * a1[s * 64 + 3].re + a0[s * 64 + 3].im * a1[s * 64 + 3].im; em += sqrt(((double)a0[s * 64 + 3].re * a0[s * 64 + 3].re + (double)a0[s * 64 + 3].im * a0[s * 64 + 3].im) * ((double)a1[s * 64 + 3].re * a1[s * 64 + 3].re + (double)a1[s * 64 + 3].im * a1[s * 64 + 3].im)); }
+        }
+        CHECK(pm > 0.9 * em, "bsPhaseMode 0 still rotates the outputs (%g of %g)", pm, em);
+        f.phase_mode = 1;
+    }
+    {   /* the refusals: phase coding with a residual (stereoConfigIndex 2), more phase bands than parameter bands */
+        c.residual = 1; CHECK(!sauti_usac_mps212_apply(&da, &c, &f, 40, 32, in, NULL, 0, a0, a1), "phase coding with the prediction upmix accepted");
+        c.residual = 0; c.bands_phase = 29; CHECK(!sauti_usac_mps212_apply(&da, &c, &f, 40, 32, in, NULL, 0, a0, a1), "29 phase bands accepted");
+    }
+}
+
 int main(void) {
-    test_tables(); test_parse(); test_signal(); test_golden(); test_golden_res(); test_residual();
+    test_tables(); test_parse(); test_signal(); test_golden(); test_golden_res(); test_residual(); test_golden_phase(); test_phase();
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_mps: all passed\n"); return 0;
 }

@@ -107,6 +107,64 @@ static void set_gains(unsigned prediction, int cld_idx, int icc_idx, float res[2
     }
 }
 
+/* ---- phase coding (IPD / OPD, stereoConfigIndex 1): the phases are kept in Q28 / Q27 integers exactly as the reference does, because its smoothing is integer arithmetic ---- */
+#define PI_Q28 843314880
+#define PI_Q27 421657440
+static int32_t mult32_shl(int32_t a, int32_t b) { return (int32_t)((uint32_t)(int32_t)(((int64_t)a * (int64_t)b) >> 32) << 1); }
+static int32_t wrap_q28(int32_t p) { while (p < 0) p += 2 * PI_Q28; while (p >= 2 * PI_Q28) p -= 2 * PI_Q28; return p; }
+
+/* left / right phase of every parameter band of every set (radians): the overall phase difference of the pair and that minus the inter-channel phase difference, then smoothed over time */
+static void phase_sets(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, const SautiUsacMpsFrame *f, const unsigned *slot_diff, float pl[][SAUTI_USAC_MPS_BANDS], float pr[][SAUTI_USAC_MPS_BANDS]) {
+    unsigned ps, pb;
+    const unsigned nb_ipd = f->phase_mode ? cfg->bands_phase : 0u;
+    for (ps = 0; ps < f->num_sets; ps++)
+        for (pb = 0; pb < f->param_bands; pb++) {
+            if (pb < nb_ipd) {
+                const unsigned c = (unsigned)(f->cld_idx[ps][pb] + 15), ipd = (unsigned)f->ipd_idx[ps][pb] & 15u, ic = (unsigned)f->icc_idx[ps][pb] & 7u;
+                const int32_t opd = (c == 15u && ipd == 8u) ? 0 : sauti_usac_mps_atan_q28[ipd][ic][c];
+                pl[ps][pb] = (float)wrap_q28(opd) * (1.0f / 268435456.0f);
+                pr[ps][pb] = (float)wrap_q28(opd - sauti_usac_mps_ipd_dequant_q28[ipd]) * (1.0f / 268435456.0f);
+            } else pl[ps][pb] = pr[ps][pb] = 0.0f;
+        }
+    if (!f->opd_smoothing) {
+        for (pb = 0; pb < f->param_bands; pb++) { d->smooth_phase[0][pb] = (int32_t)(pl[f->num_sets - 1u][pb] * 268435456.0f) >> 1; d->smooth_phase[1][pb] = (int32_t)(pr[f->num_sets - 1u][pb] * 268435456.0f) >> 1; }
+        return;
+    }
+    for (ps = 0; ps < f->num_sets; ps++) {
+        const int32_t thr = f->ipd_coarse[ps] ? 117127067 : 58563533;
+        const int32_t delta = (int32_t)(slot_diff[ps] * 8388608u), one_minus = 1073741824 - delta;
+        for (pb = 0; pb < f->param_bands; pb++) {
+            int32_t lt = (int32_t)(pl[ps][pb] * 268435456.0f) >> 1, rt = (int32_t)(pr[ps][pb] * 268435456.0f) >> 1, tmp;
+            int32_t *sl = &d->smooth_phase[0][pb], *sr = &d->smooth_phase[1][pb];
+            while (lt > *sl + PI_Q27) lt -= 2 * PI_Q27;
+            while (lt < *sl - PI_Q27) lt += 2 * PI_Q27;
+            while (rt > *sr + PI_Q27) rt -= 2 * PI_Q27;
+            while (rt < *sr - PI_Q27) rt += 2 * PI_Q27;
+            *sl = (int32_t)((uint32_t)(mult32_shl(delta, lt) + mult32_shl(one_minus, *sl)) << 1);
+            *sr = (int32_t)((uint32_t)(mult32_shl(delta, rt) + mult32_shl(one_minus, *sr)) << 1);
+            tmp = (lt - rt) - (*sl - *sr);
+            while (tmp > PI_Q27) tmp -= 2 * PI_Q27;
+            while (tmp < -PI_Q27) tmp += 2 * PI_Q27;
+            if (tmp > thr || tmp < -thr) { *sl = lt; *sr = rt; }
+            while (*sl > 2 * PI_Q27) *sl -= 2 * PI_Q27;
+            while (*sl < 0) *sl += 2 * PI_Q27;
+            while (*sr > 2 * PI_Q27) *sr -= 2 * PI_Q27;
+            while (*sr < 0) *sr += 2 * PI_Q27;
+            pl[ps][pb] = (float)(int32_t)((uint32_t)*sl << 1) * (1.0f / 268435456.0f);
+            pr[ps][pb] = (float)(int32_t)((uint32_t)*sr << 1) * (1.0f / 268435456.0f);
+        }
+    }
+}
+
+/* interpolation of an angle between two sets over the short way round; returns the value one step in and the step (both as the reference's float arithmetic does) */
+static float angle_interp(float a1, float a2, float alpha, float *step) {
+    const float p = (float)3.14159265358979;
+    while (a2 - a1 > p) a1 += 2.0f * p;
+    while (a1 - a2 > p) a2 += 2.0f * p;
+    *step = a2 - a1;
+    return (1.0f - alpha) * a1 + alpha * a2;
+}
+
 void sauti_usac_mps212_residual_grid(SautiUsacMpsDec *d, const SautiAacSbrComplex *low, unsigned slots, SautiAacSbrComplex *grid) {
     unsigned i, k;
     if (slots < 6u) slots = 6u;                                                                 /* 32 / 64 in practice */
@@ -123,12 +181,14 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
     cxf hyb[MAXS][HYB], diff[MAXS][HYB], mixed[2][MAXS][HYB], hres[MAXS][HYB];                 /* about 160 KiB of scratch on the stack */
     float resg[SAUTI_USAC_MPS_SETS][NB][2], decg[SAUTI_USAC_MPS_SETS][NB][2], rsdg[SAUTI_USAC_MPS_SETS][NB][2];
     unsigned slot_diff[SAUTI_USAC_MPS_SETS];
+    float pl[SAUTI_USAC_MPS_SETS][NB], pr[SAUTI_USAC_MPS_SETS][NB];
+    float phc[MAXS][NB][2], phs[MAXS][NB][2];                           /* cosine / sine of the interpolated phase per slot, parameter band and output channel */
     const uint8_t *map, *map28 = sauti_usac_mps_band_map_28;
     const unsigned *split;
     unsigned hyb_count, res_hyb_count = 0, i, k, pb, n, ps, row;
     const double gain = cfg ? sauti_usac_mps_clip_gain[cfg->fixed_gain & 7u] : 1.0;
     if (!d || !cfg || !f || !in || !out0 || !out1 || slots == 0 || slots > MAXS || band_count < 4u || band_count > 64u || cfg->fixed_gain > 7u || cfg->decorr > 2u) return 0;
-    if (cfg->phase_coding || cfg->residual_bands > f->param_bands || (cfg->residual_bands && (!res_in || res_band_count < 4u || res_band_count > 64u)) || f->num_sets == 0 || f->num_sets > SAUTI_USAC_MPS_SETS || cfg->freq_res == 0 || cfg->freq_res > 7u || cfg->temp_shape == 1u || cfg->temp_shape == 3u) return 0;
+    if ((cfg->phase_coding && (cfg->residual || cfg->bands_phase > f->param_bands)) || cfg->residual_bands > f->param_bands || (cfg->residual_bands && (!res_in || res_band_count < 4u || res_band_count > 64u)) || f->num_sets == 0 || f->num_sets > SAUTI_USAC_MPS_SETS || cfg->freq_res == 0 || cfg->freq_res > 7u || cfg->temp_shape == 1u || cfg->temp_shape == 3u) return 0;
     map = band_map(f->param_bands);
     if (!map) return 0;
     split = split_freq[cfg->decorr];
@@ -193,6 +253,24 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
                 resg[ps][pb][row] = rs[row]; decg[ps][pb][row] = in_res ? 0.0f : dc[row]; rsdg[ps][pb][row] = in_res ? rd[row] : 0.0f;
             }
         }
+    if (cfg->phase_coding) {
+        unsigned t = 0;
+        phase_sets(d, cfg, f, slot_diff, pl, pr);
+        for (ps = 0; ps < f->num_sets; ps++) {
+            const float alpha = (float)(1.0 / (double)slot_diff[ps]);
+            for (pb = 0; pb < f->param_bands; pb++) {
+                float sl, sr, tl = angle_interp(ps ? pl[ps - 1u][pb] : d->phase_prev[0][pb], pl[ps][pb], alpha, &sl), tr = angle_interp(ps ? pr[ps - 1u][pb] : d->phase_prev[1][pb], pr[ps][pb], alpha, &sr);
+                unsigned i2;
+                sl *= alpha; sr *= alpha;
+                for (i2 = 0; i2 < slot_diff[ps]; i2++) {
+                    phc[t + i2][pb][0] = (float)cos((double)tl); phs[t + i2][pb][0] = (float)sin((double)tl); tl += sl;
+                    phc[t + i2][pb][1] = (float)cos((double)tr); phs[t + i2][pb][1] = (float)sin((double)tr); tr += sr;
+                }
+            }
+            t += slot_diff[ps];
+        }
+        for (pb = 0; pb < f->param_bands; pb++) { d->phase_prev[0][pb] = pl[f->num_sets - 1u][pb]; d->phase_prev[1][pb] = pr[f->num_sets - 1u][pb]; }
+    }
     memset(mixed, 0, sizeof mixed);
     {
         unsigned t = 0;
@@ -210,6 +288,15 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
                     }
                 for (k = 0; k < hyb_count; k++) {
                     const unsigned b = map[k];
+                    if (cfg->phase_coding) {                                    /* complex mix: each signal is rotated by its output channel's phase; the two lowest hybrid bands (negative frequencies of the split) the other way */
+                        for (row = 0; row < 2u; row++) {
+                            const float c = phc[t][b][row], sn = phs[t][b][row], g1 = (float)rg[b][row], g2 = (float)dg[b][row], gc1 = g1 * c, gs1 = g1 * sn, gc2 = g2 * c, gs2 = g2 * sn;
+                            const float sg_ = k < 2u ? 1.0f : -1.0f;
+                            mixed[row][t][k].re = hyb[t][k].re * gc1 + sg_ * hyb[t][k].im * gs1 + diff[t][k].re * gc2 + sg_ * diff[t][k].im * gs2;
+                            mixed[row][t][k].im = hyb[t][k].im * gc1 - sg_ * hyb[t][k].re * gs1 + diff[t][k].im * gc2 - sg_ * diff[t][k].re * gs2;
+                        }
+                        continue;
+                    }
                     for (row = 0; row < 2u; row++) {
                         const int has_res = cfg->residual_bands && k < res_hyb_count;
                         mixed[row][t][k].re = (float)((double)hyb[t][k].re * rg[b][row] + (double)diff[t][k].re * dg[b][row] + (has_res ? (double)hres[t][k].re * sg[b][row] : 0.0));

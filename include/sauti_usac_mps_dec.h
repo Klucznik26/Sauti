@@ -18,6 +18,8 @@ typedef struct {
     float resid_prev[SAUTI_USAC_MPS_BANDS][2], decor_prev[SAUTI_USAC_MPS_BANDS][2], rsd_prev[SAUTI_USAC_MPS_BANDS][2];    /* the upmix gains [band][output channel] of the last set of the previous frame */
     SautiAacSbrQmfAnalysisState res_analysis;                                          /* the 32 band QMF analysis of the residual channel (the second core channel) */
     SautiAacSbrComplex res_tail[6][32];                                                /* the last 6 slots of QMF bands 3..31 of the residual analysis: the reference delays them against bands 0..2 */
+    float phase_prev[2][SAUTI_USAC_MPS_BANDS];                                         /* phase of the last set of the previous frame (left, right output) */
+    int32_t smooth_phase[2][SAUTI_USAC_MPS_BANDS];                                     /* smoothed overall phase difference, Q27 */
     unsigned ready;
 } SautiUsacMpsDec;
 

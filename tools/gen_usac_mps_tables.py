@@ -86,6 +86,8 @@ add('sauti_usac_mps_cos', 'float', (8, 31), read_values(ROM, 'ixheaacd_cos_table
 add('sauti_usac_mps_sin', 'float', (8, 31), read_values(ROM, 'ixheaacd_sin_table'), 'sine of the rotation angle', 'ixheaacd_sin_table')
 for nm in ('weight', 're_weight', 'im_weight', 'beta'):
     add('sauti_usac_mps_%s' % nm, 'float', (16, 8, 31), read_values(ROM, 'ixheaacd_%s' % nm), 'prediction upmix, %s, by [IPD index][ICC index][CLD index + 15]' % nm, 'ixheaacd_%s' % nm)
+add('sauti_usac_mps_atan_q28', 'int32_t', (16, 8, 31), read_values(ROM, 'ixheaacd_atan_table_Q28'), 'overall phase difference (OPD) in Q28 radians by [IPD index][ICC index][CLD index + 15]', 'ixheaacd_atan_table_Q28')
+add('sauti_usac_mps_ipd_dequant_q28', 'int32_t', (16,), read_values(PRS, 'ixheaacd_ipd_de_quant_table_q28'), 'IPD in Q28 radians by index', 'ixheaacd_ipd_de_quant_table_q28')
 add('sauti_usac_mps_hyb8', 'float', (13,), read_values(ROM, 'ixheaacd_ia_mps_hyb_filter_coeff_8'), 'prototype of the 8-band hybrid filter (QMF band 0)', 'ixheaacd_ia_mps_hyb_filter_coeff_8')
 add('sauti_usac_mps_hyb2', 'float', (13,), read_values(ROM, 'ixheaacd_mps_hyb_filter_coeff_2'), 'prototype of the 2-band hybrid filters (QMF bands 1, 2)', 'ixheaacd_mps_hyb_filter_coeff_2')
 add('sauti_usac_mps_hyb_sine', 'float', (8, 8), read_values(ROM, 'ixheaacd_sine'), 'sine table of the 8-band split', 'ixheaacd_sine')

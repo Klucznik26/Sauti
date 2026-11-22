@@ -20,7 +20,7 @@ static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n &
 static FILE *g_elem_fu[8];
 static uint8_t hist_au[8][1 << 16]; static size_t hist_len[8];                /* the last access units (ring of 8) that go into a pre-roll payload */
 static int g_pvc;                                                            /* --pvc N: predictive vector coding in the SBR configuration; mono streams only.  1 the header mode switches at random between classic and PVC modes 1 / 2, 2 mode 1 only, 3 mode 2 only, 4 modes 1 / 2 without classic frames */
-static int g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr;   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
+static int g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr, g_mps_phase, g_mps_opd;   /* --mps-phase 1: phase coding (IPD / OPD) with one IPD set per frame, --mps-opd M: bsOpdSmoothingMode */   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
 static int g_hbe;                                                            /* --hbe N: harmonic transposer (bs_harmonicSBR): 1 random mix of sbrPatchingMode 0 / 1 frames, 2 always the transposer; random oversampling flag and sbrPitchInBins (0, 12, 24, 36 and 1..127) */
 static int g_intertes;                                                       /* --intertes: inter-subband temporal envelope shaping in the SBR configuration, random bs_temp_shape / mode after every envelope */
 static int g_lfe_short;                                                      /* diagnostic: the LFE uses an eight-short window from the second frame on (illegal: an LFE has long windows only) */
@@ -453,6 +453,12 @@ static void put_mps_data(Bw *w, int indep) {
     for (i = 0; i < 28u; i++) put(w, coarse ? (uint32_t)rr(3, 11) : (uint32_t)rr(5, 25), coarse ? 4u : 5u);
     put(w, 3, 2); put(w, 0, 1); put(w, 0, 1); put(w, 0, 2); put(w, 1, 1);               /* ICC */
     for (i = 0; i < 28u; i++) put(w, (uint32_t)rr(0, 7), 3);
+    if (g_mps_phase) {                                                      /* bsPhaseMode = 1, bsOpdSmoothingMode, then EcData of IPD for the 10 bands of the default phase band count: PCM, fine (4 bit values) or coarse (3 bit) */
+        const unsigned c2 = (rnd() % 3u) == 0u;
+        put(w, 1, 1); put(w, (uint32_t)g_mps_opd, 1);
+        put(w, 3, 2); put(w, 0, 1); put(w, c2, 1); put(w, 0, 2); put(w, 1, 1);
+        for (i = 0; i < 10u; i++) put(w, (uint32_t)rr(0, c2 ? 7 : 15), c2 ? 3u : 4u);
+    }
 }
 
 /* state of one element: the arithmetic coder contexts, the window sequence history and the complex prediction history of its channels */
@@ -475,6 +481,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--mps") && a + 1 < argc) g_mps = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps-res") && a + 1 < argc) g_mps_res = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps-decorr") && a + 1 < argc) g_mps_decorr = atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--mps-phase") && a + 1 < argc) g_mps_phase = atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--mps-opd") && a + 1 < argc) g_mps_opd = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps-fgain") && a + 1 < argc) g_mps_fgain = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--pvc") && a + 1 < argc) g_pvc = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--preroll") && a + 1 < argc) o.preroll = (unsigned)atoi(argv[++a]);
@@ -554,7 +562,7 @@ int main(int argc, char **argv) {
         if (o.channels == 2u) {
             put(&asc, (uint32_t)g_mps, 2);                                  /* stereoConfigIndex */
             if (g_mps) {                                                    /* Mps212Config: 28 parameter bands, no temporal shaping, no phase coding, one parameter set per frame */
-                put(&asc, 1, 3); put(&asc, (uint32_t)g_mps_fgain, 3); put(&asc, 0, 2); put(&asc, (uint32_t)g_mps_decorr, 2); put(&asc, 0, 1); put(&asc, 0, 1); put(&asc, 0, 1);
+                put(&asc, 1, 3); put(&asc, (uint32_t)g_mps_fgain, 3); put(&asc, 0, 2); put(&asc, (uint32_t)g_mps_decorr, 2); put(&asc, 0, 1); put(&asc, (uint32_t)g_mps_phase, 1); put(&asc, 0, 1);
                 if (g_mps >= 2) { put(&asc, (uint32_t)g_mps_res, 5); put(&asc, 0, 1); }
             }
         }
@@ -598,7 +606,7 @@ int main(int argc, char **argv) {
             Opt ol = o; Chan *c = &ch[0]; ol.noise_fill = 0; ol.tns = 0; ol.shorts = (unsigned)(g_lfe_short != 0);
             memset(c, 0, sizeof *c); c->seq = (g_lfe_short && f >= 1u) ? 2u : 0u; c->shape = 0; c->grouping = c->seq == 2u ? (unsigned)rr(0, 127) : 0u; setup(&ol, c); fill_content(&ol, c, 0); c->tns_data = 0;
             put_fd(&w, &ol, c, &ac[0], 0, indep, 0);
-        } else if (layout[el] == 0u) {
+        } else if (layout[el] == 0u || (layout[el] == 1u && g_mps == 1)) {
             Chan *c = &ch[0]; memset(c, 0, sizeof *c);
             c->seq = next_seq(prev_seq[0], &o); prev_seq[0] = c->seq; c->shape = (o.kbd && (f > 0 || o.kbd_first)) ? ((f == 0) ? 1u : (rnd() & 1u)) : 0u;
             c->grouping = c->seq == 2u ? (unsigned)rr(0, 127) : 0u; setup(&o, c); fill_content(&o, c, 0);
@@ -606,6 +614,7 @@ int main(int argc, char **argv) {
             put(&w, c->tns_data, 1);
             put_fd(&w, &o, c, &ac[0], 0, indep, 1);
             if (o.sbr) put_sbr(&w, &o, 1, indep);
+            if (layout[el] == 1u) put_mps_data(&w, indep);
         } else {
             const int common = o.common ? 1 : (int)(rnd() % 2u);
             unsigned tns_active = o.tns && (rnd() % 2u), ms_mode = o.cplx ? (rnd() % 5u == 0 ? (unsigned)rr(0, 2) : 3u) : (o.ms ? (unsigned)rr(1, 2) : 0u), common_tns = 0, tns_on_lr = 0, max_ste, g, b;

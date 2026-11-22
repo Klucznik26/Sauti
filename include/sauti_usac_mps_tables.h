@@ -43,6 +43,8 @@ extern const float sauti_usac_mps_weight[16][8][31];   /* prediction upmix, weig
 extern const float sauti_usac_mps_re_weight[16][8][31];   /* prediction upmix, re_weight, by [IPD index][ICC index][CLD index + 15] (libxaac: ixheaacd_re_weight) */
 extern const float sauti_usac_mps_im_weight[16][8][31];   /* prediction upmix, im_weight, by [IPD index][ICC index][CLD index + 15] (libxaac: ixheaacd_im_weight) */
 extern const float sauti_usac_mps_beta[16][8][31];   /* prediction upmix, beta, by [IPD index][ICC index][CLD index + 15] (libxaac: ixheaacd_beta) */
+extern const int32_t sauti_usac_mps_atan_q28[16][8][31];   /* overall phase difference (OPD) in Q28 radians by [IPD index][ICC index][CLD index + 15] (libxaac: ixheaacd_atan_table_Q28) */
+extern const int32_t sauti_usac_mps_ipd_dequant_q28[16];   /* IPD in Q28 radians by index (libxaac: ixheaacd_ipd_de_quant_table_q28) */
 extern const float sauti_usac_mps_hyb8[13];   /* prototype of the 8-band hybrid filter (QMF band 0) (libxaac: ixheaacd_ia_mps_hyb_filter_coeff_8) */
 extern const float sauti_usac_mps_hyb2[13];   /* prototype of the 2-band hybrid filters (QMF bands 1, 2) (libxaac: ixheaacd_mps_hyb_filter_coeff_2) */
 extern const float sauti_usac_mps_hyb_sine[8][8];   /* sine table of the 8-band split (libxaac: ixheaacd_sine) */
