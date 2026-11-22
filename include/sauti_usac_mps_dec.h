@@ -17,7 +17,7 @@ typedef struct {
     float smooth_in[SAUTI_USAC_MPS_BANDS], smooth_out[SAUTI_USAC_MPS_BANDS];            /* decorrelator: smoothed energies per parameter band of the 28 band map */
     float resid_prev[SAUTI_USAC_MPS_BANDS][2], decor_prev[SAUTI_USAC_MPS_BANDS][2], rsd_prev[SAUTI_USAC_MPS_BANDS][2], im_prev[SAUTI_USAC_MPS_BANDS][2];    /* the upmix gains [band][output channel] of the last set of the previous frame */
     SautiAacSbrQmfAnalysisState res_analysis;                                          /* the 32 band QMF analysis of the residual channel (the second core channel) */
-    SautiAacSbrComplex res_tail[6][32];                                                /* the last 6 slots of QMF bands 3..31 of the residual analysis: the reference delays them against bands 0..2 */
+    SautiAacSbrComplex res_tail[12][32];                                               /* the last `lag` slots (6 at eSBR 2:1) of QMF bands 3..31 of the residual analysis: the reference delays them against bands 0..2 */
     float phase_prev[2][SAUTI_USAC_MPS_BANDS];                                         /* phase of the last set of the previous frame (left, right output) */
     int32_t smooth_phase[2][SAUTI_USAC_MPS_BANDS];                                     /* smoothed overall phase difference, Q27 */
     float stp_nrg_dir, stp_nrg_dir_prev, stp_nrg_diff[2], stp_nrg_diff_prev[2], stp_scale_last[2];   /* STP: smoothed energies and the last scale */
@@ -27,9 +27,9 @@ typedef struct {
     unsigned ready;
 } SautiUsacMpsDec;
 
-/* The residual of the reference arrives with QMF bands 0..2 six slots AHEAD of the others (the same alignment the downmix has, see mps_lf_ahead): low = the 32 band analysis of this frame's residual
- * ([slot][32], `slots` slots), grid = [slot][64] for sauti_usac_mps212_apply (bands 32..63 zero). */
-void sauti_usac_mps212_residual_grid(SautiUsacMpsDec *d, const SautiAacSbrComplex *low, unsigned slots, SautiAacSbrComplex *grid);
+/* The residual of the reference arrives delayed against the plain QMF analysis: QMF bands 0..2 by lag_lo slots and bands 3..31 by lag_hi slots (eSBR 2:1: 0 and 6, 4:1: 6 and 12; the bands 0..2 are always six slots
+ * ahead of the others, as the downmix is, see mps_lf_ahead): low = the analysis of this frame's residual ([slot][32], `slots` slots), grid = [slot][64] for sauti_usac_mps212_apply (bands 32..63 zero). */
+void sauti_usac_mps212_residual_grid(SautiUsacMpsDec *d, const SautiAacSbrComplex *low, unsigned slots, unsigned lag_lo, unsigned lag_hi, SautiAacSbrComplex *grid);
 
 /* res_in: the QMF grid ([slot][64], bands 0 .. res_band_count - 1) of the residual channel, needed when cfg->residual_bands > 0 (it replaces the decorrelated signal in the parameter bands below cfg->residual_bands), else NULL.
  * cfg->residual (stereoConfigIndex >= 2) selects the prediction upmix, otherwise the rotation upmix; band_count = QMF bands that carry signal (sub_band_end of the eSBR header); in / out0 / out1: slots x 64 QMF samples.

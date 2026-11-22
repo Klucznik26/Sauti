@@ -336,7 +336,7 @@ static void test_residual(void) {
     {   /* the residual grid: bands 0..2 as analysed, bands 3..31 six slots later (the last six slots of the previous frame first), bands above 31 zero */
         static SautiUsacMpsDec dr; static SautiAacSbrComplex low1[32 * 32], low2[32 * 32], g1[32 * 64], g2[32 * 64]; unsigned ok = 1;
         for (i = 0; i < 32u * 32u; i++) { low1[i].re = (float)(i + 1u); low1[i].im = -(float)i; low2[i].re = (float)(5000u + i); low2[i].im = (float)(7000u + i); }
-        sauti_usac_mps212_residual_grid(&dr, low1, 32, g1); sauti_usac_mps212_residual_grid(&dr, low2, 32, g2);
+        sauti_usac_mps212_residual_grid(&dr, low1, 32, 0, 6, g1); sauti_usac_mps212_residual_grid(&dr, low2, 32, 0, 6, g2);
         for (s = 0; s < 32u; s++) for (b = 0; b < 64u; b++) {
             const SautiAacSbrComplex *x1 = &g1[s * 64 + b], *x2 = &g2[s * 64 + b];
             SautiAacSbrComplex e1 = { 0, 0 }, e2 = { 0, 0 };
@@ -345,6 +345,19 @@ static void test_residual(void) {
             if (x1->re != e1.re || x1->im != e1.im || x2->re != e2.re || x2->im != e2.im) ok = 0;
         }
         CHECK(ok, "residual grid alignment");
+        {   /* eSBR 4:1: bands 0..2 delayed by 6 slots and bands 3..31 by 12 (the previous frame's last slots first) */
+            static SautiUsacMpsDec d4; static SautiAacSbrComplex l1[64 * 32], l2[64 * 32], q1[64 * 64], q2[64 * 64]; unsigned ok4 = 1;
+            for (i = 0; i < 64u * 32u; i++) { l1[i].re = (float)(i + 1u); l1[i].im = -(float)i; l2[i].re = (float)(9000u + i); l2[i].im = (float)(3000u + i); }
+            sauti_usac_mps212_residual_grid(&d4, l1, 64, 6, 12, q1); sauti_usac_mps212_residual_grid(&d4, l2, 64, 6, 12, q2);
+            for (s = 0; s < 64u; s++) for (b = 0; b < 32u; b++) {
+                const unsigned lag = b < 3u ? 6u : 12u;
+                SautiAacSbrComplex e1 = { 0, 0 }, e2;
+                if (s >= lag) e1 = l1[(s - lag) * 32 + b];
+                e2 = s < lag ? l1[(64u - lag + s) * 32 + b] : l2[(s - lag) * 32 + b];
+                if (q1[s * 64 + b].re != e1.re || q1[s * 64 + b].im != e1.im || q2[s * 64 + b].re != e2.re || q2[s * 64 + b].im != e2.im) ok4 = 0;
+            }
+            CHECK(ok4, "residual grid alignment at eSBR 4:1");
+        }
     }
     c.residual_bands = 29; CHECK(!sauti_usac_mps212_apply(&da, &c, &f, 40, 32, in, r0, 32, a0, a1), "more residual bands than parameter bands accepted");
     c.residual_bands = 6; CHECK(!sauti_usac_mps212_apply(&da, &c, &f, 40, 32, in, r0, 2, a0, a1), "a residual grid of 2 bands accepted");

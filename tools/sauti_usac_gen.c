@@ -21,7 +21,7 @@ static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n &
 static FILE *g_elem_fu[8];
 static uint8_t hist_au[8][1 << 16]; static size_t hist_len[8];                /* the last access units (ring of 8) that go into a pre-roll payload */
 static int g_pvc;                                                            /* --pvc N: predictive vector coding in the SBR configuration; mono streams only.  1 the header mode switches at random between classic and PVC modes 1 / 2, 2 mode 1 only, 3 mode 2 only, 4 modes 1 / 2 without classic frames */
-static int g_mps_pslr, g_mps_tsd, g_mps_gesval = -1, g_mps_gesnear, g_mps_ges, g_mps_envq, g_mps_stp, g_mps_anti, g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr, g_mps_phase, g_mps_opd;   /* --mps-phase 1: phase coding (IPD / OPD) with one IPD set per frame, --mps-opd M: bsOpdSmoothingMode */   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
+static int g_sbr41, g_mps_pslr, g_mps_tsd, g_mps_gesval = -1, g_mps_gesnear, g_mps_ges, g_mps_envq, g_mps_stp, g_mps_anti, g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr, g_mps_phase, g_mps_opd;   /* --mps-phase 1: phase coding (IPD / OPD) with one IPD set per frame, --mps-opd M: bsOpdSmoothingMode */   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
 static int g_hbe;                                                            /* --hbe N: harmonic transposer (bs_harmonicSBR): 1 random mix of sbrPatchingMode 0 / 1 frames, 2 always the transposer; random oversampling flag and sbrPitchInBins (0, 12, 24, 36 and 1..127) */
 static int g_intertes;                                                       /* --intertes: inter-subband temporal envelope shaping in the SBR configuration, random bs_temp_shape / mode after every envelope */
 static int g_lfe_short;                                                      /* diagnostic: the LFE uses an eight-short window from the second frame on (illegal: an LFE has long windows only) */
@@ -415,7 +415,9 @@ static void put_sbr(Bw *w, const Opt *o, unsigned channels, int indep) {
     unsigned attempt, i;
     for (attempt = 0; attempt < 20000u; attempt++) {
         static Bw sb;
-        SautiUsacSbrState trial = g_sbrst; SautiAacSbrPayloadFrame pl[2]; unsigned cpl = 0; SautiUsacBits b; int r;
+        SautiUsacSbrState trial; SautiAacSbrPayloadFrame pl[2]; unsigned cpl = 0; SautiUsacBits b; int r;
+        if (g_sbr41) g_sbrst.header.slot_scale = 4u;
+        trial = g_sbrst;
         if (!sbr_candidate(&sb, o, channels, indep, &g_sbrst)) continue;
         b.data = sb.b; b.nbits = sb.n; b.pos = 0;
         r = sauti_usac_sbr_parse(&g_sbr_el, channels, &b, indep, o->out_rate, &trial, pl, &cpl);
@@ -541,6 +543,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--mps-ges-val") && a + 1 < argc) g_mps_gesval = atoi(argv[++a]);   /* only envelope leaves with this value (diagnostic) */
         else if (!strcmp(argv[a], "--mps-tsd") && a + 1 < argc) g_mps_tsd = atoi(argv[++a]);   /* bsTempShapeConfig 3 (TSD); N as for --mps-stp */
         else if (!strcmp(argv[a], "--mps-pseudo-lr")) g_mps_pslr = 1;                    /* bsPseudoLr = 1 (stereoConfigIndex 2 / 3): the core channels are rotated by 45 degrees */
+        else if (!strcmp(argv[a], "--sbr41")) g_sbr41 = 1;                              /* eSBR 4:1 (coreSbrFrameLengthIndex 4: the core runs at a quarter of the output rate, 64 QMF slots per frame) */
         else if (!strcmp(argv[a], "--mps-ges-near")) g_mps_gesnear = 1;                     /* envelope values near 1 (2^(v / (q + 2) - 1) in 0.8 .. 2): a realistic envelope instead of a random one */
         else if (!strcmp(argv[a], "--mps-envq") && a + 1 < argc) g_mps_envq = atoi(argv[++a]);  /* bsEnvQuantMode of the GES envelope */
         else if (!strcmp(argv[a], "--mps-phase") && a + 1 < argc) g_mps_phase = atoi(argv[++a]);
@@ -594,7 +597,7 @@ int main(int argc, char **argv) {
     if (!o.sbr_stop) o.sbr_stop = 9;
     o.out_rate = (unsigned)sauti_usac_samplerate[o.rate_idx];
     { static const unsigned limit[11] = { 92017, 75132, 55426, 46009, 37566, 27713, 23004, 18783, 13856, 11502, 9391 };
-      const unsigned core_rate = o.sbr ? o.out_rate / 2u : o.out_rate; unsigned k;
+      const unsigned core_rate = o.sbr ? o.out_rate / (g_sbr41 ? 4u : 2u) : o.out_rate; unsigned k;
       for (k = 0; k < 11u && core_rate < limit[k]; k++) ;
       o.core_idx = k; }
     memset(&g_sbr_el, 0, sizeof g_sbr_el); g_sbr_el.sbr_start_freq = o.sbr_start; g_sbr_el.sbr_stop_freq = o.sbr_stop; g_sbr_el.sbr_freq_scale = 2; g_sbr_el.sbr_alter_scale = 1; g_sbr_el.sbr_noise_bands = 2;
@@ -608,7 +611,7 @@ int main(int argc, char **argv) {
     /* AudioSpecificConfig: object type 42 (escape), sampling index, channel configuration, UsacConfig */
     memset(&asc, 0, sizeof asc);
     put(&asc, 31, 5); put(&asc, 42 - 32, 6); put(&asc, aac_index[o.rate_idx], 4); put(&asc, o.config ? o.config : o.channels, 4);
-    put(&asc, o.rate_idx, 5); put(&asc, o.sbr ? 3u : (o.len == 768u ? 0u : 1u), 3); put(&asc, o.config ? o.config : o.channels, 5);
+    put(&asc, o.rate_idx, 5); put(&asc, o.sbr ? (g_sbr41 ? 4u : 3u) : (o.len == 768u ? 0u : 1u), 3); put(&asc, o.config ? o.config : o.channels, 5);
     put(&asc, nel - 1u, 4);                                                /* numElements - 1 (escapedValue(4, 8, 16)) */
     for (el = 0; el < nel; el++) {
         put(&asc, layout[el], 2);                                           /* SCE / CPE / LFE */

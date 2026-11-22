@@ -7997,3 +7997,13 @@ Test: `test_24_band_bank` w `tests/test_aac_sbr_qmf_analysis.c` (niezależny wzo
 **Znalezisko i poprawka.** Flaga `bsPseudoLr` konfiguracji MPS212 była parsowana, ale nigdzie nieużywana: strumień z tą flagą byłby dekodowany błędnie po cichu. Przy `bsPseudoLr = 1` dwa kanały rdzenia są parą M / S obróconą o 45°, cofaną w dziedzinie czasu przed eSBR i upmiksem: `a' = (a + b) / √2`, `b' = (a − b) / √2` (stała 0,7071067812 jak w libxaac). Zaimplementowane w `sauti_usac.c` (po IMDCT obu kanałów, przed łańcuchem eSBR).
 
 **Weryfikacja.** Metodą różnicową (ten sam strumień z flagą włączoną i wyłączoną, generator `--mps-pseudo-lr`): efekt zgadza się z FDK z korelacją **0,9993** i stosunkiem amplitud **1,000**; `usac_y16` vs FDK **32 dB** bez wzmocnienia, a po usunięciu obrotu **2,4 dB** (test ma więc zęby); wobec `xaacdec` 13,6 dB (losowy eSBR). Odcisk w `test_usac_xaac` pilnuje regresji.
+
+### SBR-123 — USAC: MPEG Surround 212 przy eSBR 4:1, błąd wyrównania i resztka (2026-11-22)
+
+**Znalezisko (poważne).** MPS212 przy eSBR 4:1 (xHE-AAC o niskich przepływnościach) dawał na strumieniu z encodera libxaac (`-ccfl_idx:4 -mps:1`) tylko **korelację 0,73** z libxaac i FDK (które zgadzają się ze sobą idealnie), bo `mps_lf_ahead` przesuwał pasma QMF 0..2 o 12 slotów zamiast 6 (używał `HIST − 2`, a odległość to sześć slotów przy każdym współczynniku eSBR). Poprawka: `xlow[(i + 8) · 32 + k]`. Wynik: `usac_z5` (4:1, 32 kbit/s) **80,3 dB** wobec `xaacdec` i **81,8 dB** wobec FDK. Poprzednio MPS przy 4:1 nie był nigdzie zweryfikowany.
+
+**Resztka przy 4:1.** Encoder przy 4:1 wpisuje w drugi kanał rdzenia prawdziwą treść (rms rzędu sygnału głównego), więc strumień `usac_z6` (z5 z `bsResidualBands` = 8 wpisanym w konfigurację i kopię w AUDIOPREROLL) jest prawdziwym testem resztki, a nie ciszy. Analiza QMF resztki: 16 pasm, 64 sloty (`sauti_aac_sbr_qmf_analyze_16`), 23 pasma hybrydowe; opóźnienie względem zwykłej analizy: pasma 0..2 o 6 slotów, pasma 3..31 o **12** (przy 2:1: 0 i 6), wyznaczone korelacją siatki z zrzutem libxaac (1,000 w każdym paśmie, skala √2 jak dla downmixu). `sauti_usac_mps212_residual_grid(…, lag_lo, lag_hi, …)`. Wynik: `usac_z6` **75,5 dB** wobec `xaacdec` i **81,9 dB** wobec FDK; etap upmiksu przy 64 slotach z resztką wobec libxaac 5e-7.
+
+**Narzędzia.** Generator dostał `--sbr41` (eSBR 4:1 z `--hbe 1`, `--sbr-start 7 --sbr-stop 9`: dla 4:1 większość par start / stop jest odrzucana przez tablice częstotliwości); fixtury `usac_z5`, `z6`; `make_usac_mps_fixtures.sh` przyjmuje `ccfl_idx`.
+
+**Otwarte:** MPS przy eSBR 8:3 (odmowa), stereoConfigIndex 3.

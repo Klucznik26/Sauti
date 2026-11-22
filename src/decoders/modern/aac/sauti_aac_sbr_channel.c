@@ -495,7 +495,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
     for(unsigned i=0u;i<SLOTS;i++){
         SautiAacSbrComplex *row=grid+(size_t)i*64u;
         for(unsigned k=0u;k<kx;k++)row[k]=xlow[(size_t)(i+2u)*32u+k];
-        if(ch->mps_lf_ahead)for(unsigned k=0u;k<3u && k<kx;k++)row[k]=xlow[(size_t)(i+HIST)*32u+k];
+        if(ch->mps_lf_ahead)for(unsigned k=0u;k<3u && k<kx;k++)row[k]=xlow[(size_t)(i+8u)*32u+k];   /* six slots ahead of the other bands at every eSBR ratio (the hybrid filter delay), not HIST - 2 */
         if(i>=t0){
             for(unsigned k=kx;k<k2;k++)row[k]=y[(size_t)i*64u+k];
         }else if(continues && ch->spill_slots>i){

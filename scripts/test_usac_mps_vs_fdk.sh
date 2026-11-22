@@ -11,7 +11,7 @@ python3 -c 'import numpy' 2>/dev/null || { echo "SKIP: no numpy"; exit 0; }
 make -s build/sauti_usac_raw >/dev/null
 W="$(mktemp -d "${TMPDIR:-/tmp}/sauti-mpsfdk.XXXXXX")"; trap 'rm -rf -- "${W:?}"' EXIT
 fail=0
-for f in z1 z2 z3 z4 y1 y2 y3 y4 y5 y6 y7 y8 y9 y10 y14 y15 y16; do
+for f in z1 z2 z3 z4 z5 z6 y1 y2 y3 y4 y5 y6 y7 y8 y9 y10 y14 y15 y16; do
   python3 -I tools/mp4_dump_aus.py "tests/data/usac_$f.m4a" "$W/$f" >/dev/null
   build/sauti_usac_raw "$W/$f" "$W/$f.sau" >/dev/null 2>&1
   build/sauti_fdk_raw_oracle "$W/$f.asc" "$W/$f.aus" "$W/$f.fdk" >/dev/null 2>&1
