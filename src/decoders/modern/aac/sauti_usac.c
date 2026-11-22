@@ -180,6 +180,7 @@ typedef struct {
     float coef[1024];
     unsigned noise_level, noise_offset, tns_data_present, tns_present;
     SautiAacTnsData tns;
+    SautiUsacLpdFac fac;                                                    /* fac_data() of the frame (after an LPD frame) */
 } Fd;
 
 static int fd_setup(const SautiUsacConfig *cfg, Fd *fd) {
@@ -346,9 +347,44 @@ static int synthesize(const SautiUsacConfig *cfg, Fd *fd, SautiUsacChannel *ch, 
     unsigned w, i;
     if (fd->seq == 2u) { for (w = 0; w < 8u; w++) if (!sauti_aac_imdct(fd->coef + w * fd->stride, fd->wlen, time + w * 2u * fd->wlen)) return 0; }
     else if (!sauti_aac_imdct(fd->coef, n, time)) return 0;
+    if (ch->lpd.prev_lpd && fd->seq == 2u) {                                /* eight short windows after an LPD frame: the first window starts with the transition slope (sine, 128 samples) over the LPD overlap, the FAC fills [512, 640) */
+        float ovl[1024], fs[128], prev[1024], o[1024], x0[1024];
+        const float sc = 1.0f / (SAUTI_USAC_OUT_SCALE * 32768.0f);
+        int r = sauti_usac_lpd_fd_short_begin(&ch->lpd, n, &fd->fac, ovl, fs);
+        if (r != 1) return r;
+        memset(prev, 0, sizeof prev);
+        for (i = 0; i < 448u; i++) prev[i] = ovl[i] * sc;
+        if (fd->fac.present) { for (i = 0; i < 64u; i++) prev[448u + i] = ovl[448u + i] * sc; memset(time, 0, 64u * sizeof(float)); }
+        else for (i = 0; i < 128u; i++) prev[448u + i] = ovl[448u + i] * sc * (float)sin(3.14159265358979323846 * (127.0 - (double)i + 0.5) / 256.0);
+        (void)x0;
+        if (!sauti_aac_window_synth_n(n, 2u, 0u, fd->shape, time, prev, pcm, next)) return 0;
+        for (i = 0; i < n; i++) o[i] = pcm[i] * (SAUTI_USAC_OUT_SCALE * 32768.0f);
+        if (fd->fac.present) for (i = 0; i < 128u; i++) o[512u + i] += fs[i];
+        r = sauti_usac_lpd_fd_finish(&ch->lpd, 1, o);
+        if (r != 1) return r;
+        memcpy(ch->overlap, next, n * sizeof(float));
+        for (i = 0; i < n; i++) pcm[i] = o[i] * (1.0f / 32768.0f);
+        for (i = 0; i < n; i++) ch->fd_tail[i] = next[i] * (SAUTI_USAC_OUT_SCALE * 32768.0f);
+        for (i = 0; i < fd->wlen; i++) ch->fd_tail[(n - fd->wlen) / 2u + i] = time[7u * 2u * fd->wlen + fd->wlen + i] * (SAUTI_USAC_OUT_SCALE * 32768.0f);
+        ch->fd_short = 1;
+        ch->prev_shape = fd->shape;
+        ch->fd_decoded = 1;
+        return 1;
+    }
     if (!sauti_aac_window_synth_n(n, fd->seq, ch->prev_shape == 0xffu ? fd->shape : ch->prev_shape, fd->shape, time, ch->overlap, pcm, next)) return 0;
     memcpy(ch->overlap, next, n * sizeof(float));
     for (i = 0; i < n; i++) pcm[i] *= SAUTI_USAC_OUT_SCALE;
+    if (ch->lpd.prev_lpd) {                                                 /* the frame follows an LPD frame: its start is the look-ahead of the LPD synthesis plus the aliasing cancellation (stop window with the slope of ccfl / 4) */
+        float x[1024], o[1024];
+        int r;
+        for (i = 0; i < n; i++) x[i] = time[i] * (SAUTI_USAC_OUT_SCALE * 32768.0f);
+        r = sauti_usac_lpd_fd_frame(&ch->lpd, n, fd->seq, x, &fd->fac, o);
+        if (r != 1) return r;
+        for (i = 0; i < n; i++) pcm[i] = o[i] * (1.0f / 32768.0f);
+    }
+    for (i = 0; i < n; i++) ch->fd_tail[i] = (fd->seq == 2u ? next[i] : time[n + i]) * (SAUTI_USAC_OUT_SCALE * 32768.0f);   /* the tail an LPD frame takes over: unwindowed after a long frame; after eight short windows the overlap of the first seven (windowed) and the RAW second half of the last window */
+    if (fd->seq == 2u) for (i = 0; i < fd->wlen; i++) ch->fd_tail[(n - fd->wlen) / 2u + i] = time[7u * 2u * fd->wlen + fd->wlen + i] * (SAUTI_USAC_OUT_SCALE * 32768.0f);
+    ch->fd_short = fd->seq == 2u;
     ch->prev_shape = fd->shape;
     ch->fd_decoded = 1;
     return 1;
@@ -381,7 +417,9 @@ static int fd_channel(const SautiUsacConfig *cfg, const SautiUsacElement *e, Sau
             }
         }
     }
-    if (sauti_usac_get(b, 1)) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* fac_data: transition from / to LPD */
+    if (sauti_usac_get(b, 1)) {                                                 /* fac_data_present: the forward aliasing cancellation of a frame that follows an LPD frame */
+        if (!sauti_usac_lpd_fac_parse(b, fd->seq == 2u ? cfg->core_frame_len / 16u : cfg->core_frame_len / 8u, 1, &fd->fac)) { *reason = SAUTI_AAC_REASON_INVALID_SCE; return 0; }
+    }
     return 1;
 }
 
@@ -492,7 +530,7 @@ static void cplx_apply(const SautiUsacConfig *cfg, Fd *f0, Fd *f1, unsigned mss,
     }
 }
 
-/* An SCE / CPE whose channels are all LPD.  (An LPD frame after an FD frame and the FD frame after an LPD one need the transition (FAC, windows): -1 for now.) */
+/* An SCE / CPE whose channels are all LPD. */
 static int lpd_element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiUsacBits *b, SautiUsacChannel *chs, SautiUsacSbrState *sbrst, SautiAacSbrChannel *sbrch, int indep, float out[2][2048], unsigned *reason) {
     const unsigned nch = e->type == SAUTI_USAC_CPE ? 2u : 1u;
     SautiUsacLpdFrame *lf = (SautiUsacLpdFrame *)malloc(2u * sizeof *lf);
@@ -503,7 +541,6 @@ static int lpd_element(const SautiUsacConfig *cfg, const SautiUsacElement *e, Sa
     int r = 1;
     if (!lf) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
     if (e->stereo_config_index) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; r = -1; goto done; }
-    for (c = 0; c < nch; c++) if (chs[c].fd_decoded) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; r = -1; goto done; }
     for (c = 0; c < nch; c++)
         if (!sauti_usac_lpd_parse(b, cfg->core_frame_len, indep, &chs[c].ac, &lf[c])) { *reason = SAUTI_AAC_REASON_INVALID_SCE; r = 0; goto done; }
     if (cfg->sbr_mode == 3u) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; r = -1; goto done; }
@@ -513,7 +550,7 @@ static int lpd_element(const SautiUsacConfig *cfg, const SautiUsacElement *e, Sa
     }
     for (c = 0; c < nch; c++) {
         float pcm[1024];
-        const int d = sauti_usac_lpd_decode(&chs[c].lpd, &lf[c], cfg->core_frame_len, &chs[c].noise_seed, pcm);
+        const int d = sauti_usac_lpd_decode(&chs[c].lpd, &lf[c], cfg->core_frame_len, &chs[c].noise_seed, chs[c].fd_decoded ? chs[c].fd_tail : NULL, (int)chs[c].fd_short, pcm);
         if (d != 1) { *reason = d < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SYNTH; r = d < 0 ? -1 : 0; goto done; }
         for (i = 0; i < cfg->core_frame_len; i++) core[c][i] = pcm[i] * (1.0f / 32768.0f);
         if (!cfg->sbr_mode) memcpy(out[c], core[c], cfg->core_frame_len * sizeof(float));
@@ -556,7 +593,6 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
             return lpd_element(cfg, e, b, chs, sbrst, sbrch, indep, out, reason);
         }
     }
-    for (c = 0; c < nch; c++) if (chs[c].lpd.prev_lpd) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* an FD frame after an LPD frame: the transition (FAC, windows) is not implemented yet */
     if (nch == 1u) {
         if (e->type != SAUTI_USAC_LFE) fd[0].tns_data_present = sauti_usac_get(b, 1);
     } else {
@@ -625,7 +661,7 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
     for (c = 0; c < nch; c++) {
         if (fd[c].tns_present && (nch == 1u || tns_on_lr || !common_window) && !tns_apply(&fd[c])) { *reason = SAUTI_AAC_REASON_TNS; return 0; }
         if (nch == 2u) memcpy(chs[c].prev_coef, fd[c].coef, sizeof chs[c].prev_coef);       /* the spectrum that goes into the IMDCT: the previous frame for complex prediction */
-        if (!synthesize(cfg, &fd[c], &chs[c], cfg->sbr_mode ? core[c] : out[c])) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
+        { const int sr = synthesize(cfg, &fd[c], &chs[c], cfg->sbr_mode ? core[c] : out[c]); if (sr != 1) { *reason = sr < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SYNTH; return sr < 0 ? -1 : 0; } }
     }
     if (cfg->sbr_mode) {                                                    /* the core output goes through the QMF / HF generation / adjustment chain of HE-AAC */
         SautiAacSbrComplex *grid = (SautiAacSbrComplex *)malloc(sizeof(SautiAacSbrComplex) * SAUTI_AAC_SBR_CHANNEL_GRID);

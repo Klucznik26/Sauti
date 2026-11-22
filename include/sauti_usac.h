@@ -61,6 +61,8 @@ typedef struct {
     int16_t alpha_prev_re[8][64], alpha_prev_im[8][64];
     unsigned prev_ngroups, last_seq, last_shape;     /* window groups, window sequence and shape of the previous frame's first channel */
     SautiUsacLpdState lpd;                           /* the LPD (ACELP / TCX) core of this channel */
+    float fd_tail[1024];                             /* the unwindowed second half of the last FD frame's IMDCT output, PCM scale +-32768 (an LPD frame after it starts from it) */
+    unsigned fd_short;                               /* ... and that frame had eight short windows */
     unsigned fd_decoded;                             /* an FD frame has been decoded since the start (LPD frames after it need the FD -> LPD transition) */
 } SautiUsacChannel;
 

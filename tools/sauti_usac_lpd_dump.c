@@ -1,5 +1,6 @@
 /* Test tool: walks the access units of PREFIX.asc + PREFIX.aus (mono, one SCE, LPD / FD frames) with the LPD syntax layer and prints the mode of every frame and how many bits are left at its end.
  * usage: sauti_usac_lpd_dump PREFIX */
+#include "sauti_usac.h"
 #include "sauti_usac_lpd_dec.h"
 #include <math.h>
 #include <stdio.h>
@@ -13,7 +14,7 @@ static uint8_t *slurp(const char *path, size_t *n) {
     fclose(f); *n = (size_t)len; return b;
 }
 static unsigned long ones(const SautiUsacBits *b) { unsigned long n = 0; size_t p; for (p = b->pos; p < b->nbits; p++) n += (b->data[p >> 3] >> (7u - (p & 7u))) & 1u; return n; }
-static FILE *ref_lsf, *ref_syn; static SautiUsacLpdState lpd_st; static unsigned lpd_seed = 0x3039u; static unsigned frame_no;
+static FILE *ref_lsf, *ref_syn, *ref_ovl, *ref_ws; static SautiUsacLpdState lpd_st; static unsigned lpd_seed = 0x3039u; static unsigned frame_no;
 static SautiUsacConfig cfg; static SautiUsacAcState ac; static SautiUsacLpdFrame *fr; static unsigned au_no;
 static int walk(const uint8_t *au, size_t nbits, int depth) {
     SautiUsacBits b; unsigned el;
@@ -63,14 +64,16 @@ static int walk(const uint8_t *au, size_t nbits, int depth) {
                     float *o = (float *)malloc(4096 * sizeof(float)), *ref = (float *)malloc(4096 * sizeof(float));
                     if (fread(ref, sizeof(float), cfg.core_frame_len, ref_syn) == cfg.core_frame_len) {
                         double e = 0, p = 0; unsigned i;
-                        const int ok = sauti_usac_lpd_decode(&lpd_st, fr, cfg.core_frame_len, &lpd_seed, o);
+                        float tail[1024]; int ws = 0, have = 0;
+                        if (!lpd_st.prev_lpd && ref_ovl && fread(tail, sizeof(float), cfg.core_frame_len, ref_ovl) == cfg.core_frame_len) { have = 1; if (ref_ws && fread(&ws, sizeof ws, 1, ref_ws) != 1) ws = 0; }
+                        const int ok = sauti_usac_lpd_decode(&lpd_st, fr, cfg.core_frame_len, &lpd_seed, have ? tail : NULL, ws == 2, o);
                         if (ok) for (i = 0; i < cfg.core_frame_len; i++) { const double d = (double)o[i] - ref[i]; e += d * d; p += (double)ref[i] * ref[i]; }
                         printf("  frame %u: synthesis ok=%d  snr %.1f dB (signal rms %.1f)\n", frame_no, ok, e > 0 ? 10 * log10(p / e) : 999.0, sqrt(p / cfg.core_frame_len));
                     }
                     free(o); free(ref);
                 }
                 frame_no++;
-            } else printf("AU %u: FD frame (not parsed)\n", au_no);
+            } else { printf("AU %u: FD frame (not parsed)\n", au_no); lpd_st.prev_lpd = 0; }
             if (core_mode == 0u) return 0;
         } else return 0;
     }
@@ -86,7 +89,7 @@ int main(int argc, char **argv) {
     bit += 8;
     if (sauti_usac_config_parse(asc, na, bit, &cfg) != 1) { fprintf(stderr, "config\n"); return 1; }
     fr = (SautiUsacLpdFrame *)malloc(sizeof *fr);
-    if (getenv("LPD_REF_DIR")) { snprintf(path, sizeof path, "%s/fsynth.bin", getenv("LPD_REF_DIR")); ref_syn = fopen(path, "rb"); sauti_usac_lpd_state_init(&lpd_st, cfg.core_rate); snprintf(path, sizeof path, "%s/lsf.bin", getenv("LPD_REF_DIR")); ref_lsf = fopen(path, "rb"); }
+    if (getenv("LPD_REF_DIR")) { snprintf(path, sizeof path, "%s/fsynth.bin", getenv("LPD_REF_DIR")); ref_syn = fopen(path, "rb"); snprintf(path, sizeof path, "%s/ovl_raw.bin", getenv("LPD_REF_DIR")); ref_ovl = fopen(path, "rb"); snprintf(path, sizeof path, "%s/ovl_ws.bin", getenv("LPD_REF_DIR")); ref_ws = fopen(path, "rb"); sauti_usac_lpd_state_init(&lpd_st, cfg.core_rate); snprintf(path, sizeof path, "%s/lsf.bin", getenv("LPD_REF_DIR")); ref_lsf = fopen(path, "rb"); }
     while (p + 4 <= nu) {
         const size_t n = ((size_t)aus[p] << 24) | ((size_t)aus[p + 1] << 16) | ((size_t)aus[p + 2] << 8) | aus[p + 3];
         walk(aus + p + 4, n * 8u, 0); p += 4 + n; au_no++;

@@ -43,6 +43,15 @@ typedef struct {
 } SautiUsacLpdState;
 
 void sauti_usac_lpd_state_init(SautiUsacLpdState *st, unsigned core_rate);
-/* Decodes one LPD frame into out[ccfl] (PCM scale +-32768).  noise_seed: the TCX noise generator of the channel.  1 = ok, 0 = malformed, -1 = valid but not supported yet (a frame that starts with ACELP after an FD frame). */
-int sauti_usac_lpd_decode(SautiUsacLpdState *st, const SautiUsacLpdFrame *f, unsigned ccfl, unsigned *noise_seed, float *out);
+/* Decodes one LPD frame into out[ccfl] (PCM scale +-32768).  fd_tail = the unwindowed tail (second half of the IMDCT output, PCM scale +-32768) of the FD frame before it - used when the previous frame was not LPD (NULL = start of decoding, zeros) -
+ * and fd_last_short = that frame had eight short windows.  noise_seed: the TCX noise generator of the channel.  1 = ok, 0 = malformed, -1 = valid but not supported yet (a frame that starts with ACELP after an FD frame). */
+int sauti_usac_lpd_decode(SautiUsacLpdState *st, const SautiUsacLpdFrame *f, unsigned ccfl, unsigned *noise_seed, const float *fd_tail, int fd_last_short, float *out);
+
+/* LPD -> FD: the output (PCM scale +-32768) of a long FD frame that follows an LPD frame (window sequence seq: 0 = ONLY_LONG: a full sine overlap, FAC ignored; 1 / 3 = LONG_START (STOP_START after LPD) / LONG_STOP: the slope of ccfl / 4 and the FAC).  x[0..ccfl) = the first half of the IMDCT output of the FD frame in PCM scale, fac = its fac_data (NULL / not
+ * present: none).  Uses and consumes the state of the LPD core (synthesis look-ahead, filter memory); afterwards the state is "previous frame was FD".  1 = ok, 0 = malformed, -1 = unsupported (ccfl != 1024, rate). */
+int sauti_usac_lpd_fd_frame(SautiUsacLpdState *st, unsigned ccfl, unsigned seq, const float *x, const SautiUsacLpdFac *fac, float *out);
+/* The same for an FD frame with eight short windows (lfac = ccfl / 16): returns the overlap the LPD core leaves (ovl[ccfl], PCM scale) and the FAC signal (facsig[2 * 64]); the caller assembles the output
+ * (the first window with the transition slope, + facsig at [ccfl / 2, ccfl / 2 + 2 * 64) ) and ends with lpd_fd_finish, which continues the long-term post-filter over the start of out[] and leaves the LPD state. */
+int sauti_usac_lpd_fd_short_begin(const SautiUsacLpdState *st, unsigned ccfl, const SautiUsacLpdFac *fac, float *ovl, float *facsig);
+int sauti_usac_lpd_fd_finish(SautiUsacLpdState *st, int is_short, float *out);
 #endif

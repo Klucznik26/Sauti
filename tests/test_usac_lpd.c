@@ -87,8 +87,19 @@ static void test_random(void) {
         if (sauti_usac_lpd_parse(&b, 1024, (int)(it & 1u), &ac, &f) == 1) {
             parsed++;
             CHECK(b.pos <= b.nbits, "parse overran: %zu of %zu", b.pos, b.nbits);
-            r = sauti_usac_lpd_decode(&st, &f, 1024, &seed, out);
+            r = sauti_usac_lpd_decode(&st, &f, 1024, &seed, NULL, 0, out);
             if (r == 1) { decoded++; for (i = 0; i < 1024; i++) if (!isfinite(out[i])) { CHECK(0, "non-finite output"); break; } }
+            if (r == 1 && (it & 3u) == 0u) {                                                       /* LPD -> FD on a copy of the state, with random FAC data and a random spectrum */
+                SautiUsacLpdState c = st; static SautiUsacLpdFac fac; float x[1024], o[1024], ovl[1024], fs2[128]; SautiUsacBits fb;
+                int rr, seq = (int)((it >> 2) & 3u);
+                for (i = 0; i < 1024; i++) x[i] = (float)((rand() & 0xfff) - 2048);
+                fb.data = buf; fb.nbits = b.nbits; fb.pos = (size_t)(rand() % 64);
+                memset(&fac, 0, sizeof fac);
+                if (sauti_usac_lpd_fac_parse(&fb, (it & 8u) ? 64u : 128u, 1, &fac) != 1) memset(&fac, 0, sizeof fac);
+                if (seq == 2) { rr = sauti_usac_lpd_fd_short_begin(&c, 1024, &fac, ovl, fs2); if (rr == 1) { memcpy(o, x, sizeof o); rr = sauti_usac_lpd_fd_finish(&c, 1, o); } }
+                else rr = sauti_usac_lpd_fd_frame(&c, 1024, (unsigned)seq, x, &fac, o);
+                if (rr == 1) for (i = 0; i < 1024; i++) if (!isfinite(o[i])) { CHECK(0, "non-finite FD output"); break; }
+            }
             if (r != 1) sauti_usac_lpd_state_init(&st, st.fscale);
         }
     }
