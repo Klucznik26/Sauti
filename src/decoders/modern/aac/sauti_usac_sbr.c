@@ -28,7 +28,7 @@ int sauti_usac_sbr_parse(const SautiUsacElement *e, unsigned channels, SautiUsac
     unsigned info_present = 1, header_present = 1, cpl = 0, c, i;
     const size_t start = b->pos;
     const uint8_t *data = b->data; const size_t size = bytes_of(b);
-    if (e->sbr_harmonic || e->sbr_pvc || e->sbr_intertes) return -1;
+    if (e->sbr_harmonic || e->sbr_pvc) return -1;
     memset(harmonic, 0, sizeof harmonic);
     if (!indep) { info_present = sauti_usac_get(b, 1); header_present = info_present ? sauti_usac_get(b, 1) : 0u; }
     if (info_present) {
@@ -60,6 +60,7 @@ int sauti_usac_sbr_parse(const SautiUsacElement *e, unsigned channels, SautiUsac
         if (!sauti_aac_sbr_grid_parse_max(data, size, &b->pos, 16u, SAUTI_AAC_SBR_MAX_ENV, &grid[c])) return 0;
     }
     for (c = 0; c < channels; c++) if (!ctrl_dtdf(b, &grid[c], &tables, indep, &control[c])) return 0;
+    for (c = 0; c < channels; c++) control[c].inter_tes = (uint8_t)e->sbr_intertes;
     if (channels == 1u || cpl) {                                              /* one inverse filtering mode set: of the (first) channel */
         if (!ctrl_invf(b, &tables, &control[0])) return 0;
         if (channels == 2u) memcpy(control[1].invf_mode, control[0].invf_mode, sizeof control[1].invf_mode);

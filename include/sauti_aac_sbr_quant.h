@@ -14,6 +14,7 @@ typedef struct {
     uint8_t freq_res[SAUTI_AAC_SBR_MAX_ENV];
     uint8_t env[SAUTI_AAC_SBR_MAX_ENV][SAUTI_AAC_SBR_MAX_MASTER_BANDS];
     uint8_t noise[2][SAUTI_AAC_SBR_MAX_NOISE_BANDS];
+    uint8_t tes_mode[SAUTI_AAC_SBR_MAX_ENV];      /* inter-TES: bs_inter_temp_shape_mode of every envelope (0 = off) */
 } SautiAacSbrQuantFrame;
 
 /* Persistent channel history; the caller initializes it to all zeros.

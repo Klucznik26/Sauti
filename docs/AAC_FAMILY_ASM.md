@@ -7888,3 +7888,11 @@ Test: `test_24_band_bank` w `tests/test_aac_sbr_qmf_analysis.c` (niezależny wzo
 
 **Testy.** `usac_x8` / `usac_x9` w `test-usac-xaac` (odciski, seeki) i `scripts/test_usac_vs_xaac.sh`; `test_band_bank(16)`; fuzzing silnika 2500 iteracji (x8, x9, x5) bez raportu; test jednostkowy „2:1 odczytany jako 4:1” zmieniony z „nieobsługiwane” na „odrzucone bez zmiany stanu”.
 
+### SBR-113 — USAC: inter-TES (2026-11-22)
+
+**Zakres.** Kształtowanie obwiedni czasowej HF przez obwiednię czasową pasma niskiego (`bs_interTes = 1` w konfiguracji SBR): składnia (po danych KAŻDEJ obwiedni: `bs_temp_shape` 1 bit, a gdy 1: `bs_inter_temp_shape_mode` 2 bity; w parze niesprzężonej kolejno dla kanału 0, potem 1) i przetwarzanie. Przetwarzanie wg referencji: dla obwiedni z trybem `m > 0` i `gamma = {0, 1, 2, 4}[m]`: `P_low[i]` = moc pasma niskiego szczeliny `i` (pasma `0 .. kx−1`), `P_high[i]` = moc HF po dodaniu szumu i sinusów; `gain_i = 1 + gamma · (sqrt(P_low[i] · N / Σ P_low) − 1)` (co najmniej 0,2), potem skalowanie tak, by energia HF obwiedni się nie zmieniła (`sqrt(Σ P_high / Σ P_high·gain²)`). Działa przy 2:1, 8:3 i 4:1 (obwiednie w szczelinach QMF).
+
+**Weryfikacja.** Koder libxaac ustawia flagę (`-inter_tes_enc:1`), ale NIGDY nie wybiera trybu ≠ 0 (sprawdzone na sześciu sygnałach: impulsy, zmodulowany szum HF, ...): strumienie libxaac sprawdzają tylko składnię (zgodność 71,3 dB, bity zgadzają się). Tryby ≠ 0 daje generator własny (`--intertes`, losowe bity po każdej obwiedni). Wobec libxaac **ten sam strumień z kształtowaniem jest 41,0 dB od jego wyjścia, bez kształtowania 14,9 dB** (losowe strumienie generatora osiągają wobec libxaac ~40 dB także bez inter-TES: to granica tego rodzaju strumieni, więc weryfikacja jest różnicowa, nie bezwzględna). Fixtura `usac_t1.m4a` (`tests/data/make_usac_tes_fixture.sh`) w `test-usac-xaac` (odciski). FDK i FFmpeg nie mają inter-TES.
+
+**Otwarte:** HBE (koder libxaac nie ustawia flagi przy `-harmonic_sbr:1`; wzorzec można uzyskać przestawiając bit konfiguracji w strumieniu), PVC (koder ustawia flagę `-pvc_enc:1`), MPS212, LFE + eSBR.
+

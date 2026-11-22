@@ -281,6 +281,36 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
         }
     next->history_valid=1u;
 
+    /* 5b. inter-subband temporal envelope shaping (USAC eSBR, bs_inter_temp_shape_mode of the envelope): the HF of every slot is scaled by the temporal envelope of the low band over the envelope,
+     * gain_i = 1 + gamma (sqrt(P_low_i N / sum P_low) - 1) (at least 0.2), renormalised so that the HF energy of the envelope is unchanged */
+    for(unsigned e=0u;e<envs;e++){
+        static const double gamma_table[4]={0.0,1.0,2.0,4.0};
+        const double gamma=gamma_table[f->quant.tes_mode[e]&3u];
+        if(gamma<=0.0)continue;
+        const unsigned lo=f->env_edges[e],hi=f->env_edges[e+1u],n=hi-lo;
+        double pl[MAX_I],ph[MAX_I],gain[MAX_I],tot_l=0.0,tot_h=0.0,tot_after=1.0e-6;
+        for(unsigned i=lo;i<hi;i++){
+            double a=0.0,b=0.0;
+            for(unsigned k=0u;k<kx;k++){const SautiAacSbrComplex z=xlow[(size_t)(i+2u)*32u+k];a+=(double)z.re*z.re+(double)z.im*z.im;}
+            for(unsigned k=kx;k<k2;k++){const SautiAacSbrComplex z=y[(size_t)i*64u+k];b+=(double)z.re*z.re+(double)z.im*z.im;}
+            pl[i-lo]=a;ph[i-lo]=b;tot_l+=a;tot_h+=b;
+        }
+        for(unsigned i=0u;i<n;i++){
+            double g=sqrt(pl[i]*(double)n/(tot_l+1.0e-6));
+            g=1.0+gamma*(g-1.0);
+            if(g<0.2)g=0.2;
+            gain[i]=g;ph[i]*=g*g;tot_after+=ph[i];
+        }
+        const double adj=sqrt(tot_h/tot_after);
+        for(unsigned i=0u;i<n;i++){
+            const double g=gain[i]*adj;
+            for(unsigned k=kx;k<k2;k++){
+                SautiAacSbrComplex *z=&y[(size_t)(lo+i)*64u+k];
+                z->re=(float)(z->re*g);z->im=(float)(z->im*g);
+            }
+        }
+    }
+
     /* 6. output grid: spill from the previous call first, this frame's own slots after it */
     memset(grid,0,sizeof(SautiAacSbrComplex)*SAUTI_AAC_SBR_CHANNEL_GRID*R);
     const int continues=(ch->have_previous==0u && t0==0u) ||

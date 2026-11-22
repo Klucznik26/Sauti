@@ -219,7 +219,7 @@ static void test_sbr_unsupported(void) {
     CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) != -1, "preprocessing 0 is not refused for that reason");
     e.sbr_harmonic = 1; b.pos = 0; CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "the harmonic transposer is not implemented");
     e.sbr_harmonic = 0; e.sbr_pvc = 1; b.pos = 0; CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "PVC is not implemented");
-    e.sbr_pvc = 0; e.sbr_intertes = 1; b.pos = 0; CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "inter-TES is not implemented");
+    e.sbr_pvc = 0; e.sbr_intertes = 1; memset(d, 0xffu, sizeof d); b.pos = 0; (void)sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl);   /* inter-TES is implemented: garbage with the shaping bits must not crash either */
     e.sbr_intertes = 0; memset(d, 0xffu, sizeof d); b.pos = 0; (void)sauti_usac_sbr_parse(&e, 2, &b, 1, 48000, &st, pl, &cpl);   /* garbage must not crash */
 }
 

@@ -19,6 +19,7 @@ typedef struct { uint8_t b[1 << 18]; size_t n; } Bw;
 static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n & 7u) == 0) w->b[w->n >> 3] = 0; if ((v >> bits) & 1u) w->b[w->n >> 3] |= (uint8_t)(0x80u >> (w->n & 7u)); w->n++; } }
 static FILE *g_elem_fu[8];
 static uint8_t hist_au[8][1 << 16]; static size_t hist_len[8];                /* the last access units (ring of 8) that go into a pre-roll payload */
+static int g_intertes;                                                       /* --intertes: inter-subband temporal envelope shaping in the SBR configuration, random bs_temp_shape / mode after every envelope */
 static int g_lfe_short;                                                      /* diagnostic: the LFE uses an eight-short window from the second frame on (illegal: an LFE has long windows only) */
 static int g_probe_ch = -1, g_probe_line = 100;
 /* complex stereo prediction: the encoder-side mirror of the decoder's alpha state */
@@ -264,9 +265,12 @@ static void put_sbr_env(Bw *sb, const SautiAacSbrGrid *g, const SautiAacSbrTable
     uint32_t code; uint8_t bits;
     for (e = 0; e < g->env_count; e++) {
         const unsigned n = g->freq_res[e] ? t->n_high : t->n_low;
-        if (df[e]) { for (j = 0; j < n; j++) { if (!sauti_aac_sbr_huffman_codeword((SautiAacSbrHuffmanBook)env_t, rr(-2, 2), &code, &bits)) exit(1); put(sb, code, bits); } continue; }
+        if (df[e]) { for (j = 0; j < n; j++) { if (!sauti_aac_sbr_huffman_codeword((SautiAacSbrHuffmanBook)env_t, rr(-2, 2), &code, &bits)) exit(1); put(sb, code, bits); }
+            if (g_intertes) { const unsigned fl = rnd() % 3u != 0u; put(sb, fl, 1); if (fl) put(sb, rnd() & 3u, 2); }
+            continue; }
         put(sb, balanced ? (uint32_t)rr(4, 10) : (eff ? (uint32_t)rr(8, 14) : (uint32_t)rr(14, 30)), eff ? (balanced ? 5u : 6u) : (balanced ? 6u : 7u));
         for (j = 1; j < n; j++) { if (!sauti_aac_sbr_huffman_codeword((SautiAacSbrHuffmanBook)(env_t + 1), rr(-2, 2), &code, &bits)) exit(1); put(sb, code, bits); }
+        if (g_intertes) { const unsigned fl = rnd() % 3u != 0u; put(sb, fl, 1); if (fl) put(sb, rnd() & 3u, 2); }
     }
 }
 static void put_sbr_noise(Bw *sb, const SautiAacSbrGrid *g, const SautiAacSbrTables *t, unsigned balanced, const uint8_t *df) {
@@ -389,6 +393,7 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[a], "--channels") && a + 1 < argc) o.channels = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--config") && a + 1 < argc) o.config = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--lfe-short")) g_lfe_short = 1;
+        else if (!strcmp(argv[a], "--intertes")) g_intertes = 1;
         else if (!strcmp(argv[a], "--preroll") && a + 1 < argc) o.preroll = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--preroll-rap")) o.preroll_rap = 1;
         else if (!strcmp(argv[a], "--rate") && a + 1 < argc) o.rate_idx = (unsigned)atoi(argv[++a]);
@@ -440,7 +445,7 @@ int main(int argc, char **argv) {
       for (k = 0; k < 11u && core_rate < limit[k]; k++) ;
       o.core_idx = k; }
     memset(&g_sbr_el, 0, sizeof g_sbr_el); g_sbr_el.sbr_start_freq = o.sbr_start; g_sbr_el.sbr_stop_freq = o.sbr_stop; g_sbr_el.sbr_freq_scale = 2; g_sbr_el.sbr_alter_scale = 1; g_sbr_el.sbr_noise_bands = 2;
-    g_sbr_el.sbr_limiter_bands = 2; g_sbr_el.sbr_limiter_gains = 2; g_sbr_el.sbr_interpol_freq = 1; g_sbr_el.sbr_smoothing_mode = 1;
+    g_sbr_el.sbr_limiter_bands = 2; g_sbr_el.sbr_limiter_gains = 2; g_sbr_el.sbr_interpol_freq = 1; g_sbr_el.sbr_smoothing_mode = 1; g_sbr_el.sbr_intertes = g_intertes ? 1u : 0u;
     if (getenv("SBR_CFG")) {                                                /* SBR_CFG=start,stop,freq_scale,alter_scale,noise_bands,limiter_bands,limiter_gains,interpol,smoothing: the default header of the configuration */
         unsigned v[9] = { o.sbr_start, o.sbr_stop, 2, 1, 2, 2, 2, 1, 1 }, k = 0; const char *p = getenv("SBR_CFG");
         while (*p && k < 9u) { v[k++] = (unsigned)strtoul(p, (char **)&p, 10); if (*p == ',') p++; }
@@ -460,7 +465,7 @@ int main(int argc, char **argv) {
     if (o.sbr) {                                                            /* SBR configuration: no harmonic transposer, inter-TES, PVC; default header start / stop, no extra fields */
         const unsigned x1 = g_sbr_el.sbr_freq_scale != 2u || g_sbr_el.sbr_alter_scale != 1u || g_sbr_el.sbr_noise_bands != 2u;
         const unsigned x2 = g_sbr_el.sbr_limiter_bands != 2u || g_sbr_el.sbr_limiter_gains != 2u || g_sbr_el.sbr_interpol_freq != 1u || g_sbr_el.sbr_smoothing_mode != 1u;
-        put(&asc, 0, 3); put(&asc, o.sbr_start, 4); put(&asc, o.sbr_stop, 4); put(&asc, x1, 1); put(&asc, x2, 1);
+        put(&asc, g_intertes ? 2u : 0u, 3); put(&asc, o.sbr_start, 4); put(&asc, o.sbr_stop, 4); put(&asc, x1, 1); put(&asc, x2, 1);
         if (x1) { put(&asc, g_sbr_el.sbr_freq_scale, 2); put(&asc, g_sbr_el.sbr_alter_scale, 1); put(&asc, g_sbr_el.sbr_noise_bands, 2); }
         if (x2) { put(&asc, g_sbr_el.sbr_limiter_bands, 2); put(&asc, g_sbr_el.sbr_limiter_gains, 2); put(&asc, g_sbr_el.sbr_interpol_freq, 1); put(&asc, g_sbr_el.sbr_smoothing_mode, 1); }
         if (o.channels == 2u) put(&asc, 0, 2);                              /* stereoConfigIndex 0 */

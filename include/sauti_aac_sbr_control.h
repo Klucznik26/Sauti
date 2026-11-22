@@ -18,6 +18,7 @@ typedef struct {
     uint8_t df_env[SAUTI_AAC_SBR_MAX_ENV];
     uint8_t df_noise[2];
     uint8_t invf_mode[SAUTI_AAC_SBR_MAX_NOISE_BANDS]; /* 0..3 */
+    uint8_t inter_tes;                     /* USAC eSBR with inter-subband temporal envelope shaping: every envelope's data are followed by bs_temp_shape [+ bs_inter_temp_shape_mode] (set by the caller before the envelope data are decoded) */
 } SautiAacSbrControl;
 
 /* Parse consecutive classic SBR sbr_dtdf() and sbr_invf() elements.

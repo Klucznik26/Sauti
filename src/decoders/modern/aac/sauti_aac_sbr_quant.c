@@ -133,6 +133,11 @@ static int decode_envelopes(const uint8_t *data,size_t size,size_t *pos,
                 next->env[e][j]=(uint8_t)value;
             }
         }
+        if(control->inter_tes){                       /* bs_temp_shape, bs_inter_temp_shape_mode (USAC eSBR) */
+            uint32_t flag=0u,m=0u;
+            if(!read_bits(data,size,pos,1u,&flag) || (flag && !read_bits(data,size,pos,2u,&m)))return 0;
+            next->tes_mode[e]=(uint8_t)m;
+        }
     }
     return 1;
 }
