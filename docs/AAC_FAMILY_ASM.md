@@ -8020,7 +8020,9 @@ Test: `test_24_band_bank` w `tests/test_aac_sbr_qmf_analysis.c` (niezależny wzo
 
 **Zakres i wynik.** Element z MPS, którego kanały rdzenia są LPD (ACELP / TCX), był odrzucany (`lpd_element` odmawiał przy stereoConfigIndex ≠ 0). Teraz: liczba kanałów rdzenia jak w `element()` (1 przy stereoConfigIndex 1, 2 przy 2 / 3), eSBR jednego kanału i Mps212Data po kanałach, dekodowanie LPD, potem to samo renderowanie MPS co dla FD (bsPseudoLr, łańcuch eSBR downmixu, upmiks, synteza). Wspólny kod wydzielony do `mps_side()` i `mps_render()` w `sauti_usac.c` (odciski fixtur FD bez zmian). Strumień z encodera libxaac (`-usac:2`, każda ramka LPD, `usac_z9`): **74,6 dB** wobec `xaacdec`, **57,4 dB** wobec FDK (rdzeń LPD tych dwóch dekoderów zgadza się do ok. 57 dB, próg skryptu 50 dB).
 
-**Nie sprawdzone:** para kanałów jeden FD, jeden LPD (nadal odmowa), przełączanie FD ↔ LPD w jednym strumieniu z MPS na prawdziwych przejściach (strumień `-usac:0` z syntetycznego sygnału wyszedł w całości LPD), LPD z resztką.
+**Przełączanie FD ↔ LPD z MPS (uzupełnienie, 2026-11-22).** Encoder libxaac w trybie `-usac:0` przełącza rdzeń sam, jeśli sygnał jest mowopodobny + akordy + szum z trzaskami (`make_usac_mps_fixtures.sh`, sygnał 1): fixtura `usac_z10` (40 jednostek: FD, 10 × LPD, 16 × FD, LPD: oba przejścia) **77,0 dB** wobec `xaacdec` (186 ramek całego strumienia: 76,9 dB), 57,0 dB wobec FDK po dopasowaniu wzmocnienia (próg 50). Uwaga o poziomie FDK: oracle FDK daje poziom różny od libxaac i tego dekodera także dla strumieni BEZ MPS (`usac_x1`: stosunek 4,6; `usac_z1`: 1,9953 = dokładnie 6,0 dB), więc to nie cecha MPS — zgodnie z wcześniejszą notatką prawdopodobna domyślna normalizacja głośności / DRC FDK; testy dopasowują wzmocnienie.
+
+**Nie sprawdzone:** para kanałów jeden FD, jeden LPD (nadal odmowa), LPD z resztką.
 
 ### SBR-126 — USAC: MPEG Surround 212, tryb wysokiej szybkości (bsHighRateMode), wygładzanie macierzy w czasie (2026-11-22)
 
