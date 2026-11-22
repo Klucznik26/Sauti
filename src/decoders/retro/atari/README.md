@@ -30,7 +30,7 @@ Historical DVSM references: [Atarimania 525 converter documentation](https://www
 
 ### Pack-2 Delta mono (experimental)
 
-NASM implements the 16-bit seed and saturating signed-delta accumulation. The 256-entry exponential table is built by the C adapter (1.084618362 exponent, rounded to integer); compressed frames are decoded once to a seekable float32 buffer. Stereo packed blocks use the header's big-endian block length. Every block resets both independent L/R predictors with two 16-bit big-endian seeds, followed by interleaved delta index pairs. Truncated, odd-sized, and malformed blocks are rejected. No authentic Falcon DVSM Delta file has been validated with the current implementation; synthetic tests are the initial acceptance gate.
+NASM implements the 16-bit seed and saturating signed-delta accumulation. The 256-entry exponential table is built by the C adapter (floor of the 1.084618362 power; see "Authentic table" below); compressed frames are decoded once to a seekable float32 buffer. Stereo packed blocks use the header's big-endian block length. Every block resets both independent L/R predictors with two 16-bit big-endian seeds, followed by interleaved delta index pairs. Truncated, odd-sized, and malformed blocks are rejected. No authentic Falcon DVSM Delta file has been validated with the current implementation; synthetic tests are the initial acceptance gate.
 
 ### Stereo Delta verification
 
@@ -223,3 +223,12 @@ make test
 SDL_VIDEODRIVER=wayland ./build/sauti_window_pw --source monitor --view stereo-bars --software
 ```
 Open **original compressed** `$HOME/Pulpit/MUZYKA/Testy/YM/ANCOOL1.YM` in the file browser, not just the previously extracted `ANCOOL1.ym`. An absent `libarchive-devel` causes a build without LHA support and a clear rejection rather than fallback to unsafe external extraction. A successful test requires confirming in the terminal `Sauti: unpacked LHA YM in memory` and hearing the original song in the GUI. This has not yet been tested on Fedora with actual ANCOOL1.
+
+## Authentic table, cookies and mono blocks (2026-11-22, fidelity audit against the Wax D2D Pro player)
+
+Source: the Falcon player "Wax Direct To Disk Player Pro" (WD2D_PRO.ZIP from the University of Michigan Atari archive, assembler sources included; downloaded to `~/Sauti-tools/dvs-samples`, NOT part of this repository, licence unknown: only facts and numbers derived from it are used). It reads WinRec DVSM files and ships `DVSM.TAB` with the note "the table used by Winrec".
+
+- **Pack-2 table.** `DVSM.TAB` (256 big-endian words, index = signed byte + 128) is exactly `floor(1.084618362^x)` for x = 1..127, 0 for x = 0 and `-floor(1.084618362^-x)` for negative x, saturated at +-32767: byte 0x80 is **-32767**, not -32768. The previous code ROUNDED (`floor(... + 0.5)`) and used -32768: 137 of 255 entries differed by one, so a Delta file drifted from the original (the first 15 samples of the real `digital.dvs` prefix already differ by up to 6 units: the regression test now holds the values of the authentic table).
+- **'PACK' cookie.** 512 bytes (256 words, same indexing) replace the Pack-2 table, exactly as the Wax player loads it; every other cookie (`CLCK`, `PEAK`, `TITL`, `AUTH`, `INFO`, `LPKC`, `DSPE`, `PARA`, `KARA`) is skipped. A PACK cookie of another length or on a Voice stream is refused (not guessed).
+- **Mono blocks.** A mono file whose block field is 3 or more restarts the predictor with a new 2-byte seed every `block` bytes (the real `digital.dvs` has a block field of 32001); the old decoder treated the whole file as one block, so everything after the first block was wrong. A block field below 3 still means one block.
+- **Open:** (1) the 68k player accumulates with `add.w` (16-bit WRAP-AROUND), this decoder saturates; the two differ only when a prediction overflows, which a well-formed recording does not do, but the original behaviour is wrap-around; (2) Voice (pack 4): only 15 of the 16 table values are published (-8192 .. 8192); the 16th (index 15, 16384 here) is a guess, the Wax player does not decode Voice; (3) ADPCM (pack 5, WinRec Pro) has no public description and is refused; (4) the byte order / signedness of 8-bit Delta is not defined (refused).

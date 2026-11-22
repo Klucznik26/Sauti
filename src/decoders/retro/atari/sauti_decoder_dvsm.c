@@ -61,7 +61,15 @@ static void *open_dvsm(const uint8_t *p,size_t n,SautiPcmInfo *info){
     }
     DvsmState *s=calloc(1,sizeof(*s));
     if(!s)return NULL;
-    s->pcm=p+offset;s->frames=pack==0?bytes/frame_bytes:(channels==1?(pack==2?(uint64_t)(bytes-1):(uint64_t)(1+2*(bytes-2))):stereo_frames);
+    /* mono with a block length of 3 or more: every block (block bytes) starts with its own 2-byte seed, as in the WinRec player (a field below 3 means one block for the whole file) */
+    const int mono_blocks=(pack==2||pack==4)&&channels==1&&block>=3;
+    uint64_t mono_frames=0;
+    if(mono_blocks){
+        const uint64_t per=pack==2?1u:2u,full=bytes/block,rem=bytes%block;
+        mono_frames=full*(1u+(block-2u)*per)+(rem>=2?1u+(rem-2u)*per:0u);
+        if(mono_frames==0)return NULL;
+    }
+    s->pcm=p+offset;s->frames=pack==0?bytes/frame_bytes:(channels==1?(mono_blocks?mono_frames:(pack==2?(uint64_t)(bytes-1):(uint64_t)(1+2*(bytes-2)))):stereo_frames);
     if(pack==2 || pack==4){
         if(s->frames>SIZE_MAX/(channels*sizeof(float))){free(s);return NULL;}
         s->decoded=malloc((size_t)s->frames*channels*sizeof(float));
@@ -72,17 +80,42 @@ static void *open_dvsm(const uint8_t *p,size_t n,SautiPcmInfo *info){
             memcpy(steps,voice,sizeof(voice));
         }
         if(pack==2)for(unsigned i=1;i<128;i++){
-            double v=floor(pow(1.084618362,(double)i)+0.5);
+            double v=floor(pow(1.084618362,(double)i));
             if(v>32767.0)v=32767.0;
             steps[i]=(int16_t)v;
         }
-        if(pack==2)steps[128]=-32768;
+        if(pack==2)steps[128]=-32767;                      /* DVSM.TAB of WinRec: symmetric, byte 0x80 is -32767 */
         if(pack==2)for(unsigned i=129;i<256;i++){
-            double v=floor(pow(1.084618362,(double)(256-i))+0.5);
+            double v=floor(pow(1.084618362,(double)(256-i)));
             if(v>32767.0)v=32767.0;
             steps[i]=(int16_t)-v;
         }
-        if(channels==1){
+        {   /* header cookies: [4 B id][2 B length = 6 + data][data]; 'PACK' (512 B, 256 big-endian words, index = signed byte + 128) replaces the Pack-2 table as in the WinRec player,
+             * every other cookie is skipped; a PACK of another length (or with another pack mode) is refused rather than guessed */
+            size_t at=16;
+            while(at+6<=offset){
+                const size_t len=be16(p+at+4);
+                if(len<6||at+len>offset)break;
+                if(!memcmp(p+at,"PACK",4)){
+                    if(pack!=2||len!=6+512){free(s->decoded);free(s);return NULL;}
+                    for(unsigned i=0;i<256;i++)steps[i]=(int16_t)be16(p+at+6+2*((i+128u)&255u));
+                }
+                at+=len;
+            }
+        }
+        if(channels==1&&mono_blocks){
+            size_t at=0,frame=0;
+            while(at<bytes){
+                size_t part=bytes-at;
+                if(part>block)part=block;
+                if(part<2)break;                                    /* a lone trailing byte holds no seed */
+                const size_t count=1+(part-2)*(pack==2?1u:2u);
+                if(pack==2)sauti_dvsm_delta_mono_asm(s->pcm+at,s->decoded+frame,count,steps);
+                else sauti_dvsm_voice_mono_asm(s->pcm+at,s->decoded+frame,count,steps);
+                frame+=count;
+                at+=part;
+            }
+        }else if(channels==1){
             if(pack==2)sauti_dvsm_delta_mono_asm(s->pcm,s->decoded,(size_t)s->frames,steps);
             else sauti_dvsm_voice_mono_asm(s->pcm,s->decoded,(size_t)s->frames,steps);
         }else{

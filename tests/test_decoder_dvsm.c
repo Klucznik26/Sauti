@@ -27,8 +27,8 @@ int main(void){
     b[10]=2;assert(!sauti_legacy_decoder_open(&d,ops,1,b,18));
     b[10]=0;b[0]='X';assert(!sauti_legacy_decoder_open(&d,ops,1,b,18));
     b[0]='D';be16(b+6,40);assert(!sauti_legacy_decoder_open(&d,ops,1,b,18));
-    /* Pack-2 mono: big-endian seed 0, +1, +1, -1, -32768, +32767.
-     * Delta 1 = +1 (round(1.0846)); delta 255 = -1, delta 0 = 0.
+    /* Pack-2 mono: big-endian seed 0, +1, +1, -1, -32767, 0 (byte 0x80 of the table of WinRec, DVSM.TAB, is -32767).
+     * Delta 1 = +1 (floor(1.0846)); delta 255 = -1, delta 0 = 0.
      */
     memset(b,0,sizeof(b));memcpy(b,"DVSM",4);
     be16(b+6,16);be16(b+8,7);b[10]=2;b[11]=3;
@@ -39,7 +39,7 @@ int main(void){
     assert(sauti_legacy_decoder_read(&d,pcm,3)==3);
     assert(pcm[0]==0 && pcm[1]==1.0f/32768.0f && pcm[2]==2.0f/32768.0f);
     assert(sauti_legacy_decoder_read(&d,pcm,3)==3);
-    assert(pcm[0]==1.0f/32768.0f && pcm[1]==-32767.0f/32768.0f && pcm[2]==-32767.0f/32768.0f);
+    assert(pcm[0]==1.0f/32768.0f && pcm[1]==-32766.0f/32768.0f && pcm[2]==-32766.0f/32768.0f);
     assert(sauti_legacy_decoder_seek(&d,3));
     assert(sauti_legacy_decoder_read(&d,pcm,1)==1 && pcm[0]==1.0f/32768.0f);
     sauti_legacy_decoder_close(&d);
@@ -97,7 +97,7 @@ int main(void){
     b[10]=5;assert(!sauti_legacy_decoder_open(&d,ops,1,b,22));
     /* Real-world prefix: digital.dvs from Sembiance DVSM sample archive.
      * Only the 16 header bytes + first 16 compressed bytes are used;
-     * expected PCM computed separately from signed-step definition.
+     * expected PCM computed separately with the authentic WinRec table (DVSM.TAB: floor(1.084618362^x), as read by the Wax D2D Pro player).
      * This tests actual file bytes, not an invented delta sequence.
      */
     static const unsigned char digital_prefix[16]={
@@ -105,7 +105,7 @@ int main(void){
         0x38,0xc0,0xcf,0x45,0x3f,0x39,0x48,0x3f
     };
     static const int expected[15]={
-        626,495,299,430,476,470,683,778,597,543,815,982,1085,1432,1599
+        626,496,300,430,475,470,682,776,595,542,813,979,1081,1427,1593
     };
     memset(b,0,sizeof(b));memcpy(b,"DVSM",4);
     be16(b+6,16);be16(b+8,5);b[10]=2;b[11]=3;
@@ -121,8 +121,8 @@ int main(void){
     }
     assert(sauti_legacy_decoder_seek(&d,13));
     assert(sauti_legacy_decoder_read(&d,real_pcm,2)==2);
-    assert(real_pcm[0]==1432.0f/32768.0f);
-    assert(real_pcm[1]==1599.0f/32768.0f);
+    assert(real_pcm[0]==1427.0f/32768.0f);
+    assert(real_pcm[1]==1593.0f/32768.0f);
     sauti_legacy_decoder_close(&d);
     /* Falcon 030 49.17kHz 16-bit stereo PCM: multiple interleaved
      * big-endian samples, cross-buffer reads, exact seek and EOF. */
@@ -165,6 +165,45 @@ int main(void){
         sauti_legacy_decoder_close(&d);
         /* No partial sample or partial stereo frame is legal. */
         assert(!sauti_legacy_decoder_open(&d,ops,1,recording,sizeof(recording)-1));
+    }
+    /* Header cookies and the table of WinRec: 'PACK' (6 + 512 bytes: 256 big-endian words, index = signed byte + 128) replaces the Pack-2 table; other cookies are skipped. */
+    {
+        static unsigned char f[16+6+512+6+4+2+4];
+        memset(f,0,sizeof(f));memcpy(f,"DVSM",4);
+        be16(f+6,sizeof(f)-6);be16(f+8,7);f[10]=2;f[11]=3;                  /* Pack-2 mono, header = 16 + PACK + INFO cookies */
+        memcpy(f+16,"PACK",4);be16(f+20,6+512);
+        be16(f+22+2*(1+128),1000);                                          /* byte 0x01 -> +1000 */
+        be16(f+22+2*((unsigned)(-1+128)),(unsigned)(-500)&0xffffu);         /* byte 0xff -> -500 */
+        be16(f+22+2*(0+128),7);                                             /* byte 0x00 -> +7 (the standard table has 0) */
+        memcpy(f+16+6+512,"INFO",4);be16(f+16+6+512+4,6+4);
+        f[sizeof(f)-6]=0;f[sizeof(f)-5]=100;                                /* seed 100 */
+        f[sizeof(f)-4]=1;f[sizeof(f)-3]=255;f[sizeof(f)-2]=0;f[sizeof(f)-1]=1;
+        assert(sauti_legacy_decoder_open(&d,ops,1,f,sizeof(f)));
+        assert(d.info.total_frames==5);
+        float pk[5]={0};
+        assert(sauti_legacy_decoder_read(&d,pk,5)==5);
+        assert(pk[0]==100.0f/32768.0f && pk[1]==1100.0f/32768.0f && pk[2]==600.0f/32768.0f && pk[3]==607.0f/32768.0f && pk[4]==1607.0f/32768.0f);
+        sauti_legacy_decoder_close(&d);
+        /* a PACK cookie of another length, or on a Voice stream, is refused rather than guessed */
+        be16(f+20,6+256);assert(!sauti_legacy_decoder_open(&d,ops,1,f,sizeof(f)));
+        be16(f+20,6+512);f[10]=4;assert(!sauti_legacy_decoder_open(&d,ops,1,f,sizeof(f)));
+    }
+    /* Mono blocks: a block field of 3 or more restarts the predictor with a new seed every `block` bytes (as the WinRec player does); below 3 the whole file is one block. */
+    {
+        unsigned char m[16+2+2+2+2]={0};
+        memcpy(m,"DVSM",4);be16(m+6,16);be16(m+8,7);m[10]=2;m[11]=3;m[15]=4;      /* blocks of 4 bytes: seed + 2 deltas */
+        m[16]=0;m[17]=50;m[18]=1;m[19]=1;                                   /* block 1: 50, 51, 52 */
+        m[20]=0x03;m[21]=0xe8;m[22]=0xff;m[23]=0xff;                        /* block 2: 1000, 999, 998 */
+        assert(sauti_legacy_decoder_open(&d,ops,1,m,sizeof(m)));
+        assert(d.info.total_frames==6);
+        float mb[6]={0};
+        assert(sauti_legacy_decoder_read(&d,mb,6)==6);
+        assert(mb[0]==50.0f/32768.0f && mb[1]==51.0f/32768.0f && mb[2]==52.0f/32768.0f && mb[3]==1000.0f/32768.0f && mb[4]==999.0f/32768.0f && mb[5]==998.0f/32768.0f);
+        sauti_legacy_decoder_close(&d);
+        m[15]=0;                                                            /* no block field: one block, the second "seed" is two deltas */
+        assert(sauti_legacy_decoder_open(&d,ops,1,m,sizeof(m)));
+        assert(d.info.total_frames==7);
+        sauti_legacy_decoder_close(&d);
     }
     puts("PASS: Atari Falcon DVSM PCM, Delta/Voice, real digital.dvs prefix, malformed headers");
     return 0;

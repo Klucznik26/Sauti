@@ -164,13 +164,47 @@ typedef struct {
     maktabasauti_result_t pend;
 } dvsm_t;
 
-static int16_t step_value(unsigned i) {                   /* tablica Pack-2: identyczna z dawnym adapterem (floor(pow(1.084618362, i) + 0.5), nasycona) */
+/* Tablica Pack-2 (DVSM.TAB, "the table used by WinRec" wg odtwarzacza Wax D2D Pro, ktory czyta pliki WinRec): indeks = bajt ze znakiem + 128, wartosci floor(1,084618362^x) dla x > 0, 0 dla x = 0 i
+ * odbicie ze znakiem minus dla x < 0 (-floor(1,084618362^-x)); wartosc nasycona do +-32767 (takze dla bajtu 0x80: -32767, nie -32768).  Poprzednia wersja zaokraglala (floor(... + 0,5)) i dawala -32768:
+ * 137 z 255 pozycji roznilo sie od tablicy WinRec o jedna jednostke (docs/falcon-dvsm-conversion.md, README atari). */
+static int16_t step_value(unsigned i) {
     double v;
     if (i == 0) return 0;
-    if (i == 128) return -32768;
-    if (i < 128) { v = floor(pow(1.084618362, (double)i) + 0.5); if (v > 32767.0) v = 32767.0; return (int16_t)v; }
-    v = floor(pow(1.084618362, (double)(256 - i)) + 0.5); if (v > 32767.0) v = 32767.0;
+    if (i == 128) return -32767;
+    if (i < 128) { v = floor(pow(1.084618362, (double)i)); if (v > 32767.0) v = 32767.0; return (int16_t)v; }
+    v = floor(pow(1.084618362, (double)(256 - i))); if (v > 32767.0) v = 32767.0;
     return (int16_t)-v;
+}
+
+/* Naglowek DVSM za pierwszymi 16 bajtami: ciasteczka [4 B id][2 B dlugosc = 6 + dane][dane].  'PACK' (512 B = 256 slow big-endian, indeks = bajt ze znakiem + 128) zastepuje tablice Pack-2 (jak w odtwarzaczu Wax);
+ * inne ciasteczka (CLCK, PEAK, TITL, AUTH, INFO, DSPE, PARA, KARA, LPKC) nie wplywaja na dekodowanie i sa pomijane.  *pack_bad = 1: ciasteczko PACK o nieznanej dlugosci (nie zgadujemy: odmowa). */
+static maktabasauti_result_t read_exact(const maktabasauti_host_t *h, maktabasauti_reader_t *rd, uint8_t *dst, size_t n) {
+    while (n) {
+        const int64_t m = h->read(h->user, rd, dst, n);
+        if (m < 0) return (maktabasauti_result_t)m;
+        if (m == 0) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+        dst += m; n -= (size_t)m;
+    }
+    return MAKTABASAUTI_OK;
+}
+static maktabasauti_result_t scan_header(const maktabasauti_host_t *h, maktabasauti_reader_t *rd, uint64_t offset, uint8_t *pack_tab, int *has_pack, int *pack_bad) {
+    uint8_t b[16]; uint64_t at = 16; maktabasauti_result_t r;
+    *has_pack = 0; *pack_bad = 0;
+    r = read_exact(h, rd, b, 16); if (r != MAKTABASAUTI_OK) return r;
+    while (at + 6u <= offset) {
+        uint32_t len; uint64_t data;
+        r = read_exact(h, rd, b, 6); if (r != MAKTABASAUTI_OK) return r;
+        len = be16(b + 4); at += 6u;
+        if (len < 6u || at + (len - 6u) > offset) break;                                          /* uszkodzony lancuch ciasteczek: reszte naglowka pomijamy */
+        data = len - 6u;
+        if (!memcmp(b, "PACK", 4)) {
+            if (data == 512u) { r = read_exact(h, rd, pack_tab, 512u); if (r != MAKTABASAUTI_OK) return r; *has_pack = 1; at += data; continue; }
+            *pack_bad = 1;
+        }
+        r = skip_input(h, rd, data); if (r != MAKTABASAUTI_OK) return r;
+        at += data;
+    }
+    return skip_input(h, rd, offset - at);
 }
 
 static int32_t MAKTABASAUTI_CALL dvsm_probe(const maktabasauti_codec_t *self, const uint8_t *p, size_t n, const char *hint) {
@@ -181,7 +215,8 @@ static int32_t MAKTABASAUTI_CALL dvsm_probe(const maktabasauti_codec_t *self, co
 /* bajt, od ktorego trzeba czytac, zeby zdekodowac ramke `f` (stan akumulatorow sprzed niej jest osobno) */
 static uint64_t dvsm_locate(const dvsm_t *d, uint64_t f) {
     if (d->pack == 0u) return (uint64_t)d->data_off + f * d->channels * (d->bits / 8u);
-    if (d->channels == 1u) return f == 0 ? (uint64_t)d->data_off : (uint64_t)d->data_off + 2u + (d->pack == 2u ? f - 1u : (f - 1u) / 2u);
+    if (d->channels == 1u && d->fpb == 0u) return f == 0 ? (uint64_t)d->data_off : (uint64_t)d->data_off + 2u + (d->pack == 2u ? f - 1u : (f - 1u) / 2u);
+    if (d->channels == 1u) { const uint64_t blk = f / d->fpb, j = f % d->fpb; return (uint64_t)d->data_off + blk * d->block + (j == 0 ? 0u : 2u + (d->pack == 2u ? j - 1u : (j - 1u) / 2u)); }
     { const uint64_t blk = f / d->fpb, j = f % d->fpb; return (uint64_t)d->data_off + blk * d->block + (j == 0 ? 0u : 4u + (j - 1u) * d->bpf); }
 }
 
@@ -210,7 +245,8 @@ static maktabasauti_result_t dvsm_frame(dvsm_t *d, float *out) {
         for (i = 0; i < d->channels; i++) out[i] = d->bits == 16u ? (float)seed16(p + 2u * i) * S16 : (float)(int32_t)(int8_t)p[i] * S8;
         s->at += fb;
     } else if (d->channels == 1u) {
-        if (d->pos == 0) {
+        const uint64_t jm = d->fpb ? d->pos % d->fpb : d->pos;              /* mono: z blokiem (pole bloku >= 3) kazdy blok zaczyna sie nowym ziarnem, jak w odtwarzaczu WinRec */
+        if (jm == 0) {
             r = st_need(d->host, d->rd, s, 2u);
             if (r == MAKTABASAUTI_EOF) return st_avail(s) ? MAKTABASAUTI_E_TRUNCATED : MAKTABASAUTI_EOF;
             if (r != MAKTABASAUTI_OK) return r;
@@ -221,7 +257,7 @@ static maktabasauti_result_t dvsm_frame(dvsm_t *d, float *out) {
             if (r != MAKTABASAUTI_OK) return r;
             if (d->pack == 2u) { d->acc[0] = sat16(d->acc[0] + d->steps[s->buf[s->at]]); s->at++; }
             else {                                                                           /* Pack-4: dwa kody 4-bitowe w bajcie, starszy pierwszy */
-                const uint8_t b = s->buf[s->at]; const unsigned odd = (unsigned)((d->pos - 1u) & 1u);
+                const uint8_t b = s->buf[s->at]; const unsigned odd = (unsigned)((jm - 1u) & 1u);
                 d->acc[0] = sat16(d->acc[0] + d->steps[odd ? (b & 15u) : (unsigned)(b >> 4)]);
                 if (odd) s->at++;
             }
@@ -272,7 +308,12 @@ static maktabasauti_result_t MAKTABASAUTI_CALL dvsm_open(const maktabasauti_code
         if (bytes == 0) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
         if (pack == 0) { total = bytes / fb; tail = bytes % fb; }
         else if (bytes < 2u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
-        else if (channels == 1u) total = pack == 2u ? bytes - 1u : 1u + 2u * (bytes - 2u);
+        else if (channels == 1u && block < 3u) total = pack == 2u ? bytes - 1u : 1u + 2u * (bytes - 2u);
+        else if (channels == 1u) {                                                                /* mono z blokami: ziarno (2 B) i delty co `block` bajtow */
+            const uint64_t per = pack == 2u ? 1u : 2u, f_full = 1u + (block - 2u) * per, full = bytes / block, rem = bytes % block;
+            total = full * f_full;
+            if (rem >= 2u) total += 1u + (rem - 2u) * per; else tail = rem;
+        }
         else {
             const uint64_t bpf = pack == 2u ? 2u : 1u, f_full = 1u + (block - 4u) / bpf, full = bytes / block, rem = bytes % block;
             total = full * f_full;
@@ -285,7 +326,7 @@ static maktabasauti_result_t MAKTABASAUTI_CALL dvsm_open(const maktabasauti_code
     if (!d) return MAKTABASAUTI_E_NO_MEMORY;
     memset(d, 0, sizeof *d);
     d->host = h; d->rd = rd; d->channels = channels; d->bits = bits; d->pack = pack; d->block = block; d->data_off = (int64_t)offset; d->bpf = pack == 2u ? 2u : 1u;
-    d->fpb = (pack != 0 && channels == 2u) ? 1u + (block - 4u) / d->bpf : 0u;
+    d->fpb = (pack != 0 && channels == 2u) ? 1u + (block - 4u) / d->bpf : (pack != 0 && channels == 1u && block >= 3u) ? 1u + (block - 2u) * (pack == 2u ? 1u : 2u) : 0u;
     d->total_known = size >= 0; d->total = total; d->tail = tail != 0; d->seekable = (int)flags; d->stride = 4096u;
     if (pack == 4u) { static const int16_t voice[16] = { -8192, -4096, -2048, -1024, -512, -256, -64, 0, 64, 256, 512, 1024, 2048, 4096, 8192, 16384 }; memcpy(d->steps, voice, sizeof voice); }
     if (pack == 2u) for (i = 0; i < 256u; i++) d->steps[i] = step_value(i);
@@ -293,8 +334,13 @@ static maktabasauti_result_t MAKTABASAUTI_CALL dvsm_open(const maktabasauti_code
         d->cps = (cp_t *)h->alloc(h->user, CP_MAX * sizeof *d->cps);
         if (!d->cps) { h->free(h->user, d); return MAKTABASAUTI_E_NO_MEMORY; }
     }
-    r = skip_input(h, rd, offset);                                                            /* przejscie za naglowek (nieprzewijalne: odczyt; przewijalne: tez, bufor czytnika) */
-    if (r != MAKTABASAUTI_OK) { if (d->cps) h->free(h->user, d->cps); h->free(h->user, d); return r; }
+    {   /* przejscie za naglowek razem z ciasteczkami (nieprzewijalne: odczyt; przewijalne: tez, bufor czytnika); PACK zastepuje tablice */
+        uint8_t ptab[512]; int has_pack = 0, pack_bad = 0;
+        r = scan_header(h, rd, offset, ptab, &has_pack, &pack_bad);
+        if (r == MAKTABASAUTI_OK && (pack_bad || (has_pack && pack != 2u))) r = MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+        if (r != MAKTABASAUTI_OK) { if (d->cps) h->free(h->user, d->cps); h->free(h->user, d); return r; }
+        if (has_pack) for (i = 0; i < 256u; i++) d->steps[i] = (int16_t)be16(ptab + 2u * ((i + 128u) & 255u));
+    }
     fill_common(info, hz, channels, d->total_known ? total : 0u, d->seekable, 0, "dvs", "dvs");
     *state = d;
     return MAKTABASAUTI_OK;

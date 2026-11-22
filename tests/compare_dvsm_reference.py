@@ -21,10 +21,10 @@ def clip(x):
 def delta_table():
     values = [0] * 256
     for index in range(1, 128):
-        values[index] = min(32767, math.floor(1.084618362 ** index + 0.5))
-    values[128] = -32768
+        values[index] = min(32767, math.floor(1.084618362 ** index))
+    values[128] = -32767                  # the table of WinRec (DVSM.TAB) is symmetric
     for index in range(129, 256):
-        values[index] = -min(32767, math.floor(1.084618362 ** (256-index) + 0.5))
+        values[index] = -min(32767, math.floor(1.084618362 ** (256-index)))
     return values
 
 
@@ -47,13 +47,19 @@ def reference(blob):
     if channels == 1:
         if len(data) < 2:
             raise ValueError("Mono seed missing")
-        predictor = struct.unpack_from(">h", data)[0]
-        pcm.append(predictor)
-        for byte in data[2:]:
-            indices = [byte] if pack == 2 else [byte >> 4, byte & 15]
-            for index in indices:
-                predictor = clip(predictor + table[index])
-                pcm.append(predictor)
+        # a block field of 3 or more: every block of `block` bytes starts with its own 2-byte seed (the WinRec player restarts there); below 3: one block
+        size = block if block >= 3 else len(data)
+        for start in range(0, len(data), size):
+            part = data[start:start + size]
+            if len(part) < 2:
+                break                                              # a lone trailing byte holds no seed
+            predictor = struct.unpack_from(">h", part)[0]
+            pcm.append(predictor)
+            for byte in part[2:]:
+                indices = [byte] if pack == 2 else [byte >> 4, byte & 15]
+                for index in indices:
+                    predictor = clip(predictor + table[index])
+                    pcm.append(predictor)
     else:
         if block < 4 or (pack == 2 and block % 2):
             raise ValueError("Invalid stereo block length")

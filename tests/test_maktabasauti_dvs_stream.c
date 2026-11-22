@@ -193,6 +193,10 @@ static void test_seek(const File *f, const Ref *ref, const char *name, int pack4
 static size_t frames_in(unsigned pack, unsigned ch, unsigned bits, uint32_t block, size_t bytes, int *tail) {
     *tail = 0;
     if (pack == 0) { const size_t fb = (size_t)ch * (bits / 8u); *tail = (int)(bytes % fb != 0); return bytes / fb; }
+    if (ch == 1 && block >= 3) {                                                                              /* mono z blokami: kazdy blok ma wlasne ziarno (2 B), potem delty (Pack-4: 2 ramki na bajt) */
+        const size_t per = pack == 2 ? 1 : 2, ff = 1 + (block - 2) * per, full = bytes / block, rem = bytes % block; size_t t = full * ff;
+        if (rem >= 2) t += 1 + (rem - 2) * per; else *tail = rem != 0;
+        return t; }
     if (ch == 1) { if (bytes < 2) { *tail = bytes == 1; return 0; } return pack == 2 ? bytes - 1 : 1 + 2 * (bytes - 2); }
     { const size_t bpf = pack == 2 ? 2 : 1, ff = 1 + (block - 4) / bpf, full = bytes / block, rem = bytes % block; size_t t = full * ff;
       if (rem >= 4) { t += 1 + (rem - 4) / bpf; *tail = ((rem - 4) % bpf) != 0; } else *tail = rem != 0;
@@ -283,13 +287,26 @@ int main(void) {
     static char names[40][48]; Case cases[40]; size_t nc = 0, i; unsigned pack, ch, bits, k;
     for (pack = 0; pack <= 4; pack += 2) for (ch = 1; ch <= 2; ch++) for (k = 0; k < 2; k++) {
         const unsigned b = pack == 0 ? (k ? 16u : 8u) : 16u; uint32_t block = 0; size_t bytes; Case *c = &cases[nc]; char *nm = names[nc];
-        if (pack != 0 && k == 1) continue;
+        if (pack != 0 && k == 1 && ch == 2) continue;                                                            /* wariant k == 1: mono z blokami */
         if (pack != 0 && ch == 2) block = pack == 2 ? 2u * (2 + rnd() % 3000) : 4u + rnd() % 5000;
-        bytes = pack == 0 ? ((size_t)ch * (b / 8) * (3000 + rnd() % 9000)) : (ch == 1 ? 5000 + rnd() % 20000 : (size_t)block * (3 + rnd() % 4) + 4 + (pack == 2 ? 2u * (rnd() % 100) : rnd() % 100));
-        snprintf(nm, 48, "dvsm pack%u %s %ubit", pack, ch == 1 ? "mono" : "stereo", b);
+        if (pack != 0 && ch == 1 && k == 1) block = 3u + rnd() % 3000u;
+        bytes = pack == 0 ? ((size_t)ch * (b / 8) * (3000 + rnd() % 9000)) : (ch == 1 ? (block >= 3 ? (size_t)block * (3 + rnd() % 4) + rnd() % block : 5000 + rnd() % 20000) : (size_t)block * (3 + rnd() % 4) + 4 + (pack == 2 ? 2u * (rnd() % 100) : rnd() % 100));
+        snprintf(nm, 48, "dvsm pack%u %s %ubit%s", pack, ch == 1 ? "mono" : "stereo", b, (pack != 0 && ch == 1 && k == 1) ? " blocks" : "");
         c->name = nm; c->pack = pack; c->bits = b; c->block = block; c->off = 16u + (rnd() % 3 == 0 ? rnd() % 40u : 0u);
         c->f = make_dvsm(pack, ch, b, bytes, block, hz[rnd() % 6], (unsigned)(c->off - 16u));
-        c->f.block_frames = (pack != 0 && ch == 2) ? 1 + (block - 4) / (pack == 2 ? 2u : 1u) : 0;
+        c->f.block_frames = (pack != 0 && ch == 2) ? 1 + (block - 4) / (pack == 2 ? 2u : 1u) : (pack != 0 && ch == 1 && block >= 3) ? 1 + (block - 2) * (pack == 2 ? 1u : 2u) : 0;
+        nc++;
+    }
+    for (k = 0; k < 2; k++) {                                                                                      /* ciasteczko PACK (tablica 512 B) + INFO w naglowku: Pack-2 mono (bloki) i stereo */
+        const unsigned chs = k ? 2u : 1u; const uint32_t block = chs == 2 ? 2u * (2 + rnd() % 3000) : 3u + rnd() % 3000u; size_t j;
+        Case *c = &cases[nc]; char *nm = names[nc];
+        snprintf(nm, 48, "dvsm pack2 %s 16bit PACK cookie", chs == 1 ? "mono" : "stereo");
+        c->name = nm; c->pack = 2; c->bits = 16; c->block = block; c->off = 16u + 6u + 512u + 6u + 10u;
+        c->f = make_dvsm(2, chs, 16, (size_t)block * 4 + (chs == 2 ? 4u + 2u * (rnd() % 100) : rnd() % block), block, 3, (unsigned)(c->off - 16u));
+        memcpy(c->f.b + 16, "PACK", 4); put16(c->f.b + 20, 6u + 512u);
+        for (j = 0; j < 256; j++) { const int v = (int)(rnd() % 4001u) - 2000; put16(c->f.b + 22 + 2 * j, (unsigned)(v & 0xFFFF)); }   /* wlasna tablica: zwykle male delty */
+        memcpy(c->f.b + 16 + 6 + 512, "INFO", 4); put16(c->f.b + 16 + 6 + 512 + 4, 6u + 10u);
+        c->f.block_frames = chs == 2 ? 1 + (block - 4) / 2u : 1 + (block - 2);
         nc++;
     }
     for (bits = 8; bits <= 16; bits += 8) for (ch = 1; ch <= 2; ch++) for (k = 0; k < 2; k++) {
