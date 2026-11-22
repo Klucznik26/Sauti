@@ -468,6 +468,7 @@ static void put_mps_hr_core(Bw *w, int indep) {
         if (mode[sets - 1u] == 2u) mode[sets - 1u] = 3u;                    /* an interpolation needs a later set that is not interpolated */
         for (i = 0; i + 1u < sets; i++) if (mode[i] == 3u && mode[i + 1u] == 3u && (rnd() & 1u)) { mode[i] |= 4u; i++; }   /* bit 2: this set starts a pair with the next one (which is then not the start of another) */
         for (i = 0; i < sets; i++) put(w, mode[i] & 3u, 2);
+        if (getenv("GEN_HR_TRACE")) { fprintf(stderr, "hr frame indep %d %s modes", indep, type ? "ICC" : "CLD"); for (i = 0; i < sets; i++) fprintf(stderr, " %u", mode[i] & 3u); fprintf(stderr, "\n"); }
         for (i = 0; i < sets; i++) {
             if ((mode[i] & 3u) != 3u) continue;
             if (i > 0u && (mode[i - 1u] & 4u)) continue;                    /* the second set of a pair: its data came with the first one */
