@@ -31,6 +31,7 @@ int main(int argc, char **argv) {
         SautiAacReason why;
         const size_t n = ((size_t)aus[p] << 24) | ((size_t)aus[p + 1] << 16) | ((size_t)aus[p + 2] << 8) | aus[p + 3];
         r = sauti_usac_decode(&cfg, st, aus + p + 4, n, pcm, &why);
+        if (r == -1 && getenv("SAUTI_RAW_CONTINUE")) { p += 4 + n; frames++; continue; }       /* diagnostics: step over frames of unsupported tools (the state is what the decoder keeps) */
         if (r != 1) { fprintf(stderr, "frame %zu: result %d reason %d\n", frames, r, (int)why); return 1; }
         fwrite(pcm, sizeof(float), (size_t)cfg.out_frame_len * cfg.out_channels, out);
         p += 4 + n; frames++;

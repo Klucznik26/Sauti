@@ -145,5 +145,7 @@ Co jest zrobione, co zostaje i **od czego zależy** — jedna tabela dla decyzji
 
 Weryfikacja: transposer zgodny z libxaac do 2,4e-7 (szum float) w strumieniach libxaac i do 1e-6 w strumieniach generatora z pitch 0 / 1..127 (docs SBR-115); `tests/test_usac_hbe.c` ma wartości kontrolne (długości, jednostkowość obrotów).
 
+**Rejestr tablic MPS212 z libxaac** (generuje je `tools/gen_usac_mps_tables.py` z `~/Sauti-tools/libxaac`, commit 2fbadd57, pliki `decoder/ixheaacd_mps_rom.c` i `ixheaacd_mps_parse.c`; ta sama licencja Apache 2.0, ten sam NOTICE i ta sama zgoda: tylko dane, skrypt, wpis per tablica; logika dekodera parametrów napisana dla Sauti, `sauti_usac_mps.c`; wynik: `src/decoders/modern/aac/sauti_usac_mps_tables.c`, `include/sauti_usac_mps_tables.h`, 31 tablic): drzewa Huffmana CLD / ICC / IPD (1-D `sauti_usac_mps_{cld,icc,ipd}_1d`, 2-D po lav `..._2d_lav{1,3,5,7,9}`, pierwsze wartości `..._p0`, `sauti_usac_mps_ipd_hp0`, indeks lav, długości serii GES `sauti_usac_mps_reshape`), mapy pasm hybrydowych 71 → pasma parametrów (28 / 20 / 14 / 10 / 7 / 5 / 4: `sauti_usac_mps_band_map_*`), tabele dekwantyzacji CLD / ICC / IPD, wzmocnienie wejściowe po `bsFixedGainDMX`. Weryfikacja: parametry dekodowane z tych tablic identyczne z libxaac w 6 strumieniach (docs USAC_MPS212_PLAN.md).
+
 Liczone, nie przepisywane: okna sinusoidalne FAC / TCX, `0,92^i` (ważenie LPC), `10^(i/128)`, twiddle DCT-IV (DCT-IV liczone wprost).
 

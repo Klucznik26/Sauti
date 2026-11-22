@@ -1,6 +1,9 @@
 /* USAC (xHE-AAC) UsacConfig parser and frequency-domain core decoder, see sauti_usac.h.  Syntax per ISO/IEC 23003-3 (UsacConfig, UsacFrame, fd_channel_stream, ics_info, tns_data); the transform
  * chain reuses the AAC building blocks (scale-factor Huffman code, TNS data, IMDCT, windows); the spectrum is arithmetic coded (sauti_usac_ac.c). */
 #include "sauti_usac.h"
+#ifdef SAUTI_USAC_MPS_TRACE
+#include <stdio.h>
+#endif
 #include "sauti_usac_lpd.h"
 #include "sauti_aac_lc_multi.h"
 #include "sauti_usac_sbr.h"
@@ -569,7 +572,7 @@ done:
 
 /* One SCE / LFE / CPE.  out[c] = PCM of channel c.  1 ok, 0 malformed, -1 unsupported. */
 static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiUsacBits *b, SautiUsacChannel *chs, SautiUsacSbrState *sbrst, SautiAacSbrChannel *sbrch, int indep, float out[2][4096], unsigned *reason) {
-    const unsigned nch = e->type == SAUTI_USAC_CPE ? 2u : 1u;
+    const unsigned nch = (e->type == SAUTI_USAC_CPE && e->stereo_config_index != 1u) ? 2u : 1u;     /* stereoConfigIndex 1: one core channel (the downmix), 2 / 3: the downmix and a residual */
     Fd fdv[2];
     Fd *fd = fdv;
     unsigned c, g, sfb, w, z;
@@ -631,7 +634,37 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
         r = fd_channel(cfg, e, b, &chs[c], &fd[c], common_window, common_tw, indep, reason);
         if (r != 1) return r;
     }
-    if (e->stereo_config_index) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* MPS212 payload */
+    if (e->stereo_config_index) {                                           /* MPS212: eSBR data of ONE channel (the downmix), then Mps212Data(); the signal path is not implemented yet (docs/USAC_MPS212_PLAN.md) */
+        SautiUsacMpsConfig mc; SautiUsacMpsFrame *mf;
+        unsigned slots = cfg->sbr_mode == 3u ? 64u : 32u;
+        if (!cfg->sbr_mode) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }
+        sbrst->header.slot_scale = cfg->sbr_mode == 3u ? 4u : 2u;
+        r = sauti_usac_sbr_parse(e, 1u, b, indep, cfg->sample_rate, sbrst, sbr_pl, &sbr_cpl);
+        if (r != 1) { *reason = r < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SCE; return r; }
+        mc.freq_res = e->mps_freq_res; mc.high_rate = e->mps_high_rate; mc.phase_coding = e->mps_phase_coding; mc.bands_phase = e->mps_otts_bands_phase; mc.temp_shape = e->mps_temp_shape; mc.env_quant = e->mps_env_quant;
+        mf = (SautiUsacMpsFrame *)malloc(sizeof *mf);
+        if (!mf) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
+        r = sauti_usac_mps212_parse(&mc, slots, b, indep, &sbrst->mps, mf);
+#ifdef SAUTI_USAC_MPS_TRACE
+        if (r == 1 && getenv("SAUTI_MPS_TRACE")) {
+            FILE *tf = fopen(getenv("SAUTI_MPS_TRACE"), "ab");
+            if (tf) {
+                int hd[8] = { 1, (int)mf->num_sets, (int)mf->param_bands, (int)mf->ext_frame, (int)slots, (int)mf->phase_mode, 0, 0 }; unsigned q;
+                int sl[9]; int sm[9]; int sdat[9 * 28];
+                for (q = 0; q < 9; q++) { sl[q] = (int)mf->param_slot[q]; sm[q] = (int)mf->smooth_time[q]; }
+                for (q = 0; q < 9u * 28u; q++) sdat[q] = mf->smooth_data[q / 28u][q % 28u];
+                fwrite(hd, 4, 8, tf); fwrite(sl, 4, 9, tf); fwrite(mf->cld, 4, 9u * 28u, tf); fwrite(mf->icc, 4, 9u * 28u, tf); fwrite(mf->ipd, 4, 9u * 28u, tf); fwrite(sm, 4, 9, tf); fwrite(sdat, 4, 9u * 28u, tf);
+                fclose(tf);
+            }
+        }
+#endif
+        free(mf);
+#ifdef SAUTI_USAC_MPS_TRACE
+        if (r == 1 && getenv("SAUTI_MPS_TRACE")) { memset(out, 0, 2u * 4096u * sizeof(float)); return 1; }   /* diagnostics: keep the parser state going, output is silence */
+#endif
+        *reason = r == 0 ? SAUTI_AAC_REASON_INVALID_SCE : SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;
+        return r == 0 ? 0 : -1;
+    }
     if (cfg->sbr_mode) {                                                    /* usac_sbr_data() follows the channel streams */
         sbrst->header.slot_scale = cfg->sbr_mode == 3u ? 4u : 2u;
         r = sauti_usac_sbr_parse(e, nch, b, indep, cfg->sample_rate, sbrst, sbr_pl, &sbr_cpl);
