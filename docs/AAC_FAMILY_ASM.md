@@ -8015,3 +8015,9 @@ Test: `test_24_band_bank` w `tests/test_aac_sbr_qmf_analysis.c` (niezależny wzo
 **Zamknięty zakres MPS212 bez stereoConfigIndex 3** dla wszystkich współczynników eSBR (2:1, 4:1, 8:3).
 
 **Otwarte:** stereoConfigIndex 3 (pseudo-LR + eSBR po upmiksie), rdzeń LPD w elemencie z MPS, kilka zestawów parametrów na ramkę z kształtowaniem czasowym.
+
+### SBR-125 — USAC: rdzeń LPD w elemencie z MPEG Surround 212 (2026-11-22)
+
+**Zakres i wynik.** Element z MPS, którego kanały rdzenia są LPD (ACELP / TCX), był odrzucany (`lpd_element` odmawiał przy stereoConfigIndex ≠ 0). Teraz: liczba kanałów rdzenia jak w `element()` (1 przy stereoConfigIndex 1, 2 przy 2 / 3), eSBR jednego kanału i Mps212Data po kanałach, dekodowanie LPD, potem to samo renderowanie MPS co dla FD (bsPseudoLr, łańcuch eSBR downmixu, upmiks, synteza). Wspólny kod wydzielony do `mps_side()` i `mps_render()` w `sauti_usac.c` (odciski fixtur FD bez zmian). Strumień z encodera libxaac (`-usac:2`, każda ramka LPD, `usac_z9`): **74,6 dB** wobec `xaacdec`, **57,4 dB** wobec FDK (rdzeń LPD tych dwóch dekoderów zgadza się do ok. 57 dB, próg skryptu 50 dB).
+
+**Nie sprawdzone:** para kanałów jeden FD, jeden LPD (nadal odmowa), przełączanie FD ↔ LPD w jednym strumieniu z MPS na prawdziwych przejściach (strumień `-usac:0` z syntetycznego sygnału wyszedł w całości LPD), LPD z resztką.

@@ -42,5 +42,6 @@ EcData (`ixheaacd_mps_ecdata_decoding`): `bsXxxDataMode[set]` (2): 0 default, 1 
 * M4c-TSD (done 2026-11-22): transient steering decorrelator (bsTempShapeConfig 3), SBR-121; libxaac 6e-7, FDK effect correlation 0.9998.
 * M4e (done 2026-11-22): MPS at eSBR 4:1 (alignment fix: the QMF bands 0..2 six slots ahead at every ratio) and residual bands at 4:1 (delays 6 / 12), SBR-123.
 * M4e-8:3 (done 2026-11-22): MPS and residual bands at eSBR 8:3, SBR-124.
+* M4f (done 2026-11-22): LPD core channels in an MPS element, SBR-125.
 * M4b-rest: stereoConfigIndex 3 (eSBR after upmix).  Original M4 list: residual coding (`bsResidualBands > 0`: the second core channel as MDCT -> QMF residual), pseudo-LR (index 3), temporal shaping (STP, GES, TSD), phase coding (IPD / OPD).
 * M5: fixtures, fingerprints, generator (`--mps`), mutations, fuzzing, docs.
