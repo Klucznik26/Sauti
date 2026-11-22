@@ -20,6 +20,7 @@ static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n &
 static FILE *g_elem_fu[8];
 static uint8_t hist_au[8][1 << 16]; static size_t hist_len[8];                /* the last access units (ring of 8) that go into a pre-roll payload */
 static int g_pvc;                                                            /* --pvc N: predictive vector coding in the SBR configuration; mono streams only.  1 the header mode switches at random between classic and PVC modes 1 / 2, 2 mode 1 only, 3 mode 2 only, 4 modes 1 / 2 without classic frames */
+static int g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr;   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
 static int g_hbe;                                                            /* --hbe N: harmonic transposer (bs_harmonicSBR): 1 random mix of sbrPatchingMode 0 / 1 frames, 2 always the transposer; random oversampling flag and sbrPitchInBins (0, 12, 24, 36 and 1..127) */
 static int g_intertes;                                                       /* --intertes: inter-subband temporal envelope shaping in the SBR configuration, random bs_temp_shape / mode after every envelope */
 static int g_lfe_short;                                                      /* diagnostic: the LFE uses an eight-short window from the second frame on (illegal: an LFE has long windows only) */
@@ -443,6 +444,17 @@ static void put_sbr(Bw *w, const Opt *o, unsigned channels, int indep) {
     fprintf(stderr, "generator: no valid SBR frame found\n"); exit(1);
 }
 
+/* ---- Mps212Data: one parameter set per frame, CLD and ICC as PCM (EcData data mode 3, no pair, stride 0 = a value for every one of the 28 bands), no smoothing, no temporal shaping.  The values are
+ * random but kept moderate (CLD indices 5..25 = within about +-20 dB, ICC all 8 values); every few frames the quantiser is coarse. ------------------------------------------------------ */
+static void put_mps_data(Bw *w, int indep) {
+    unsigned i, coarse = (rnd() % 4u) == 0u;
+    if (!indep) put(w, 1, 1);                                               /* bsIndependencyFlag */
+    put(w, 3, 2); put(w, 0, 1); put(w, coarse, 1); put(w, 0, 2); put(w, 1, 1);          /* CLD: new data, no pair, quantiser, stride 0, PCM */
+    for (i = 0; i < 28u; i++) put(w, coarse ? (uint32_t)rr(3, 11) : (uint32_t)rr(5, 25), coarse ? 4u : 5u);
+    put(w, 3, 2); put(w, 0, 1); put(w, 0, 1); put(w, 0, 2); put(w, 1, 1);               /* ICC */
+    for (i = 0; i < 28u; i++) put(w, (uint32_t)rr(0, 7), 3);
+}
+
 /* state of one element: the arithmetic coder contexts, the window sequence history and the complex prediction history of its channels */
 typedef struct { SautiUsacAcState ac[2]; unsigned prev_seq[2]; int16_t prev_re[8][64], prev_im[8][64]; unsigned prev_ngroups, last_seq; } ElState;
 
@@ -460,6 +472,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--lfe-short")) g_lfe_short = 1;
         else if (!strcmp(argv[a], "--intertes")) g_intertes = 1;
         else if (!strcmp(argv[a], "--hbe") && a + 1 < argc) g_hbe = atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--mps") && a + 1 < argc) g_mps = atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--mps-res") && a + 1 < argc) g_mps_res = atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--mps-decorr") && a + 1 < argc) g_mps_decorr = atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--mps-fgain") && a + 1 < argc) g_mps_fgain = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--pvc") && a + 1 < argc) g_pvc = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--preroll") && a + 1 < argc) o.preroll = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--preroll-rap")) o.preroll_rap = 1;
@@ -535,7 +551,13 @@ int main(int argc, char **argv) {
         put(&asc, (g_hbe ? 4u : 0u) | (g_intertes ? 2u : 0u) | (g_pvc ? 1u : 0u), 3); put(&asc, o.sbr_start, 4); put(&asc, o.sbr_stop, 4); put(&asc, x1, 1); put(&asc, x2, 1);
         if (x1) { put(&asc, g_sbr_el.sbr_freq_scale, 2); put(&asc, g_sbr_el.sbr_alter_scale, 1); put(&asc, g_sbr_el.sbr_noise_bands, 2); }
         if (x2) { put(&asc, g_sbr_el.sbr_limiter_bands, 2); put(&asc, g_sbr_el.sbr_limiter_gains, 2); put(&asc, g_sbr_el.sbr_interpol_freq, 1); put(&asc, g_sbr_el.sbr_smoothing_mode, 1); }
-        if (o.channels == 2u) put(&asc, 0, 2);                              /* stereoConfigIndex 0 */
+        if (o.channels == 2u) {
+            put(&asc, (uint32_t)g_mps, 2);                                  /* stereoConfigIndex */
+            if (g_mps) {                                                    /* Mps212Config: 28 parameter bands, no temporal shaping, no phase coding, one parameter set per frame */
+                put(&asc, 1, 3); put(&asc, (uint32_t)g_mps_fgain, 3); put(&asc, 0, 2); put(&asc, (uint32_t)g_mps_decorr, 2); put(&asc, 0, 1); put(&asc, 0, 1); put(&asc, 0, 1);
+                if (g_mps >= 2) { put(&asc, (uint32_t)g_mps_res, 5); put(&asc, 0, 1); }
+            }
+        }
     }
     put(&asc, 0, 1);                                                       /* usacConfigExtensionPresent */
     snprintf(path, sizeof path, "%s.asc", prefix); fa = fopen(path, "wb"); fwrite(asc.b, 1, (asc.n + 7u) / 8u, fa); fclose(fa);
@@ -632,7 +654,8 @@ int main(int argc, char **argv) {
             if (getenv("SAUTI_USAC_GEN_TRACE")) fprintf(stderr, "FRAME %u common %d ms %u tns_active %u common_tns %u on_lr %u tns_data %u/%u seq %u\n", f, common, ms_mode, tns_active, common_tns, tns_on_lr, ch[0].tns_data, ch[1].tns_data, ch[0].seq);
             put_fd(&w, &o, &ch[0], &ac[0], common, indep, !common_tns);
             put_fd(&w, &o, &ch[1], &ac[1], common, indep, !common_tns);
-            if (o.sbr) put_sbr(&w, &o, 2, indep);
+            if (o.sbr) put_sbr(&w, &o, g_mps ? 1u : 2u, indep);
+            if (g_mps) put_mps_data(&w, indep);
             if (!(common && ms_mode == 3)) { memset(g_prev_re, 0, sizeof g_prev_re); memset(g_prev_im, 0, sizeof g_prev_im); }          /* the decoder's state after a frame without complex prediction */
             if (common) g_prev_ngroups = ch[0].ngroups;
             g_last_seq = ch[0].seq;
