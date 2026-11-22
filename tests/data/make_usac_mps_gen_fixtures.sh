@@ -6,6 +6,7 @@
 # usac_y7..y9: stereoConfigIndex 2 (prediction upmix) with phase coding: y7 without residual bands, OPD smoothing 0; y8 12 residual bands, OPD smoothing 1, decorrelator 1, with the anti-phase special case (bands 0..3: CLD 0, ICC 0, IPD 8); y9 3 residual bands, decorrelator 2, special case.
 # usac_y10, y11: temporal shaping STP (bsTempShapeConfig 1; bsTempShapeEnable and the channel flags random per frame): y10 stereoConfigIndex 1, decorrelator 0; y11 stereoConfigIndex 2 with 8 residual bands, decorrelator 1.
 # usac_y12, y13: temporal shaping GES (bsTempShapeConfig 2: bsTempShapeEnable, channel flags and the run length coded envelope): y12 stereoConfigIndex 1, bsEnvQuantMode 1, decorrelator 0; y13 stereoConfigIndex 2 with 8 residual bands, bsEnvQuantMode 0, decorrelator 1; 40 frames (the energies of GES are smoothed over about 10 frames).
+# usac_y14, y15: transient steering TSD (bsTempShapeConfig 3: bsTsdEnable, a combinatorial codeword placing up to 8 transient slots and a 3 bit phase each): y14 stereoConfigIndex 1, decorrelator 0; y15 stereoConfigIndex 2 with 8 residual bands, decorrelator 1.
 # usage: tests/data/make_usac_mps_gen_fixtures.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -25,3 +26,5 @@ gen y10 71 0 0 1 "--mps-stp 1"
 gen y11 72 8 1 2 "--mps-stp 1"
 gen y12 81 0 0 1 "--mps-ges 1 --mps-envq 1" 40
 gen y13 82 8 1 2 "--mps-ges 1 --mps-envq 0" 40
+gen y14 101 0 0 1 "--mps-tsd 1"
+gen y15 104 8 1 2 "--mps-tsd 1"

@@ -421,7 +421,25 @@ int sauti_usac_mps212_parse(const SautiUsacMpsConfig *e, unsigned time_slots, Sa
     } else nf->smooth_time[0] = 256;
     switch (e->temp_shape) {                           /* temporal shaping: only frames that do not use it are handled */
     case 0: break;
-    case 3: if (sauti_usac_get(b, 1)) return -1; break;
+    case 3:                                                                    /* TSD: the time slots of the transients (a combinatorial codeword) and a 3 bit phase for each */
+        nf->tsd_enable = sauti_usac_get(b, 1);
+        if (nf->tsd_enable) {
+            static uint64_t binom[65][33]; static int ready;
+            unsigned ntr, len, k, p, bit;
+            uint64_t sw = 0;
+            if (!ready) { unsigned n, r; for (n = 0; n <= 64u; n++) for (r = 0; r <= 32u; r++) binom[n][r] = r == 0u ? 1u : (n == 0u ? 0u : binom[n - 1u][r - 1u] + (r <= n - 1u ? binom[n - 1u][r] : 0u)); ready = 1; }
+            ntr = sauti_usac_get(b, time_slots == 32u ? 4u : 5u) + 1u;
+            { const uint64_t c = binom[time_slots][ntr]; len = 0; while (len < 64u && (((c - 1u) >> len) != 0u)) len++; }   /* bits of the codeword: those of the number of ways to place ntr transients */
+            for (bit = 0; bit < len; bit++) sw = (sw << 1) | sauti_usac_get(b, 1);
+            memset(nf->tsd_sep, 0, sizeof nf->tsd_sep);
+            p = ntr;
+            for (k = time_slots; k-- > 0u;) {                                   /* combinatorial number system, positions from the last slot down */
+                if (p > k) { for (;; k--) { nf->tsd_sep[k] = 1; if (k == 0u) break; } break; }
+                if (sw >= binom[k][p]) { sw -= binom[k][p]; nf->tsd_sep[k] = 1; if (--p == 0u) break; }
+            }
+            for (k = 0; k < time_slots; k++) if (nf->tsd_sep[k]) nf->tsd_phase[k] = sauti_usac_get(b, 3);
+        }
+        break;
     case 1: nf->stp_enable = sauti_usac_get(b, 1); nf->stp_ch[0] = nf->stp_ch[1] = 0u;                    /* STP: bsTempShapeEnable, then one flag per output channel */
             if (nf->stp_enable) { nf->stp_ch[0] = sauti_usac_get(b, 1); nf->stp_ch[1] = sauti_usac_get(b, 1); }
             break;

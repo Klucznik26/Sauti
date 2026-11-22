@@ -638,7 +638,7 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
     if (e->stereo_config_index) {                                           /* MPS212: eSBR data of ONE channel (the downmix), then Mps212Data() */
         unsigned slots = cfg->sbr_mode == 3u ? 64u : 32u;
         mps_on = 1;
-        if (!cfg->sbr_mode || (e->mps_residual_bands && cfg->sbr_mode != 1u) || e->mps_temp_shape == 3u || e->stereo_config_index == 3u || cfg->sbr_mode == 2u) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }
+        if (!cfg->sbr_mode || (e->mps_residual_bands && cfg->sbr_mode != 1u) || e->stereo_config_index == 3u || cfg->sbr_mode == 2u) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }
         sbrst->header.slot_scale = cfg->sbr_mode == 3u ? 4u : 2u;
         r = sauti_usac_sbr_parse(e, 1u, b, indep, cfg->sample_rate, sbrst, sbr_pl, &sbr_cpl);
         if (r != 1) { *reason = r < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SCE; return r; }

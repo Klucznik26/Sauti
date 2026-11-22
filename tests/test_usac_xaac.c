@@ -118,15 +118,16 @@ int main(int argc, char **argv) {
                       { "y4", "tests/data/usac_y4.m4a", 2, 2048, NBZ, 48000, y4_fp }, { "y5", "tests/data/usac_y5.m4a", 2, 2048, NBZ, 48000, y5_fp }, { "y6", "tests/data/usac_y6.m4a", 2, 2048, NBZ, 48000, y6_fp },
                       { "y7", "tests/data/usac_y7.m4a", 2, 2048, NBZ, 48000, y7_fp }, { "y8", "tests/data/usac_y8.m4a", 2, 2048, NBZ, 48000, y8_fp }, { "y9", "tests/data/usac_y9.m4a", 2, 2048, NBZ, 48000, y9_fp },
                       { "y10", "tests/data/usac_y10.m4a", 2, 2048, NBZ, 48000, y10_fp }, { "y11", "tests/data/usac_y11.m4a", 2, 2048, NBZ, 48000, y11_fp },
-                      { "y12", "tests/data/usac_y12.m4a", 2, 2048, NBG, 48000, y12_fp }, { "y13", "tests/data/usac_y13.m4a", 2, 2048, NBG, 48000, y13_fp } };
+                      { "y12", "tests/data/usac_y12.m4a", 2, 2048, NBG, 48000, y12_fp }, { "y13", "tests/data/usac_y13.m4a", 2, 2048, NBG, 48000, y13_fp },
+                      { "y14", "tests/data/usac_y14.m4a", 2, 2048, NBZ, 48000, y14_fp }, { "y15", "tests/data/usac_y15.m4a", 2, 2048, NBZ, 48000, y15_fp } };
     unsigned k;
     if (argc > 1 && !strcmp(argv[1], "--dump")) {                                                       /* build/test_usac_xaac --dump > tests/test_usac_xaac_fingerprints.h */
         g_dump = 1;
         printf("/* Per-block fingerprints (sum, sum of squares, position weighted sum, second difference energy) of the decoded PCM of the libxaac-encoded fixtures, written by `build/test_usac_xaac --dump` AFTER the decode agreed\n * with libxaac's decoder (scripts/test_usac_vs_xaac.sh: 73-79 dB). Only the first MAXB blocks of each stream. */\n#define MAXB 40\n");
-        for (k = 0; k < 49; k++) test_fixture(&fx[k]);
+        for (k = 0; k < 51; k++) test_fixture(&fx[k]);
         return g_failures ? 1 : 0;
     }
-    for (k = 0; k < 49; k++) test_fixture(&fx[k]);
+    for (k = 0; k < 51; k++) test_fixture(&fx[k]);
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_xaac: all passed\n"); return 0;
 }

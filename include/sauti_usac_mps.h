@@ -19,6 +19,8 @@ typedef struct {
     unsigned independency;
     unsigned phase_mode, opd_smoothing;
     unsigned stp_enable, stp_ch[2];                        /* temporal shaping STP (bsTempShapeConfig 1): bsTempShapeEnable and the flag of each output channel */
+    unsigned tsd_enable;                                   /* TSD (bsTempShapeConfig 3): the slots of the transients get the downmix itself, rotated by 45 degrees * tsd_phase, instead of its decorrelation (hybrid bands from 7) */
+    uint8_t tsd_sep[64], tsd_phase[64];
     unsigned ges_ch[2];                                    /* GES (bsTempShapeConfig 2): the channel uses guided envelope shaping ... */
     float ges_env[2][64];                                  /* ... with this envelope (2^(value / (bsEnvQuantMode + 2) - 1) per time slot) */
     unsigned ipd_coarse[SAUTI_USAC_MPS_SETS];            /* IPD quantiser of the coded set (coarse: 8 levels) */

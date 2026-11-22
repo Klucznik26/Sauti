@@ -104,7 +104,26 @@ static void test_parse(void) {
             CHECK(parse(&w, &ts, 32, 1, &st, &f) == 1 && f.stp_enable == 1u && f.stp_ch[0] == 1u && f.stp_ch[1] == 0u, "STP flags: enable %u channels %u %u", f.stp_enable, f.stp_ch[0], f.stp_ch[1]);
             memset(&w, 0, sizeof w); put(&w, 0, 2); put(&w, 0, 2); put(&w, 0, 1);
             CHECK(parse(&w, &ts, 32, 1, &st, &f) == 1 && f.stp_enable == 0u && f.stp_ch[0] == 0u && f.stp_ch[1] == 0u, "STP disabled in the frame");
-            ts.temp_shape = 3; memset(&w, 0, sizeof w); put(&w, 0, 2); put(&w, 0, 2); put(&w, 1, 1); CHECK(parse(&w, &ts, 32, 1, &st, &f) == -1, "enabled TSD must be reported as unsupported");
+            {   /* TSD (bsTempShapeConfig 3): a codeword that places ntr transient slots (combinatorial number system), then a 3 bit phase for each; round trip over random placements */
+                static uint64_t bn[65][33]; unsigned slots, trial, rs = 12345u;
+                { unsigned n, r; for (n = 0; n <= 64u; n++) for (r = 0; r <= 32u; r++) bn[n][r] = r == 0u ? 1u : (n == 0u ? 0u : bn[n - 1u][r - 1u] + bn[n - 1u][r]); }
+                ts.temp_shape = 3;
+                for (slots = 32; slots <= 64u; slots += 32u) for (trial = 0; trial < 200u; trial++) {
+                    unsigned ntr, k, sep[64] = { 0 }, ph[64] = { 0 }, cnt = 0, i, len = 0, idx = 0;
+                    uint64_t cw = 0, cc;
+                    rs = rs * 1664525u + 1013904223u; ntr = 1u + (rs >> 16) % (slots == 32u ? 16u : 32u);
+                    while (cnt < ntr) { rs = rs * 1664525u + 1013904223u; k = (rs >> 16) % slots; if (!sep[k]) { sep[k] = 1; cnt++; } }
+                    for (k = 0; k < slots; k++) if (sep[k]) { idx++; cw += bn[k][idx]; }
+                    cc = bn[slots][ntr]; while (len < 64u && ((cc - 1u) >> len) != 0u) len++;
+                    memset(&w, 0, sizeof w); put(&w, 0, 2); put(&w, 0, 2); put(&w, 1, 1);                /* CLD and ICC data mode 0 (default), then bsTsdEnable */
+                    put(&w, ntr - 1u, slots == 32u ? 4u : 5u);
+                    for (i = len; i-- > 0u;) put(&w, (uint32_t)((cw >> i) & 1u), 1);
+                    for (k = 0; k < slots; k++) if (sep[k]) { rs = rs * 1664525u + 1013904223u; ph[k] = (rs >> 16) & 7u; put(&w, ph[k], 3); }
+                    memset(&st, 0, sizeof st);
+                    CHECK(parse(&w, &ts, slots, 1, &st, &f) == 1, "TSD frame refused (slots %u, ntr %u)", slots, ntr);
+                    for (k = 0; k < slots; k++) { CHECK((unsigned)f.tsd_sep[k] == sep[k], "TSD slot %u: parsed %u, coded %u (slots %u, ntr %u)", k, (unsigned)f.tsd_sep[k], sep[k], slots, ntr); if (sep[k]) CHECK((unsigned)f.tsd_phase[k] == ph[k], "TSD phase of slot %u", k); }
+                }
+            }
             {   /* GES (bsTempShapeConfig 2): one channel with a run-length envelope; leaves found by walking the reshape table */
                 int leaf[64], leafn = 0, path[64][16], plen[64], i;
                 {   /* iterative DFS over the Huffman nodes: collect the bit path of every leaf */
@@ -200,7 +219,7 @@ static void test_signal(void) {
     memset(&d, 0, sizeof d); c.phase_coding = 1; c.bands_phase = 29;
     CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 32, in, NULL, 0, o0, o1), "29 phase bands accepted"); c.phase_coding = 0; c.bands_phase = 10;
     c.residual_bands = 3; CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 32, in, NULL, 0, o0, o1), "residual bands accepted"); c.residual_bands = 0;
-    c.temp_shape = 3; CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 32, in, NULL, 0, o0, o1), "TSD accepted"); c.temp_shape = 0;
+    c.temp_shape = 0;
     CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 80, in, NULL, 0, o0, o1) && !sauti_usac_mps212_apply(&d, &c, &f, 2, 32, in, NULL, 0, o0, o1) && !sauti_usac_mps212_apply(&d, &c, &f, 65, 32, in, NULL, 0, o0, o1), "bad slots / band count accepted");
     f.param_slot[0] = 30; CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 32, in, NULL, 0, o0, o1), "last parameter set before the last slot accepted"); f.param_slot[0] = 31;
 }
@@ -344,9 +363,9 @@ static void test_golden_phase(void) {
         if (fread(sh, 4, 6, fp) != 6) { CHECK(0, "phase golden set %d header", (int)si); break; }
         memset(&d, 0, sizeof d); c.residual = (unsigned)sh[4]; c.residual_bands = (unsigned)sh[3]; c.phase_coding = (unsigned)sh[0]; c.bands_phase = c.residual_bands > 10u ? c.residual_bands : 10u; c.decorr = (unsigned)sh[1]; c.temp_shape = (unsigned)sh[5];
         for (fr = 0; fr < sh[2]; fr++) {
-            int32_t hd[11], cld[28], icc[28], ipd[28], i, s, b, ch;
-            if (fread(hd, 4, 11, fp) != 11 || fread(genv, 4, 64, fp) != 64 || fread(cld, 4, 28, fp) != 28 || fread(icc, 4, 28, fp) != 28 || fread(ipd, 4, 28, fp) != 28 || fread(inb, 4, 32u * 54u * 2u, fp) != 32u * 54u * 2u || (sh[3] && fread(rb_, 4, 32u * 32u * 2u, fp) != 32u * 32u * 2u)) { CHECK(0, "phase golden set %d frame %d truncated", (int)si, (int)fr); break; }
-            memset(&f, 0, sizeof f); f.num_sets = (unsigned)hd[1]; f.param_bands = (unsigned)hd[2]; f.param_slot[0] = (unsigned)hd[3]; f.phase_mode = (unsigned)hd[4]; f.opd_smoothing = (unsigned)hd[5]; f.ipd_coarse[0] = (unsigned)hd[6]; f.stp_ch[0] = (unsigned)hd[7]; f.stp_ch[1] = (unsigned)hd[8]; f.stp_enable = (unsigned)(hd[7] | hd[8]); f.ges_ch[0] = (unsigned)hd[9]; f.ges_ch[1] = (unsigned)hd[10]; { unsigned q; for (q = 0; q < 32u; q++) { f.ges_env[0][q] = genv[q]; f.ges_env[1][q] = genv[32u + q]; } }
+            int32_t hd[12], tsdv[32], cld[28], icc[28], ipd[28], i, s, b, ch;
+            if (fread(hd, 4, 12, fp) != 12 || fread(genv, 4, 64, fp) != 64 || fread(tsdv, 4, 32, fp) != 32 || fread(cld, 4, 28, fp) != 28 || fread(icc, 4, 28, fp) != 28 || fread(ipd, 4, 28, fp) != 28 || fread(inb, 4, 32u * 54u * 2u, fp) != 32u * 54u * 2u || (sh[3] && fread(rb_, 4, 32u * 32u * 2u, fp) != 32u * 32u * 2u)) { CHECK(0, "phase golden set %d frame %d truncated", (int)si, (int)fr); break; }
+            memset(&f, 0, sizeof f); f.num_sets = (unsigned)hd[1]; f.param_bands = (unsigned)hd[2]; f.param_slot[0] = (unsigned)hd[3]; f.phase_mode = (unsigned)hd[4]; f.opd_smoothing = (unsigned)hd[5]; f.ipd_coarse[0] = (unsigned)hd[6]; f.stp_ch[0] = (unsigned)hd[7]; f.stp_ch[1] = (unsigned)hd[8]; f.stp_enable = (unsigned)(hd[7] | hd[8]); f.tsd_enable = (unsigned)hd[11]; { unsigned q; for (q = 0; q < 32u; q++) { f.tsd_sep[q] = (uint8_t)(tsdv[q] & 1); f.tsd_phase[q] = (uint8_t)((tsdv[q] >> 1) & 7); } } f.ges_ch[0] = (unsigned)hd[9]; f.ges_ch[1] = (unsigned)hd[10]; { unsigned q; for (q = 0; q < 32u; q++) { f.ges_env[0][q] = genv[q]; f.ges_env[1][q] = genv[32u + q]; } }
             for (i = 0; i < 28; i++) { f.cld_idx[0][i] = cld[i]; f.icc_idx[0][i] = icc[i]; f.ipd_idx[0][i] = ipd[i]; }
             memset(in, 0, sizeof in); memset(rin, 0, sizeof rin);
             if (sh[3]) for (s = 0; s < 32; s++) for (b = 0; b < 32; b++) { rin[s * 64 + b].re = (float)(rb_[(s * 32 + b) * 2] / (32768.0 * 1.4142135623730951)); rin[s * 64 + b].im = (float)(rb_[(s * 32 + b) * 2 + 1] / (32768.0 * 1.4142135623730951)); }
@@ -447,8 +466,44 @@ static void test_phase_pred(void) {
     CHECK(same_pm0, "bsPhaseMode 0 changes the prediction upmix");
 }
 
+/* TSD: in a transient slot the downmix itself, rotated by 45 degrees times the transmitted phase, takes the place of the decorrelator output from hybrid band 7 on.  A tone that stops before the slot has no decorrelator tail in
+ * it, so the output of the slot with TSD minus the output without it is the rotated downmix times the decorrelator gain: the eight phases are 45 degree steps of one another. */
+static void test_tsd(void) {
+    static SautiUsacMpsDec d0, dp[8]; static SautiUsacMpsFrame f; static SautiAacSbrComplex in[32 * 64], o0[32 * 64], o1[32 * 64], t0[8][32 * 64], t1[8][32 * 64];
+    SautiUsacMpsConfig c = cfg1;
+    unsigned p, s, band, i;
+    memset(&f, 0, sizeof f); f.num_sets = 1; f.param_bands = 28; f.param_slot[0] = 31;
+    for (i = 0; i < 28u; i++) { f.cld_idx[0][i] = 0; f.icc_idx[0][i] = 5; }
+    c.residual = 0;
+    for (band = 0; band <= 5u; band += (band == 0u ? 3u : 2u)) {          /* QMF bands 0 (hybrid bands below 7: unchanged), 3 and 5 (no hybrid filter delay, so the decorrelator output of the slot is empty) */
+        memset(in, 0, sizeof in);
+        for (s = 0; s < 32u; s++) { in[s * 64 + band].re = (s == 5u) ? 0.01f : 0.0f; in[s * 64 + band].im = (s == 5u) ? -0.004f : 0.0f; }
+        memset(&d0, 0, sizeof d0); c.temp_shape = 0;
+        CHECK(sauti_usac_mps212_apply(&d0, &c, &f, 40, 32, in, NULL, 0, o0, o1), "no TSD refused");
+        c.temp_shape = 3; f.tsd_enable = 1;
+        for (p = 0; p < 8u; p++) {
+            memset(&dp[p], 0, sizeof dp[p]); memset(f.tsd_sep, 0, sizeof f.tsd_sep); f.tsd_sep[5] = 1; f.tsd_phase[5] = (uint8_t)p;
+            CHECK(sauti_usac_mps212_apply(&dp[p], &c, &f, 40, 32, in, NULL, 0, t0[p], t1[p]), "TSD refused (phase %u)", p);
+        }
+        {   /* D_p = left output of the TSD run minus the left output without TSD, at slot 5 */
+            double dre[8], dim[8], mag = 0.0; unsigned b;
+            for (p = 0; p < 8u; p++) { dre[p] = 0; dim[p] = 0; for (b = band; b <= band; b++) { dre[p] += t0[p][5 * 64 + b].re - o0[5 * 64 + b].re; dim[p] += t0[p][5 * 64 + b].im - o0[5 * 64 + b].im; } }
+            mag = sqrt(dre[0] * dre[0] + dim[0] * dim[0]);
+            if (band == 0u) CHECK(mag < 1e-9, "TSD changed hybrid bands below 7 (QMF band 0: %g)", mag);
+            else {
+                CHECK(mag > 1e-6, "TSD has no effect (QMF band %u: %g)", band, mag);
+                CHECK(fabs(dre[4] + dre[0]) < 1e-5 * mag && fabs(dim[4] + dim[0]) < 1e-5 * mag, "phase 4 is not the opposite of phase 0");
+                CHECK(fabs(dre[2] + dim[0]) < 1e-5 * mag && fabs(dim[2] - dre[0]) < 1e-5 * mag, "phase 2 is not phase 0 rotated by 90 degrees");
+                CHECK(fabs(dre[1] - 0.70710678 * (dre[0] - dim[0])) < 1e-5 * mag && fabs(dim[1] - 0.70710678 * (dre[0] + dim[0])) < 1e-5 * mag, "phase 1 is not phase 0 rotated by 45 degrees");
+                CHECK(fabs(dre[6] - dim[0]) < 1e-5 * mag && fabs(dim[6] + dre[0]) < 1e-5 * mag, "phase 6 is not phase 0 rotated by 270 degrees");
+                CHECK(fabs(dre[5] + 0.70710678 * (dre[0] - dim[0])) < 1e-5 * mag && fabs(dre[3] + 0.70710678 * (dre[0] + dim[0])) < 1e-5 * mag && fabs(dre[7] - 0.70710678 * (dre[0] + dim[0])) < 1e-5 * mag, "phases 3, 5 and 7");
+            }
+        }
+    }
+}
+
 int main(void) {
-    test_tables(); test_parse(); test_signal(); test_golden(); test_golden_res(); test_residual(); test_golden_phase(); test_phase(); test_phase_pred();
+    test_tables(); test_parse(); test_signal(); test_golden(); test_golden_res(); test_residual(); test_golden_phase(); test_phase(); test_phase_pred(); test_tsd();
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_mps: all passed\n"); return 0;
 }

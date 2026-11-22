@@ -313,7 +313,7 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
     unsigned hyb_count, res_hyb_count = 0, i, k, pb, n, ps, row;
     const double gain = cfg ? sauti_usac_mps_clip_gain[cfg->fixed_gain & 7u] : 1.0;
     if (!d || !cfg || !f || !in || !out0 || !out1 || slots == 0 || slots > MAXS || band_count < 4u || band_count > 64u || cfg->fixed_gain > 7u || cfg->decorr > 2u) return 0;
-    if ((cfg->phase_coding && cfg->bands_phase > f->param_bands) || cfg->residual_bands > f->param_bands || (cfg->residual_bands && (!res_in || res_band_count < 4u || res_band_count > 64u)) || f->num_sets == 0 || f->num_sets > SAUTI_USAC_MPS_SETS || cfg->freq_res == 0 || cfg->freq_res > 7u || cfg->temp_shape == 3u) return 0;
+    if ((cfg->phase_coding && cfg->bands_phase > f->param_bands) || cfg->residual_bands > f->param_bands || (cfg->residual_bands && (!res_in || res_band_count < 4u || res_band_count > 64u)) || f->num_sets == 0 || f->num_sets > SAUTI_USAC_MPS_SETS || cfg->freq_res == 0 || cfg->freq_res > 7u ) return 0;
     map = band_map(f->param_bands);
     if (!map) return 0;
     split = split_freq[cfg->decorr];
@@ -340,7 +340,7 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
         while (rb < 3u && (int)sauti_usac_mps_hybrid_to_qmf[k] >= (int)split[rb] - 1) rb++;               /* signed: decorrelator configuration 2 starts with a split frequency of 0 (-1 passes every band) */
         delay = decor_delay[rb]; len = lat_len[rb];
         for (n = 0; n < delay; n++) buf[n] = d->delay[k][n];
-        for (n = 0; n < slots; n++) buf[delay + n] = hyb[n][k];
+        for (n = 0; n < slots; n++) { const int tsd = cfg->temp_shape == 3u && f->tsd_enable && f->tsd_sep[n] && k >= 7u; buf[delay + n] = hyb[n][k]; if (tsd) { buf[delay + n].re = 0.0f; buf[delay + n].im = 0.0f; } }   /* TSD: a transient slot does not feed the decorrelator above hybrid band 6 */
         for (n = 0; n < slots; n++) {
             double sr = d->ap_state[k][0].re, si = d->ap_state[k][0].im, outr = sr + (double)buf[n].re * lat_num[rb][0], outi = si + (double)buf[n].im * lat_num[rb][0];
             unsigned j;
@@ -356,7 +356,7 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
         double in_e[NB], out_e[NB], g[NB];
         memset(in_e, 0, sizeof in_e); memset(out_e, 0, sizeof out_e);
         for (k = 0; k < hyb_count; k++) {
-            in_e[map28[k]] += (double)hyb[n][k].re * hyb[n][k].re + (double)hyb[n][k].im * hyb[n][k].im;
+            if (!(cfg->temp_shape == 3u && f->tsd_enable && f->tsd_sep[n] && k >= 7u)) in_e[map28[k]] += (double)hyb[n][k].re * hyb[n][k].re + (double)hyb[n][k].im * hyb[n][k].im;
             out_e[map28[k]] += (double)diff[n][k].re * diff[n][k].re + (double)diff[n][k].im * diff[n][k].im;
         }
         for (pb = 0; pb < NB; pb++) {
@@ -367,6 +367,12 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
             if (d->smooth_in[pb] > d->smooth_out[pb] * DECOR_GAMMA) { const double v = sqrt(d->smooth_in[pb] / (DECOR_GAMMA * d->smooth_out[pb] + ABS_THR)); g[pb] = v < 2.0 ? v : 2.0; }
         }
         for (k = 0; k < hyb_count; k++) { diff[n][k].re = (float)(diff[n][k].re * g[map28[k]]); diff[n][k].im = (float)(diff[n][k].im * g[map28[k]]); }
+        if (cfg->temp_shape == 3u && f->tsd_enable && f->tsd_sep[n]) {                 /* TSD: the transient slot carries the downmix itself, rotated by 45 degrees times the transmitted phase, in place of its decorrelation */
+            static const float mre[8] = { 1.0f, 0.707106781186548f, 0.0f, -0.707106781186548f, -1.0f, -0.707106781186548f, 0.0f, 0.707106781186548f };
+            static const float mim[8] = { 0.0f, 0.707106781186548f, 1.0f, 0.707106781186548f, 0.0f, -0.707106781186548f, -1.0f, -0.707106781186548f };
+            const float cr = mre[f->tsd_phase[n] & 7u], ci = mim[f->tsd_phase[n] & 7u];
+            for (k = 7; k < hyb_count; k++) { diff[n][k].re += cr * hyb[n][k].re - ci * hyb[n][k].im; diff[n][k].im += ci * hyb[n][k].re + cr * hyb[n][k].im; }
+        }
     }
     /* 3. upmix gains of every parameter set, interpolated slot by slot, and the mix of the direct and the decorrelated signal */
     for (ps = 0; ps < f->num_sets; ps++)
