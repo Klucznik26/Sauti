@@ -20,6 +20,7 @@ static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n &
 static FILE *g_elem_fu[8];
 static uint8_t hist_au[8][1 << 16]; static size_t hist_len[8];                /* the last access units (ring of 8) that go into a pre-roll payload */
 static int g_pvc;                                                            /* --pvc N: predictive vector coding in the SBR configuration; mono streams only.  1 the header mode switches at random between classic and PVC modes 1 / 2, 2 mode 1 only, 3 mode 2 only, 4 modes 1 / 2 without classic frames */
+static int g_hbe;                                                            /* --hbe N: harmonic transposer (bs_harmonicSBR): 1 random mix of sbrPatchingMode 0 / 1 frames, 2 always the transposer; random oversampling flag and sbrPitchInBins (0, 12, 24, 36 and 1..127) */
 static int g_intertes;                                                       /* --intertes: inter-subband temporal envelope shaping in the SBR configuration, random bs_temp_shape / mode after every envelope */
 static int g_lfe_short;                                                      /* diagnostic: the LFE uses an eight-short window from the second frame on (illegal: an LFE has long windows only) */
 static int g_probe_ch = -1, g_probe_line = 100;
@@ -289,6 +290,18 @@ static void put_sbr_noise(Bw *sb, const SautiAacSbrGrid *g, const SautiAacSbrTab
     }
 }
 
+/* sbrPatchingMode / sbrOversamplingFlag / sbrPitchInBinsFlag + sbrPitchInBins of a frame (present only with bs_harmonicSBR) */
+static void put_hbe_fields(Bw *sb) {
+    unsigned mode, pitch, flag;
+    if (!g_hbe) return;
+    mode = (g_hbe == 2 || rnd() % 4u != 0u) ? 0u : 1u;
+    put(sb, mode, 1);
+    if (mode) return;
+    put(sb, rnd() & 1u, 1);
+    flag = rnd() % 5u != 0u; pitch = flag ? (rnd() % 3u == 0u ? 12u * (1u + rnd() % 3u) : 1u + rnd() % 127u) : 0u;
+    put(sb, flag, 1); if (flag) put(sb, pitch, 7);
+}
+
 /* bs_pvc_mode of a header (SbrInfo), only in mono streams (PVC is a tool of the single channel element) */
 static void put_pvc_mode(Bw *sb, SautiAacSbrHeader *h, unsigned channels, int repeat) {
     if (!g_pvc) return;
@@ -304,6 +317,7 @@ static int pvc_candidate(Bw *sb, const SautiAacSbrTables *tables, int indep) {
     SautiAacSbrGrid g; uint8_t df[2] = { 0, 0 };
     memset(&g, 0, sizeof g); g.noise_count = noise_pos ? 2u : 1u;
     if (g_sbr_simple & 1u) var_len = 0u;
+    put_hbe_fields(sb);
     put(sb, noise_pos, 4); put(sb, var_len ? 1u : 0u, 1); if (var_len) put(sb, var_len - 1u, 2);
     for (i = 0; i < g.noise_count; i++) { df[i] = (indep && i == 0u) ? 0u : (uint8_t)((g_sbr_simple & 2u) ? 0u : (rnd() & 1u)); if (!(indep && i == 0u)) put(sb, df[i], 1); }
     for (i = 0; i < tables->n_noise; i++) put(sb, rnd() & 3u, 2);                                   /* sbr_invf() */
@@ -377,6 +391,7 @@ static int sbr_candidate(Bw *sb, const Opt *o, unsigned channels, int indep, con
     if (!sauti_aac_sbr_payload_build(&h, o->out_rate, &master, &tables, &patches)) return 0;
     if (channels == 1u && h.pvc_mode) return pvc_candidate(sb, &tables, indep);
     if (channels == 2u) { cpl = g_sbr_trail[0] == g_sbr_trail[1] ? ((g_sbr_simple & 8192u) ? 1u : (g_sbr_simple & 16384u) ? 0u : (rnd() & 1u)) : 0u; put(sb, cpl, 1); }
+    put_hbe_fields(sb); if (channels == 2u && !cpl) put_hbe_fields(sb);
     for (c = 0; c < channels; c++) { if (c == 1u && cpl) { grid[1] = grid[0]; break; } if (!put_sbr_grid(sb, g_sbr_trail[c], &grid[c]) || ((g_sbr_simple & 512u) && grid[c].env_count > 5u && grid[c].frame_class != 0u)) return 0; }
     for (c = 0; c < channels; c++) {                                               /* sbr_dtdf(): the first flag of an independent frame is not transmitted */
         for (i = 0; i < grid[c].env_count; i++) { df_e[c][i] = (indep && i == 0u) ? 0u : (uint8_t)((g_sbr_simple & 2u) ? 0u : (rnd() & 1u)); if (!(indep && i == 0u)) put(sb, df_e[c][i], 1); }
@@ -444,6 +459,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--config") && a + 1 < argc) o.config = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--lfe-short")) g_lfe_short = 1;
         else if (!strcmp(argv[a], "--intertes")) g_intertes = 1;
+        else if (!strcmp(argv[a], "--hbe") && a + 1 < argc) g_hbe = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--pvc") && a + 1 < argc) g_pvc = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--preroll") && a + 1 < argc) o.preroll = (unsigned)atoi(argv[++a]);
         else if (!strcmp(argv[a], "--preroll-rap")) o.preroll_rap = 1;
@@ -496,7 +512,7 @@ int main(int argc, char **argv) {
       for (k = 0; k < 11u && core_rate < limit[k]; k++) ;
       o.core_idx = k; }
     memset(&g_sbr_el, 0, sizeof g_sbr_el); g_sbr_el.sbr_start_freq = o.sbr_start; g_sbr_el.sbr_stop_freq = o.sbr_stop; g_sbr_el.sbr_freq_scale = 2; g_sbr_el.sbr_alter_scale = 1; g_sbr_el.sbr_noise_bands = 2;
-    g_sbr_el.sbr_limiter_bands = 2; g_sbr_el.sbr_limiter_gains = 2; g_sbr_el.sbr_interpol_freq = 1; g_sbr_el.sbr_smoothing_mode = 1; g_sbr_el.sbr_intertes = g_intertes ? 1u : 0u; g_sbr_el.sbr_pvc = g_pvc ? 1u : 0u;
+    g_sbr_el.sbr_limiter_bands = 2; g_sbr_el.sbr_limiter_gains = 2; g_sbr_el.sbr_interpol_freq = 1; g_sbr_el.sbr_smoothing_mode = 1; g_sbr_el.sbr_intertes = g_intertes ? 1u : 0u; g_sbr_el.sbr_pvc = g_pvc ? 1u : 0u; g_sbr_el.sbr_harmonic = g_hbe ? 1u : 0u;
     if (getenv("SBR_CFG")) {                                                /* SBR_CFG=start,stop,freq_scale,alter_scale,noise_bands,limiter_bands,limiter_gains,interpol,smoothing: the default header of the configuration */
         unsigned v[9] = { o.sbr_start, o.sbr_stop, 2, 1, 2, 2, 2, 1, 1 }, k = 0; const char *p = getenv("SBR_CFG");
         while (*p && k < 9u) { v[k++] = (unsigned)strtoul(p, (char **)&p, 10); if (*p == ',') p++; }
@@ -516,7 +532,7 @@ int main(int argc, char **argv) {
     if (o.sbr) {                                                            /* SBR configuration: no harmonic transposer, inter-TES, PVC; default header start / stop, no extra fields */
         const unsigned x1 = g_sbr_el.sbr_freq_scale != 2u || g_sbr_el.sbr_alter_scale != 1u || g_sbr_el.sbr_noise_bands != 2u;
         const unsigned x2 = g_sbr_el.sbr_limiter_bands != 2u || g_sbr_el.sbr_limiter_gains != 2u || g_sbr_el.sbr_interpol_freq != 1u || g_sbr_el.sbr_smoothing_mode != 1u;
-        put(&asc, (g_intertes ? 2u : 0u) | (g_pvc ? 1u : 0u), 3); put(&asc, o.sbr_start, 4); put(&asc, o.sbr_stop, 4); put(&asc, x1, 1); put(&asc, x2, 1);
+        put(&asc, (g_hbe ? 4u : 0u) | (g_intertes ? 2u : 0u) | (g_pvc ? 1u : 0u), 3); put(&asc, o.sbr_start, 4); put(&asc, o.sbr_stop, 4); put(&asc, x1, 1); put(&asc, x2, 1);
         if (x1) { put(&asc, g_sbr_el.sbr_freq_scale, 2); put(&asc, g_sbr_el.sbr_alter_scale, 1); put(&asc, g_sbr_el.sbr_noise_bands, 2); }
         if (x2) { put(&asc, g_sbr_el.sbr_limiter_bands, 2); put(&asc, g_sbr_el.sbr_limiter_gains, 2); put(&asc, g_sbr_el.sbr_interpol_freq, 1); put(&asc, g_sbr_el.sbr_smoothing_mode, 1); }
         if (o.channels == 2u) put(&asc, 0, 2);                              /* stereoConfigIndex 0 */

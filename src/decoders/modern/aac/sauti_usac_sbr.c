@@ -54,14 +54,26 @@ static int pvc_ids(SautiUsacBits *b, int indep, uint32_t prev_id, SautiUsacPvcFr
 
 /* usac_sbr_data() of a PVC frame (single channel element): the grid is only bs_noise_position and bs_var_len_hf, there are no envelope scalefactors, the noise floor and the sine position follow the
  * pvc_id's.  Returns 1, 0 = malformed, -1 = not implemented. */
+/* sbrPatchingMode (1 bit); with 0 (harmonic transposition) also sbrOversamplingFlag (1) and sbrPitchInBinsFlag (1) + sbrPitchInBins (7).  Only present when the configuration has bs_harmonicSBR. */
+static void hbe_fields(const SautiUsacElement *e, SautiUsacBits *b, SautiUsacHbeFrame *h) {
+    memset(h, 0, sizeof *h);
+    if (!e->sbr_harmonic) return;
+    h->enabled = 1u;
+    if (sauti_usac_get(b, 1)) return;
+    h->active = 1u;
+    h->oversampling = sauti_usac_get(b, 1);
+    if (sauti_usac_get(b, 1)) h->pitch_in_bins = sauti_usac_get(b, 7);
+}
+
 static int pvc_sce(const SautiUsacElement *e, SautiUsacBits *b, int indep, const SautiAacSbrTables *tables, const SautiAacSbrMaster *master, const SautiAacSbrPatches *patches,
                    size_t start, SautiUsacSbrState *st, SautiAacSbrPayloadFrame *out) {
     SautiAacSbrGrid grid; SautiAacSbrControl control; SautiAacSbrQuantFrame quant; SautiAacSbrEnergyFrame energy; SautiUsacPvcFrame p;
     uint8_t harmonic[SAUTI_AAC_SBR_MAX_MASTER_BANDS];
     const uint8_t *data = b->data; const size_t size = bytes_of(b);
     unsigned noise_pos, var_len = 0, tb0, i, any;
+    SautiUsacHbeFrame hbe;
     memset(&grid, 0, sizeof grid); memset(&p, 0, sizeof p); memset(harmonic, 0, sizeof harmonic); memset(&control, 0, sizeof control);
-    (void)e;
+    hbe_fields(e, b, &hbe);
     noise_pos = sauti_usac_get(b, 4);
     if (sauti_usac_get(b, 1)) { var_len = sauti_usac_get(b, 2) + 1u; if (var_len > 3u) return 0; }
     tb0 = st->prev_kind ? st->prev_last_border : 16u;
@@ -100,7 +112,7 @@ static int pvc_sce(const SautiUsacElement *e, SautiUsacBits *b, int indep, const
     quant.env_count = grid.env_count;
     if (!sauti_aac_sbr_energy_dequant(&quant, &grid, tables, st->header.amp_res, 0u, &energy)) return 0;
     if (!sauti_aac_sbr_payload_frame_finish(out, &st->header, &grid, &control, &quant, &energy, master, tables, patches, harmonic, (uint32_t)(b->pos - start))) return 0;
-    out->pvc = p;
+    out->pvc = p; out->hbe = hbe;
     st->prev_kind = 2u; st->prev_last_border = 16u + var_len; st->prev_freq_res = 0u; st->prev_pvc_id = p.id[SAUTI_USAC_PVC_SLOTS - 1u];
     return 1;
 }
@@ -111,9 +123,9 @@ int sauti_usac_sbr_parse(const SautiUsacElement *e, unsigned channels, SautiUsac
     SautiAacSbrGrid grid[2]; SautiAacSbrControl control[2]; SautiAacSbrQuantFrame quant[2]; SautiAacSbrEnergyFrame energy[2];
     uint8_t harmonic[2][SAUTI_AAC_SBR_MAX_MASTER_BANDS];
     unsigned info_present = 1, header_present = 1, cpl = 0, c, i;
+    SautiUsacHbeFrame hbe[2];
     const size_t start = b->pos;
     const uint8_t *data = b->data; const size_t size = bytes_of(b);
-    if (e->sbr_harmonic) return -1;
     memset(harmonic, 0, sizeof harmonic);
     if (!indep) { info_present = sauti_usac_get(b, 1); header_present = info_present ? sauti_usac_get(b, 1) : 0u; }
     if (info_present) {
@@ -150,6 +162,9 @@ int sauti_usac_sbr_parse(const SautiUsacElement *e, unsigned channels, SautiUsac
         return 1;
     }
     if (channels == 2u) cpl = sauti_usac_get(b, 1);
+    memset(hbe, 0, sizeof hbe);
+    hbe_fields(e, b, &hbe[0]);                                                /* the patching mode of a coupled pair is shared, an uncoupled pair has one for each channel */
+    if (channels == 2u) { if (cpl) hbe[1] = hbe[0]; else hbe_fields(e, b, &hbe[1]); }
     for (c = 0; c < channels; c++) {                                          /* sbr_grid(): coupled pairs share the first one */
         if (c == 1u && cpl) { grid[1] = grid[0]; break; }
         if (!sauti_aac_sbr_grid_parse_max(data, size, &b->pos, 16u, SAUTI_AAC_SBR_MAX_ENV, &grid[c])) return 0;
@@ -177,6 +192,7 @@ int sauti_usac_sbr_parse(const SautiUsacElement *e, unsigned channels, SautiUsac
     if (b->pos > b->nbits) return 0;
     for (c = 0; c < channels; c++)
         if (!sauti_aac_sbr_payload_frame_finish(&out[c], &next.header, &grid[c], &control[c], &quant[c], &energy[c], &master, &tables, &patches, harmonic[c], (uint32_t)(b->pos - start))) return 0;
+    for (c = 0; c < channels; c++) out[c].hbe = hbe[c];
     next.prev_kind = 1u; next.prev_last_border = grid[0].env_border[grid[0].env_count]; next.prev_freq_res = grid[0].freq_res[grid[0].env_count - 1u];
     next.sin_start_next = next.sin_len_next = 0u;
     *coupling = cpl;

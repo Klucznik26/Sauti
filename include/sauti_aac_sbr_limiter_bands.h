@@ -29,6 +29,13 @@ int sauti_aac_sbr_limiter_bands_build(
     unsigned bs_limiter_bands,
     SautiAacSbrLimiterBands *out);
 
+/* The same with the internal patch borders given directly (the harmonic transposer of eSBR has no patch map: its patches end at the borders of its transposition orders).  junction[i] in (kx, k2). */
+int sauti_aac_sbr_limiter_bands_build_junctions(
+    const SautiAacSbrTables *tables,
+    const uint8_t *junction,unsigned junctions,
+    unsigned bs_limiter_bands,
+    SautiAacSbrLimiterBands *out);
+
 /* Convenience path: computes the frequency partition automatically and
  * passes it to SBR-16. Neither output nor report changes on failure.
  * Uses PRE-adjusted QMF (NOT SBR-15 output) to prevent double scaling. */

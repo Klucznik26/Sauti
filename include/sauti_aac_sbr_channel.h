@@ -5,6 +5,7 @@
 #include "sauti_aac_sbr_payload.h"
 #include "sauti_aac_sbr_qmf_analysis.h"
 #include "sauti_aac_sbr_qmf_synth_mod.h"
+#include "sauti_usac_hbe.h"
 
 /* SBR-82: one SBR channel decoded the way the standard lays it out, with all state in one object.
  *
@@ -50,6 +51,9 @@ typedef struct {
     SautiUsacPvcState pvc;                            /* eSBR PVC: low band energy history of the predictor */
     SautiAacSbrComplex pvc_carry[12*64];              /* PVC: the HF carrier (not yet adjusted) of the time slots the previous frame's grid ran past its end: the adjustment of the next frame starts with them */
     double q_carry[4][64];                            /* PVC: noise floor of the time slots a frame's grid ran past its end (they belong to the first slots of the next frame) */
+    SautiUsacHbe hbe;                                 /* eSBR harmonic transposer (bs_harmonicSBR): runs in every frame, its output and the low band lag the QMF analysis by one frame */
+    SautiAacSbrComplex hbe_low[2][SAUTI_AAC_SBR_CHANNEL_GRID]; /* low band QMF slots (32 bands; 32 slots, 4:1: 64) of the previous frame [0] and the one before [1] */
+    float pv_history[14u*64u][2];                     /* the last 8 (4:1: 14) slots of the transposer output (re, im) */
     uint64_t discontinuities;                         /* frames whose first border did not continue the previous frame */
 } SautiAacSbrChannel;
 

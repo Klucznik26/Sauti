@@ -39,14 +39,13 @@ typedef struct {
 
 static int adjust_envelope(const SautiAacSbrPayloadFrame *f,
                            const SautiAacSbrPayloadFrame *before,
+                           const SautiAacSbrLimiterBands *bands,
                            const SautiAacSbrComplex *xh,unsigned env,
                            const uint8_t *flag_source,   /* sine flags this envelope works with, per bin */
                            EnvAdjust *out){
     const SautiAacSbrTables *tab=&f->tables;
     const unsigned kx=tab->kx,k2=kx+tab->m;
     const unsigned lo=f->env_edges[env],hi=f->env_edges[env+1u];
-    SautiAacSbrLimiterBands bands;
-    if(!sauti_aac_sbr_limiter_bands_build(tab,&f->patches,f->limiter_mode,&bands))return 0;
     unsigned noise_idx=f->grid.noise_count;
     for(unsigned j=0u;j<f->grid.noise_count;j++)
         if(lo>=f->noise_edges[j] && hi<=f->noise_edges[j+1u]){noise_idx=j;break;}
@@ -95,7 +94,7 @@ static int adjust_envelope(const SautiAacSbrPayloadFrame *f,
     const unsigned delta=sauti_aac_sbr_env_delta(f,env,before);
     SautiAacSbrGainLimitedFrame limited;
     if(!sauti_aac_sbr_gain_limit_partition_flags(e,curr,q,sine_index,sine_mapped,
-                                                 bands.edges,bands.count,f->gain_mode,delta,&limited))return 0;
+                                                 bands->edges,bands->count,f->gain_mode,delta,&limited))return 0;
 #ifdef SAUTI_SBR_CHANNEL_TRACE   /* debugging aid, compiled in only for the comparison tools: frame,env,delta,k,gain,noise,sine,ecurr,E,Q */
     {
         static FILE *tr;
@@ -190,6 +189,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
 #ifdef SAUTI_SBR_CHANNEL_TRACE
     g_trace_frame=ch->frames;
 #endif
+    const int hbe_on=f->hbe.enabled!=0u;                  /* bs_harmonicSBR: low band and transposer lag the analysis by one frame */
     const unsigned R=ch->analysis_bands==16u?2u:1u;       /* 1: 2:1 / 8:3 (32 slots), 2: 4:1 (64 slots) */
     const unsigned SLOTS=SAUTI_AAC_SBR_CHANNEL_SLOTS*R,HIST=2u+6u*R,MAXI=38u*R;
     const unsigned rate=2u*R;                         /* QMF slots per time slot */
@@ -217,8 +217,41 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
         if(!sauti_aac_sbr_qmf_analyze_16(core,1024u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;
     }else if(!sauti_aac_sbr_qmf_analyze_32(core,1024u,SLOTS,32u,low,SLOTS*32u,&next->analysis))return 0;
     SautiAacSbrComplex xlow[(SLOTS_MAX+14u)*32u];
+    SautiUsacHbeCx xpv[(14u+64u)*64u];                /* transposer output of the frame, with the HIST slots before it */
+    const SautiAacSbrComplex *lowsrc=low;
     memcpy(xlow,next->low_history,(size_t)HIST*32u*sizeof(SautiAacSbrComplex));
-    memcpy(xlow+(size_t)HIST*32u,low,(size_t)SLOTS*32u*sizeof(SautiAacSbrComplex));
+    if(hbe_on){
+        SautiUsacHbeCx qin[64u*64u],pvnew[64u*64u];
+        const SautiAacSbrTables *pt=ch->have_previous?&ch->previous.tables:NULL;
+        const int same=next->hbe.ready && pt && pt->n_low==tab->n_low && pt->n_high==tab->n_high &&
+                       !memcmp(pt->low,tab->low,tab->n_low+1u) && !memcmp(pt->high,tab->high,tab->n_high+1u);
+        const unsigned up4=ch->analysis_bands==16u;
+        unsigned s,i,k;
+        lowsrc=ch->hbe_low[0];
+        if(!same){                                    /* a reset: new tables, the transposer is cleared and replays the low band the reference decoder still has in its buffers */
+            if(!sauti_usac_hbe_reinit(&next->hbe,SLOTS,tab->low,tab->n_low,tab->high,tab->n_high,up4,ch->analysis_bands==24u))return 0;
+            for(s=0u;s<(up4?1u:2u);s++){
+                memset(qin,0,sizeof qin);
+                for(i=0u;i<SLOTS;i++){
+                    /* 2:1 / 8:3: the last two frames; 4:1: the 64 slots from slot 30 of the frame before the last */
+                    const SautiAacSbrComplex *src=up4?(i<34u?ch->hbe_low[1]+(size_t)(30u+i)*32u:ch->hbe_low[0]+(size_t)(i-34u)*32u):ch->hbe_low[1u-s]+(size_t)i*32u;
+                    for(k=0u;k<32u;k++){qin[(size_t)i*64u+k].re=src[k].re;qin[(size_t)i*64u+k].im=src[k].im;}
+                }
+                if(!sauti_usac_hbe_process(&next->hbe,qin,f->hbe.pitch_in_bins,pvnew))return 0;
+            }
+            for(i=0u;i<HIST*64u;i++){next->pv_history[i][0]=(float)pvnew[(size_t)(SLOTS-HIST)*64u+i].re;next->pv_history[i][1]=(float)pvnew[(size_t)(SLOTS-HIST)*64u+i].im;}
+        }
+        memset(qin,0,sizeof qin);
+        for(i=0u;i<SLOTS;i++){                        /* 4:1: the transposer works 32 slots ahead of the frame it produces: the last half of the previous frame, then the first half of this one */
+            const SautiAacSbrComplex *src=up4?(i<32u?ch->hbe_low[0]+(size_t)(32u+i)*32u:low+(size_t)(i-32u)*32u):low+(size_t)i*32u;
+            for(k=0u;k<32u;k++){qin[(size_t)i*64u+k].re=src[k].re;qin[(size_t)i*64u+k].im=src[k].im;}
+        }
+        if(!sauti_usac_hbe_process(&next->hbe,qin,f->hbe.pitch_in_bins,pvnew))return 0;
+        for(i=0u;i<HIST*64u;i++){xpv[i].re=next->pv_history[i][0];xpv[i].im=next->pv_history[i][1];}
+        memcpy(xpv+(size_t)HIST*64u,pvnew,sizeof(SautiUsacHbeCx)*(size_t)SLOTS*64u);
+        for(i=0u;i<HIST*64u;i++){next->pv_history[i][0]=(float)xpv[(size_t)SLOTS*64u+i].re;next->pv_history[i][1]=(float)xpv[(size_t)SLOTS*64u+i].im;}
+    }
+    memcpy(xlow+(size_t)HIST*32u,lowsrc,(size_t)SLOTS*32u*sizeof(SautiAacSbrComplex));
 
     /* 2. inverse filtering: LPC over 38 equations of the 40-slot window, chirp */
     SautiAacSbrLpcCoeffs lpc;
@@ -243,7 +276,33 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
      * frame, which starts with the carrier left over here; the carrier of this frame's own first slots, that the previous grid ran into, is the one the previous frame generated. */
     const unsigned g0=pvc?f->grid.env_border[0]*rate:t0,gN=pvc?f->grid.env_border[f->grid.env_count]*rate:tN;
     if(gN<tN || gN>MAXI || g0<t0)return 0;
-    if(!sauti_aac_sbr_hf_predict(&f->patches,tab,xlow+(size_t)g0*32u,(size_t)(gN-g0+2u)*32u,gN-g0,&lpc,&chirp,
+    if(hbe_on && f->hbe.active){
+        /* harmonic transposer frame: no patching, every HF band is the transposed signal of its own band plus its second-order prediction (the LPC of the transposed signal, the chirp of the band's noise band) */
+        SautiAacSbrComplex plane[2][(14u+64u)*32u];
+        SautiAacSbrLpcCoeffs lp[2];
+        for(unsigned t=0u;t<HIST+SLOTS;t++)
+            for(unsigned k=0u;k<32u;k++)for(unsigned half=0u;half<2u;half++){
+                plane[half][(size_t)t*32u+k].re=(float)xpv[(size_t)t*64u+half*32u+k].re;
+                plane[half][(size_t)t*32u+k].im=(float)xpv[(size_t)t*64u+half*32u+k].im;
+            }
+        if(!sauti_aac_sbr_lpc_estimate_2(plane[0],(size_t)(SLOTS+HIST)*32u,SLOTS+HIST-2u,&lp[0]) ||
+           !sauti_aac_sbr_lpc_estimate_2(plane[1],(size_t)(SLOTS+HIST)*32u,SLOTS+HIST-2u,&lp[1]))return 0;
+        for(unsigned k=kx;k<k2;k++){
+            unsigned nb=0u;
+            while(nb+1u<tab->n_noise && k>=tab->noise[nb+1u])nb++;
+            const double bw=chirp.bw[nb],bw2=bw*bw;
+            const SautiAacSbrComplex a0=lp[k>=32u].alpha0[k&31u],a1=lp[k>=32u].alpha1[k&31u];
+            for(unsigned i=g0;i<gN;i++){
+                const SautiUsacHbeCx c=xpv[(size_t)(i+2u)*64u+k],p1=xpv[(size_t)(i+1u)*64u+k],p2=xpv[(size_t)i*64u+k];
+                double re=c.re,im=c.im;
+                if(bw>0.0){
+                    re+=bw*((double)a0.re*p1.re-(double)a0.im*p1.im)+bw2*((double)a1.re*p2.re-(double)a1.im*p2.im);
+                    im+=bw*((double)a0.im*p1.re+(double)a0.re*p1.im)+bw2*((double)a1.im*p2.re+(double)a1.re*p2.im);
+                }
+                xh[(size_t)i*64u+k].re=(float)re;xh[(size_t)i*64u+k].im=(float)im;
+            }
+        }
+    }else if(!sauti_aac_sbr_hf_predict(&f->patches,tab,xlow+(size_t)g0*32u,(size_t)(gN-g0+2u)*32u,gN-g0,&lpc,&chirp,
                                  xh+(size_t)g0*64u,(size_t)(gN-g0)*64u))return 0;
     if(pvc){
         if(t0<g0){
@@ -263,6 +322,14 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
         if(f->harmonic[b]>1u || tab->high[b]>=tab->high[b+1u] || tab->high[b+1u]>64u)return 0;
         if(f->harmonic[b])flags_now[(tab->high[b]+tab->high[b+1u])/2u]=1u;
     }
+    SautiAacSbrLimiterBands lim;                      /* limiter bands of the frame: junctions of the patch map, or the borders of the transposer's orders */
+    if(hbe_on && f->hbe.active){
+        uint8_t junction[SAUTI_AAC_SBR_MAX_PATCHES];
+        unsigned n=0u;
+        for(unsigned i=1u;i<(R==2u?6u:4u);i++)if(next->hbe.x_over[i] && n<SAUTI_AAC_SBR_MAX_PATCHES)n++;
+        for(unsigned i=1u;i<n;i++)junction[i-1u]=(uint8_t)next->hbe.x_over[i];     /* the reference counts the orders 2.. and takes the borders x_over[1 .. n-1] as junctions */
+        if(!sauti_aac_sbr_limiter_bands_build_junctions(tab,junction,n>0u?n-1u:0u,f->limiter_mode,&lim))return 0;
+    }else if(!sauti_aac_sbr_limiter_bands_build(tab,&f->patches,f->limiter_mode,&lim))return 0;
     EnvAdjust adj[SAUTI_USAC_PVC_SLOTS];
     const SautiAacSbrPayloadFrame *before=ch->have_previous?&ch->previous:NULL;
     uint8_t flags_pre[64],flags_last[64]={0};
@@ -289,8 +356,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
             for(unsigned t=f->grid.env_border[g];t<f->grid.env_border[g+1u] && t<SAUTI_USAC_PVC_SLOTS+4u;t++)
                 for(unsigned b=0u;b<tab->n_noise;b++)
                     for(unsigned k=tab->noise[b];k<tab->noise[b+1u];k++)qs[t][k]=f->energy.noise_factor[g][b];
-        SautiAacSbrLimiterBands pbands;
-        if(!sauti_aac_sbr_limiter_bands_build(tab,&f->patches,f->limiter_mode,&pbands))return 0;
+        const SautiAacSbrLimiterBands pbands=lim;
         for(unsigned e=0u;e<envs;e++){
             const unsigned t=f->pvc.first_slot+e;
             if(!adjust_pvc_slot(f,ch->have_previous?&ch->previous:NULL,&pbands,xh,t,rate,pred[t],qs[t],flags_now,ch->last_sine,ch->last_sine_before,&adj[e]))return 0;
@@ -303,7 +369,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
             const unsigned onset=f->transient_env;        /* 0: no onset signalled (or at the first envelope) */
             const int open=(onset==0u) || e>=onset;
             const uint8_t *flags=open?flags_now:flags_pre;
-            if(!adjust_envelope(f,before,xh,e,flags,&adj[e]))return 0;
+            if(!adjust_envelope(f,before,&lim,xh,e,flags,&adj[e]))return 0;
             memcpy(flags_last,flags,sizeof(flags_last));
         }
     }
@@ -448,7 +514,11 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
         memcpy(next->spill+(size_t)(i-SLOTS)*64u,y+(size_t)i*64u,64u*sizeof(SautiAacSbrComplex));
 
     /* 7. carry the rest of the state */
-    memcpy(next->low_history,low+(size_t)(SLOTS-HIST)*32u,(size_t)HIST*32u*sizeof(SautiAacSbrComplex));
+    memcpy(next->low_history,xlow+(size_t)SLOTS*32u,(size_t)HIST*32u*sizeof(SautiAacSbrComplex));      /* the last HIST slots of the low band that went out (with the transposer: one frame behind the analysis) */
+    if(hbe_on){
+        memcpy(next->hbe_low[1],next->hbe_low[0],sizeof next->hbe_low[1]);
+        memcpy(next->hbe_low[0],low,(size_t)SLOTS*32u*sizeof(SautiAacSbrComplex));
+    }
     memcpy(next->last_sine_before,ch->last_sine,sizeof(next->last_sine_before));
     memcpy(next->last_sine,flags_last,sizeof(next->last_sine));
     next->previous=*f;

@@ -91,7 +91,7 @@ Co jest zrobione, co zostaje i **od czego zależy** — jedna tabela dla decyzji
 | Element | Czego brakuje | Wzorzec dziś | Odblokowanie |
 |---|---|---|---|
 | USAC LPD (ACELP / TCX / FAC), przejścia FD ↔ LPD | tablice ROM (książki LSF, AVQ, filtry ACELP, okna FAC), ok. 2 300 linii logiki (ocena z libxaac) | **libxaac (koder LPD 16 / 24 kHz + dekoder)** i FDK (konfiguracje 1–2) | plan: `docs/USAC_LPD_PLAN.md`; tablice: wyprowadzenie z normy albo, po zgodzie, z libxaac z wpisem w rejestrze |
-| harmoniczny transposer (HBE) (OTWARTE), PVC (ZROBIONE w SBR-114, tablice z libxaac: rejestr poniżej), inter-TES (ZROBIONE w SBR-113, bez tablicy); eSBR 8:3 i 4:1 ZROBIONE w SBR-109 / SBR-112: okna 24 i 16 pasm wyprowadzone ze wzoru, bez tablicy z FDK / libxaac | tablice PVC / HBE | tylko FDK | jw. |
+| harmoniczny transposer (HBE) (ZROBIONE w SBR-115 dla 2:1 i 4:1, tablice z libxaac: rejestr poniżej; 8:3 niesprawdzone), PVC (ZROBIONE w SBR-114, tablice z libxaac: rejestr poniżej), inter-TES (ZROBIONE w SBR-113, bez tablicy); eSBR 8:3 i 4:1 ZROBIONE w SBR-109 / SBR-112: okna 24 i 16 pasm wyprowadzone ze wzoru, bez tablicy z FDK / libxaac | tablice PVC / HBE | tylko FDK | jw. |
 | MPS212 (stereo parametryczne USAC) | tablice kwantyzacji i dekorelatorów | FDK (FFmpeg robi tylko downmix) | jw. |
 | ELD + SBR (CLDFB) | tablica okna CLDFB | FDK | jw. (decyzja czeka od 2026-11-20) |
 | LFE z eSBR (upsampling QMF), konfiguracje kanałów > 7, jawne pozycje kanałów, wielokanałowe eSBR w generatorze | logika, bez nowych tablic; brak wzorca dla wielokanałowych (FDK 2.0.3 czyta w USAC tylko konfiguracje 1–2, FFmpeg czyta LFE jak SCE) | brak | wzorzec wielokanałowy (np. libxaac, niżej) |
@@ -129,6 +129,21 @@ Co jest zrobione, co zostaje i **od czego zależy** — jedna tabela dla decyzji
 | `sauti_usac_pvc_qfac_m1 / _m2` | `ixheaacd_q_factor_table_mode_1 / _2` | kwanta współczynników predykcji (trzy grupy niskie i przesunięcie) |
 | `sauti_usac_pvc_coef1_m1 / _m2` | `ixheaacd_pred_coeff_table_1_mode_1 / _2` | współczynniki predykcji [grupa id][grupa niska][grupa wysoka], 3 × 3 × 8 / 6 |
 | `sauti_usac_pvc_coef2_m1 / _m2` | `ixheaacd_pred_coeff_table_2_mode_1 / _2` | przesunięcia po `pvc_id` [128][8 / 6] |
+
+**Rejestr tablic HBE z libxaac** (generuje je `tools/gen_usac_hbe_tables.py` z `~/Sauti-tools/libxaac`, commit 2fbadd57, plik `common/ixheaac_esbr_rom.c`; ta sama licencja Apache 2.0 i ten sam NOTICE; wynik: `src/decoders/modern/aac/sauti_usac_hbe_tables.c`, `include/sauti_usac_hbe_tables.h`; ta sama zgoda właściciela: tylko dane, skrypt, wpis per tablica; logika transposera napisana dla Sauti po lekturze `ixheaacd_hbe_trans.c`, `ixheaacd_esbr_polyphase.c`, `ixheaacd_sbr_dec.c`, `ixheaacd_sbrdec_lpfuncs.c`, `ixheaacd_esbr_envcal.c`, bez kopiowania kodu: inna struktura danych, `double`, DFT zamiast ręcznie rozpisanych FFT).
+
+| Tablica w Sauti | Nazwa w libxaac | Znaczenie |
+|---|---|---|
+| `sauti_usac_hbe_window` | `ixheaac_sub_samp_qmf_window_coeff` (2000) | okna prototypowe banków transposera, 10 · L współczynników dla L = 4 .. 40 |
+| `sauti_usac_hbe_start_band_to_kl` | `ixheaac_start_subband2kL_tbl` (33) | pierwsze pasmo syntezy transposera dla pasma startowego SBR |
+| `sauti_usac_hbe_cos_trans_qmf` | `ixheaac_cos_table_trans_qmf` (7 × 64) | pary (cos, sin) zamiany próbki QMF na wejście rzeczywiste syntezy |
+| `sauti_usac_hbe_pv_cos / _sin` | `ixheaac_phase_vocoder_cos_table / _sin_table` (64) | obrót fazy wyjścia transposera po paśmie |
+| `sauti_usac_hbe_interp_coeff`, `sauti_usac_hbe_sel_case` | `ixheaac_hbe_post_anal_proc_interp_coeff` (4 × 2), `ixheaac_sel_case` (5 × 8) | interpolacja sąsiednich kolumn / pasm w iloczynach rzędu 3 i krzyżowych |
+| `sauti_usac_hbe_xprod_cos_2 / _3 / _4 / _4_1` | `ixheaac_hbe_x_prod_cos_table_trans_2 / _3 / _4 / _4_1` (po 512) | (cos, sin) korekty fazy iloczynów krzyżowych po `sbrPitchInBins` (+ 128 dla 4:1) |
+| `sauti_usac_hbe_synth_cos_4 / _8 / _12 / _16 / _20` | `ixheaac_synth_cos_table_kl_4 .. _20` (16 .. 800) | dopasowanie faz syntezy (macierz kosinusów dla 20 pasm) |
+| `sauti_usac_hbe_analy_8 / _16 / _24 / _32 / _40` | `ixheaac_analy_cos_sin_table_kl_8 .. _40` (32 .. 3200) | wstępny obrót analizy zespolonej (macierz dla 40 pasm) |
+
+Weryfikacja: transposer zgodny z libxaac do 2,4e-7 (szum float) w strumieniach libxaac i do 1e-6 w strumieniach generatora z pitch 0 / 1..127 (docs SBR-115); `tests/test_usac_hbe.c` ma wartości kontrolne (długości, jednostkowość obrotów).
 
 Liczone, nie przepisywane: okna sinusoidalne FAC / TCX, `0,92^i` (ważenie LPC), `10^(i/128)`, twiddle DCT-IV (DCT-IV liczone wprost).
 

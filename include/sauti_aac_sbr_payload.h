@@ -11,6 +11,8 @@
 #include "sauti_aac_sbr_qmf_frame.h"
 #include "sauti_aac_syntax.h"
 #include "sauti_usac_pvc.h"
+/* sbrPatchingMode / sbrOversamplingFlag / sbrPitchInBins of one frame, ISO/IEC 23003-3 7.5 (usac_sbr_data) */
+typedef struct { unsigned enabled, active, oversampling, pitch_in_bins; } SautiUsacHbeFrame;  /* enabled = bs_harmonicSBR (the transposer runs in every frame), active = this frame uses it (sbrPatchingMode 0) */
 #include <stddef.h>
 #include <stdint.h>
 
@@ -62,6 +64,7 @@ typedef struct {
     uint32_t gain_mode;
     uint32_t has_ps;
     SautiAacPsFrame ps;
+    SautiUsacHbeFrame hbe;      /* eSBR harmonic transposer fields of this frame (all zero = classic patching) */
     SautiUsacPvcFrame pvc;      /* eSBR PVC frame (pvc.active): the envelope comes from the predictor; env_edges / grid describe the SBR time grid */
     uint32_t payload_data_bits; /* bits consumed, excluding pad to byte */
 } SautiAacSbrPayloadFrame;

@@ -12,20 +12,20 @@
 
 static int important(unsigned edge,
                      unsigned kx, unsigned k2,
-                     const SautiAacSbrPatches *patches) {
+                     const uint8_t *junction, unsigned junctions) {
     if(edge==kx || edge==k2)return 1;
-    for(unsigned i=1u;i<patches->count;i++)
-        if(edge==patches->target[i])return 1;
+    for(unsigned i=0u;i<junctions;i++)
+        if(edge==junction[i])return 1;
     return 0;
 }
 
-int sauti_aac_sbr_limiter_bands_build(
+/* `junction`: the internal borders between the patches (QMF subband numbers), whichever way the patches were made. */
+static int build_from_junctions(
     const SautiAacSbrTables *tables,
-    const SautiAacSbrPatches *patches,
+    const uint8_t *junction,unsigned junctions,
     unsigned bs_limiter_bands,
     SautiAacSbrLimiterBands *out) {
-    if(!out || bs_limiter_bands>3u ||
-       !sauti_aac_sbr_hf_map_valid(patches,tables))
+    if(!out || bs_limiter_bands>3u || junctions>SAUTI_AAC_SBR_MAX_PATCHES)
         return 0;
 
     const unsigned kx=tables->kx,k2=tables->kx+tables->m;
@@ -46,8 +46,8 @@ int sauti_aac_sbr_limiter_bands_build(
     unsigned n=0u;
     for(unsigned i=0u;i<=tables->n_low;i++)
         candidates[n++]=tables->low[i];
-    for(unsigned i=1u;i<patches->count;i++){
-        const unsigned edge=patches->target[i];
+    for(unsigned i=0u;i<junctions;i++){
+        const unsigned edge=junction[i];
         if(edge<=kx || edge>=k2)return 0;
         candidates[n++]=(uint8_t)edge;
     }
@@ -80,8 +80,8 @@ int sauti_aac_sbr_limiter_bands_build(
             const unsigned previous=next.edges[size-1u];
             if((double)edge >= (double)previous*ratio)
                 break; /* candidate sufficiently distant */
-            const int keep_new=important(edge,kx,k2,patches);
-            const int keep_old=important(previous,kx,k2,patches);
+            const int keep_new=important(edge,kx,k2,junction,junctions);
+            const int keep_old=important(previous,kx,k2,junction,junctions);
             if(keep_new && !keep_old){
                 --size; /* replace weaker close boundary, re-evaluate */
                 continue;
@@ -101,15 +101,36 @@ int sauti_aac_sbr_limiter_bands_build(
     for(unsigned i=1u;i<size;i++)
         if(next.edges[i]<=next.edges[i-1u])return 0;
     /* Every internal patch junction must survive threshold pruning. */
-    for(unsigned i=1u;i<patches->count;i++){
+    for(unsigned i=0u;i<junctions;i++){
         int found=0;
         for(unsigned j=1u;j+1u<size;j++)
-            if(next.edges[j]==patches->target[i])found=1;
+            if(next.edges[j]==junction[i])found=1;
         if(!found)return 0;
     }
     next.count=size-1u;
     *out=next;
     return 1;
+}
+
+int sauti_aac_sbr_limiter_bands_build(
+    const SautiAacSbrTables *tables,
+    const SautiAacSbrPatches *patches,
+    unsigned bs_limiter_bands,
+    SautiAacSbrLimiterBands *out) {
+    uint8_t junction[SAUTI_AAC_SBR_MAX_PATCHES];
+    unsigned n=0u;
+    if(!out || !patches || !sauti_aac_sbr_hf_map_valid(patches,tables))return 0;
+    for(unsigned i=1u;i<patches->count && n<SAUTI_AAC_SBR_MAX_PATCHES;i++)junction[n++]=patches->target[i];
+    return build_from_junctions(tables,junction,n,bs_limiter_bands,out);
+}
+
+int sauti_aac_sbr_limiter_bands_build_junctions(
+    const SautiAacSbrTables *tables,
+    const uint8_t *junction,unsigned junctions,
+    unsigned bs_limiter_bands,
+    SautiAacSbrLimiterBands *out) {
+    if(!tables || (junctions && !junction))return 0;
+    return build_from_junctions(tables,junction,junctions,bs_limiter_bands,out);
 }
 
 int sauti_aac_sbr_hf_limit_auto(

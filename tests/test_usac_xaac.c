@@ -108,15 +108,19 @@ int main(int argc, char **argv) {
                       { "x8", "tests/data/usac_x8.m4a", 1, 4096, NB8, 48000, x8_fp }, { "x9", "tests/data/usac_x9.m4a", 2, 4096, NB9, 48000, x9_fp },
                       { "t1", "tests/data/usac_t1.m4a", 1, 2048, NBT1, 48000, t1_fp },
                       { "p1", "tests/data/usac_p1.m4a", 1, 2048, NBP, 24000, p1_fp }, { "p2", "tests/data/usac_p2.m4a", 1, 2048, NBP, 24000, p2_fp }, { "p3", "tests/data/usac_p3.m4a", 1, 2048, NBP, 24000, p3_fp },
-                      { "v1", "tests/data/usac_v1.m4a", 1, 2048, NBV1, 48000, v1_fp }, { "v2", "tests/data/usac_v2.m4a", 1, 2048, NBV2, 48000, v2_fp }, { "v3", "tests/data/usac_v3.m4a", 1, 2048, NBV1, 48000, v3_fp } };
+                      { "v1", "tests/data/usac_v1.m4a", 1, 2048, NBV1, 48000, v1_fp }, { "v2", "tests/data/usac_v2.m4a", 1, 2048, NBV2, 48000, v2_fp }, { "v3", "tests/data/usac_v3.m4a", 1, 2048, NBV1, 48000, v3_fp },
+                      { "h1", "tests/data/usac_h1.m4a", 1, 2048, NBH, 24000, h1_fp }, { "h2", "tests/data/usac_h2.m4a", 1, 2048, NBH2, 16000, h2_fp }, { "h3", "tests/data/usac_h3.m4a", 2, 2048, NBH, 44100, h3_fp },
+                      { "h4", "tests/data/usac_h4.m4a", 1, 2048, NBH, 24000, h4_fp },
+                      { "h5", "tests/data/usac_h5.m4a", 1, 4096, NBH, 48000, h5_fp }, { "h6", "tests/data/usac_h6.m4a", 2, 4096, NBH, 44100, h6_fp },
+                      { "w1", "tests/data/usac_w1.m4a", 1, 2048, NBW1, 48000, w1_fp }, { "w2", "tests/data/usac_w2.m4a", 1, 2048, NBW1, 48000, w2_fp }, { "w3", "tests/data/usac_w3.m4a", 2, 2048, NBW3, 48000, w3_fp } };
     unsigned k;
     if (argc > 1 && !strcmp(argv[1], "--dump")) {                                                       /* build/test_usac_xaac --dump > tests/test_usac_xaac_fingerprints.h */
         g_dump = 1;
         printf("/* Per-block fingerprints (sum, sum of squares, position weighted sum, second difference energy) of the decoded PCM of the libxaac-encoded fixtures, written by `build/test_usac_xaac --dump` AFTER the decode agreed\n * with libxaac's decoder (scripts/test_usac_vs_xaac.sh: 73-79 dB). Only the first MAXB blocks of each stream. */\n#define MAXB 40\n");
-        for (k = 0; k < 23; k++) test_fixture(&fx[k]);
+        for (k = 0; k < 32; k++) test_fixture(&fx[k]);
         return g_failures ? 1 : 0;
     }
-    for (k = 0; k < 23; k++) test_fixture(&fx[k]);
+    for (k = 0; k < 32; k++) test_fixture(&fx[k]);
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_xaac: all passed\n"); return 0;
 }

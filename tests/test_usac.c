@@ -217,7 +217,17 @@ static void test_sbr_unsupported(void) {
     CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "bs_sbr_preprocessing = 1 is not implemented");
     d[0] = 0x00u; b.pos = 0;
     CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) != -1, "preprocessing 0 is not refused for that reason");
-    e.sbr_harmonic = 1; b.pos = 0; CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "the harmonic transposer is not implemented");
+    {   /* the harmonic transposer is implemented (docs SBR-115): an independent frame with bs_harmonicSBR reads sbrPatchingMode (here 0: transposer), sbrOversamplingFlag and the pitch flag before the grid */
+        int r;
+        memset(d, 0, sizeof d); d[0] = 0x02u; e.sbr_harmonic = 1; b.pos = 0; memset(&st, 0, sizeof st);
+        r = sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl);
+        CHECK(r != -1, "the harmonic transposer is no longer refused");
+        if (r == 1) CHECK(pl[0].hbe.enabled == 1u && pl[0].hbe.active == 1u && pl[0].hbe.oversampling == 0u && pl[0].hbe.pitch_in_bins == 0u, "hbe fields enabled %u active %u oversampling %u pitch %u", pl[0].hbe.enabled, pl[0].hbe.active, pl[0].hbe.oversampling, pl[0].hbe.pitch_in_bins);
+        memset(d, 0, sizeof d); d[0] = 0x03u; b.pos = 0; memset(&st, 0, sizeof st);                    /* sbrPatchingMode 1 (the 8th bit): classic patching in a stream with the transposer */
+        r = sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl);
+        if (r == 1) CHECK(pl[0].hbe.enabled == 1u && pl[0].hbe.active == 0u, "patching mode 1: enabled %u active %u", pl[0].hbe.enabled, pl[0].hbe.active);
+        memset(&st, 0, sizeof st);
+    }
     /* PVC is implemented (docs SBR-114); what the standard does not define is still refused: bs_pvc_mode 3 (reserved) and PVC in a channel pair.  Header: amp_res 0, xover 0000, preprocessing 0, bs_pvc_mode, default header 1 */
     e.sbr_harmonic = 0; e.sbr_pvc = 1; memset(d, 0, sizeof d); d[0] = 0x03u; d[1] = 0x80u; b.pos = 0;
     CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "bs_pvc_mode 3 is reserved");

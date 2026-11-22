@@ -1,7 +1,7 @@
 #ifndef SAUTI_USAC_SBR_H
 #define SAUTI_USAC_SBR_H
 /* USAC (xHE-AAC) enhanced SBR, the part that is the classic SBR with a different syntax (ISO/IEC 23003-3 7.5): usac_sbr_data() of a single channel element or a channel pair, 2:1 only.
- * Not supported (reported as -1 by the caller): the harmonic transposer, bs_sbr_preprocessing = 1, bs_pvc_mode 3 and PVC in a channel pair.  Predictive vector coding (PVC, single channel element, docs SBR-114) and inter-subband temporal envelope shaping are implemented.
+ * Not supported (reported as -1 by the caller): bs_sbr_preprocessing = 1, bs_pvc_mode 3 and PVC in a channel pair.  Predictive vector coding (PVC, single channel element, docs SBR-114), inter-subband temporal envelope shaping and the harmonic transposer (QMF variant, eSBR 2:1 / 4:1 / 8:3, docs SBR-115) are implemented.
  * What is parsed here is handed to the same QMF / HF generation / adjustment chain (sauti_aac_sbr_channel.h) as HE-AAC; there is no separate eSBR signal path. */
 #include "sauti_usac.h"
 #include "sauti_aac_sbr_payload.h"
