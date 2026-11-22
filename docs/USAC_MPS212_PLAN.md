@@ -43,6 +43,6 @@ EcData (`ixheaacd_mps_ecdata_decoding`): `bsXxxDataMode[set]` (2): 0 default, 1 
 * M4e (done 2026-11-22): MPS at eSBR 4:1 (alignment fix: the QMF bands 0..2 six slots ahead at every ratio) and residual bands at 4:1 (delays 6 / 12), SBR-123.
 * M4e-8:3 (done 2026-11-22): MPS and residual bands at eSBR 8:3, SBR-124.
 * M4f (done 2026-11-22): LPD core channels in an MPS element, SBR-125.
-* M4g (done 2026-11-22): bsHighRateMode: smoothing of the upmix matrices over time (bsSmoothMode 1..3), several parameter sets per frame verified against libxaac (generator `--mps-hr`), SBR-126.  Open: IPD/OPD and temporal shaping with several sets, data mode 2 (FDK only), multi-set agreement with FDK 20 - 43 dB.
+* M4g (done 2026-11-22): bsHighRateMode: smoothing of the upmix matrices over time (bsSmoothMode 1..3), several parameter sets per frame verified against libxaac (generator `--mps-hr`), SBR-126.  Open: IPD/OPD and temporal shaping with several sets, data mode 2 (FDK only).  Against FDK the generator streams scatter 13 - 44 dB by seed with one or three sets alike (median ~37 dB); the outliers are unexplained.
 * M4b-rest: stereoConfigIndex 3 (eSBR after upmix).  Original M4 list: residual coding (`bsResidualBands > 0`: the second core channel as MDCT -> QMF residual), pseudo-LR (index 3), temporal shaping (STP, GES, TSD), phase coding (IPD / OPD).
 * M5: fixtures, fingerprints, generator (`--mps`), mutations, fuzzing, docs.
