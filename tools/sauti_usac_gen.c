@@ -21,7 +21,7 @@ static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n &
 static FILE *g_elem_fu[8];
 static uint8_t hist_au[8][1 << 16]; static size_t hist_len[8];                /* the last access units (ring of 8) that go into a pre-roll payload */
 static int g_pvc;                                                            /* --pvc N: predictive vector coding in the SBR configuration; mono streams only.  1 the header mode switches at random between classic and PVC modes 1 / 2, 2 mode 1 only, 3 mode 2 only, 4 modes 1 / 2 without classic frames */
-static int g_sbr41, g_mps_pslr, g_mps_tsd, g_mps_gesval = -1, g_mps_gesnear, g_mps_ges, g_mps_envq, g_mps_stp, g_mps_anti, g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr, g_mps_phase, g_mps_opd;   /* --mps-phase 1: phase coding (IPD / OPD) with one IPD set per frame, --mps-opd M: bsOpdSmoothingMode */   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
+static int g_mps_hrint, g_mps_hr, g_sbr41, g_mps_pslr, g_mps_tsd, g_mps_gesval = -1, g_mps_gesnear, g_mps_ges, g_mps_envq, g_mps_stp, g_mps_anti, g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr, g_mps_phase, g_mps_opd;   /* --mps-phase 1: phase coding (IPD / OPD) with one IPD set per frame, --mps-opd M: bsOpdSmoothingMode */   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
 static int g_hbe;                                                            /* --hbe N: harmonic transposer (bs_harmonicSBR): 1 random mix of sbrPatchingMode 0 / 1 frames, 2 always the transposer; random oversampling flag and sbrPitchInBins (0, 12, 24, 36 and 1..127) */
 static int g_intertes;                                                       /* --intertes: inter-subband temporal envelope shaping in the SBR configuration, random bs_temp_shape / mode after every envelope */
 static int g_lfe_short;                                                      /* diagnostic: the LFE uses an eight-short window from the second frame on (illegal: an LFE has long windows only) */
@@ -447,10 +447,52 @@ static void put_sbr(Bw *w, const Opt *o, unsigned channels, int indep) {
     fprintf(stderr, "generator: no valid SBR frame found\n"); exit(1);
 }
 
+/* bsHighRateMode: bsFramingType, the number of parameter sets, the slots, bsIndependencyFlag, CLD / ICC EcData for every set (data modes default / keep / interpolate / new; new data in pairs of sets or single, PCM coded, stride 0) and the smoothing data
+ * of every set (modes 0 .. 3, bsSmoothTime, the stride and group flags of mode 3).  Returns nothing; the values are random but moderate. */
+static void put_mps_hr_core(Bw *w, int indep) {
+    unsigned sets = getenv("GEN_HR_SETS") ? (unsigned)atoi(getenv("GEN_HR_SETS")) : 1u + rnd() % 4u, framing = getenv("GEN_HR_FRAMING") ? (unsigned)atoi(getenv("GEN_HR_FRAMING")) : (rnd() & 1u), i, k, slot[8], ind = 0u, type, mode[8];
+    static const unsigned fac_tab[4] = { 1, 2, 5, 28 };
+    put(w, framing, 1); put(w, sets - 1u, 3);
+    if (framing) {                                                          /* strictly increasing slots of 32 */
+        unsigned prev = 0u, left = sets;
+        for (i = 0; i < sets; i++) { const unsigned room = 32u - prev - (left - 1u); slot[i] = prev + rnd() % (room > 8u ? 8u : room); prev = slot[i] + 1u; left--; put(w, slot[i], 5); }
+    }
+    if (!indep) { ind = (rnd() % 4u) == 0u; put(w, ind, 1); } else ind = 1u;
+    for (type = 0; type < 2u; type++) {                                     /* 0 = CLD, 1 = ICC */
+        for (i = 0; i < sets; i++) {
+            const unsigned r = rnd() % 10u;
+            mode[i] = r < 5u ? 3u : (r < 6u ? 0u : (r < 8u ? 1u : (g_mps_hrint ? 2u : 3u)));                 /* mode 2 (interpolate) only with --mps-hr-interp: libxaac's decoder rejects it (an inverted check) */
+            if (getenv("GEN_HR_MODES") && !strchr(getenv("GEN_HR_MODES"), (int)('0' + mode[i]))) mode[i] = 3u;           /* diagnostic: only the listed data modes */
+            if (i == 0u && ind && (mode[i] == 1u || mode[i] == 2u)) mode[i] = 3u;
+        }
+        if (mode[sets - 1u] == 2u) mode[sets - 1u] = 3u;                    /* an interpolation needs a later set that is not interpolated */
+        for (i = 0; i + 1u < sets; i++) if (mode[i] == 3u && mode[i + 1u] == 3u && (rnd() & 1u)) { mode[i] |= 4u; i++; }   /* bit 2: this set starts a pair with the next one (which is then not the start of another) */
+        for (i = 0; i < sets; i++) put(w, mode[i] & 3u, 2);
+        for (i = 0; i < sets; i++) {
+            if ((mode[i] & 3u) != 3u) continue;
+            if (i > 0u && (mode[i - 1u] & 4u)) continue;                    /* the second set of a pair: its data came with the first one */
+            {   const unsigned pair = (mode[i] & 4u) != 0u, coarse = (rnd() % 4u) == 0u, n = pair ? 2u : 1u;
+                put(w, pair, 1); put(w, coarse, 1); put(w, 0, 2); put(w, 1, 1);
+                for (k = 0; k < n * 28u; k++) put(w, type == 0u ? (coarse ? (uint32_t)rr(3, 11) : (uint32_t)rr(5, 25)) : (uint32_t)rr(0, coarse ? 3 : 7), type == 0u ? (coarse ? 4u : 5u) : (coarse ? 2u : 3u));
+            }
+        }
+    }
+    for (i = 0; i < sets; i++) {                                            /* smoothing data of the set; every value is drawn in every case so that the rest of the stream does not depend on the diagnostic switches */
+        const unsigned m0 = rnd() & 3u, tm = rnd() & 3u, st = rnd() & 3u, fac = fac_tab[st], groups = (28u - 1u) / fac + 1u;
+        unsigned gr[28];
+        const unsigned m = ((indep && getenv("GEN_HR_NOSMOOTH_INDEP")) || getenv("GEN_HR_NOSMOOTH_ALL")) ? 0u : m0;       /* diagnostic: no smoothing (in the independent frames: the first frame of libxaac runs a start-up path) */
+        for (k = 0; k < groups; k++) gr[k] = rnd() & 1u;
+        put(w, m, 2);
+        if (m >= 2u) put(w, tm, 2);
+        if (m == 3u) { put(w, st, 2); for (k = 0; k < groups; k++) put(w, gr[k], 1); }
+    }
+}
+
 /* ---- Mps212Data: one parameter set per frame, CLD and ICC as PCM (EcData data mode 3, no pair, stride 0 = a value for every one of the 28 bands), no smoothing, no temporal shaping.  The values are
  * random but kept moderate (CLD indices 5..25 = within about +-20 dB, ICC all 8 values); every few frames the quantiser is coarse. ------------------------------------------------------ */
 static void put_mps_data(Bw *w, int indep) {
     unsigned i, coarse = (rnd() % 4u) == 0u;
+    if (g_mps_hr) { put_mps_hr_core(w, indep); goto shaping; }
     if (!indep) put(w, 1, 1);                                               /* bsIndependencyFlag */
     put(w, 3, 2); put(w, 0, 1); put(w, coarse, 1); put(w, 0, 2); put(w, 1, 1);          /* CLD: new data, no pair, quantiser, stride 0, PCM */
     for (i = 0; i < 28u; i++) put(w, (g_mps_anti && i < 4u) ? (coarse ? 7u : 15u) : (coarse ? (uint32_t)rr(3, 11) : (uint32_t)rr(5, 25)), coarse ? 4u : 5u);
@@ -462,6 +504,7 @@ static void put_mps_data(Bw *w, int indep) {
         put(w, 3, 2); put(w, 0, 1); put(w, c2, 1); put(w, 0, 2); put(w, 1, 1);
         { const unsigned nb = (g_mps >= 2 && (unsigned)g_mps_res > 10u) ? (unsigned)g_mps_res : 10u; for (i = 0; i < nb; i++) put(w, (g_mps_anti && i < 4u) ? (c2 ? 4u : 8u) : (uint32_t)rr(0, c2 ? 7 : 15), c2 ? 3u : 4u); }   /* bands carrying IPD: 10, or the residual bands if there are more */
     }
+shaping:
     if (g_mps_stp) {                                                        /* STP: bsTempShapeEnable (3 of 4 frames), then one flag per output channel */
         unsigned en = (rnd() % 4u) != 0u, c0 = rnd() & 1u, c1 = rnd() & 1u;              /* always three draws: the rest of the stream does not depend on the mode */
         if (g_mps_stp == 2) { en = 1; c0 = c1 = 1; } else if (g_mps_stp == 3) en = 0;
@@ -544,6 +587,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--mps-tsd") && a + 1 < argc) g_mps_tsd = atoi(argv[++a]);   /* bsTempShapeConfig 3 (TSD); N as for --mps-stp */
         else if (!strcmp(argv[a], "--mps-pseudo-lr")) g_mps_pslr = 1;                    /* bsPseudoLr = 1 (stereoConfigIndex 2 / 3): the core channels are rotated by 45 degrees */
         else if (!strcmp(argv[a], "--sbr41")) g_sbr41 = 1;                              /* eSBR 4:1 (coreSbrFrameLengthIndex 4: the core runs at a quarter of the output rate, 64 QMF slots per frame) */
+        else if (!strcmp(argv[a], "--mps-hr")) g_mps_hr = 1;                              /* bsHighRateMode: 1..4 parameter sets per frame with optional explicit slots, data modes default / keep / interpolate / new (pairs, PCM), smoothing modes 0..3 */
+        else if (!strcmp(argv[a], "--mps-hr-interp")) g_mps_hrint = 1;                  /* allow data mode 2 (interpolate) in --mps-hr */
         else if (!strcmp(argv[a], "--mps-ges-near")) g_mps_gesnear = 1;                     /* envelope values near 1 (2^(v / (q + 2) - 1) in 0.8 .. 2): a realistic envelope instead of a random one */
         else if (!strcmp(argv[a], "--mps-envq") && a + 1 < argc) g_mps_envq = atoi(argv[++a]);  /* bsEnvQuantMode of the GES envelope */
         else if (!strcmp(argv[a], "--mps-phase") && a + 1 < argc) g_mps_phase = atoi(argv[++a]);
@@ -627,7 +672,7 @@ int main(int argc, char **argv) {
         if (o.channels == 2u) {
             put(&asc, (uint32_t)g_mps, 2);                                  /* stereoConfigIndex */
             if (g_mps) {                                                    /* Mps212Config: 28 parameter bands, no temporal shaping, no phase coding, one parameter set per frame */
-                put(&asc, 1, 3); put(&asc, (uint32_t)g_mps_fgain, 3); put(&asc, g_mps_stp ? 1u : (g_mps_ges ? 2u : (g_mps_tsd ? 3u : 0u)), 2); put(&asc, (uint32_t)g_mps_decorr, 2); put(&asc, 0, 1); put(&asc, (uint32_t)g_mps_phase, 1); put(&asc, 0, 1);
+                put(&asc, 1, 3); put(&asc, (uint32_t)g_mps_fgain, 3); put(&asc, g_mps_stp ? 1u : (g_mps_ges ? 2u : (g_mps_tsd ? 3u : 0u)), 2); put(&asc, (uint32_t)g_mps_decorr, 2); put(&asc, (uint32_t)g_mps_hr, 1); put(&asc, (uint32_t)g_mps_phase, 1); put(&asc, 0, 1);
                 if (g_mps >= 2) { put(&asc, (uint32_t)g_mps_res, 5); put(&asc, (uint32_t)g_mps_pslr, 1); }
                 if (g_mps_ges) put(&asc, (uint32_t)g_mps_envq, 1);                  /* bsEnvQuantMode (temporal shaping configuration 2) */
             }

@@ -388,6 +388,21 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
                 resg[ps][pb][row] = rs[row]; decg[ps][pb][row] = in_res ? 0.0f : dc[row]; rsdg[ps][pb][row] = in_res ? rd[row] : 0.0f; img[ps][pb][row] = ii[row];
             }
         }
+    /* smoothing of the upmix gains over time (bsSmoothMode 1..3, only with bsHighRateMode): g[ps] = delta g[ps] + (1 - delta) g[ps - 1] with delta = distance of the sets / smoothing time, in the bands above the residual
+     * ones that are flagged; the first set is smoothed towards the last (already smoothed) set of the previous frame */
+    for (ps = 0; ps < f->num_sets; ps++) {
+        const float delta = (float)slot_diff[ps] * (1.0f / (float)(f->smooth_time[ps] ? f->smooth_time[ps] : 256u)), one_minus = 1.0f - delta;
+        for (pb = cfg->residual_bands; pb < f->param_bands; pb++) {
+            if (!f->smooth_data[ps][pb]) continue;
+            for (row = 0; row < 2u; row++) {
+                const float pr = ps ? resg[ps - 1u][pb][row] : d->resid_prev[pb][row], pd = ps ? decg[ps - 1u][pb][row] : d->decor_prev[pb][row], ps_ = ps ? rsdg[ps - 1u][pb][row] : d->rsd_prev[pb][row], pi = ps ? img[ps - 1u][pb][row] : d->im_prev[pb][row];
+                resg[ps][pb][row] = delta * resg[ps][pb][row] + one_minus * pr;
+                decg[ps][pb][row] = delta * decg[ps][pb][row] + one_minus * pd;
+                rsdg[ps][pb][row] = delta * rsdg[ps][pb][row] + one_minus * ps_;
+                img[ps][pb][row] = delta * img[ps][pb][row] + one_minus * pi;
+            }
+        }
+    }
     if (cfg->phase_coding && !cfg->residual) {
         unsigned t = 0;
         phase_sets(d, cfg, f, slot_diff, pl, pr);

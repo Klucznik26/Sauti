@@ -400,6 +400,44 @@ static void test_golden_phase(void) {
     fclose(fp);
 }
 
+/* bsHighRateMode: several parameter sets per frame, smoothing of the upmix matrices over time.  The golden file holds, for three streams of `sauti_usac_gen --mps-hr` (stereoConfigIndex 1 and 2, residual bands 0 and 6; the first
+ * frame of each has no smoothing: libxaac runs a start-up path there), the inputs of libxaac's upmix and four sums of its output of every frame, see tests/data/make_mps_hr_golden.py. */
+static void test_golden_hr(void) {
+    FILE *fp = fopen("tests/data/mps_hr_golden.bin", "rb");
+    int32_t ns, si;
+    static SautiUsacMpsDec d; static SautiUsacMpsFrame f; static float inb[32 * 54 * 2], rb_[32 * 32 * 2]; static SautiAacSbrComplex in[32 * 64], rin[32 * 64], o0[32 * 64], o1[32 * 64];
+    if (!fp) { CHECK(0, "cannot read tests/data/mps_hr_golden.bin (run from the repository root)"); return; }
+    { char m[4]; if (fread(m, 1, 4, fp) != 4 || memcmp(m, "MPSH", 4) || fread(&ns, 4, 1, fp) != 1) { CHECK(0, "hr golden header"); fclose(fp); return; } }
+    for (si = 0; si < ns; si++) {
+        int32_t sh[4], fr;
+        SautiUsacMpsConfig c = cfg1;
+        if (fread(sh, 4, 4, fp) != 4) { CHECK(0, "hr golden stream %d header", (int)si); break; }
+        memset(&d, 0, sizeof d); c.decorr = (unsigned)sh[0]; c.residual_bands = (unsigned)sh[2]; c.residual = (unsigned)sh[3];
+        for (fr = 0; fr < sh[1]; fr++) {
+            int32_t hd[4], slots[9], cld[9 * 28], icc[9 * 28], st[9], sd[9 * 28], i, s, b, ch;
+            if (fread(hd, 4, 4, fp) != 4 || fread(slots, 4, 9, fp) != 9 || fread(cld, 4, 9u * 28u, fp) != 9u * 28u || fread(icc, 4, 9u * 28u, fp) != 9u * 28u || fread(st, 4, 9, fp) != 9 || fread(sd, 4, 9u * 28u, fp) != 9u * 28u || fread(inb, 4, 32u * 54u * 2u, fp) != 32u * 54u * 2u || (sh[2] && fread(rb_, 4, 32u * 32u * 2u, fp) != 32u * 32u * 2u)) { CHECK(0, "hr golden stream %d frame %d", (int)si, (int)fr); break; }
+            memset(&f, 0, sizeof f); f.num_sets = (unsigned)hd[1]; f.param_bands = (unsigned)hd[2]; f.ext_frame = (unsigned)hd[3];
+            for (s = 0; s < 9; s++) { f.param_slot[s] = (unsigned)slots[s]; f.smooth_time[s] = (unsigned)st[s]; for (i = 0; i < 28; i++) { f.cld_idx[s][i] = cld[s * 28 + i]; f.icc_idx[s][i] = icc[s * 28 + i]; f.smooth_data[s][i] = (uint8_t)sd[s * 28 + i]; } }
+            memset(in, 0, sizeof in); memset(rin, 0, sizeof rin);
+            if (sh[2]) for (s = 0; s < 32; s++) for (b = 0; b < 32; b++) { rin[s * 64 + b].re = (float)(rb_[(s * 32 + b) * 2] / (32768.0 * 1.4142135623730951)); rin[s * 64 + b].im = (float)(rb_[(s * 32 + b) * 2 + 1] / (32768.0 * 1.4142135623730951)); }
+            for (s = 0; s < 32; s++) for (b = 0; b < 54; b++) { in[s * 64 + b].re = (float)(inb[(s * 54 + b) * 2] / (32768.0 * 1.4142135623730951)); in[s * 64 + b].im = (float)(inb[(s * 54 + b) * 2 + 1] / (32768.0 * 1.4142135623730951)); }
+            CHECK(sauti_usac_mps212_apply(&d, &c, &f, (unsigned)hd[0], 32, in, sh[2] ? rin : NULL, 32, o0, o1), "hr golden stream %d frame %d refused", (int)si, (int)fr);
+            for (ch = 0; ch < 2; ch++) {
+                double exp4[4], got[4] = { 0, 0, 0, 0 }, scale; const SautiAacSbrComplex *o = ch ? o1 : o0;
+                if (fread(exp4, 8, 4, fp) != 4) { CHECK(0, "hr golden stream %d frame %d sums", (int)si, (int)fr); break; }
+                if (fr < 3) continue;                                                                      /* the start-up of the reference (its first frame runs a pre-matrix ramp) leaves traces for two frames */
+                for (s = 0; s < 32; s++) for (b = 0; b < 54; b++) {
+                    const double re = o[s * 64 + b].re * 32768.0 * 1.4142135623730951, im = o[s * 64 + b].im * 32768.0 * 1.4142135623730951, w = ((double)s * 131.0 + (double)b * 7.0 + 1.0) / (32.0 * 64.0);
+                    got[0] += re; got[1] += im; got[2] += re * re + im * im; got[3] += (re + 2.0 * im) * w;
+                }
+                scale = sqrt(exp4[2] * 32.0 * 54.0) + 1e-9;
+                for (i = 0; i < 4; i++) CHECK(fabs(got[i] - exp4[i]) <= (i == 2 ? 3e-5 * exp4[2] : 3e-5 * scale) + 1e-9, "hr golden stream %d (decorr %d, res %d, kind %d) frame %d channel %d sum %d: %.9g, libxaac %.9g", (int)si, (int)sh[0], (int)sh[2], (int)sh[3], (int)fr, (int)ch, (int)i, got[i], exp4[i]);
+            }
+        }
+    }
+    fclose(fp);
+}
+
 static void test_phase(void) {
     /* a steady tone in hybrid band 10 only (QMF band 3, parameter band 8: inside the 10 bands that carry phases), the same parameters in every band, IPD index 4 (pi / 2), CLD 0 and ICC 0: the two outputs are the tone rotated by their own phases, so the phase difference
      * between them (left minus right) is the IPD; with phase coding off the outputs are in phase (ICC 0 = fully coherent, no decorrelated part) */
@@ -516,7 +554,7 @@ static void test_tsd(void) {
 }
 
 int main(void) {
-    test_tables(); test_parse(); test_signal(); test_golden(); test_golden_res(); test_residual(); test_golden_phase(); test_phase(); test_phase_pred(); test_tsd();
+    test_tables(); test_parse(); test_signal(); test_golden(); test_golden_res(); test_residual(); test_golden_phase(); test_golden_hr(); test_phase(); test_phase_pred(); test_tsd();
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_mps: all passed\n"); return 0;
 }
