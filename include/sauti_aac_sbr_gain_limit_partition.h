@@ -60,4 +60,18 @@ int sauti_aac_sbr_gain_limit_partition_flags(
     unsigned delta,
     SautiAacSbrGainLimitedFrame *out);
 
+/* The same with the noise floor each tone is scaled with given separately (NULL: the noise floor q, as above). */
+int sauti_aac_sbr_gain_limit_partition_flags_ex(
+    const double envelope_energy[64],
+    const double current_hf_power[64],
+    const double noise_factor[64],
+    const double noise_factor_sine[64],
+    const uint8_t sine_index[64],
+    const uint8_t sine_mapped[64],
+    const uint8_t edges[65],
+    unsigned group_count,
+    unsigned gain_mode,
+    unsigned delta,
+    SautiAacSbrGainLimitedFrame *out);
+
 #endif

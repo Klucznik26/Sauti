@@ -212,6 +212,27 @@ int sauti_aac_sbr_quant_decode(const uint8_t *data, size_t size,
     return 1;
 }
 
+int sauti_aac_sbr_quant_decode_noise_only(const uint8_t *data,size_t size,size_t *bit_offset,
+                                          unsigned noise_count,const SautiAacSbrTables *tables,
+                                          const SautiAacSbrControl *control,unsigned amp_res,
+                                          SautiAacSbrQuantState *state,SautiAacSbrQuantFrame *out){
+    if(!data || !bit_offset || !tables || !control || !state || !out || size>SIZE_MAX/8u || *bit_offset>size*8u ||
+       noise_count<1u || noise_count>2u)return 0;
+    SautiAacSbrGrid grid;memset(&grid,0,sizeof(grid));      /* stands in for the time grid: the noise coding needs only the counts */
+    grid.env_count=noise_count;grid.noise_count=noise_count;
+    if(!validate(&grid,tables,control,state,amp_res,0u))return 0;
+    size_t pos=*bit_offset;
+    SautiAacSbrQuantFrame next;memset(&next,0,sizeof(next));
+    next.noise_count=noise_count;
+    QuantMode mode;quant_mode(&grid,tables,state,amp_res,0u,&mode);
+    if(!decode_noise(data,size,&pos,&grid,tables,control,state,&mode,&next))return 0;
+    state->has_noise=1u;state->prev_tables=*tables;
+    memset(state->prev_noise,0,sizeof(state->prev_noise));
+    memcpy(state->prev_noise,next.noise[noise_count-1u],tables->n_noise);
+    *out=next;*bit_offset=pos;
+    return 1;
+}
+
 int sauti_aac_sbr_quant_decode_cpe_uncoupled(
     const uint8_t *data,size_t size,size_t *bit_offset,
     const SautiAacSbrGrid grid[2],const SautiAacSbrTables *tables,

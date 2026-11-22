@@ -6,12 +6,12 @@
 #include "sauti_aac_sbr_gain_partition.h"
 #include <math.h>
 
-int sauti_aac_sbr_gain_partition_flags(
-    double e,double ec,double q,
+int sauti_aac_sbr_gain_partition_flags_ex(
+    double e,double ec,double q,double q_sine,
     unsigned sine_index,unsigned sine_mapped,unsigned delta,
     SautiAacSbrGainPartition *out){
-    if(!out || !isfinite(e) || !isfinite(ec) || !isfinite(q) ||
-       e<0.0 || ec<0.0 || q<0.0 ||
+    if(!out || !isfinite(e) || !isfinite(ec) || !isfinite(q) || !isfinite(q_sine) ||
+       e<0.0 || ec<0.0 || q<0.0 || q_sine<0.0 ||
        sine_index>1u || sine_mapped>1u || delta>1u)
         return 0;
     const double denominator=1.0+q;
@@ -25,7 +25,7 @@ int sauti_aac_sbr_gain_partition_flags(
      * the product E*Q may overflow although final gain is valid. */
     const double noise_share=q/denominator;
     const double n2=e*noise_share;
-    const double s2=sine_index?(e/denominator):0.0;
+    const double s2=sine_index?(q_sine==q?e/denominator:e*noise_share/(q_sine+1.0e-17)):0.0;    /* q_sine: the noise floor the tone is scaled with (PVC: a tone carried over from the previous frame uses that frame's) */
     const double g2=sine_mapped?
         (e/ec_denom)*noise_share:
         (e/ec_denom)/delta_denom;
@@ -40,6 +40,13 @@ int sauti_aac_sbr_gain_partition_flags(
         return 0;
     *out=value;
     return 1;
+}
+
+int sauti_aac_sbr_gain_partition_flags(
+    double e,double ec,double q,
+    unsigned sine_index,unsigned sine_mapped,unsigned delta,
+    SautiAacSbrGainPartition *out){
+    return sauti_aac_sbr_gain_partition_flags_ex(e,ec,q,q,sine_index,sine_mapped,delta,out);
 }
 
 int sauti_aac_sbr_gain_partition(

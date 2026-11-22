@@ -4,6 +4,8 @@
 # USAC_XAAC_MIN_DB (default 65) over the whole file; the measured values are 72-83 dB (libxaac is fixed point).  Before AudioPreRoll was implemented these streams agreed at 4.7-30 dB: the eSBR noise sequence starts at
 # the phase the two pre-roll access units leave it at.  libxaac's 16-bit output wraps around (no saturation) on a sample beyond full scale; such samples are left out of the comparison.  SKIP (exit 0, stated loudly) without xaacdec / numpy.
 # x5-x7 are eSBR 8:3 (768-line core); x6 is compared on the left channel only (see below).  l1-l3 have the LPD core (ACELP / TCX, no SBR): the same comparison (the 16-bit output of libxaac limits it to about 78 dB).
+# p1-p3: eSBR with predictive vector coding (PVC), libxaac encoder, mono LPD.  v1-v3: generator streams with PVC (variable length grids, sines, all pvc_id codings, classic / PVC switches): random quiet cores, the
+# PCM agrees to USAC_XAAC_GEN_MIN_DB (default 50); the PVC internals of these streams were compared frame by frame with an instrumented libxaac (docs SBR-114).
 # usage: scripts/test_usac_vs_xaac.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -13,9 +15,9 @@ python3 -c 'import numpy' 2>/dev/null || { echo "SKIP: no numpy"; exit 0; }
 make -s build/sauti_usac_raw >/dev/null
 W="$(mktemp -d "${TMPDIR:-/tmp}/sauti-xaacdec.XXXXXX")"; trap 'rm -rf -- "$W"' EXIT
 fail=0
-for n in x1 x2 x3 x4 x5 x6 x7 x8 x9 l1 l2 l3 l4 l5 l6 l7; do
-  ch=1; ts=24000; fl=1024; cmpc=all                                            # channels, time scale (core rate), core frame length, channels compared
-  case "$n" in x3|x4) ch=2;; x5) ch=2; ts=18000; fl=768;; x6) ch=2; ts=16537; fl=768; cmpc=0;; x7) ts=12000; fl=768;; x8) ts=12000;; x9) ch=2; ts=12000; cmpc=0;; l1|l3) ts=16000;; l2|l4|l5|l6) ts=24000;; l7) ch=2; ts=24000;; esac
+for n in x1 x2 x3 x4 x5 x6 x7 x8 x9 l1 l2 l3 l4 l5 l6 l7 p1 p2 p3 v1 v2 v3; do
+  ch=1; ts=24000; fl=1024; cmpc=all; mn="$MIN"                                            # channels, time scale (core rate), core frame length, channels compared
+  case "$n" in x3|x4) ch=2;; x5) ch=2; ts=18000; fl=768;; x6) ch=2; ts=16537; fl=768; cmpc=0;; x7) ts=12000; fl=768;; x8) ts=12000;; x9) ch=2; ts=12000; cmpc=0;; l1|l3) ts=16000;; l2|l4|l5|l6) ts=24000;; l7) ch=2; ts=24000;; v1|v2|v3) ts=48000; fl=2048; mn="${USAC_XAAC_GEN_MIN_DB:-50}";; esac
   python3 -I tools/mp4_dump_aus.py "tests/data/usac_$n.m4a" "$W/$n" >/dev/null
   python3 -I - "$W" "$n" "$ts" "$fl" <<'PY'
 import struct, sys
@@ -29,7 +31,7 @@ open("%s/%s.txt" % (W, n), 'w').write('\n'.join(t + ['-ia_mp4_stsz_size:%d' % le
 PY
   build/sauti_usac_raw "$W/$n" "$W/$n.sau" 2>/dev/null
   "$XAAC/xaacdec" -ifile:"$W/$n.es" -imeta:"$W/$n.txt" -mp4:1 -ofile:"$W/$n.pcm" -pcmsz:16 >/dev/null 2>&1 || true
-  r="$(python3 -I - "$W" "$n" "$ch" "$MIN" "$cmpc" <<'PY'
+  r="$(python3 -I - "$W" "$n" "$ch" "$mn" "$cmpc" <<'PY'
 import sys, numpy as np
 W, n, ch, mn, cmpc = sys.argv[1], sys.argv[2], int(sys.argv[3]), float(sys.argv[4]), sys.argv[5]
 try:

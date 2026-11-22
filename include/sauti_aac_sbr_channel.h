@@ -40,12 +40,16 @@ typedef struct {
     SautiAacSbrPayloadFrame previous;                 /* for the carried-over onset e_a[0] and the sine continuation */
     uint32_t have_previous;
     unsigned previous_last_edge;                      /* env_edges[env_count] of the previous frame (32..38) */
+    uint8_t last_sine_before[64];                     /* PVC: ... and the same flags one frame earlier (they decide whether a tone carried over into this frame was already running) */
     uint8_t last_sine[64];                            /* per bin: was a sine added in the last envelope of the previous frame */
     SautiAacSbrComplex spill[SAUTI_AAC_SBR_CHANNEL_SPILL*64u]; /* finished HF of the slots the previous frame ran past its end */
     unsigned spill_slots,spill_kx,spill_k2;
     double gain_history[4][64],noise_history[4][64];  /* gain / noise of the last four processed slots (smoothing) */
     uint32_t history_valid;
     unsigned index_noise,index_sine;
+    SautiUsacPvcState pvc;                            /* eSBR PVC: low band energy history of the predictor */
+    SautiAacSbrComplex pvc_carry[12*64];              /* PVC: the HF carrier (not yet adjusted) of the time slots the previous frame's grid ran past its end: the adjustment of the next frame starts with them */
+    double q_carry[4][64];                            /* PVC: noise floor of the time slots a frame's grid ran past its end (they belong to the first slots of the next frame) */
     uint64_t discontinuities;                         /* frames whose first border did not continue the previous frame */
 } SautiAacSbrChannel;
 

@@ -91,7 +91,7 @@ Co jest zrobione, co zostaje i **od czego zależy** — jedna tabela dla decyzji
 | Element | Czego brakuje | Wzorzec dziś | Odblokowanie |
 |---|---|---|---|
 | USAC LPD (ACELP / TCX / FAC), przejścia FD ↔ LPD | tablice ROM (książki LSF, AVQ, filtry ACELP, okna FAC), ok. 2 300 linii logiki (ocena z libxaac) | **libxaac (koder LPD 16 / 24 kHz + dekoder)** i FDK (konfiguracje 1–2) | plan: `docs/USAC_LPD_PLAN.md`; tablice: wyprowadzenie z normy albo, po zgodzie, z libxaac z wpisem w rejestrze |
-| harmoniczny transposer (HBE), PVC, inter-TES (eSBR 8:3 i 4:1 ZROBIONE w SBR-109 / SBR-112: okna 24 i 16 pasm wyprowadzone ze wzoru, bez tablicy z FDK / libxaac) | tablice PVC / HBE | tylko FDK | jw. |
+| harmoniczny transposer (HBE) (OTWARTE), PVC (ZROBIONE w SBR-114, tablice z libxaac: rejestr poniżej), inter-TES (ZROBIONE w SBR-113, bez tablicy); eSBR 8:3 i 4:1 ZROBIONE w SBR-109 / SBR-112: okna 24 i 16 pasm wyprowadzone ze wzoru, bez tablicy z FDK / libxaac | tablice PVC / HBE | tylko FDK | jw. |
 | MPS212 (stereo parametryczne USAC) | tablice kwantyzacji i dekorelatorów | FDK (FFmpeg robi tylko downmix) | jw. |
 | ELD + SBR (CLDFB) | tablica okna CLDFB | FDK | jw. (decyzja czeka od 2026-11-20) |
 | LFE z eSBR (upsampling QMF), konfiguracje kanałów > 7, jawne pozycje kanałów, wielokanałowe eSBR w generatorze | logika, bez nowych tablic; brak wzorca dla wielokanałowych (FDK 2.0.3 czyta w USAC tylko konfiguracje 1–2, FFmpeg czyta LFE jak SCE) | brak | wzorzec wielokanałowy (np. libxaac, niżej) |
@@ -119,6 +119,16 @@ Co jest zrobione, co zostaje i **od czego zależy** — jedna tabela dla decyzji
 | `sauti_usac_lpd_gain_table` | `ixheaacd_int_leave_gain_table` (rom) | kwantyzator wzmocnień ACELP (128 × 2) |
 | `sauti_usac_lpd_bpf_fir` | `ixheaacd_fir_lp_filt` (avq_rom) | filtr dolnoprzepustowy filtra basowego (13 współczynników) |
 | `sauti_usac_lpd_interpol_filt` | `ixheaacd_interpol_filt` (avq_rom) | filtr interpolacji książki adaptacyjnej (65) |
+
+**Rejestr tablic PVC z libxaac** (generuje je `tools/gen_usac_pvc_tables.py` z `~/Sauti-tools/libxaac`, commit 2fbadd57; ta sama licencja i ten sam NOTICE; wynik: `src/decoders/modern/aac/sauti_usac_pvc_tables.c`, `include/sauti_usac_pvc_tables.h`; zgoda właściciela z 2026-11-21 na tablice z libxaac: tylko dane, skrypt generujący, wpis per tablica). Weryfikacja: wszystkie 1 918 liczb całkowitych (72 + 1 024 + 54 + 768) tablic współczynników sprawdzone niezależnie od generatora (inny parser szesnastkowych literałów, `tests/test_usac_pvc.c` ma też wartości kontrolne), predyktor zgodny z libxaac do 1e-3 (docs SBR-114).
+
+| Tablica w Sauti | Nazwa w libxaac (plik) | Znaczenie |
+|---|---|---|
+| `sauti_usac_pvc_smooth_ns4 / _ns16 / _ns3 / _ns12` | `ixheaacd_pvc_smoothing_wind_tab_ns4 / ns16 / ns3 / ns12` (pvc_rom) | okna wygładzania energii niskiego pasma (tryb 1: 4 / 16, tryb 2: 3 / 12 szczelin) |
+| `sauti_usac_pvc_id_boundary_m1 / _m2` | `ixheaacd_pred_coeff_pvc_id_boundaries_1 / _2` | granice trzech grup współczynników po `pvc_id` (17 / 68, 16 / 52) |
+| `sauti_usac_pvc_qfac_m1 / _m2` | `ixheaacd_q_factor_table_mode_1 / _2` | kwanta współczynników predykcji (trzy grupy niskie i przesunięcie) |
+| `sauti_usac_pvc_coef1_m1 / _m2` | `ixheaacd_pred_coeff_table_1_mode_1 / _2` | współczynniki predykcji [grupa id][grupa niska][grupa wysoka], 3 × 3 × 8 / 6 |
+| `sauti_usac_pvc_coef2_m1 / _m2` | `ixheaacd_pred_coeff_table_2_mode_1 / _2` | przesunięcia po `pvc_id` [128][8 / 6] |
 
 Liczone, nie przepisywane: okna sinusoidalne FAC / TCX, `0,92^i` (ważenie LPC), `10^(i/128)`, twiddle DCT-IV (DCT-IV liczone wprost).
 

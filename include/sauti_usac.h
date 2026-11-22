@@ -70,6 +70,11 @@ typedef struct {
     SautiAacSbrHeader header;                    /* persists across frames: amp_res / xover from SbrInfo, the rest from the header */
     uint32_t have_header;
     SautiAacSbrQuantState quant[2];
+    uint32_t prev_kind;                          /* kind of the previous frame: 0 none, 1 classic, 2 PVC */
+    uint32_t prev_last_border;                   /* last border of its time grid (time slots; 16 + var_len) */
+    uint32_t prev_freq_res;                      /* frequency resolution of its last envelope */
+    uint32_t prev_pvc_id;                        /* pvc_id of its last time slot (reuse_pvc_id) */
+    uint32_t sin_start_next, sin_len_next;       /* PVC: a sine that runs past the frame into the first slots of the next one */
 } SautiUsacSbrState;
 
 typedef struct {

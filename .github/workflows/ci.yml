@@ -59,6 +59,8 @@ jobs:
         run: make test-usac-xaac
       - name: "USAC LPD core (ACELP / TCX, ISO/IEC 23003-3): the algebraic vector quantiser on the RE8 lattice, LSF / LSP / LPC chain, random bit strings through the syntax layer and the decoder (ASan / UBSan)"
         run: make test-usac-lpd
+      - name: "USAC eSBR predictive vector coding (PVC): the predictor against a second implementation of the clause (random energies / ids, both modes and smoothing lengths, history), the history rules, refusals, tables"
+        run: make test-usac-pvc
       - name: "DVSM / AVR streaming (non-seekable input, partial reads, WOULD_BLOCK at every point, truncation, checkpoints, bounded memory)"
         run: make test-maktabasauti-dvs-stream
       - name: "WAV / AIFF streaming (differential vs the old adapters, header matrix, placeholder sizes, float WAV, truncation, mutations, bounded memory)"

@@ -119,24 +119,89 @@ static int adjust_envelope(const SautiAacSbrPayloadFrame *f,
     return 1;
 }
 
+/* One time slot of a PVC frame: the envelope energies come from the predictor (per subband), the noise floor of the slot from the grid, the sines per the flagged bands.  The same limiter as above.
+ * A slot inside the first sin_len_cur slots of the frame belongs to a sine that began in the previous frame's variable length part: which bins carry the tone follows the previous frame's flags
+ * (they decide the band flags, and the tone amplitude is scaled with the previous frame's last noise floor), the current flags only add tones inside the flagged bands. */
+static int adjust_pvc_slot(const SautiAacSbrPayloadFrame *f,const SautiAacSbrPayloadFrame *previous,const SautiAacSbrLimiterBands *bands,const SautiAacSbrComplex *xh,
+                           unsigned t,unsigned rate,const float *pred,const double *q,
+                           const uint8_t *flags_now,const uint8_t *last_sine,const uint8_t *last_sine_before,EnvAdjust *out){
+    const SautiAacSbrTables *tab=&f->tables;
+    const unsigned kx=tab->kx,k2=kx+tab->m;
+    const int carried=t<f->pvc.sin_len_cur;
+    double e[64]={0},curr[64]={0},q_sine[64];
+    uint8_t cond1[64]={0},cond2[64]={0},sine_index[64]={0},sine_mapped[64]={0};
+    memcpy(q_sine,q,sizeof q_sine);
+    if(carried && (!previous || previous->energy.noise_count<1u))return 0;
+    for(unsigned k=kx;k<k2;k++){
+        double sum=0.0;
+        for(unsigned l=0u;l<rate;l++){
+            const SautiAacSbrComplex z=xh[(size_t)(t*rate+l)*64u+k];
+            sum+=(double)z.re*z.re+(double)z.im*z.im;
+        }
+        curr[k]=ldexp(sum/(double)rate,30);
+        e[k]=pred[k];
+        if(!isfinite(curr[k]) || !isfinite(e[k]) || e[k]<0.0)return 0;
+        cond1[k]=(uint8_t)(flags_now[k] && (t>=f->pvc.sine_position || last_sine[k]));
+        cond2[k]=(uint8_t)(carried && last_sine[k] && (t>=f->pvc.sin_start_cur || last_sine_before[k]));
+    }
+    for(unsigned b=0u;b<tab->n_low;b++){
+        unsigned present=0u;
+        for(unsigned k=tab->low[b];k<tab->low[b+1u];k++)if(carried?cond2[k]:cond1[k])present=1u;
+        if(present)for(unsigned k=tab->low[b];k<tab->low[b+1u];k++){
+            sine_mapped[k]=1u;
+            sine_index[k]=carried?(uint8_t)(cond1[k]||cond2[k]):cond1[k];
+        }
+        if(!f->header.interpol_freq){                /* one measured power per low-resolution band */
+            double band_sum=0.0;
+            for(unsigned k=tab->low[b];k<tab->low[b+1u];k++)band_sum+=curr[k];
+            band_sum/=(double)(tab->low[b+1u]-tab->low[b]);
+            for(unsigned k=tab->low[b];k<tab->low[b+1u];k++)curr[k]=band_sum;
+        }
+    }
+    if(carried)
+        for(unsigned b=0u;b<tab->n_noise;b++)
+            for(unsigned k=tab->noise[b];k<tab->noise[b+1u];k++)
+                if(cond2[k])q_sine[k]=previous->energy.noise_factor[previous->energy.noise_count-1u][b];
+    SautiAacSbrGainLimitedFrame limited;
+    if(!sauti_aac_sbr_gain_limit_partition_flags_ex(e,curr,q,q_sine,sine_index,sine_mapped,bands->edges,bands->count,f->gain_mode,1u,&limited))return 0;
+    memset(out,0,sizeof(*out));
+    out->delta=1u;
+    for(unsigned k=kx;k<k2;k++){
+        out->gain[k]=limited.band[k].hf_gain;
+        out->noise[k]=limited.band[k].noise_amplitude;
+        out->sine[k]=limited.band[k].sine_amplitude;
+        if(!isfinite(out->gain[k]) || !isfinite(out->noise[k]) || !isfinite(out->sine[k]) ||
+           out->gain[k]<0.0 || out->noise[k]<0.0 || out->sine[k]<0.0)return 0;
+    }
+    return 1;
+}
+
 int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
                                 const SautiAacSbrPayloadFrame *f,
                                 SautiAacSbrComplex grid[]){
     if(!ch || !core || !f || !grid || ch->ready!=1u)return 0;
     const SautiAacSbrTables *tab=&f->tables;
     const unsigned kx=tab->kx,k2=kx+tab->m;
-    const unsigned envs=f->grid.env_count;
-    if(envs<1u || envs>SAUTI_AAC_SBR_MAX_ENV || kx<1u || kx>32u || k2<=kx || k2>64u ||
+    const int pvc=f->pvc.active!=0u;
+    const unsigned envs=pvc?SAUTI_USAC_PVC_SLOTS-f->pvc.first_slot:f->grid.env_count;      /* PVC: every time slot is an envelope of its own */
+    if(envs<1u || (!pvc && envs>SAUTI_AAC_SBR_MAX_ENV) || kx<1u || kx>32u || k2<=kx || k2>64u ||
        f->transient_env>envs || f->bs_smoothing_mode>1u)return 0;
+    if(pvc && (f->pvc.first_slot>=SAUTI_USAC_PVC_SLOTS || (ch->analysis_bands!=0u && ch->analysis_bands!=32u && ch->analysis_bands!=16u)))return 0;
 #ifdef SAUTI_SBR_CHANNEL_TRACE
     g_trace_frame=ch->frames;
 #endif
     const unsigned R=ch->analysis_bands==16u?2u:1u;       /* 1: 2:1 / 8:3 (32 slots), 2: 4:1 (64 slots) */
     const unsigned SLOTS=SAUTI_AAC_SBR_CHANNEL_SLOTS*R,HIST=2u+6u*R,MAXI=38u*R;
-    const unsigned t0=f->env_edges[0],tN=f->env_edges[envs];
+    const unsigned rate=2u*R;                         /* QMF slots per time slot */
+    unsigned elo[SAUTI_USAC_PVC_SLOTS],ehi[SAUTI_USAC_PVC_SLOTS];   /* the QMF slots of every envelope */
+    for(unsigned e=0u;e<envs;e++){
+        elo[e]=pvc?(f->pvc.first_slot+e)*rate:f->env_edges[e];
+        ehi[e]=pvc?(f->pvc.first_slot+e+1u)*rate:f->env_edges[e+1u];
+    }
+    const unsigned t0=elo[0],tN=ehi[envs-1u];
     if(t0>6u*R || tN<SLOTS || tN>MAXI)return 0;
     for(unsigned e=0u;e<envs;e++)
-        if(f->env_edges[e+1u]<=f->env_edges[e])return 0;
+        if(ehi[e]<=elo[e])return 0;
     const unsigned core_len=ch->analysis_bands==24u?768u:1024u;
     if(ch->analysis_bands!=0u && ch->analysis_bands!=16u && ch->analysis_bands!=24u && ch->analysis_bands!=32u)return 0;
     for(unsigned i=0u;i<core_len;i++)if(!isfinite(core[i]))return 0;
@@ -174,8 +239,20 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
     /* 3. HF carrier for the slots this frame owns: i in [t0, tN), taken from X_low[i..i+2] */
     SautiAacSbrComplex xh[MAX_I*64u];
     memset(xh,0,sizeof(xh));
-    if(!sauti_aac_sbr_hf_predict(&f->patches,tab,xlow+(size_t)t0*32u,(size_t)(tN-t0+2u)*32u,tN-t0,&lpc,&chirp,
-                                 xh+(size_t)t0*64u,(size_t)(tN-t0)*64u))return 0;
+    /* A PVC frame adjusts only the 16 time slots of the frame, but its carrier is generated over the whole grid (it may run past the frame by 0..3 time slots): those slots are adjusted by the next
+     * frame, which starts with the carrier left over here; the carrier of this frame's own first slots, that the previous grid ran into, is the one the previous frame generated. */
+    const unsigned g0=pvc?f->grid.env_border[0]*rate:t0,gN=pvc?f->grid.env_border[f->grid.env_count]*rate:tN;
+    if(gN<tN || gN>MAXI || g0<t0)return 0;
+    if(!sauti_aac_sbr_hf_predict(&f->patches,tab,xlow+(size_t)g0*32u,(size_t)(gN-g0+2u)*32u,gN-g0,&lpc,&chirp,
+                                 xh+(size_t)g0*64u,(size_t)(gN-g0)*64u))return 0;
+    if(pvc){
+        if(t0<g0){
+            if(!ch->have_previous || ch->previous.pvc.active==0u || g0>12u)return 0;
+            memcpy(xh+(size_t)t0*64u,ch->pvc_carry,(size_t)(g0-t0)*64u*sizeof(SautiAacSbrComplex));
+        }
+        memset(next->pvc_carry,0,sizeof(next->pvc_carry));
+        if(gN>SLOTS)memcpy(next->pvc_carry,xh+(size_t)SLOTS*64u,(size_t)(gN-SLOTS)*64u*sizeof(SautiAacSbrComplex));
+    }
 
     /* 4. one limiter pass per envelope. The sine map of an envelope is this frame's flags once its onset has been reached. Before
      * the onset a tone exists only if it is flagged now AND was already sounding at the end of the previous frame (it continues);
@@ -186,16 +263,49 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
         if(f->harmonic[b]>1u || tab->high[b]>=tab->high[b+1u] || tab->high[b+1u]>64u)return 0;
         if(f->harmonic[b])flags_now[(tab->high[b]+tab->high[b+1u])/2u]=1u;
     }
-    EnvAdjust adj[SAUTI_AAC_SBR_MAX_ENV];
+    EnvAdjust adj[SAUTI_USAC_PVC_SLOTS];
     const SautiAacSbrPayloadFrame *before=ch->have_previous?&ch->previous:NULL;
     uint8_t flags_pre[64],flags_last[64]={0};
     for(unsigned k=0u;k<64u;k++)flags_pre[k]=(uint8_t)(flags_now[k] && ch->last_sine[k]);
-    for(unsigned e=0u;e<envs;e++){
-        const unsigned onset=f->transient_env;        /* 0: no onset signalled (or at the first envelope) */
-        const int open=(onset==0u) || e>=onset;
-        const uint8_t *flags=open?flags_now:flags_pre;
-        if(!adjust_envelope(f,before,xh,e,flags,&adj[e]))return 0;
-        memcpy(flags_last,flags,sizeof(flags_last));
+    if(pvc){
+        /* PVC: predict the envelope of the 16 time slots from the low band energy, then adjust every slot as an envelope */
+        float low_energy[16][32],pred[16][64];
+        for(unsigned t=0u;t<16u;t++)
+            for(unsigned b=0u;b<32u;b++){
+                double sum=0.0;
+                for(unsigned l=0u;l<rate;l++){
+                    const SautiAacSbrComplex z=xlow[(size_t)(t*rate+l+2u)*32u+b];
+                    sum+=(double)z.re*z.re+(double)z.im*z.im;
+                }
+                low_energy[t][b]=(float)ldexp(sum/(double)rate,30);
+            }
+        if(!sauti_usac_pvc_predict(&next->pvc,&f->pvc,rate,kx,low_energy,pred))return 0;
+        /* noise floor of every time slot of the frame's grid (it may run past the frame; the first slots come from the previous frame's overrun) */
+        double qs[SAUTI_USAC_PVC_SLOTS+4u][64];
+        memset(qs,0,sizeof(qs));
+        const unsigned tb0=f->grid.env_border[0];
+        for(unsigned t=0u;t<tb0 && t<4u;t++)memcpy(qs[t],ch->q_carry[t],sizeof(qs[t]));
+        for(unsigned g=0u;g<f->grid.env_count;g++)
+            for(unsigned t=f->grid.env_border[g];t<f->grid.env_border[g+1u] && t<SAUTI_USAC_PVC_SLOTS+4u;t++)
+                for(unsigned b=0u;b<tab->n_noise;b++)
+                    for(unsigned k=tab->noise[b];k<tab->noise[b+1u];k++)qs[t][k]=f->energy.noise_factor[g][b];
+        SautiAacSbrLimiterBands pbands;
+        if(!sauti_aac_sbr_limiter_bands_build(tab,&f->patches,f->limiter_mode,&pbands))return 0;
+        for(unsigned e=0u;e<envs;e++){
+            const unsigned t=f->pvc.first_slot+e;
+            if(!adjust_pvc_slot(f,ch->have_previous?&ch->previous:NULL,&pbands,xh,t,rate,pred[t],qs[t],flags_now,ch->last_sine,ch->last_sine_before,&adj[e]))return 0;
+        }
+        for(unsigned t=0u;t<4u;t++)memcpy(next->q_carry[t],qs[SAUTI_USAC_PVC_SLOTS+t],sizeof(next->q_carry[t]));
+        memcpy(flags_last,flags_now,sizeof(flags_last));
+    }else{
+        next->pvc.prev_flag=0u;
+        for(unsigned e=0u;e<envs;e++){
+            const unsigned onset=f->transient_env;        /* 0: no onset signalled (or at the first envelope) */
+            const int open=(onset==0u) || e>=onset;
+            const uint8_t *flags=open?flags_now:flags_pre;
+            if(!adjust_envelope(f,before,xh,e,flags,&adj[e]))return 0;
+            memcpy(flags_last,flags,sizeof(flags_last));
+        }
     }
 
     /* 5. gain/noise per slot with the smoothing history, then noise and sine on top of the carrier */
@@ -223,7 +333,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
             qseq[(size_t)j*64u+k]=next->noise_history[j][k];
         }
     for(unsigned e=0u;e<envs;e++)
-        for(unsigned i=f->env_edges[e];i<f->env_edges[e+1u];i++)
+        for(unsigned i=elo[e];i<ehi[e];i++)
             for(unsigned k=kx;k<k2;k++){
                 gseq[(size_t)(4u+i-t0)*64u+k]=adj[e].gain[k];
                 qseq[(size_t)(4u+i-t0)*64u+k]=adj[e].noise[k];
@@ -234,7 +344,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
     const unsigned m_max=tab->m;
     for(unsigned e=0u;e<envs;e++){
         const int quiet=adj[e].delta==0u;             /* transient envelope: the sine is added, noise and smoothing are not */
-        for(unsigned i=f->env_edges[e];i<f->env_edges[e+1u];i++){
+        for(unsigned i=elo[e];i<ehi[e];i++){
             const size_t idx=(size_t)(4u+i-t0);
             for(unsigned k=kx;k<k2;k++){
                 double g=gseq[idx*64u+k],q=qseq[idx*64u+k];
@@ -283,11 +393,11 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
 
     /* 5b. inter-subband temporal envelope shaping (USAC eSBR, bs_inter_temp_shape_mode of the envelope): the HF of every slot is scaled by the temporal envelope of the low band over the envelope,
      * gain_i = 1 + gamma (sqrt(P_low_i N / sum P_low) - 1) (at least 0.2), renormalised so that the HF energy of the envelope is unchanged */
-    for(unsigned e=0u;e<envs;e++){
+    for(unsigned e=0u;e<envs && !pvc;e++){                /* (a PVC frame has no envelope data and so no shaping modes) */
         static const double gamma_table[4]={0.0,1.0,2.0,4.0};
         const double gamma=gamma_table[f->quant.tes_mode[e]&3u];
         if(gamma<=0.0)continue;
-        const unsigned lo=f->env_edges[e],hi=f->env_edges[e+1u],n=hi-lo;
+        const unsigned lo=elo[e],hi=ehi[e],n=hi-lo;
         double pl[MAX_I],ph[MAX_I],gain[MAX_I],tot_l=0.0,tot_h=0.0,tot_after=1.0e-6;
         for(unsigned i=lo;i<hi;i++){
             double a=0.0,b=0.0;
@@ -324,6 +434,10 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
         }else if(continues && ch->spill_slots>i){
             for(unsigned k=ch->spill_kx;k<ch->spill_k2 && k<64u;k++)
                 if(k>=kx && k<k2)row[k]=ch->spill[(size_t)i*64u+k];
+        }else if(!continues && ch->have_previous && ch->previous.pvc.active && i<12u){
+            /* a classic frame that starts at slot > 0 right after a PVC frame whose grid ran past its end: nothing has adjusted those slots (a PVC frame adjusts only its own 16 time slots), the reference
+             * decoder passes the carrier of the previous frame through unadjusted; so do we (an encoder signals no variable length before a switch to classic frames) */
+            for(unsigned k=kx;k<k2;k++)row[k]=ch->pvc_carry[(size_t)i*64u+k];
         }
         for(unsigned k=0u;k<64u;k++)if(!finite_c(row[k]))return 0;
     }
@@ -335,6 +449,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
 
     /* 7. carry the rest of the state */
     memcpy(next->low_history,low+(size_t)(SLOTS-HIST)*32u,(size_t)HIST*32u*sizeof(SautiAacSbrComplex));
+    memcpy(next->last_sine_before,ch->last_sine,sizeof(next->last_sine_before));
     memcpy(next->last_sine,flags_last,sizeof(next->last_sine));
     next->previous=*f;
     next->have_previous=1u;

@@ -10,6 +10,7 @@
 #include "sauti_aac_sbr_patch.h"
 #include "sauti_aac_sbr_qmf_frame.h"
 #include "sauti_aac_syntax.h"
+#include "sauti_usac_pvc.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -61,6 +62,7 @@ typedef struct {
     uint32_t gain_mode;
     uint32_t has_ps;
     SautiAacPsFrame ps;
+    SautiUsacPvcFrame pvc;      /* eSBR PVC frame (pvc.active): the envelope comes from the predictor; env_edges / grid describe the SBR time grid */
     uint32_t payload_data_bits; /* bits consumed, excluding pad to byte */
 } SautiAacSbrPayloadFrame;
 

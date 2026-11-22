@@ -52,4 +52,15 @@ int sauti_aac_sbr_gain_partition_flags(
     unsigned delta,
     SautiAacSbrGainPartition *out);
 
+/* The same with the noise floor of the tone given separately: S_M = sqrt(E * Q / ((1 + Q) * q_sine)); q_sine == Q is the function above. */
+int sauti_aac_sbr_gain_partition_flags_ex(
+    double envelope_energy,
+    double current_hf_power,
+    double noise_factor,
+    double noise_factor_sine,
+    unsigned sine_index,
+    unsigned sine_mapped,
+    unsigned delta,
+    SautiAacSbrGainPartition *out);
+
 #endif

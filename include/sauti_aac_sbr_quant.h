@@ -45,6 +45,12 @@ int sauti_aac_sbr_quant_decode(const uint8_t *data, size_t size,
                                 SautiAacSbrQuantState *state,
                                 SautiAacSbrQuantFrame *out);
 
+/* USAC PVC frame: the noise floor only (no envelope scalefactors are transmitted).  `noise_count` noise envelopes with the df_noise flags of `control`; the envelope part of the history is left as it was. */
+int sauti_aac_sbr_quant_decode_noise_only(const uint8_t *data,size_t size,size_t *bit_offset,
+                                          unsigned noise_count,const SautiAacSbrTables *tables,
+                                          const SautiAacSbrControl *control,unsigned amp_res,
+                                          SautiAacSbrQuantState *state,SautiAacSbrQuantFrame *out);
+
 /* CPE with bs_coupling=0 serializes both envelope sets before both noise
  * sets. Decode that grammar transactionally, preserving independent channel
  * histories and the exact same quantization rules as the single-channel API. */

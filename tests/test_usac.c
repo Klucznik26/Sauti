@@ -218,7 +218,11 @@ static void test_sbr_unsupported(void) {
     d[0] = 0x00u; b.pos = 0;
     CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) != -1, "preprocessing 0 is not refused for that reason");
     e.sbr_harmonic = 1; b.pos = 0; CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "the harmonic transposer is not implemented");
-    e.sbr_harmonic = 0; e.sbr_pvc = 1; b.pos = 0; CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "PVC is not implemented");
+    /* PVC is implemented (docs SBR-114); what the standard does not define is still refused: bs_pvc_mode 3 (reserved) and PVC in a channel pair.  Header: amp_res 0, xover 0000, preprocessing 0, bs_pvc_mode, default header 1 */
+    e.sbr_harmonic = 0; e.sbr_pvc = 1; memset(d, 0, sizeof d); d[0] = 0x03u; d[1] = 0x80u; b.pos = 0;
+    CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "bs_pvc_mode 3 is reserved");
+    d[0] = 0x01u; b.pos = 0; CHECK(sauti_usac_sbr_parse(&e, 2, &b, 1, 48000, &st, pl, &cpl) == -1, "PVC in a channel pair is not defined");
+    { unsigned it, k; for (it = 0; it < 64u; it++) { for (k = 0; k < sizeof d; k++) d[k] = (uint8_t)(0x5au + 37u * it + 11u * k); d[0] = (uint8_t)((d[0] & 0xf8u) | (0x01u + (it & 1u))); d[1] |= 0x80u; b.pos = 0; (void)sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl); } }   /* garbage after a PVC header (mode 1 / 2) must not crash */
     e.sbr_pvc = 0; e.sbr_intertes = 1; memset(d, 0xffu, sizeof d); b.pos = 0; (void)sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl);   /* inter-TES is implemented: garbage with the shaping bits must not crash either */
     e.sbr_intertes = 0; memset(d, 0xffu, sizeof d); b.pos = 0; (void)sauti_usac_sbr_parse(&e, 2, &b, 1, 48000, &st, pl, &cpl);   /* garbage must not crash */
 }

@@ -8,8 +8,8 @@
 
 #define QMF_BANDS 64u
 
-int sauti_aac_sbr_gain_limit_partition_flags(
-    const double e[64],const double ec[64],const double q[64],
+int sauti_aac_sbr_gain_limit_partition_flags_ex(
+    const double e[64],const double ec[64],const double q[64],const double q_sine[64],
     const uint8_t sine_index[64],const uint8_t sine_mapped[64],
     const uint8_t edges[65],
     unsigned group_count,unsigned gain_mode,unsigned delta,
@@ -36,8 +36,8 @@ int sauti_aac_sbr_gain_limit_partition_flags(
                !isfinite(q[k]) || e[k]<0.0 ||
                ec[k]<0.0 || q[k]<0.0 ||
                sine_index[k]>1u || sine_mapped[k]>1u ||
-               !sauti_aac_sbr_gain_partition_flags(
-                   e[k],ec[k],q[k],
+               !sauti_aac_sbr_gain_partition_flags_ex(
+                   e[k],ec[k],q[k],q_sine?q_sine[k]:q[k],
                    sine_index[k],sine_mapped[k],delta,
                    &staged.band[k]))
                 return 0;
@@ -105,6 +105,15 @@ int sauti_aac_sbr_gain_limit_partition_flags(
     }
     *out=staged;
     return 1;
+}
+
+int sauti_aac_sbr_gain_limit_partition_flags(
+    const double e[64],const double ec[64],const double q[64],
+    const uint8_t sine_index[64],const uint8_t sine_mapped[64],
+    const uint8_t edges[65],
+    unsigned group_count,unsigned gain_mode,unsigned delta,
+    SautiAacSbrGainLimitedFrame *out){
+    return sauti_aac_sbr_gain_limit_partition_flags_ex(e,ec,q,NULL,sine_index,sine_mapped,edges,group_count,gain_mode,delta,out);
 }
 
 int sauti_aac_sbr_gain_limit_partition(

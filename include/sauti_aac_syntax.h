@@ -89,6 +89,7 @@ typedef struct {
     uint32_t freq_scale,alter_scale,noise_bands;
     uint32_t limiter_bands,limiter_gains,interpol_freq,smoothing_mode;
     uint32_t extra_1,extra_2;
+    uint32_t pvc_mode;                   /* eSBR: bs_pvc_mode of the header (0 none, 1, 2), read only when the configuration enables PVC */
     uint32_t slot_scale;                 /* QMF slots per SBR time slot: 0 / 2 = 2:1 (and 8:3), 4 = eSBR 4:1; set by the USAC decoder, not part of any bitstream */
 } SautiAacSbrHeader;
 int sauti_aac_sbr_header_parse(const uint8_t *bytes,size_t size,
