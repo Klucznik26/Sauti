@@ -1,0 +1,28 @@
+# USAC: MPEG Surround 212 (MPS212, stereoConfigIndex 1..3), plan and findings
+
+Status (2026-11-22): NOT STARTED in code. The configuration (`Mps212Config`) is parsed (`parse_mps212_config` in `sauti_usac.c`, fields `mps_*` of `SautiUsacElement`); a frame of an element with `stereoConfigIndex != 0` is refused as unsupported (-1) right after the core channels. This file records what the reference does, so that the work can be done in verifiable stages.
+
+## Oracle and test streams
+
+* libxaac's encoder makes MPS212 streams: `xaacenc -aot:42 -usac:1|2 -esbr:1 -ccfl_idx:3 -mps:1 -tree_cfg:0 -br:32000 in.wav` (stereo input at the OUTPUT rate; `-tree_cfg:0` = '212'; without it the encoder prints "Invalid tree config" and falls back). The default stream has `stereoConfigIndex 2` (a residual channel is coded but `bsResidualBands = 0`: no residual is used), `bsFreqRes` index 1 (28 parameter bands), `bsFixedGainDMX` 2, no temporal shaping (`bsTempShapeConfig 0`), `bsDecorrConfig 0`, no phase coding, `bsHighRateMode 0` (one parameter set per frame).  Helper scripts of the session: `/tmp/claude-1000/mps/` (`dec.sh`, `cfg.c`), not in the repository.
+* The decoder side of libxaac is the general MPEG Surround decoder (`decoder/ixheaacd_mps_*.c`, 34 700 lines with 8 300 lines of tables, of which 212 uses a fraction): `ixheaacd_mps_frame_parsing` (Mps212Data), `ixheaacd_mps_frame_decode` (parameters -> matrices), `ixheaacd_mps_apply` (hybrid analysis, decorrelator, matrices, hybrid synthesis, temporal processing), `ixheaacd_mps_calc_m1m2_*`, `ixheaacd_mps_smoothing`, `ixheaacd_mps_hybrid_filt`, `ixheaacd_mps_decor`, `ixheaacd_mps_res_*` + `ixheaacd_mps_mdct_2_qmf` (residual), `ixheaacd_mps_temp_process` / `ixheaacd_mps_reshape_bb_env` (STP / GES temporal shaping), Huffman tables in `ixheaacd_mps_rom.c` (node arrays, lines 39 - 7860; the CPC tables at 7863 are for 5-1-5 trees and are not needed).
+
+## Where it sits in the access unit and in the signal path
+
+* Order in a channel pair element (`ixheaacd_process.c`): core data of `nrCoreCoderChannels` (1 for stereoConfigIndex 1, 2 for 2 and 3: the second is the residual) -> optional pseudo-LR M/S (`mps_pseudo_lr`, index 3) -> SBR data -> **Mps212Data** (`ixheaacd_mps_frame_parsing`).
+* The upmix works in the **QMF domain AFTER eSBR**: the mono downmix goes through the core, eSBR makes its 64-band QMF grid (32 slots at 2:1), the MPS hybrid analysis (the three lowest QMF bands are split into 8 / 2 / 2 sub-bands, 71 hybrid bands for 64 QMF bands) runs on that grid, the matrices and decorrelator make two hybrid signals, hybrid synthesis gives two QMF grids and each gets its own synthesis filter bank. This matches the structure of this library (`sauti_aac_sbr_channel_frame` returns the grid, `sauti_aac_sbr_channel_synthesize` makes PCM), so MPS212 can be a module between them: `grid_mono -> grid_left, grid_right`.
+* Stereo configuration 3 sets `mps_sbr_flag` in libxaac (SBR handled differently); 1 and 2 do not.
+
+## Mps212Data (frame syntax, verified by reading `ixheaacd_mps_frame_parsing`)
+
+`bsHighRateMode`: `bsFramingType` (1) + `numParamSets - 1` (3), else one parameter set. With `bsFramingType`: `bsParamSlot[i]` (5 bits at 32 slots, 6 at 64), strictly increasing; without: slots `((slots * (i + 1) + sets - 1) / sets) - 1`. `bsIndependencyFlag` (only when the AU's usacIndependencyFlag is 0). EcData for CLD, ICC, then (with `bsPhaseCoding`) `bsPhaseMode` (1), `bsOpdSmoothingMode` (1) and EcData for IPD; with `bsHighRateMode`: per parameter set `bsSmoothMode` (2), `bsSmoothTime` (2, mode >= 2), `bsFreqResStrideSmg` (2) and `bsSmgData` per group (mode 3); temporal shaping: config 3 -> `bsTsdEnable` (1) + TSD data (transient slots as a combinatorial codeword), 1 -> `bsTempShapeEnable` + `bsTempShapeEnableChannelSTP[2]`, 2 -> GES flags + Huffman coded envelope per channel.
+EcData (`ixheaacd_mps_ecdata_decoding`): `bsXxxDataMode[set]` (2): 0 default, 1 keep, 2 interpolate, 3 new data; new data per pair of sets: `bsDataPair` (1), `bsQuantCoarse` (1), `bsFreqResStride` (2), coarse / fine conversion of the previous indices, stride map, then Huffman (`ixheaacd_mps_ecdatapairdec`: pilot, 1-D / 2-D codes, time / frequency pairs, lav index, symmetry restore, PCM escape with grouped codewords).
+
+## Stages
+
+* M0 (this file): plan, oracle.
+* M1: Mps212Data + EcData parser (Huffman node tables from `ixheaacd_mps_rom.c` through a generator + register entry, logic written for Sauti) and the indices of every parameter set; check against an instrumented libxaac (dump of `bs_frame` after `ixheaacd_mps_frame_parsing`).
+* M2: parameter decoding: dequantisation (CLD, ICC, IPD tables), band mapping (28 / 20 / 14 / 10 / 7 / 5 / 4 -> processing bands), interpolation over time (`ixheaacd_mps_frame_decode`, smoothing), matrices M1 / M2 of the 212 box; check the matrices against libxaac.
+* M3: hybrid analysis / synthesis filters (tables), decorrelator (all-pass chains, tables), the matrix application, output QMF grids; check the QMF grids against libxaac, then the PCM of libxaac's `-mps:1` streams (`stereoConfigIndex 2` with no residual bands first).
+* M4: residual coding (`bsResidualBands > 0`: the second core channel as MDCT -> QMF residual), pseudo-LR (index 3), temporal shaping (STP, GES, TSD), phase coding (IPD / OPD).
+* M5: fixtures, fingerprints, generator (`--mps`), mutations, fuzzing, docs.
