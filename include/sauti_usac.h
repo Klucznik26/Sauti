@@ -9,6 +9,7 @@
 #include "sauti_usac_lpd_dec.h"
 #include "sauti_aac_sbr_channel.h"
 #include "sauti_usac_mps.h"
+#include "sauti_usac_mps_dec.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -77,6 +78,7 @@ typedef struct {
     uint32_t prev_pvc_id;                        /* pvc_id of its last time slot (reuse_pvc_id) */
     uint32_t sin_start_next, sin_len_next;       /* PVC: a sine that runs past the frame into the first slots of the next one */
     SautiUsacMpsState mps;                       /* MPEG Surround 212: parameter history of the element (stereoConfigIndex != 0) */
+    SautiUsacMpsDec mpsdec;                      /* MPEG Surround 212: hybrid filter, decorrelator and gain history */
 } SautiUsacSbrState;
 
 typedef struct {

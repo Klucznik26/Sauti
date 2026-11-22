@@ -474,13 +474,13 @@ static void test_memory_seekable(const uint8_t *b, size_t n, const char *name) {
 /* 7: seek dokladny */
 static void test_seek(const uint8_t *b, size_t n, const Ref *ref, const char *name, int via_file) {
     Src s; Mem m; maktabasauti_decoder_t *d = NULL; maktabasauti_stream_info_t info; uint32_t rng = 777u + (uint32_t)via_file; size_t i, total = ref->frames, ch = ref->ch;
-    static float y[4096 * 8]; char path[] = "/tmp/mks_stream_test_XXXXXX"; int fd = -1;
+    static float y[4096 * 8]; char path[512] = "/tmp/mks_stream_test_XXXXXX"; int fd = -1;   /* strcpy(path, base) below: TMPDIR can be longer than /tmp */
     memset(&s, 0, sizeof s); memset(&m, 0, sizeof m);
     if (via_file) {
         maktabasauti_allocator_t a = mem_allocator(&m); maktabasauti_open_params_t p; FILE *f;
         const char *tmp = getenv("TMPDIR"); char base[512]; snprintf(base, sizeof base, "%s/mks_stream_XXXXXX", tmp && *tmp ? tmp : "/tmp");
         fd = mkstemp(base); if (fd < 0) { CHECK(0, "mkstemp"); return; }
-        f = fdopen(fd, "wb"); fwrite(b, 1, n, f); fclose(f); strcpy(path, base);
+        f = fdopen(fd, "wb"); fwrite(b, 1, n, f); fclose(f); snprintf(path, sizeof path, "%s", base);
         memset(&p, 0, sizeof p); p.struct_size = sizeof p; p.abi_version = MAKTABASAUTI_ABI_VERSION; p.allocator = &a;
         assert(maktabasauti_io_from_file(path, &a, &p.io) == MAKTABASAUTI_OK);
         CHECK(maktabasauti_decoder_open(&p, &d) == MAKTABASAUTI_OK, "%s: open from file", name);

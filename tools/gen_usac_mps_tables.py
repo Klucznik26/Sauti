@@ -28,6 +28,7 @@ def read_values(path, name):
 
 ROM = os.path.join(XAAC, 'decoder', 'ixheaacd_mps_rom.c')
 PRS = os.path.join(XAAC, 'decoder', 'ixheaacd_mps_parse.c')
+DEC = os.path.join(XAAC, 'decoder', 'ixheaacd_mps_decorr.c')
 tables = []        # (new name, C type, dims, values, meaning, libxaac name)
 def add(new, c, dims, vals, doc, old):
     n = 1
@@ -78,6 +79,23 @@ add('sauti_usac_mps_cld_dequant', 'float', (31,), read_values(PRS, 'ixheaacd_cld
 add('sauti_usac_mps_icc_dequant', 'float', (8,), read_values(PRS, 'ixheaacd_icc_de_quant_table'), 'ICC by index', 'ixheaacd_icc_de_quant_table')
 add('sauti_usac_mps_ipd_dequant', 'float', (16,), read_values(PRS, 'ixheaacd_ipd_de_quant_table'), 'IPD in radians by index', 'ixheaacd_ipd_de_quant_table')
 add('sauti_usac_mps_clip_gain', 'float', (8,), read_values(PRS, 'ixheaacd_mps_clip_gain_table'), 'input gain of the downmix by bsFixedGainDMX', 'ixheaacd_mps_clip_gain_table')
+
+# signal path: upmix weights, hybrid filter bank, decorrelator
+add('sauti_usac_mps_c_l', 'float', (31,), read_values(ROM, 'ixheaacd_c_l_table'), 'channel gain of the left output by CLD index + 15 (the right one is the mirror)', 'ixheaacd_c_l_table')
+add('sauti_usac_mps_cos', 'float', (8, 31), read_values(ROM, 'ixheaacd_cos_table'), 'cosine of the rotation angle by [ICC index][CLD index + 15]', 'ixheaacd_cos_table')
+add('sauti_usac_mps_sin', 'float', (8, 31), read_values(ROM, 'ixheaacd_sin_table'), 'sine of the rotation angle', 'ixheaacd_sin_table')
+for nm in ('weight', 're_weight', 'im_weight', 'beta'):
+    add('sauti_usac_mps_%s' % nm, 'float', (16, 8, 31), read_values(ROM, 'ixheaacd_%s' % nm), 'prediction upmix, %s, by [IPD index][ICC index][CLD index + 15]' % nm, 'ixheaacd_%s' % nm)
+add('sauti_usac_mps_hyb8', 'float', (13,), read_values(ROM, 'ixheaacd_ia_mps_hyb_filter_coeff_8'), 'prototype of the 8-band hybrid filter (QMF band 0)', 'ixheaacd_ia_mps_hyb_filter_coeff_8')
+add('sauti_usac_mps_hyb2', 'float', (13,), read_values(ROM, 'ixheaacd_mps_hyb_filter_coeff_2'), 'prototype of the 2-band hybrid filters (QMF bands 1, 2)', 'ixheaacd_mps_hyb_filter_coeff_2')
+add('sauti_usac_mps_hyb_sine', 'float', (8, 8), read_values(ROM, 'ixheaacd_sine'), 'sine table of the 8-band split', 'ixheaacd_sine')
+cs = read_values(ROM, 'ixheaacd_cosine'); cs = [0.0 if (i % 8) == 4 else v for i, v in enumerate(cs)]      # column 4 is never read (the source holds junk there)
+add('sauti_usac_mps_hyb_cosine', 'float', (8, 8), cs, 'cosine table of the 8-band split (column 4 is not used and set to zero)', 'ixheaacd_cosine')
+add('sauti_usac_mps_gain_set_index', 'int32_t', (29,), read_values(ROM, 'ixheaacd_mps_gain_set_indx'), 'first hybrid band above the residual bands', 'ixheaacd_mps_gain_set_indx')
+add('sauti_usac_mps_hybrid_to_qmf', 'uint8_t', (71,), read_values(DEC, 'ixheaacd_hybrid_to_qmf_map'), 'QMF band of every hybrid band', 'ixheaacd_hybrid_to_qmf_map')
+for k, n in enumerate((11, 9, 4, 3)):
+    add('sauti_usac_mps_decor%d_num' % k, 'float', (n,), read_values(DEC, 'ixheaacd_lattice_coeff_%d_filt_num_coeff' % k), 'numerator of the all-pass decorrelator filter %d' % k, 'ixheaacd_lattice_coeff_%d_filt_num_coeff' % k)
+    add('sauti_usac_mps_decor%d_den' % k, 'float', (n,), read_values(DEC, 'ixheaacd_lattice_coeff_%d_filt_den_coeff' % k), 'denominator of the all-pass decorrelator filter %d' % k, 'ixheaacd_lattice_coeff_%d_filt_den_coeff' % k)
 
 rev = subprocess.run(['git', '-C', XAAC, 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
 hdr = ['#ifndef SAUTI_USAC_MPS_TABLES_H', '#define SAUTI_USAC_MPS_TABLES_H', '#include <stdint.h>',

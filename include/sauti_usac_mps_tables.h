@@ -36,4 +36,25 @@ extern const float sauti_usac_mps_cld_dequant[31];   /* CLD in dB by index + 15 
 extern const float sauti_usac_mps_icc_dequant[8];   /* ICC by index (libxaac: ixheaacd_icc_de_quant_table) */
 extern const float sauti_usac_mps_ipd_dequant[16];   /* IPD in radians by index (libxaac: ixheaacd_ipd_de_quant_table) */
 extern const float sauti_usac_mps_clip_gain[8];   /* input gain of the downmix by bsFixedGainDMX (libxaac: ixheaacd_mps_clip_gain_table) */
+extern const float sauti_usac_mps_c_l[31];   /* channel gain of the left output by CLD index + 15 (the right one is the mirror) (libxaac: ixheaacd_c_l_table) */
+extern const float sauti_usac_mps_cos[8][31];   /* cosine of the rotation angle by [ICC index][CLD index + 15] (libxaac: ixheaacd_cos_table) */
+extern const float sauti_usac_mps_sin[8][31];   /* sine of the rotation angle (libxaac: ixheaacd_sin_table) */
+extern const float sauti_usac_mps_weight[16][8][31];   /* prediction upmix, weight, by [IPD index][ICC index][CLD index + 15] (libxaac: ixheaacd_weight) */
+extern const float sauti_usac_mps_re_weight[16][8][31];   /* prediction upmix, re_weight, by [IPD index][ICC index][CLD index + 15] (libxaac: ixheaacd_re_weight) */
+extern const float sauti_usac_mps_im_weight[16][8][31];   /* prediction upmix, im_weight, by [IPD index][ICC index][CLD index + 15] (libxaac: ixheaacd_im_weight) */
+extern const float sauti_usac_mps_beta[16][8][31];   /* prediction upmix, beta, by [IPD index][ICC index][CLD index + 15] (libxaac: ixheaacd_beta) */
+extern const float sauti_usac_mps_hyb8[13];   /* prototype of the 8-band hybrid filter (QMF band 0) (libxaac: ixheaacd_ia_mps_hyb_filter_coeff_8) */
+extern const float sauti_usac_mps_hyb2[13];   /* prototype of the 2-band hybrid filters (QMF bands 1, 2) (libxaac: ixheaacd_mps_hyb_filter_coeff_2) */
+extern const float sauti_usac_mps_hyb_sine[8][8];   /* sine table of the 8-band split (libxaac: ixheaacd_sine) */
+extern const float sauti_usac_mps_hyb_cosine[8][8];   /* cosine table of the 8-band split (column 4 is not used and set to zero) (libxaac: ixheaacd_cosine) */
+extern const int32_t sauti_usac_mps_gain_set_index[29];   /* first hybrid band above the residual bands (libxaac: ixheaacd_mps_gain_set_indx) */
+extern const uint8_t sauti_usac_mps_hybrid_to_qmf[71];   /* QMF band of every hybrid band (libxaac: ixheaacd_hybrid_to_qmf_map) */
+extern const float sauti_usac_mps_decor0_num[11];   /* numerator of the all-pass decorrelator filter 0 (libxaac: ixheaacd_lattice_coeff_0_filt_num_coeff) */
+extern const float sauti_usac_mps_decor0_den[11];   /* denominator of the all-pass decorrelator filter 0 (libxaac: ixheaacd_lattice_coeff_0_filt_den_coeff) */
+extern const float sauti_usac_mps_decor1_num[9];   /* numerator of the all-pass decorrelator filter 1 (libxaac: ixheaacd_lattice_coeff_1_filt_num_coeff) */
+extern const float sauti_usac_mps_decor1_den[9];   /* denominator of the all-pass decorrelator filter 1 (libxaac: ixheaacd_lattice_coeff_1_filt_den_coeff) */
+extern const float sauti_usac_mps_decor2_num[4];   /* numerator of the all-pass decorrelator filter 2 (libxaac: ixheaacd_lattice_coeff_2_filt_num_coeff) */
+extern const float sauti_usac_mps_decor2_den[4];   /* denominator of the all-pass decorrelator filter 2 (libxaac: ixheaacd_lattice_coeff_2_filt_den_coeff) */
+extern const float sauti_usac_mps_decor3_num[3];   /* numerator of the all-pass decorrelator filter 3 (libxaac: ixheaacd_lattice_coeff_3_filt_num_coeff) */
+extern const float sauti_usac_mps_decor3_den[3];   /* denominator of the all-pass decorrelator filter 3 (libxaac: ixheaacd_lattice_coeff_3_filt_den_coeff) */
 #endif

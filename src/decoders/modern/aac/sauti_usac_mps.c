@@ -204,11 +204,11 @@ static int ec_pair(SautiUsacBits *b, int type, int *history, unsigned data_bands
         }
         for (i = 0; i < data_bands; i++) {                                                          /* attach the least significant bit (fine IPD), remove the offset */
             const int lsb1 = attach_lsb ? (int)sauti_usac_get(b, 1) : 0;
-            data1[i] = (attach_lsb ? ((data1[i] << 1) | lsb1) : data1[i]) - offset;
+            data1[i] = (attach_lsb ? (data1[i] * 2 + lsb1) : data1[i]) - offset;
         }
         if (pair_flag) for (i = 0; i < data_bands; i++) {
             const int lsb2 = attach_lsb ? (int)sauti_usac_get(b, 1) : 0;
-            data2[i] = (attach_lsb ? ((data2[i] << 1) | lsb2) : data2[i]) - offset;
+            data2[i] = (attach_lsb ? (data2[i] * 2 + lsb2) : data2[i]) - offset;
         }
     }
     memcpy(out1, data1, sizeof(int) * data_bands);
@@ -218,7 +218,7 @@ static int ec_pair(SautiUsacBits *b, int type, int *history, unsigned data_bands
 
 static void coarse2fine(int *data, int type, unsigned n) {
     unsigned i;
-    for (i = 0; i < n; i++) data[i] <<= 1;
+    for (i = 0; i < n; i++) data[i] *= 2;
     if (type == CLD) for (i = 0; i < n; i++) { if (data[i] == -14) data[i] = -15; else if (data[i] == 14) data[i] = 15; }
 }
 static void fine2coarse(int *data, unsigned n) { unsigned i; for (i = 0; i < n; i++) data[i] /= 2; }

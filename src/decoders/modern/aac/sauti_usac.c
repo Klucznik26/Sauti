@@ -1,9 +1,6 @@
 /* USAC (xHE-AAC) UsacConfig parser and frequency-domain core decoder, see sauti_usac.h.  Syntax per ISO/IEC 23003-3 (UsacConfig, UsacFrame, fd_channel_stream, ics_info, tns_data); the transform
  * chain reuses the AAC building blocks (scale-factor Huffman code, TNS data, IMDCT, windows); the spectrum is arithmetic coded (sauti_usac_ac.c). */
 #include "sauti_usac.h"
-#ifdef SAUTI_USAC_MPS_TRACE
-#include <stdio.h>
-#endif
 #include "sauti_usac_lpd.h"
 #include "sauti_aac_lc_multi.h"
 #include "sauti_usac_sbr.h"
@@ -583,6 +580,10 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
     SautiAacSbrPayloadFrame sbr_pl[2];
     unsigned sbr_cpl = 0;
     float core[2][1024];
+    SautiUsacMpsConfig mc;
+    SautiUsacMpsFrame mf;
+    int mps_on = 0;
+    memset(&mc, 0, sizeof mc);
     memset(&cp, 0, sizeof cp);
     memset(fdv, 0, sizeof fdv);
     memset(ms_mask, 0, sizeof ms_mask);
@@ -634,37 +635,17 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
         r = fd_channel(cfg, e, b, &chs[c], &fd[c], common_window, common_tw, indep, reason);
         if (r != 1) return r;
     }
-    if (e->stereo_config_index) {                                           /* MPS212: eSBR data of ONE channel (the downmix), then Mps212Data(); the signal path is not implemented yet (docs/USAC_MPS212_PLAN.md) */
-        SautiUsacMpsConfig mc; SautiUsacMpsFrame *mf;
+    if (e->stereo_config_index) {                                           /* MPS212: eSBR data of ONE channel (the downmix), then Mps212Data() */
         unsigned slots = cfg->sbr_mode == 3u ? 64u : 32u;
-        if (!cfg->sbr_mode) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }
+        mps_on = 1;
+        if (!cfg->sbr_mode || e->mps_residual_bands || e->mps_phase_coding || e->mps_temp_shape == 1u || e->mps_temp_shape == 3u || e->stereo_config_index == 3u || cfg->sbr_mode == 2u) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }
         sbrst->header.slot_scale = cfg->sbr_mode == 3u ? 4u : 2u;
         r = sauti_usac_sbr_parse(e, 1u, b, indep, cfg->sample_rate, sbrst, sbr_pl, &sbr_cpl);
         if (r != 1) { *reason = r < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SCE; return r; }
-        mc.freq_res = e->mps_freq_res; mc.high_rate = e->mps_high_rate; mc.phase_coding = e->mps_phase_coding; mc.bands_phase = e->mps_otts_bands_phase; mc.temp_shape = e->mps_temp_shape; mc.env_quant = e->mps_env_quant;
-        mf = (SautiUsacMpsFrame *)malloc(sizeof *mf);
-        if (!mf) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
-        r = sauti_usac_mps212_parse(&mc, slots, b, indep, &sbrst->mps, mf);
-#ifdef SAUTI_USAC_MPS_TRACE
-        if (r == 1 && getenv("SAUTI_MPS_TRACE")) {
-            FILE *tf = fopen(getenv("SAUTI_MPS_TRACE"), "ab");
-            if (tf) {
-                int hd[8] = { 1, (int)mf->num_sets, (int)mf->param_bands, (int)mf->ext_frame, (int)slots, (int)mf->phase_mode, 0, 0 }; unsigned q;
-                int sl[9]; int sm[9]; int sdat[9 * 28];
-                for (q = 0; q < 9; q++) { sl[q] = (int)mf->param_slot[q]; sm[q] = (int)mf->smooth_time[q]; }
-                for (q = 0; q < 9u * 28u; q++) sdat[q] = mf->smooth_data[q / 28u][q % 28u];
-                fwrite(hd, 4, 8, tf); fwrite(sl, 4, 9, tf); fwrite(mf->cld, 4, 9u * 28u, tf); fwrite(mf->icc, 4, 9u * 28u, tf); fwrite(mf->ipd, 4, 9u * 28u, tf); fwrite(sm, 4, 9, tf); fwrite(sdat, 4, 9u * 28u, tf);
-                fclose(tf);
-            }
-        }
-#endif
-        free(mf);
-#ifdef SAUTI_USAC_MPS_TRACE
-        if (r == 1 && getenv("SAUTI_MPS_TRACE")) { memset(out, 0, 2u * 4096u * sizeof(float)); return 1; }   /* diagnostics: keep the parser state going, output is silence */
-#endif
-        *reason = r == 0 ? SAUTI_AAC_REASON_INVALID_SCE : SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;
-        return r == 0 ? 0 : -1;
-    }
+        mc.freq_res = e->mps_freq_res; mc.high_rate = e->mps_high_rate; mc.phase_coding = e->mps_phase_coding; mc.bands_phase = e->mps_otts_bands_phase; mc.temp_shape = e->mps_temp_shape; mc.env_quant = e->mps_env_quant; mc.decorr = e->mps_decorr; mc.fixed_gain = e->mps_fixed_gain; mc.residual = e->stereo_config_index >= 2u; mc.residual_bands = e->mps_residual_bands;
+        r = sauti_usac_mps212_parse(&mc, slots, b, indep, &sbrst->mps, &mf);
+        if (r != 1) { *reason = r < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SCE; return r; }
+    } else
     if (cfg->sbr_mode) {                                                    /* usac_sbr_data() follows the channel streams */
         sbrst->header.slot_scale = cfg->sbr_mode == 3u ? 4u : 2u;
         r = sauti_usac_sbr_parse(e, nch, b, indep, cfg->sample_rate, sbrst, sbr_pl, &sbr_cpl);
@@ -698,8 +679,17 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
         { const int sr = synthesize(cfg, &fd[c], &chs[c], cfg->sbr_mode ? core[c] : out[c]); if (sr != 1) { *reason = sr < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SYNTH; return sr < 0 ? -1 : 0; } }
     }
     if (cfg->sbr_mode) {                                                    /* the core output goes through the QMF / HF generation / adjustment chain of HE-AAC */
-        SautiAacSbrComplex *grid = (SautiAacSbrComplex *)malloc(sizeof(SautiAacSbrComplex) * 2u * SAUTI_AAC_SBR_CHANNEL_GRID);
+        SautiAacSbrComplex *grid = (SautiAacSbrComplex *)malloc(sizeof(SautiAacSbrComplex) * 6u * SAUTI_AAC_SBR_CHANNEL_GRID);
         if (!grid) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
+        if (mps_on) {                                                       /* MPS212: the downmix goes through the eSBR chain, then the upmix makes two QMF grids that get their own synthesis */
+            const unsigned slots = cfg->sbr_mode == 3u ? 64u : 32u;
+            SautiAacSbrComplex *g1 = grid + SAUTI_AAC_SBR_CHANNEL_GRID * 2u, *g2 = g1 + SAUTI_AAC_SBR_CHANNEL_GRID * 2u;
+            sbrch[0].mps_lf_ahead = 1u;
+            if (!sauti_aac_sbr_channel_frame(&sbrch[0], core[0], &sbr_pl[0], grid)) { free(grid); *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
+            if (
+                !sauti_usac_mps212_apply(&sbrst->mpsdec, &mc, &mf, sbr_pl[0].tables.kx + sbr_pl[0].tables.m, slots, grid, g1, g2) ||
+                !sauti_aac_sbr_channel_synthesize(&sbrch[0], g1, out[0]) || !sauti_aac_sbr_channel_synthesize(&sbrch[1], g2, out[1])) { free(grid); *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
+        } else
         for (c = 0; c < nch; c++)
             if (!sauti_aac_sbr_channel_frame(&sbrch[c], core[c], &sbr_pl[c], grid) || !sauti_aac_sbr_channel_synthesize(&sbrch[c], grid, out[c])) { free(grid); *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
         free(grid);

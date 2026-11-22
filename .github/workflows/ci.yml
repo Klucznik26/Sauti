@@ -63,6 +63,8 @@ jobs:
         run: make test-usac-pvc
       - name: "USAC eSBR harmonic transposer (HBE): set-up from the band tables, refusals, state, a sinusoid transposed to twice / three times its frequency through the real QMF analysis, tables"
         run: make test-usac-hbe
+      - name: "USAC MPEG Surround 212: parameter decoder (hand-made PCM coded sets, strides, modes, framing), signal path against libxaac golden vectors, properties, tables"
+        run: make test-usac-mps
       - name: "DVSM / AVR streaming (non-seekable input, partial reads, WOULD_BLOCK at every point, truncation, checkpoints, bounded memory)"
         run: make test-maktabasauti-dvs-stream
       - name: "WAV / AIFF streaming (differential vs the old adapters, header matrix, placeholder sizes, float WAV, truncation, mutations, bounded memory)"

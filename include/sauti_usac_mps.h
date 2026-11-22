@@ -10,7 +10,7 @@
 #define SAUTI_USAC_MPS_SETS 9u                           /* numParamSets (at most 8) plus the set that closes a frame whose last set is not in its last slot */
 
 /* the fields of Mps212Config() the frame parser needs */
-typedef struct { unsigned freq_res, high_rate, phase_coding, bands_phase, temp_shape, env_quant; } SautiUsacMpsConfig;
+typedef struct { unsigned freq_res, high_rate, phase_coding, bands_phase, temp_shape, env_quant, decorr, fixed_gain, residual, residual_bands; } SautiUsacMpsConfig;   /* residual: stereoConfigIndex >= 2 */
 
 typedef struct {
     unsigned num_sets;                                   /* including the closing set when ext_frame */

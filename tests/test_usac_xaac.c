@@ -112,15 +112,16 @@ int main(int argc, char **argv) {
                       { "h1", "tests/data/usac_h1.m4a", 1, 2048, NBH, 24000, h1_fp }, { "h2", "tests/data/usac_h2.m4a", 1, 2048, NBH2, 16000, h2_fp }, { "h3", "tests/data/usac_h3.m4a", 2, 2048, NBH, 44100, h3_fp },
                       { "h4", "tests/data/usac_h4.m4a", 1, 2048, NBH, 24000, h4_fp },
                       { "h5", "tests/data/usac_h5.m4a", 1, 4096, NBH, 48000, h5_fp }, { "h6", "tests/data/usac_h6.m4a", 2, 4096, NBH, 44100, h6_fp },
-                      { "w1", "tests/data/usac_w1.m4a", 1, 2048, NBW1, 48000, w1_fp }, { "w2", "tests/data/usac_w2.m4a", 1, 2048, NBW1, 48000, w2_fp }, { "w3", "tests/data/usac_w3.m4a", 2, 2048, NBW3, 48000, w3_fp } };
+                      { "w1", "tests/data/usac_w1.m4a", 1, 2048, NBW1, 48000, w1_fp }, { "w2", "tests/data/usac_w2.m4a", 1, 2048, NBW1, 48000, w2_fp }, { "w3", "tests/data/usac_w3.m4a", 2, 2048, NBW3, 48000, w3_fp },
+                      { "z1", "tests/data/usac_z1.m4a", 2, 2048, NBZ, 48000, z1_fp }, { "z2", "tests/data/usac_z2.m4a", 2, 2048, NBZ, 44100, z2_fp }, { "z3", "tests/data/usac_z3.m4a", 2, 2048, NBZ, 32000, z3_fp } };
     unsigned k;
     if (argc > 1 && !strcmp(argv[1], "--dump")) {                                                       /* build/test_usac_xaac --dump > tests/test_usac_xaac_fingerprints.h */
         g_dump = 1;
         printf("/* Per-block fingerprints (sum, sum of squares, position weighted sum, second difference energy) of the decoded PCM of the libxaac-encoded fixtures, written by `build/test_usac_xaac --dump` AFTER the decode agreed\n * with libxaac's decoder (scripts/test_usac_vs_xaac.sh: 73-79 dB). Only the first MAXB blocks of each stream. */\n#define MAXB 40\n");
-        for (k = 0; k < 32; k++) test_fixture(&fx[k]);
+        for (k = 0; k < 35; k++) test_fixture(&fx[k]);
         return g_failures ? 1 : 0;
     }
-    for (k = 0; k < 32; k++) test_fixture(&fx[k]);
+    for (k = 0; k < 35; k++) test_fixture(&fx[k]);
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_xaac: all passed\n"); return 0;
 }

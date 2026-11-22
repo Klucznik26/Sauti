@@ -54,6 +54,7 @@ typedef struct {
     SautiUsacHbe hbe;                                 /* eSBR harmonic transposer (bs_harmonicSBR): runs in every frame, its output and the low band lag the QMF analysis by one frame */
     SautiAacSbrComplex hbe_low[2][SAUTI_AAC_SBR_CHANNEL_GRID]; /* low band QMF slots (32 bands; 32 slots, 4:1: 64) of the previous frame [0] and the one before [1] */
     float pv_history[14u*64u][2];                     /* the last 8 (4:1: 14) slots of the transposer output (re, im) */
+    uint32_t mps_lf_ahead;                            /* MPEG Surround 212 follows: QMF bands 0..2 of the grid are taken six slots (4:1: twelve) ahead of the others, the hybrid filter bank of the upmix delays them by that much */
     uint64_t discontinuities;                         /* frames whose first border did not continue the previous frame */
 } SautiAacSbrChannel;
 
