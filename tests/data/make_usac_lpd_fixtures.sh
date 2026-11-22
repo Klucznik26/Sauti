@@ -3,6 +3,7 @@
 # repository, default ~/Sauti-tools/libxaac/build/xaacenc; its encoder codes LPD only at 16 and 24 kHz) from SYNTHETIC signals generated below (a glottal pulse train through three formant resonators with breath
 # noise = speech-like; a harmonic chord with noise bursts = music-like; speech then noise).  `-usac:2` = "td" mode: every frame is LPD.  Only the first 16 access units are kept (the first carries two pre-roll units).
 #   usac_l1  mono 16 kHz speech-like (ACELP)     usac_l2  mono 24 kHz music-like (TCX 1024 and mixed)     usac_l3  mono 16 kHz speech then noise (ACELP / TCX switching)
+#   usac_l7  STEREO 24 kHz speech-like (a pair of LPD channels, `-usac:0`)
 #   usac_l4  mono 24 kHz, `-usac:0` (switched: FD and LPD frames): tone / speech / noise segments; l5, l6 the same kind of signal with other segmentation.  They contain the transitions FD -> LPD (start window, ACELP and TCX first),
 #            LPD -> FD (eight short windows with FAC, long start window, ONLY_LONG) and eight short windows -> LPD
 # usage: tests/data/make_usac_lpd_fixtures.sh   (needs python3 + numpy and the libxaac encoder; XAAC=<dir with xaacenc> to override)
@@ -14,9 +15,9 @@ W="$(mktemp -d "${TMPDIR:-/tmp}/sauti-lpd.XXXXXX")"; trap 'rm -rf -- "${W:?}"' E
 python3 -I - "$W" <<'PY'
 import numpy as np, struct, sys
 W = sys.argv[1]; rng = np.random.default_rng(7)
-def wav(name, x, fs):
+def wav(name, x, fs, ch=1):
     d = (np.clip(x, -1, 1) * 32767).astype('<i2').tobytes()
-    open("%s/%s.wav" % (W, name), 'wb').write(b'RIFF' + struct.pack('<I', 36 + len(d)) + b'WAVEfmt ' + struct.pack('<IHHIIHH', 16, 1, 1, fs, fs * 2, 2, 16) + b'data' + struct.pack('<I', len(d)) + d)
+    open("%s/%s.wav" % (W, name), 'wb').write(b'RIFF' + struct.pack('<I', 36 + len(d)) + b'WAVEfmt ' + struct.pack('<IHHIIHH', 16, 1, ch, fs, fs * 2 * ch, 2 * ch, 16) + b'data' + struct.pack('<I', len(d)) + d)
 def res(x, f, bw, fs):
     r = np.exp(-np.pi * bw / fs); th = 2 * np.pi * f / fs; a1 = -2 * r * np.cos(th); a2 = r * r; y = np.zeros_like(x)
     for i in range(2, len(x)): y[i] = x[i] - a1 * y[i - 1] - a2 * y[i - 2]
@@ -43,10 +44,11 @@ def segmented(seed, count):
 tone = 0.3 * np.sin(2 * np.pi * 440 * t) + 0.2 * np.sin(2 * np.pi * 660 * t) + 0.1 * np.sin(2 * np.pi * 1320 * t)
 wav('l4', np.concatenate([tone[:fs], sp24[:fs], tone[fs:2 * fs], 0.3 * rng.standard_normal(fs // 2), sp24[fs:fs + fs // 2]]), fs)
 wav('l5', segmented(109, 14), fs); wav('l6', segmented(110, 14), fs)
+sl = sp24[:fs * 2]; wav('l7', np.stack([sl, 0.56 * sl[::-1] + 0.06 * np.sin(2 * np.pi * 500 * np.arange(fs * 2) / fs)], 1).reshape(-1), fs, 2)
 PY
-for n in l1 l2 l3 l4 l5 l6; do
-  mode=2; keep=16; case "$n" in l4|l5|l6) mode=0; keep=36;; esac
-  "$ENC" -ifile:"$W/$n.wav" -ofile:"$W/$n.es" -aot:42 -usac:$mode -esbr:0 -br:24000 >/dev/null
+for n in l1 l2 l3 l4 l5 l6 l7; do
+  mode=2; keep=16; br=24000; case "$n" in l4|l5|l6) mode=0; keep=36;; l7) mode=0; keep=30; br=48000;; esac
+  "$ENC" -ifile:"$W/$n.wav" -ofile:"$W/$n.es" -aot:42 -usac:$mode -esbr:0 -br:$br >/dev/null
   python3 -I - "$W" "$n" "$keep" <<'PY'
 import re, struct, sys
 W, n, keep = sys.argv[1], sys.argv[2], int(sys.argv[3])

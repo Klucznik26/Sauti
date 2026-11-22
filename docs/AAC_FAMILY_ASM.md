@@ -7872,3 +7872,5 @@ Test: `test_24_band_bank` w `tests/test_aac_sbr_qmf_analysis.c` (niezależny wzo
 
 **Testy.** `usac_l4..l6.m4a` (z koderu libxaac, 36 jednostek, `-usac:0`; zawierają: krótkie po LPD z FAC i bez, start po LPD, krótkie po LPD na starcie) w `test-usac-xaac` i `scripts/test_usac_vs_xaac.sh`; `test-usac-lpd` rozszerzony o losowe ramki LPD → FD (cztery sekwencje okien, losowe FAC); fuzzing silnika 3000 iteracji na l4..l6 + l1 bez raportu.
 
+**Stereo LPD (2026-11-22).** Koder libxaac koduje stereo z rdzeniem LPD (`-usac:0` / `-usac:2`, 24 kHz, 48 kb/s): para kanałów obu LPD (każdy kanał własny `lpd_channel_stream`, bez wspólnego okna, kontekst arytmetyczny i szum per kanał) dekoduje się zgodnie z `xaacdec`: **69 – 71 dB na obu kanałach** (`usac_l7.m4a`, test silnika i oracle). To zamyka lukę „stereo LPD bez wzorca” z SBR-110; nadal `-1`: jeden kanał FD + jeden LPD w parze.
+

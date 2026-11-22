@@ -13,9 +13,9 @@ python3 -c 'import numpy' 2>/dev/null || { echo "SKIP: no numpy"; exit 0; }
 make -s build/sauti_usac_raw >/dev/null
 W="$(mktemp -d "${TMPDIR:-/tmp}/sauti-xaacdec.XXXXXX")"; trap 'rm -rf -- "$W"' EXIT
 fail=0
-for n in x1 x2 x3 x4 x5 x6 x7 l1 l2 l3 l4 l5 l6; do
+for n in x1 x2 x3 x4 x5 x6 x7 l1 l2 l3 l4 l5 l6 l7; do
   ch=1; ts=24000; fl=1024; cmpc=all                                            # channels, time scale (core rate), core frame length, channels compared
-  case "$n" in x3|x4) ch=2;; x5) ch=2; ts=18000; fl=768;; x6) ch=2; ts=16537; fl=768; cmpc=0;; x7) ts=12000; fl=768;; l1|l3) ts=16000;; l2|l4|l5|l6) ts=24000;; esac
+  case "$n" in x3|x4) ch=2;; x5) ch=2; ts=18000; fl=768;; x6) ch=2; ts=16537; fl=768; cmpc=0;; x7) ts=12000; fl=768;; l1|l3) ts=16000;; l2|l4|l5|l6) ts=24000;; l7) ch=2; ts=24000;; esac
   python3 -I tools/mp4_dump_aus.py "tests/data/usac_$n.m4a" "$W/$n" >/dev/null
   python3 -I - "$W" "$n" "$ts" "$fl" <<'PY'
 import struct, sys

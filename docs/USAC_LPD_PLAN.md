@@ -11,7 +11,7 @@ Stan: 2026-11-21. Cel: **własna** implementacja bez obowiązkowej zależności 
 | L2 ACELP | ZROBIONY | bit w bit względem float libxaac; start ramki zaczynającej się od ACELP po FD (SBR-111) |
 | L3 TCX | ZROBIONY | 98 – 130 dB względem float libxaac, 72 – 78 dB względem 16-bitowego `xaacdec` |
 | L4 FAC / przejścia | ZROBIONY (SBR-111) | FAC wewnątrz ramki, FD ↔ LPD (osiem okien krótkich, start, `ONLY_LONG`, ACELP / TCX po FD), `lpd_bpf_fix`; niesprawdzone (koder nie produkuje): `LONG_STOP` wprost po LPD |
-| L5 CPE / eSBR | CZĘŚCIOWO | para kanałów obu LPD i eSBR 2:1 podłączone (bez wzorca stereo LPD: koder libxaac nie dał testowego strumienia); jeden kanał FD + jeden LPD: `-1`; rdzeń 768 z LPD: `-1` |
+| L5 CPE / eSBR | CZĘŚCIOWO | para kanałów obu LPD zweryfikowana (`usac_l7`, 70 dB), eSBR 2:1 podłączone (bez strumienia LPD + eSBR: koder libxaac nie koduje LPD przy 32 / 48 kHz); jeden kanał FD + jeden LPD: `-1`; rdzeń 768 z LPD: `-1` |
 | L6 silnik | ZROBIONY dla strumieni LPD | stan LPD w stanie kanału (kopiowany na punktach kontrolnych), seek, pre-roll, fuzzing |
 
 Tablice: pochodzenie i zgoda: `docs/BIBLIOTEKA_PLAN.md` (rejestr), generator `tools/gen_usac_lpd_tables.py`.
