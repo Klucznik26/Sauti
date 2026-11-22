@@ -92,16 +92,23 @@ static void hybrid_in(cxf lf_state[3][12], const SautiAacSbrComplex *in, unsigne
     for (k = 0; k < 3u; k++) memcpy(lf_state[k], lf_in[k] + slots, 12u * sizeof(cxf));
 }
 
-static void set_gains(unsigned prediction, int cld_idx, int icc_idx, float res[2], float dec[2], float rsd[2]) {
+static void set_gains(unsigned prediction, int cld_idx, int icc_idx, int ipd_idx, int in_ipd, int in_res, float res[2], float dec[2], float rsd[2], float im[2]) {
     const unsigned c = (unsigned)(cld_idx + 15), ic = (unsigned)icc_idx & 7u;
+    im[0] = im[1] = 0.0f;
     if (!prediction) {
         const double cl = sauti_usac_mps_c_l[c], cr = sauti_usac_mps_c_l[30u - c];
         res[0] = (float)((double)sauti_usac_mps_cos[ic][c] * cl);  res[1] = (float)((double)sauti_usac_mps_cos[ic][30u - c] * cr);
         rsd[0] = rsd[1] = 0.0f;
         dec[0] = (float)((double)sauti_usac_mps_sin[ic][c] * cl);  dec[1] = (float)(-(double)sauti_usac_mps_sin[ic][30u - c] * cr);
+    } else if (in_ipd && c == 15u && ic == 0u && (ipd_idx & 15) == 8) {      /* identical channels in anti-phase: a fixed gain */
+        const float g = 0.416666667f;
+        dec[0] = dec[1] = rsd[0] = rsd[1] = 0.0f;
+        if (in_res) { res[0] = g; res[1] = g; rsd[0] = g; rsd[1] = -g; } else { res[0] = g; res[1] = -g; }
     } else {
-        const double w = sauti_usac_mps_weight[0][ic][c], rw = sauti_usac_mps_re_weight[0][ic][c], beta = sauti_usac_mps_beta[0][ic][c];
+        const unsigned ip = in_ipd ? (unsigned)ipd_idx & 15u : 0u;
+        const double w = sauti_usac_mps_weight[ip][ic][c], rw = sauti_usac_mps_re_weight[ip][ic][c], iw = sauti_usac_mps_im_weight[ip][ic][c], beta = sauti_usac_mps_beta[ip][ic][c];
         res[0] = (float)(w - rw); res[1] = (float)(w + rw);
+        im[0] = (float)-iw; im[1] = (float)iw;
         dec[0] = (float)beta; dec[1] = (float)-beta;
         rsd[0] = (float)w; rsd[1] = (float)-w;                               /* a band that carries a residual: the signal replaces the decorrelator (the caller zeroes dec there) */
     }
@@ -179,7 +186,7 @@ void sauti_usac_mps212_residual_grid(SautiUsacMpsDec *d, const SautiAacSbrComple
 int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, const SautiUsacMpsFrame *f, unsigned band_count, unsigned slots,
                             const SautiAacSbrComplex *in, const SautiAacSbrComplex *res_in, unsigned res_band_count, SautiAacSbrComplex *out0, SautiAacSbrComplex *out1) {
     cxf hyb[MAXS][HYB], diff[MAXS][HYB], mixed[2][MAXS][HYB], hres[MAXS][HYB];                 /* about 160 KiB of scratch on the stack */
-    float resg[SAUTI_USAC_MPS_SETS][NB][2], decg[SAUTI_USAC_MPS_SETS][NB][2], rsdg[SAUTI_USAC_MPS_SETS][NB][2];
+    float resg[SAUTI_USAC_MPS_SETS][NB][2], decg[SAUTI_USAC_MPS_SETS][NB][2], rsdg[SAUTI_USAC_MPS_SETS][NB][2], img[SAUTI_USAC_MPS_SETS][NB][2];
     unsigned slot_diff[SAUTI_USAC_MPS_SETS];
     float pl[SAUTI_USAC_MPS_SETS][NB], pr[SAUTI_USAC_MPS_SETS][NB];
     float phc[MAXS][NB][2], phs[MAXS][NB][2];                           /* cosine / sine of the interpolated phase per slot, parameter band and output channel */
@@ -188,7 +195,7 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
     unsigned hyb_count, res_hyb_count = 0, i, k, pb, n, ps, row;
     const double gain = cfg ? sauti_usac_mps_clip_gain[cfg->fixed_gain & 7u] : 1.0;
     if (!d || !cfg || !f || !in || !out0 || !out1 || slots == 0 || slots > MAXS || band_count < 4u || band_count > 64u || cfg->fixed_gain > 7u || cfg->decorr > 2u) return 0;
-    if ((cfg->phase_coding && (cfg->residual || cfg->bands_phase > f->param_bands)) || cfg->residual_bands > f->param_bands || (cfg->residual_bands && (!res_in || res_band_count < 4u || res_band_count > 64u)) || f->num_sets == 0 || f->num_sets > SAUTI_USAC_MPS_SETS || cfg->freq_res == 0 || cfg->freq_res > 7u || cfg->temp_shape == 1u || cfg->temp_shape == 3u) return 0;
+    if ((cfg->phase_coding && cfg->bands_phase > f->param_bands) || cfg->residual_bands > f->param_bands || (cfg->residual_bands && (!res_in || res_band_count < 4u || res_band_count > 64u)) || f->num_sets == 0 || f->num_sets > SAUTI_USAC_MPS_SETS || cfg->freq_res == 0 || cfg->freq_res > 7u || cfg->temp_shape == 1u || cfg->temp_shape == 3u) return 0;
     map = band_map(f->param_bands);
     if (!map) return 0;
     split = split_freq[cfg->decorr];
@@ -246,14 +253,15 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
     /* 3. upmix gains of every parameter set, interpolated slot by slot, and the mix of the direct and the decorrelated signal */
     for (ps = 0; ps < f->num_sets; ps++)
         for (pb = 0; pb < f->param_bands; pb++) {
-            float rs[2], dc[2], rd[2];
-            set_gains(cfg->residual, f->cld_idx[ps][pb], f->icc_idx[ps][pb], rs, dc, rd);
+            float rs[2], dc[2], rd[2], ii[2];
+            const int in_res = pb < cfg->residual_bands;                        /* a band below bsResidualBands: the residual signal takes the place of the decorrelator output */
+            const int in_ipd = cfg->phase_coding && f->phase_mode && pb < cfg->bands_phase;
+            set_gains(cfg->residual, f->cld_idx[ps][pb], f->icc_idx[ps][pb], in_ipd ? f->ipd_idx[ps][pb] : 0, in_ipd, in_res, rs, dc, rd, ii);
             for (row = 0; row < 2u; row++) {
-                const int in_res = pb < cfg->residual_bands;                    /* a band below bsResidualBands: the residual signal takes the place of the decorrelator output */
-                resg[ps][pb][row] = rs[row]; decg[ps][pb][row] = in_res ? 0.0f : dc[row]; rsdg[ps][pb][row] = in_res ? rd[row] : 0.0f;
+                resg[ps][pb][row] = rs[row]; decg[ps][pb][row] = in_res ? 0.0f : dc[row]; rsdg[ps][pb][row] = in_res ? rd[row] : 0.0f; img[ps][pb][row] = ii[row];
             }
         }
-    if (cfg->phase_coding) {
+    if (cfg->phase_coding && !cfg->residual) {
         unsigned t = 0;
         phase_sets(d, cfg, f, slot_diff, pl, pr);
         for (ps = 0; ps < f->num_sets; ps++) {
@@ -278,17 +286,18 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
             const double inv = 1.0 / (double)slot_diff[ps];
             unsigned step;
             for (step = 1; step <= slot_diff[ps]; step++, t++) {
-                double rg[NB][2], dg[NB][2], sg[NB][2];
+                double rg[NB][2], dg[NB][2], sg[NB][2], ig[NB][2];
                 for (pb = 0; pb < f->param_bands; pb++)
                     for (row = 0; row < 2u; row++) {
                         const double r0 = ps ? resg[ps - 1u][pb][row] : d->resid_prev[pb][row], d0 = ps ? decg[ps - 1u][pb][row] : d->decor_prev[pb][row], s0 = ps ? rsdg[ps - 1u][pb][row] : d->rsd_prev[pb][row];
                         rg[pb][row] = r0 + (double)step * inv * (resg[ps][pb][row] - r0);
                         dg[pb][row] = d0 + (double)step * inv * (decg[ps][pb][row] - d0);
                         sg[pb][row] = s0 + (double)step * inv * (rsdg[ps][pb][row] - s0);
+                        { const double i0 = ps ? img[ps - 1u][pb][row] : d->im_prev[pb][row]; ig[pb][row] = i0 + (double)step * inv * (img[ps][pb][row] - i0); }
                     }
                 for (k = 0; k < hyb_count; k++) {
                     const unsigned b = map[k];
-                    if (cfg->phase_coding) {                                    /* complex mix: each signal is rotated by its output channel's phase; the two lowest hybrid bands (negative frequencies of the split) the other way */
+                    if (cfg->phase_coding && !cfg->residual) {                  /* complex mix: each signal is rotated by its output channel's phase; the two lowest hybrid bands (negative frequencies of the split) the other way */
                         for (row = 0; row < 2u; row++) {
                             const float c = phc[t][b][row], sn = phs[t][b][row], g1 = (float)rg[b][row], g2 = (float)dg[b][row], gc1 = g1 * c, gs1 = g1 * sn, gc2 = g2 * c, gs2 = g2 * sn;
                             const float sg_ = k < 2u ? 1.0f : -1.0f;
@@ -301,12 +310,17 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
                         const int has_res = cfg->residual_bands && k < res_hyb_count;
                         mixed[row][t][k].re = (float)((double)hyb[t][k].re * rg[b][row] + (double)diff[t][k].re * dg[b][row] + (has_res ? (double)hres[t][k].re * sg[b][row] : 0.0));
                         mixed[row][t][k].im = (float)((double)hyb[t][k].im * rg[b][row] + (double)diff[t][k].im * dg[b][row] + (has_res ? (double)hres[t][k].im * sg[b][row] : 0.0));
+                        if (cfg->phase_coding) {                                  /* the imaginary part of the prediction matrix acts on the direct signal only; opposite sign in the two lowest hybrid bands */
+                            const double gi = k < 2u ? ig[b][row] : -ig[b][row];
+                            mixed[row][t][k].re = (float)((double)mixed[row][t][k].re + (double)hyb[t][k].im * gi);
+                            mixed[row][t][k].im = (float)((double)mixed[row][t][k].im - (double)hyb[t][k].re * gi);
+                        }
                     }
                 }
             }
         }
     }
-    for (pb = 0; pb < f->param_bands; pb++) for (row = 0; row < 2u; row++) { d->resid_prev[pb][row] = resg[f->num_sets - 1u][pb][row]; d->decor_prev[pb][row] = decg[f->num_sets - 1u][pb][row]; d->rsd_prev[pb][row] = rsdg[f->num_sets - 1u][pb][row]; }
+    for (pb = 0; pb < f->param_bands; pb++) for (row = 0; row < 2u; row++) { d->resid_prev[pb][row] = resg[f->num_sets - 1u][pb][row]; d->decor_prev[pb][row] = decg[f->num_sets - 1u][pb][row]; d->rsd_prev[pb][row] = rsdg[f->num_sets - 1u][pb][row]; d->im_prev[pb][row] = img[f->num_sets - 1u][pb][row]; }
     /* 4. hybrid synthesis: the six bands of QMF band 0 and the pairs of QMF bands 1 and 2 are added, the others are QMF bands */
     for (row = 0; row < 2u; row++) {
         SautiAacSbrComplex *o = row ? out1 : out0;

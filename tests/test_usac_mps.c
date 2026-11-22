@@ -155,8 +155,8 @@ static void test_signal(void) {
     }
     CHECK(ok, "signal above band_count");
     /* refusals */
-    memset(&d, 0, sizeof d); c.phase_coding = 1; { const unsigned r0 = c.residual; c.residual = 1;
-    CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 32, in, NULL, 0, o0, o1), "phase coding with the prediction upmix accepted"); c.residual = r0; } c.phase_coding = 0;
+    memset(&d, 0, sizeof d); c.phase_coding = 1; c.bands_phase = 29;
+    CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 32, in, NULL, 0, o0, o1), "29 phase bands accepted"); c.phase_coding = 0; c.bands_phase = 10;
     c.residual_bands = 3; CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 32, in, NULL, 0, o0, o1), "residual bands accepted"); c.residual_bands = 0;
     c.temp_shape = 3; CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 32, in, NULL, 0, o0, o1), "TSD accepted"); c.temp_shape = 0;
     CHECK(!sauti_usac_mps212_apply(&d, &c, &f, 40, 80, in, NULL, 0, o0, o1) && !sauti_usac_mps212_apply(&d, &c, &f, 2, 32, in, NULL, 0, o0, o1) && !sauti_usac_mps212_apply(&d, &c, &f, 65, 32, in, NULL, 0, o0, o1), "bad slots / band count accepted");
@@ -293,22 +293,23 @@ static void test_residual(void) {
 static void test_golden_phase(void) {
     FILE *fp = fopen("tests/data/mps_phase_golden.bin", "rb");
     int32_t ns, si;
-    static SautiUsacMpsDec d; static SautiUsacMpsFrame f; static float inb[32 * 54 * 2]; static SautiAacSbrComplex in[32 * 64], o0[32 * 64], o1[32 * 64];
+    static SautiUsacMpsDec d; static SautiUsacMpsFrame f; static float inb[32 * 54 * 2], rb_[32 * 32 * 2]; static SautiAacSbrComplex in[32 * 64], rin[32 * 64], o0[32 * 64], o1[32 * 64];
     if (!fp) { CHECK(0, "cannot read tests/data/mps_phase_golden.bin (run from the repository root)"); return; }
     { char m[4]; if (fread(m, 1, 4, fp) != 4 || memcmp(m, "MPSF", 4) || fread(&ns, 4, 1, fp) != 1) { CHECK(0, "phase golden header"); fclose(fp); return; } }
     for (si = 0; si < ns; si++) {
-        int32_t sh[3], fr;
+        int32_t sh[5], fr;
         SautiUsacMpsConfig c = cfg1;
-        if (fread(sh, 4, 3, fp) != 3) { CHECK(0, "phase golden set %d header", (int)si); break; }
-        memset(&d, 0, sizeof d); c.residual = 0; c.phase_coding = (unsigned)sh[0]; c.bands_phase = 10; c.decorr = (unsigned)sh[1];
+        if (fread(sh, 4, 5, fp) != 5) { CHECK(0, "phase golden set %d header", (int)si); break; }
+        memset(&d, 0, sizeof d); c.residual = (unsigned)sh[4]; c.residual_bands = (unsigned)sh[3]; c.phase_coding = (unsigned)sh[0]; c.bands_phase = c.residual_bands > 10u ? c.residual_bands : 10u; c.decorr = (unsigned)sh[1];
         for (fr = 0; fr < sh[2]; fr++) {
             int32_t hd[7], cld[28], icc[28], ipd[28], i, s, b, ch;
-            if (fread(hd, 4, 7, fp) != 7 || fread(cld, 4, 28, fp) != 28 || fread(icc, 4, 28, fp) != 28 || fread(ipd, 4, 28, fp) != 28 || fread(inb, 4, 32u * 54u * 2u, fp) != 32u * 54u * 2u) { CHECK(0, "phase golden set %d frame %d truncated", (int)si, (int)fr); break; }
+            if (fread(hd, 4, 7, fp) != 7 || fread(cld, 4, 28, fp) != 28 || fread(icc, 4, 28, fp) != 28 || fread(ipd, 4, 28, fp) != 28 || fread(inb, 4, 32u * 54u * 2u, fp) != 32u * 54u * 2u || (sh[3] && fread(rb_, 4, 32u * 32u * 2u, fp) != 32u * 32u * 2u)) { CHECK(0, "phase golden set %d frame %d truncated", (int)si, (int)fr); break; }
             memset(&f, 0, sizeof f); f.num_sets = (unsigned)hd[1]; f.param_bands = (unsigned)hd[2]; f.param_slot[0] = (unsigned)hd[3]; f.phase_mode = (unsigned)hd[4]; f.opd_smoothing = (unsigned)hd[5]; f.ipd_coarse[0] = (unsigned)hd[6];
             for (i = 0; i < 28; i++) { f.cld_idx[0][i] = cld[i]; f.icc_idx[0][i] = icc[i]; f.ipd_idx[0][i] = ipd[i]; }
-            memset(in, 0, sizeof in);
+            memset(in, 0, sizeof in); memset(rin, 0, sizeof rin);
+            if (sh[3]) for (s = 0; s < 32; s++) for (b = 0; b < 32; b++) { rin[s * 64 + b].re = rb_[(s * 32 + b) * 2] / 32768.0f; rin[s * 64 + b].im = rb_[(s * 32 + b) * 2 + 1] / 32768.0f; }
             for (s = 0; s < 32; s++) for (b = 0; b < 54; b++) { in[s * 64 + b].re = inb[(s * 54 + b) * 2] / 32768.0f; in[s * 64 + b].im = inb[(s * 54 + b) * 2 + 1] / 32768.0f; }
-            CHECK(sauti_usac_mps212_apply(&d, &c, &f, (unsigned)hd[0], 32, in, NULL, 0, o0, o1), "phase golden set %d frame %d refused", (int)si, (int)fr);
+            CHECK(sauti_usac_mps212_apply(&d, &c, &f, (unsigned)hd[0], 32, in, sh[3] ? rin : NULL, 32, o0, o1), "phase golden set %d frame %d refused", (int)si, (int)fr);
             for (ch = 0; ch < 2; ch++) {
                 double exp4[4], got[4] = { 0, 0, 0, 0 }, scale; const SautiAacSbrComplex *o = ch ? o1 : o0;
                 if (fread(exp4, 8, 4, fp) != 4) { CHECK(0, "phase golden set %d frame %d sums", (int)si, (int)fr); break; }
@@ -318,7 +319,7 @@ static void test_golden_phase(void) {
                     got[0] += re; got[1] += im; got[2] += re * re + im * im; got[3] += (re + 2.0 * im) * w;
                 }
                 scale = sqrt(exp4[2] * 32.0 * 54.0) + 1e-9;
-                for (i = 0; i < 4; i++) CHECK(fabs(got[i] - exp4[i]) <= (i == 2 ? 3e-5 * exp4[2] : 3e-5 * scale) + 1e-9, "phase golden set %d (phase %d, decorr %d) frame %d channel %d sum %d: %.9g, libxaac %.9g", (int)si, (int)sh[0], (int)sh[1], (int)fr, (int)ch, (int)i, got[i], exp4[i]);
+                for (i = 0; i < 4; i++) CHECK(fabs(got[i] - exp4[i]) <= (i == 2 ? 3e-5 * exp4[2] : 3e-5 * scale) + 1e-9, "phase golden set %d (phase %d, decorr %d, res %d, pred %d) frame %d channel %d sum %d: %.9g, libxaac %.9g", (int)si, (int)sh[0], (int)sh[1], (int)sh[3], (int)sh[4], (int)fr, (int)ch, (int)i, got[i], exp4[i]);
             }
         }
     }
@@ -359,14 +360,53 @@ static void test_phase(void) {
         CHECK(pm > 0.9 * em, "bsPhaseMode 0 still rotates the outputs (%g of %g)", pm, em);
         f.phase_mode = 1;
     }
-    {   /* the refusals: phase coding with a residual (stereoConfigIndex 2), more phase bands than parameter bands */
-        c.residual = 1; CHECK(!sauti_usac_mps212_apply(&da, &c, &f, 40, 32, in, NULL, 0, a0, a1), "phase coding with the prediction upmix accepted");
+    {   /* the refusal: more phase bands than parameter bands */
         c.residual = 0; c.bands_phase = 29; CHECK(!sauti_usac_mps212_apply(&da, &c, &f, 40, 32, in, NULL, 0, a0, a1), "29 phase bands accepted");
     }
 }
 
+/* phase coding with the prediction upmix (stereoConfigIndex 2): the anti-phase special case, the bands that carry no phase, bsPhaseMode 0 */
+static void test_phase_pred(void) {
+    static SautiUsacMpsDec da, db, dc_, dd; static SautiUsacMpsFrame f; static SautiAacSbrComplex in[32 * 64], a0[32 * 64], a1[32 * 64], b0[32 * 64], b1[32 * 64], c0[32 * 64], c1[32 * 64], e0[32 * 64], e1[32 * 64];
+    SautiUsacMpsConfig c = cfg1, off;
+    unsigned s, fr, i, k, same13 = 1, same_pm0 = 1;
+    double err_a = 0, err_b = 0, ref = 0, special_vs_icc = 0;
+    memset(&f, 0, sizeof f); f.num_sets = 1; f.param_bands = 28; f.param_slot[0] = 31; f.phase_mode = 1;
+    for (i = 0; i < 28u; i++) { f.cld_idx[0][i] = 0; f.icc_idx[0][i] = 0; f.ipd_idx[0][i] = 8; }
+    c.residual = 1; c.phase_coding = 1; c.bands_phase = 10; c.residual_bands = 0; off = c; off.phase_coding = 0;
+    for (fr = 0; fr < 6u; fr++) {
+        for (s = 0; s < 32u; s++) for (k = 0; k < 40u; k++) { in[s * 64 + k].re = 0.01f * sinf((float)(s * 3u + k * 5u + fr)); in[s * 64 + k].im = 0.01f * cosf((float)(s * 7u + k + 2u * fr)); }
+        CHECK(sauti_usac_mps212_apply(&da, &c, &f, 40, 32, in, NULL, 0, a0, a1), "special case refused");
+        if (fr >= 3u) {                                                                                 /* QMF band 3 = hybrid band 10, parameter band 8: gain 5/12 and its mirror image on the direct signal alone (no decorrelator) */
+            for (s = 0; s < 32u; s++) { err_a += fabs(a0[s * 64 + 3].re - 0.416666667f * in[s * 64 + 3].re) + fabs(a0[s * 64 + 3].im - 0.416666667f * in[s * 64 + 3].im); err_b += fabs(a1[s * 64 + 3].re + 0.416666667f * in[s * 64 + 3].re) + fabs(a1[s * 64 + 3].im + 0.416666667f * in[s * 64 + 3].im); ref += fabs(in[s * 64 + 3].re) + fabs(in[s * 64 + 3].im); }
+        }
+    }
+    CHECK(err_a < 1e-4 * ref && err_b < 1e-4 * ref, "anti-phase special case: left error %g, right error %g of %g", err_a, err_b, ref);
+    /* the same parameters with ICC 1: no special case, the tabulated weights */
+    for (i = 0; i < 28u; i++) f.icc_idx[0][i] = 1;
+    for (fr = 0; fr < 6u; fr++) {
+        for (s = 0; s < 32u; s++) for (k = 0; k < 40u; k++) { in[s * 64 + k].re = 0.01f * sinf((float)(s * 3u + k * 5u + fr)); in[s * 64 + k].im = 0.01f * cosf((float)(s * 7u + k + 2u * fr)); }
+        CHECK(sauti_usac_mps212_apply(&db, &c, &f, 40, 32, in, NULL, 0, b0, b1), "ICC 1 refused");
+        if (fr >= 3u) for (s = 0; s < 32u; s++) special_vs_icc += fabs(b0[s * 64 + 3].re - 0.416666667f * in[s * 64 + 3].re) + fabs(b0[s * 64 + 3].im - 0.416666667f * in[s * 64 + 3].im);
+    }
+    CHECK(special_vs_icc > 1e-2 * ref, "ICC 1 still takes the anti-phase special case (%g)", special_vs_icc);
+    /* bands beyond the phase bands (QMF band 13 = parameter band 11) ignore the IPD; so does a frame with bsPhaseMode 0 */
+    for (i = 0; i < 28u; i++) { f.icc_idx[0][i] = 2; f.ipd_idx[0][i] = 5; }
+    for (fr = 0; fr < 6u; fr++) {
+        for (s = 0; s < 32u; s++) for (k = 0; k < 40u; k++) { in[s * 64 + k].re = 0.01f * sinf((float)(s * 3u + k * 5u + fr)); in[s * 64 + k].im = 0.01f * cosf((float)(s * 7u + k + 2u * fr)); }
+        f.phase_mode = 1;
+        CHECK(sauti_usac_mps212_apply(&dc_, &c, &f, 40, 32, in, NULL, 0, c0, c1) && sauti_usac_mps212_apply(&dd, &off, &f, 40, 32, in, NULL, 0, e0, e1), "phase / no phase refused");
+        for (s = 0; s < 32u; s++) if (c0[s * 64 + 13].re != e0[s * 64 + 13].re || c0[s * 64 + 13].im != e0[s * 64 + 13].im || c1[s * 64 + 13].re != e1[s * 64 + 13].re) same13 = 0;
+        { static SautiUsacMpsDec dp, dq;
+          f.phase_mode = 0; CHECK(sauti_usac_mps212_apply(&dp, &c, &f, 40, 32, in, NULL, 0, a0, a1) && sauti_usac_mps212_apply(&dq, &off, &f, 40, 32, in, NULL, 0, e0, e1), "phase mode 0 refused");
+          for (s = 0; s < 32u; s++) for (k = 0; k < 40u; k++) if (a0[s * 64 + k].re != e0[s * 64 + k].re || a1[s * 64 + k].im != e1[s * 64 + k].im) same_pm0 = 0; }
+    }
+    CHECK(same13, "a band beyond the phase bands reacts to the IPD");
+    CHECK(same_pm0, "bsPhaseMode 0 changes the prediction upmix");
+}
+
 int main(void) {
-    test_tables(); test_parse(); test_signal(); test_golden(); test_golden_res(); test_residual(); test_golden_phase(); test_phase();
+    test_tables(); test_parse(); test_signal(); test_golden(); test_golden_res(); test_residual(); test_golden_phase(); test_phase(); test_phase_pred();
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_mps: all passed\n"); return 0;
 }

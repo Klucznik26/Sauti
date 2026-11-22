@@ -15,7 +15,7 @@ typedef struct {
     SautiAacSbrComplex delay[SAUTI_USAC_MPS_HYBRID][SAUTI_USAC_MPS_DELAY_MAX];         /* decorrelator: delayed input */
     SautiAacSbrComplex ap_state[SAUTI_USAC_MPS_HYBRID][SAUTI_USAC_MPS_DELAY_MAX];      /* decorrelator: all-pass state */
     float smooth_in[SAUTI_USAC_MPS_BANDS], smooth_out[SAUTI_USAC_MPS_BANDS];            /* decorrelator: smoothed energies per parameter band of the 28 band map */
-    float resid_prev[SAUTI_USAC_MPS_BANDS][2], decor_prev[SAUTI_USAC_MPS_BANDS][2], rsd_prev[SAUTI_USAC_MPS_BANDS][2];    /* the upmix gains [band][output channel] of the last set of the previous frame */
+    float resid_prev[SAUTI_USAC_MPS_BANDS][2], decor_prev[SAUTI_USAC_MPS_BANDS][2], rsd_prev[SAUTI_USAC_MPS_BANDS][2], im_prev[SAUTI_USAC_MPS_BANDS][2];    /* the upmix gains [band][output channel] of the last set of the previous frame */
     SautiAacSbrQmfAnalysisState res_analysis;                                          /* the 32 band QMF analysis of the residual channel (the second core channel) */
     SautiAacSbrComplex res_tail[6][32];                                                /* the last 6 slots of QMF bands 3..31 of the residual analysis: the reference delays them against bands 0..2 */
     float phase_prev[2][SAUTI_USAC_MPS_BANDS];                                         /* phase of the last set of the previous frame (left, right output) */

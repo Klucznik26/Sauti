@@ -20,7 +20,7 @@ static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n &
 static FILE *g_elem_fu[8];
 static uint8_t hist_au[8][1 << 16]; static size_t hist_len[8];                /* the last access units (ring of 8) that go into a pre-roll payload */
 static int g_pvc;                                                            /* --pvc N: predictive vector coding in the SBR configuration; mono streams only.  1 the header mode switches at random between classic and PVC modes 1 / 2, 2 mode 1 only, 3 mode 2 only, 4 modes 1 / 2 without classic frames */
-static int g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr, g_mps_phase, g_mps_opd;   /* --mps-phase 1: phase coding (IPD / OPD) with one IPD set per frame, --mps-opd M: bsOpdSmoothingMode */   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
+static int g_mps_anti, g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr, g_mps_phase, g_mps_opd;   /* --mps-phase 1: phase coding (IPD / OPD) with one IPD set per frame, --mps-opd M: bsOpdSmoothingMode */   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
 static int g_hbe;                                                            /* --hbe N: harmonic transposer (bs_harmonicSBR): 1 random mix of sbrPatchingMode 0 / 1 frames, 2 always the transposer; random oversampling flag and sbrPitchInBins (0, 12, 24, 36 and 1..127) */
 static int g_intertes;                                                       /* --intertes: inter-subband temporal envelope shaping in the SBR configuration, random bs_temp_shape / mode after every envelope */
 static int g_lfe_short;                                                      /* diagnostic: the LFE uses an eight-short window from the second frame on (illegal: an LFE has long windows only) */
@@ -450,14 +450,14 @@ static void put_mps_data(Bw *w, int indep) {
     unsigned i, coarse = (rnd() % 4u) == 0u;
     if (!indep) put(w, 1, 1);                                               /* bsIndependencyFlag */
     put(w, 3, 2); put(w, 0, 1); put(w, coarse, 1); put(w, 0, 2); put(w, 1, 1);          /* CLD: new data, no pair, quantiser, stride 0, PCM */
-    for (i = 0; i < 28u; i++) put(w, coarse ? (uint32_t)rr(3, 11) : (uint32_t)rr(5, 25), coarse ? 4u : 5u);
+    for (i = 0; i < 28u; i++) put(w, (g_mps_anti && i < 4u) ? (coarse ? 7u : 15u) : (coarse ? (uint32_t)rr(3, 11) : (uint32_t)rr(5, 25)), coarse ? 4u : 5u);
     put(w, 3, 2); put(w, 0, 1); put(w, 0, 1); put(w, 0, 2); put(w, 1, 1);               /* ICC */
-    for (i = 0; i < 28u; i++) put(w, (uint32_t)rr(0, 7), 3);
+    for (i = 0; i < 28u; i++) put(w, (g_mps_anti && i < 4u) ? 0u : (uint32_t)rr(0, 7), 3);
     if (g_mps_phase) {                                                      /* bsPhaseMode = 1, bsOpdSmoothingMode, then EcData of IPD for the 10 bands of the default phase band count: PCM, fine (4 bit values) or coarse (3 bit) */
         const unsigned c2 = (rnd() % 3u) == 0u;
         put(w, 1, 1); put(w, (uint32_t)g_mps_opd, 1);
         put(w, 3, 2); put(w, 0, 1); put(w, c2, 1); put(w, 0, 2); put(w, 1, 1);
-        for (i = 0; i < 10u; i++) put(w, (uint32_t)rr(0, c2 ? 7 : 15), c2 ? 3u : 4u);
+        { const unsigned nb = (g_mps >= 2 && (unsigned)g_mps_res > 10u) ? (unsigned)g_mps_res : 10u; for (i = 0; i < nb; i++) put(w, (g_mps_anti && i < 4u) ? (c2 ? 4u : 8u) : (uint32_t)rr(0, c2 ? 7 : 15), c2 ? 3u : 4u); }   /* bands carrying IPD: 10, or the residual bands if there are more */
     }
 }
 
@@ -481,6 +481,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--mps") && a + 1 < argc) g_mps = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps-res") && a + 1 < argc) g_mps_res = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps-decorr") && a + 1 < argc) g_mps_decorr = atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--mps-anti")) g_mps_anti = 1;                 /* bands 0..3 of every frame: CLD 0, ICC 0, IPD 8 (the anti-phase special case of the prediction upmix) */
         else if (!strcmp(argv[a], "--mps-phase") && a + 1 < argc) g_mps_phase = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps-opd") && a + 1 < argc) g_mps_opd = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps-fgain") && a + 1 < argc) g_mps_fgain = atoi(argv[++a]);

@@ -3,6 +3,7 @@
 # decorrelator configuration 0, y2: 20 / 2, y3: 14 / 1; eSBR 2:1 (--sbr-simple 384), 24 frames.  The libxaac encoder cannot make such streams; the oracle is the decoder of libxaac, compared at the level of the upmix
 # (tests/test_usac_mps.c: golden files from an instrumented copy) because random eSBR data make the PCM of two independent decoders differ by far more than the upmix does.
 # usac_y4..y6: stereoConfigIndex 1 (one core channel, rotation upmix): y4 without phase coding, decorrelator 0; y5 with phase coding (IPD / OPD, one IPD set of 10 bands per frame), OPD smoothing 0, decorrelator 0; y6 phase coding with OPD smoothing 1, decorrelator 2.
+# usac_y7..y9: stereoConfigIndex 2 (prediction upmix) with phase coding: y7 without residual bands, OPD smoothing 0; y8 12 residual bands, OPD smoothing 1, decorrelator 1, with the anti-phase special case (bands 0..3: CLD 0, ICC 0, IPD 8); y9 3 residual bands, decorrelator 2, special case.
 # usage: tests/data/make_usac_mps_gen_fixtures.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -15,3 +16,6 @@ gen y3 8 14 1
 gen y4 21 0 0 1
 gen y5 22 0 0 1 "--mps-phase 1 --mps-opd 0"
 gen y6 25 0 2 1 "--mps-phase 1 --mps-opd 1"
+gen y7 41 0 0 2 "--mps-phase 1 --mps-opd 0"
+gen y8 42 12 1 2 "--mps-phase 1 --mps-opd 1 --mps-anti"
+gen y9 43 3 2 2 "--mps-phase 1 --mps-opd 0 --mps-anti"
