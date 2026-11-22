@@ -458,7 +458,9 @@ static void put_mps_hr_core(Bw *w, int indep) {
         for (i = 0; i < sets; i++) { const unsigned room = 32u - prev - (left - 1u); slot[i] = prev + rnd() % (room > 8u ? 8u : room); prev = slot[i] + 1u; left--; put(w, slot[i], 5); }
     }
     if (!indep) { ind = (rnd() % 4u) == 0u; put(w, ind, 1); } else ind = 1u;
-    for (type = 0; type < 2u; type++) {                                     /* 0 = CLD, 1 = ICC */
+    for (type = 0; type < (g_mps_phase ? 3u : 2u); type++) {               /* 0 = CLD, 1 = ICC, 2 = IPD (after bsPhaseMode and bsOpdSmoothingMode) */
+        const unsigned nbands = type == 2u ? ((g_mps >= 2 && (unsigned)g_mps_res > 10u) ? (unsigned)g_mps_res : 10u) : 28u;
+        if (type == 2u) { put(w, 1, 1); put(w, (uint32_t)g_mps_opd, 1); }
         for (i = 0; i < sets; i++) {
             const unsigned r = rnd() % 10u;
             mode[i] = r < 5u ? 3u : (r < 6u ? 0u : (r < 8u ? 1u : (g_mps_hrint ? 2u : 3u)));                 /* mode 2 (interpolate) only with --mps-hr-interp: libxaac's decoder rejects it (an inverted check) */
@@ -474,7 +476,11 @@ static void put_mps_hr_core(Bw *w, int indep) {
             if (i > 0u && (mode[i - 1u] & 4u)) continue;                    /* the second set of a pair: its data came with the first one */
             {   const unsigned pair = (mode[i] & 4u) != 0u, coarse = (rnd() % 4u) == 0u, n = pair ? 2u : 1u;
                 put(w, pair, 1); put(w, coarse, 1); put(w, 0, 2); put(w, 1, 1);
-                for (k = 0; k < n * 28u; k++) put(w, type == 0u ? (coarse ? (uint32_t)rr(3, 11) : (uint32_t)rr(5, 25)) : (uint32_t)rr(0, coarse ? 3 : 7), type == 0u ? (coarse ? 4u : 5u) : (coarse ? 2u : 3u));
+                for (k = 0; k < n * nbands; k++) {
+                    if (type == 0u) put(w, coarse ? (uint32_t)rr(3, 11) : (uint32_t)rr(5, 25), coarse ? 4u : 5u);
+                    else if (type == 1u) put(w, (uint32_t)rr(0, coarse ? 3 : 7), coarse ? 2u : 3u);
+                    else put(w, (uint32_t)rr(0, coarse ? 7 : 15), coarse ? 3u : 4u);
+                }
             }
         }
     }

@@ -124,15 +124,16 @@ int main(int argc, char **argv) {
                       { "z5", "tests/data/usac_z5.m4a", 2, 4096, NBZ, 48000, z5_fp }, { "z6", "tests/data/usac_z6.m4a", 2, 4096, NBZ, 48000, z6_fp },
                       { "z7", "tests/data/usac_z7.m4a", 2, 2048, NBZ, 48000, z7_fp }, { "z8", "tests/data/usac_z8.m4a", 2, 2048, NBZ, 48000, z8_fp },
                       { "z9", "tests/data/usac_z9.m4a", 2, 2048, NBZ, 48000, z9_fp },
-                      { "y17", "tests/data/usac_y17.m4a", 2, 2048, NBZ, 48000, y17_fp }, { "y18", "tests/data/usac_y18.m4a", 2, 2048, NBZ, 48000, y18_fp }, { "y19", "tests/data/usac_y19.m4a", 2, 2048, NBZ, 48000, y19_fp } };
+                      { "y17", "tests/data/usac_y17.m4a", 2, 2048, NBZ, 48000, y17_fp }, { "y18", "tests/data/usac_y18.m4a", 2, 2048, NBZ, 48000, y18_fp }, { "y19", "tests/data/usac_y19.m4a", 2, 2048, NBZ, 48000, y19_fp },
+                      { "y20", "tests/data/usac_y20.m4a", 2, 2048, NBZ, 48000, y20_fp }, { "y21", "tests/data/usac_y21.m4a", 2, 2048, NBZ, 48000, y21_fp } };
     unsigned k;
     if (argc > 1 && !strcmp(argv[1], "--dump")) {                                                       /* build/test_usac_xaac --dump > tests/test_usac_xaac_fingerprints.h */
         g_dump = 1;
         printf("/* Per-block fingerprints (sum, sum of squares, position weighted sum, second difference energy) of the decoded PCM of the libxaac-encoded fixtures, written by `build/test_usac_xaac --dump` AFTER the decode agreed\n * with libxaac's decoder (scripts/test_usac_vs_xaac.sh: 73-79 dB). Only the first MAXB blocks of each stream. */\n#define MAXB 40\n");
-        for (k = 0; k < 60; k++) test_fixture(&fx[k]);
+        for (k = 0; k < 62; k++) test_fixture(&fx[k]);
         return g_failures ? 1 : 0;
     }
-    for (k = 0; k < 60; k++) test_fixture(&fx[k]);
+    for (k = 0; k < 62; k++) test_fixture(&fx[k]);
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_xaac: all passed\n"); return 0;
 }
