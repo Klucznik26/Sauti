@@ -27,15 +27,15 @@
 #define SAUTI_AAC_SBR_CHANNEL_SLOTS 32u
 #define SAUTI_AAC_SBR_CHANNEL_BANDS 64u
 #define SAUTI_AAC_SBR_CHANNEL_GRID (SAUTI_AAC_SBR_CHANNEL_SLOTS*SAUTI_AAC_SBR_CHANNEL_BANDS)
-#define SAUTI_AAC_SBR_CHANNEL_SPILL 6u
+#define SAUTI_AAC_SBR_CHANNEL_SPILL 12u                 /* slots an envelope may run past the frame: 6 (2:1) / 12 (4:1) */
 
 typedef struct {
     uint32_t ready;
-    uint32_t analysis_bands;                          /* 0 / 32: 1024 core samples per frame through the 32-band QMF; 24: eSBR 8:3, 768 core samples through the 24-band QMF (set by the USAC decoder after init) */
+    uint32_t analysis_bands;                          /* 0 / 32: 1024 core samples per frame through the 32-band QMF; 24: eSBR 8:3, 768 core samples through the 24-band QMF; 16: eSBR 4:1, 1024 core samples through the 16-band QMF, 64 slots per frame, grid of 64 * 64 and 4096 output samples (set by the USAC decoder after init) */
     uint64_t frames;
     SautiAacSbrQmfAnalysisState analysis;
     SautiAacSbrQmfSynthWindowState synth;
-    SautiAacSbrComplex low_history[8u*32u];           /* last 8 low-band slots of the previous frame */
+    SautiAacSbrComplex low_history[14u*32u];          /* last 8 (4:1: 14) low-band slots of the previous frame */
     SautiAacSbrChirp chirp;
     SautiAacSbrPayloadFrame previous;                 /* for the carried-over onset e_a[0] and the sine continuation */
     uint32_t have_previous;
@@ -55,11 +55,11 @@ int sauti_aac_sbr_channel_init(SautiAacSbrChannel *ch);
  * the frame). grid: 32*64 complex, low band below kx, HF in [kx, kx+m), zero above. Returns 1, or 0 with *ch and grid unchanged. */
 int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
                                 const SautiAacSbrPayloadFrame *payload,
-                                SautiAacSbrComplex grid[SAUTI_AAC_SBR_CHANNEL_GRID]);
+                                SautiAacSbrComplex grid[]);
 
-/* 32 slots of the grid -> 2048 PCM samples at twice the core rate. */
+/* 32 slots of the grid -> 2048 PCM samples at twice the core rate (4:1: 64 slots -> 4096 samples; the grid and pcm buffers are twice as large). */
 int sauti_aac_sbr_channel_synthesize(SautiAacSbrChannel *ch,
-                                     const SautiAacSbrComplex grid[SAUTI_AAC_SBR_CHANNEL_GRID],
-                                     float pcm[2048]);
+                                     const SautiAacSbrComplex grid[],
+                                     float pcm[]);
 
 #endif

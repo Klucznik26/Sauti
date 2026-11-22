@@ -12,9 +12,9 @@
 static unsigned long long g_trace_frame;
 #endif
 
-#define SLOTS SAUTI_AAC_SBR_CHANNEL_SLOTS
+#define SLOTS_MAX (2u*SAUTI_AAC_SBR_CHANNEL_SLOTS)     /* 4:1: 64 slots */
 #define BANDS SAUTI_AAC_SBR_CHANNEL_BANDS
-#define MAX_I 38u            /* an envelope never ends after output slot 38 */
+#define MAX_I 76u            /* an envelope never ends after output slot 38 (2:1) / 76 (4:1) */
 
 /* Smoothing filter of the standard (bs_smoothing_mode == 0): five taps over the current and the four preceding slots. */
 static const double h_smooth[5]={
@@ -121,7 +121,7 @@ static int adjust_envelope(const SautiAacSbrPayloadFrame *f,
 
 int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
                                 const SautiAacSbrPayloadFrame *f,
-                                SautiAacSbrComplex grid[SAUTI_AAC_SBR_CHANNEL_GRID]){
+                                SautiAacSbrComplex grid[]){
     if(!ch || !core || !f || !grid || ch->ready!=1u)return 0;
     const SautiAacSbrTables *tab=&f->tables;
     const unsigned kx=tab->kx,k2=kx+tab->m;
@@ -131,25 +131,29 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
 #ifdef SAUTI_SBR_CHANNEL_TRACE
     g_trace_frame=ch->frames;
 #endif
+    const unsigned R=ch->analysis_bands==16u?2u:1u;       /* 1: 2:1 / 8:3 (32 slots), 2: 4:1 (64 slots) */
+    const unsigned SLOTS=SAUTI_AAC_SBR_CHANNEL_SLOTS*R,HIST=2u+6u*R,MAXI=38u*R;
     const unsigned t0=f->env_edges[0],tN=f->env_edges[envs];
-    if(t0>6u || tN<SLOTS || tN>MAX_I)return 0;
+    if(t0>6u*R || tN<SLOTS || tN>MAXI)return 0;
     for(unsigned e=0u;e<envs;e++)
         if(f->env_edges[e+1u]<=f->env_edges[e])return 0;
     const unsigned core_len=ch->analysis_bands==24u?768u:1024u;
-    if(ch->analysis_bands!=0u && ch->analysis_bands!=24u && ch->analysis_bands!=32u)return 0;
+    if(ch->analysis_bands!=0u && ch->analysis_bands!=16u && ch->analysis_bands!=24u && ch->analysis_bands!=32u)return 0;
     for(unsigned i=0u;i<core_len;i++)if(!isfinite(core[i]))return 0;
 
     SautiAacSbrChannel staged=*ch;                    /* committed only when the whole frame succeeded */
     SautiAacSbrChannel *next=&staged;
 
     /* 1. QMF analysis and the 40-slot low-band window */
-    SautiAacSbrComplex low[SLOTS*32u];
+    SautiAacSbrComplex low[SLOTS_MAX*32u];
     if(ch->analysis_bands==24u){
         if(!sauti_aac_sbr_qmf_analyze_24(core,768u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;
+    }else if(ch->analysis_bands==16u){
+        if(!sauti_aac_sbr_qmf_analyze_16(core,1024u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;
     }else if(!sauti_aac_sbr_qmf_analyze_32(core,1024u,SLOTS,32u,low,SLOTS*32u,&next->analysis))return 0;
-    SautiAacSbrComplex xlow[40u*32u];
-    memcpy(xlow,next->low_history,sizeof(next->low_history));
-    memcpy(xlow+8u*32u,low,sizeof(low));
+    SautiAacSbrComplex xlow[(SLOTS_MAX+14u)*32u];
+    memcpy(xlow,next->low_history,(size_t)HIST*32u*sizeof(SautiAacSbrComplex));
+    memcpy(xlow+(size_t)HIST*32u,low,(size_t)SLOTS*32u*sizeof(SautiAacSbrComplex));
 
     /* 2. inverse filtering: LPC over 38 equations of the 40-slot window, chirp */
     SautiAacSbrLpcCoeffs lpc;
@@ -158,7 +162,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
     /* A header that changes the number of noise bands does not clear the bandwidth factors and the previous inverse-filter modes: they are
      * kept per band index (the reference decoder never clears them on a reset, and the entries above the new count stay as they were). */
     if(chirp.ready && chirp.count!=tab->n_noise)chirp.count=tab->n_noise;
-    if(!sauti_aac_sbr_lpc_estimate_2(xlow,40u*32u,38u,&lpc) ||
+    if(!sauti_aac_sbr_lpc_estimate_2(xlow,(size_t)(SLOTS+HIST)*32u,SLOTS+HIST-2u,&lpc) ||
        !sauti_aac_sbr_chirp_update(f->control.invf_mode,tab->n_noise,&chirp))return 0;
     if(chirp_before.ready)
         for(unsigned j=tab->n_noise;j<SAUTI_AAC_SBR_MAX_NOISE_BANDS;j++){
@@ -278,7 +282,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
     next->history_valid=1u;
 
     /* 6. output grid: spill from the previous call first, this frame's own slots after it */
-    memset(grid,0,sizeof(SautiAacSbrComplex)*SAUTI_AAC_SBR_CHANNEL_GRID);
+    memset(grid,0,sizeof(SautiAacSbrComplex)*SAUTI_AAC_SBR_CHANNEL_GRID*R);
     const int continues=(ch->have_previous==0u && t0==0u) ||
                         (ch->have_previous!=0u && ch->previous_last_edge>=SLOTS && t0==ch->previous_last_edge-SLOTS);
     if(!continues)next->discontinuities++;
@@ -300,7 +304,7 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
         memcpy(next->spill+(size_t)(i-SLOTS)*64u,y+(size_t)i*64u,64u*sizeof(SautiAacSbrComplex));
 
     /* 7. carry the rest of the state */
-    memcpy(next->low_history,low+24u*32u,sizeof(next->low_history));
+    memcpy(next->low_history,low+(size_t)(SLOTS-HIST)*32u,(size_t)HIST*32u*sizeof(SautiAacSbrComplex));
     memcpy(next->last_sine,flags_last,sizeof(next->last_sine));
     next->previous=*f;
     next->have_previous=1u;
@@ -311,14 +315,16 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
 }
 
 int sauti_aac_sbr_channel_synthesize(SautiAacSbrChannel *ch,
-                                     const SautiAacSbrComplex grid[SAUTI_AAC_SBR_CHANNEL_GRID],
-                                     float pcm[2048]){
+                                     const SautiAacSbrComplex grid[],
+                                     float pcm[]){
     if(!ch || !grid || !pcm || ch->ready!=1u)return 0;
     SautiAacSbrQmfSynthWindowState synth=ch->synth;
-    float out[2048];
-    if(!sauti_aac_sbr_qmf_synth_64(grid,SAUTI_AAC_SBR_CHANNEL_GRID,SLOTS,out,2048u,&synth))return 0;
-    for(unsigned i=0u;i<2048u;i++)if(!isfinite(out[i]))return 0;
+    float out[4096];
+    const unsigned half=ch->analysis_bands==16u?2u:1u;                    /* 4:1: 64 slots = two calls of 32 */
+    for(unsigned h=0u;h<half;h++)
+        if(!sauti_aac_sbr_qmf_synth_64(grid+(size_t)h*SAUTI_AAC_SBR_CHANNEL_GRID,SAUTI_AAC_SBR_CHANNEL_GRID,SAUTI_AAC_SBR_CHANNEL_SLOTS,out+(size_t)h*2048u,2048u,&synth))return 0;
+    for(unsigned i=0u;i<2048u*half;i++)if(!isfinite(out[i]))return 0;
     ch->synth=synth;
-    memcpy(pcm,out,sizeof(out));
+    memcpy(pcm,out,2048u*half*sizeof(float));
     return 1;
 }

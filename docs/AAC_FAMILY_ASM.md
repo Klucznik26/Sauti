@@ -7874,3 +7874,17 @@ Test: `test_24_band_bank` w `tests/test_aac_sbr_qmf_analysis.c` (niezależny wzo
 
 **Stereo LPD (2026-11-22).** Koder libxaac koduje stereo z rdzeniem LPD (`-usac:0` / `-usac:2`, 24 kHz, 48 kb/s): para kanałów obu LPD (każdy kanał własny `lpd_channel_stream`, bez wspólnego okna, kontekst arytmetyczny i szum per kanał) dekoduje się zgodnie z `xaacdec`: **69 – 71 dB na obu kanałach** (`usac_l7.m4a`, test silnika i oracle). To zamyka lukę „stereo LPD bez wzorca” z SBR-110; nadal `-1`: jeden kanał FD + jeden LPD w parze.
 
+### SBR-112 — USAC: eSBR 4:1 (2026-11-22)
+
+**Zakres.** `coreSbrFrameLengthIndex` 4 (rdzeń 1024 linii przy 1/4 częstotliwości wyjścia, ramka wyjściowa 4096 próbek; klasyczny transposer, `bs_harmonicSBR = 0`) dekoduje się, mono i stereo. Wzorzec: libxaac (`xaacenc -ccfl_idx:4`, jego dekoder). **Mono 71,0 dB / 71,6 dB, stereo kanał lewy 71 dB** (`usac_x8`, `usac_x9`). Kanał prawy stereo ma tę samą osobliwość libxaac co w SBR-109 (szum drugiego kanału cofnięty o ramkę: tu `64·m` indeksów; skan przesunięcia daje 67,9 dB przy 128), `usac_x9` porównywany na kanale lewym. Nadal nieobsługiwane: harmoniczny transposer (HBE), PVC, inter-TES.
+
+**Co się zmieniło względem 2:1** (reszta łańcucha SBR jest ta sama, wzorce z libxaac i z kodu):
+1. **Analiza QMF 16-pasmowa**: ten sam wzór co 24 pasma (SBR-109) z `M = 16`: okno = prototyp 640 w punktach `64·i/M` (co czwarty współczynnik, bez interpolacji), wzmocnienie `64/M = 4`, przesunięcie fazy `M/64 = 0,25`; wszystkie trzy stałe uogólniają 32 i 24 pasma (`sauti_aac_sbr_qmf_analyze_m`, test niezależnym wzorcem w long double dla 24 i 16).
+2. **64 szczeliny QMF na ramkę** (granice obwiedni × 4 zamiast × 2: `SautiAacSbrHeader.slot_scale`), historia pasma niskiego 14 szczelin zamiast 8 (kowariancja 76 równań na 78 szczelin), zakładka obwiedni do 12 szczelin, `MAX_I` = 76; synteza 64-pasmowa w dwóch wywołaniach po 32 szczeliny (kanał SBR ma parametr `analysis_bands = 16`, siatka i bufor PCM dwa razy większe).
+3. **Tablice pasm** (`sauti_aac_sbr_limits_compute_ratio`): jak dla strumienia 2:1 przy POŁOWIE częstotliwości wyjścia (grupa i baza z `fs/2`), z minimalnymi pasmami start / stop zmniejszonymi o połowę (`k0_min = 3000·2·32 / fs'`, `k1_min = 6000·2·32 / fs'`), szerokość `k2 − k0 ≤ 48`.
+4. Reszta (łaty, szum, sinusy, limiter, wygładzanie) bez zmian: sprawdzone bezpośrednio na strumieniach.
+
+**Pułapki.** (1) Silnik: blok jednej ramki (4096 · liczba kanałów) musi mieścić się w pamięci podręcznej (8192 floatów): dla większej liczby kanałów odmowa (`UNSUPPORTED_FEATURE`). (2) `SAUTI_AAC_SBR_HF_MAX_SLOTS` (40) zostaje dla testów modułów HF; przewidywanie HF i estymacja LPC mają własną granicę 80 (`SAUTI_AAC_SBR_HF_PRED_MAX_SLOTS`). (3) Makefile nie śledzi nagłówków: po zmianie makra trzeba skasować `build/test_*` (testy `hf-adjust / -joint / -limiter` zgłaszały fałszywą awarię ze starych obiektów). (4) Okno analizy dla `M = 16` ma 160 odczytów prototypu (10·M), nie 240: pętla po 240 wychodziła poza tablicę prototypu i dawała odmowę ramki.
+
+**Testy.** `usac_x8` / `usac_x9` w `test-usac-xaac` (odciski, seeki) i `scripts/test_usac_vs_xaac.sh`; `test_band_bank(16)`; fuzzing silnika 2500 iteracji (x8, x9, x5) bez raportu; test jednostkowy „2:1 odczytany jako 4:1” zmieniony z „nieobsługiwane” na „odrzucone bez zmiany stanu”.
+

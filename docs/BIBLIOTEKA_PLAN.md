@@ -91,7 +91,7 @@ Co jest zrobione, co zostaje i **od czego zależy** — jedna tabela dla decyzji
 | Element | Czego brakuje | Wzorzec dziś | Odblokowanie |
 |---|---|---|---|
 | USAC LPD (ACELP / TCX / FAC), przejścia FD ↔ LPD | tablice ROM (książki LSF, AVQ, filtry ACELP, okna FAC), ok. 2 300 linii logiki (ocena z libxaac) | **libxaac (koder LPD 16 / 24 kHz + dekoder)** i FDK (konfiguracje 1–2) | plan: `docs/USAC_LPD_PLAN.md`; tablice: wyprowadzenie z normy albo, po zgodzie, z libxaac z wpisem w rejestrze |
-| eSBR 4:1, harmoniczny transposer (HBE), PVC, inter-TES (eSBR 8:3 ZROBIONE w SBR-109: okno 24 pasm wyprowadzone ze wzoru, bez tablicy z FDK / libxaac) | okno QMF 16 pasm, tablice PVC / HBE | tylko FDK | jw. |
+| harmoniczny transposer (HBE), PVC, inter-TES (eSBR 8:3 i 4:1 ZROBIONE w SBR-109 / SBR-112: okna 24 i 16 pasm wyprowadzone ze wzoru, bez tablicy z FDK / libxaac) | tablice PVC / HBE | tylko FDK | jw. |
 | MPS212 (stereo parametryczne USAC) | tablice kwantyzacji i dekorelatorów | FDK (FFmpeg robi tylko downmix) | jw. |
 | ELD + SBR (CLDFB) | tablica okna CLDFB | FDK | jw. (decyzja czeka od 2026-11-20) |
 | LFE z eSBR (upsampling QMF), konfiguracje kanałów > 7, jawne pozycje kanałów, wielokanałowe eSBR w generatorze | logika, bez nowych tablic; brak wzorca dla wielokanałowych (FDK 2.0.3 czyta w USAC tylko konfiguracje 1–2, FFmpeg czyta LFE jak SCE) | brak | wzorzec wielokanałowy (np. libxaac, niżej) |

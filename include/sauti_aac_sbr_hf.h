@@ -10,6 +10,7 @@
  * LPC prediction, envelope adjustment and a 64-band QMF synthesis
  * filter bank. None of those operations is implied by this API. */
 #define SAUTI_AAC_SBR_HF_MAX_SLOTS 40u
+#define SAUTI_AAC_SBR_HF_PRED_MAX_SLOTS 80u        /* HF prediction and LPC estimation: also the 78 slots of an eSBR 4:1 frame */
 #define SAUTI_AAC_SBR_HF_LOW_BANDS 32u
 #define SAUTI_AAC_SBR_HF_HIGH_BANDS 64u
 

@@ -483,6 +483,7 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
         if (!d->usac_ready || d->usac.aac_rate_index != hd.rate_index || d->usac.channel_config != hd.config || d->usac.out_channels < 1u || d->usac.out_channels > SAUTI_USAC_MAX_CHANNELS || d->usac.channel_config > 7u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
         d->core_rate = d->usac.core_rate;
         d->variant = V_ER; d->er_aot = 42u; d->er_480 = 0u; d->core_channels = d->out_channels = d->usac.out_channels; d->ps_mode = 0;
+        if ((size_t)d->usac.out_frame_len * d->usac.out_channels > CACHE_FLOATS) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;     /* the block of one frame must fit the cache */
         d->frame_pcm = d->usac.out_frame_len; d->out_rate = d->usac.sample_rate;
         core_reset(d);
         up = decode_usac(d);

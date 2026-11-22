@@ -23,7 +23,7 @@ int sauti_aac_sbr_lpc_estimate_2(
     const SautiAacSbrComplex *low,size_t count,
     unsigned slots,SautiAacSbrLpcCoeffs *out){
     if(!low || !out || slots<2u ||
-       slots>SAUTI_AAC_SBR_HF_MAX_SLOTS ||
+       slots>SAUTI_AAC_SBR_HF_PRED_MAX_SLOTS ||
        count<((size_t)slots+2u)*SAUTI_AAC_SBR_HF_LOW_BANDS)
         return 0;
     for(unsigned t=0u;t<slots+2u;t++)

@@ -102,9 +102,10 @@ static void test_damage(const Stream *s, unsigned pre) {
     memcpy(b, s->au[0], s->au_n[0]);
     { const size_t base = 3u + (s->au_n[0] < 280u ? 8u : 24u), indep_bit = base + 4u + 1u + 1u + (pre < 3u ? 2u : 6u) + 16u;      /* numPreRollFrames = escapedValue(2, 4, 0): 2 bits, 6 from three frames */
       CHECK((b[indep_bit >> 3] >> (7u - (indep_bit & 7u))) & 1u, "%s: the first pre-roll access unit is independent in the fixture", s->name);
-      memcpy(b, s->au[0], s->au_n[0]);                                                                       /* a valid pre-roll access unit the decoder cannot decode (here: the stream configured as eSBR 4:1, not implemented): the access unit is unsupported (-1), not malformed */
-      { SautiUsacConfig cfg4 = cfg;
-        cfg4.sbr_mode = 3u;
+      memcpy(b, s->au[0], s->au_n[0]);                                                                       /* a valid pre-roll access unit the decoder cannot decode (here: the stream configured with the harmonic transposer of eSBR, not implemented): the access unit is unsupported (-1), not malformed */
+      { SautiUsacConfig cfg4 = cfg; unsigned ei;
+        cfg4.sbr_mode = 1u;
+        for (ei = 0; ei < cfg4.num_elements; ei++) cfg4.e[ei].sbr_harmonic = 1u;
         sauti_usac_state_init(&st, &cfg4); before = st;
         CHECK(sauti_usac_decode(&cfg4, &st, b, s->au_n[0], pcm, &why) == -1 && memcmp(&before, &st, sizeof st) == 0, "%s: an unsupported pre-roll frame makes the access unit unsupported", s->name);
         memcpy(b, s->au[0], s->au_n[0]); }

@@ -23,7 +23,7 @@ int sauti_aac_sbr_payload_build(const SautiAacSbrHeader *h,unsigned rate,
                                 SautiAacSbrMaster *m,SautiAacSbrTables *t,
                                 SautiAacSbrPatches *patches) {
     SautiAacSbrLimits lim;
-    if(!sauti_aac_sbr_limits_compute(rate,h->start_freq,
+    if(!sauti_aac_sbr_limits_compute_ratio(rate,h->slot_scale==4u,h->start_freq,
         h->stop_freq,&lim))return 0;
     if(!(h->freq_scale==0u
             ? sauti_aac_sbr_master_linear(lim.k0,lim.k2,
@@ -313,10 +313,11 @@ int sauti_aac_sbr_payload_frame_finish(SautiAacSbrPayloadFrame *frame,
     result.quant=*quant;result.energy=*energy;result.master=*master;
     result.tables=*tables;result.patches=*patches;
     memcpy(result.harmonic,harmonic,tables->n_high);
+    const unsigned scale=header->slot_scale==4u?4u:2u;
     for(unsigned i=0;i<=grid->env_count;i++)
-        result.env_edges[i]=2u*grid->env_border[i];
+        result.env_edges[i]=scale*grid->env_border[i];
     for(unsigned i=0;i<=grid->noise_count;i++)
-        result.noise_edges[i]=2u*grid->noise_border[i];
+        result.noise_edges[i]=scale*grid->noise_border[i];
     result.transient_env=attack_env(grid);
     if(result.transient_env<grid->env_count)
         result.attack[result.transient_env]=result.transient_env!=0u?1u:0u;

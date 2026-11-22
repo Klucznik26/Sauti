@@ -23,6 +23,7 @@
  * No external codec library, heap, file I/O or process-global state.
  */
 #define SAUTI_AAC_SBR_QMF_ANALYSIS_SLOTS 40u
+#define SAUTI_AAC_SBR_QMF_ANALYSIS_M_SLOTS 64u       /* the 16- and 24-band banks (eSBR 4:1 / 8:3): up to 64 slots per call */
 #define SAUTI_AAC_SBR_QMF_ANALYSIS_INPUT 32u
 #define SAUTI_AAC_SBR_QMF_ANALYSIS_BANDS 32u
 #define SAUTI_AAC_SBR_QMF_ANALYSIS_HISTORY 320u
@@ -62,6 +63,17 @@ int sauti_aac_sbr_qmf_analyze_32(
  * state->history holds 240 samples (newest first); samples_consumed advances by slots*24.  Same staging / error contract as the 32-band function; output slots are 32 wide, bands >= 24 are exactly zero. */
 #define SAUTI_AAC_SBR_QMF_ANALYSIS_24_HISTORY 240u
 int sauti_aac_sbr_qmf_analyze_24(
+    const float *pcm,
+    size_t pcm_count,
+    unsigned slots,
+    SautiAacSbrComplex *output,
+    size_t output_count,
+    SautiAacSbrQmfAnalysisState *state);
+
+
+/* eSBR 4:1: the same bank with M = 16 (160-tap window = every fourth coefficient of the prototype, gain 2*32/16, phase offset 16/64), 16 chronological samples per slot; slots <= 64.  The constants of the generalisation
+ * (gain 64/M, offset M/64, window 64*i/M of the prototype) are the ones verified for M = 24 and 32 (docs SBR-109, SBR-112). */
+int sauti_aac_sbr_qmf_analyze_16(
     const float *pcm,
     size_t pcm_count,
     unsigned slots,

@@ -162,7 +162,7 @@ void sauti_usac_state_init(SautiUsacState *s, const SautiUsacConfig *cfg) {
     memset(s, 0, sizeof *s);
     for (i = 0; i < SAUTI_USAC_MAX_CHANNELS; i++) { s->ch[i].prev_shape = 0xffu; sauti_usac_lpd_state_init(&s->ch[i].lpd, cfg->core_rate); }
     s->channels = cfg->out_channels < SAUTI_USAC_MAX_CHANNELS ? cfg->out_channels : SAUTI_USAC_MAX_CHANNELS;
-    for (i = 0; i < SAUTI_USAC_MAX_CHANNELS; i++) { (void)sauti_aac_sbr_channel_init(&s->sbr_ch[i]); if (cfg->sbr_mode == 2u) s->sbr_ch[i].analysis_bands = 24u; }
+    for (i = 0; i < SAUTI_USAC_MAX_CHANNELS; i++) { (void)sauti_aac_sbr_channel_init(&s->sbr_ch[i]); if (cfg->sbr_mode == 2u) s->sbr_ch[i].analysis_bands = 24u; else if (cfg->sbr_mode == 3u) s->sbr_ch[i].analysis_bands = 16u; }
     for (i = 0; i < cfg->num_elements; i++) {                              /* the noise generator starts at 0x3039 (first channel) / 0x10932 (second channel of a pair) */
         const SautiUsacElement *e = &cfg->e[i];
         if (e->type == SAUTI_USAC_EXT) continue;
@@ -531,7 +531,7 @@ static void cplx_apply(const SautiUsacConfig *cfg, Fd *f0, Fd *f1, unsigned mss,
 }
 
 /* An SCE / CPE whose channels are all LPD. */
-static int lpd_element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiUsacBits *b, SautiUsacChannel *chs, SautiUsacSbrState *sbrst, SautiAacSbrChannel *sbrch, int indep, float out[2][2048], unsigned *reason) {
+static int lpd_element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiUsacBits *b, SautiUsacChannel *chs, SautiUsacSbrState *sbrst, SautiAacSbrChannel *sbrch, int indep, float out[2][4096], unsigned *reason) {
     const unsigned nch = e->type == SAUTI_USAC_CPE ? 2u : 1u;
     SautiUsacLpdFrame *lf = (SautiUsacLpdFrame *)malloc(2u * sizeof *lf);
     SautiAacSbrPayloadFrame sbr_pl[2];
@@ -543,8 +543,8 @@ static int lpd_element(const SautiUsacConfig *cfg, const SautiUsacElement *e, Sa
     if (e->stereo_config_index) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; r = -1; goto done; }
     for (c = 0; c < nch; c++)
         if (!sauti_usac_lpd_parse(b, cfg->core_frame_len, indep, &chs[c].ac, &lf[c])) { *reason = SAUTI_AAC_REASON_INVALID_SCE; r = 0; goto done; }
-    if (cfg->sbr_mode == 3u) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; r = -1; goto done; }
     if (cfg->sbr_mode) {                                                    /* usac_sbr_data() follows the channel streams */
+        sbrst->header.slot_scale = cfg->sbr_mode == 3u ? 4u : 2u;
         r = sauti_usac_sbr_parse(e, nch, b, indep, cfg->sample_rate, sbrst, sbr_pl, &sbr_cpl);
         if (r != 1) { *reason = r < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SCE; goto done; }
     }
@@ -556,7 +556,7 @@ static int lpd_element(const SautiUsacConfig *cfg, const SautiUsacElement *e, Sa
         if (!cfg->sbr_mode) memcpy(out[c], core[c], cfg->core_frame_len * sizeof(float));
     }
     if (cfg->sbr_mode) {
-        grid = (SautiAacSbrComplex *)malloc(sizeof(SautiAacSbrComplex) * SAUTI_AAC_SBR_CHANNEL_GRID);
+        grid = (SautiAacSbrComplex *)malloc(sizeof(SautiAacSbrComplex) * 2u * SAUTI_AAC_SBR_CHANNEL_GRID);
         if (!grid) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; r = 0; goto done; }
         for (c = 0; c < nch; c++)
             if (!sauti_aac_sbr_channel_frame(&sbrch[c], core[c], &sbr_pl[c], grid) || !sauti_aac_sbr_channel_synthesize(&sbrch[c], grid, out[c])) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; r = 0; goto done; }
@@ -568,7 +568,7 @@ done:
 }
 
 /* One SCE / LFE / CPE.  out[c] = PCM of channel c.  1 ok, 0 malformed, -1 unsupported. */
-static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiUsacBits *b, SautiUsacChannel *chs, SautiUsacSbrState *sbrst, SautiAacSbrChannel *sbrch, int indep, float out[2][2048], unsigned *reason) {
+static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiUsacBits *b, SautiUsacChannel *chs, SautiUsacSbrState *sbrst, SautiAacSbrChannel *sbrch, int indep, float out[2][4096], unsigned *reason) {
     const unsigned nch = e->type == SAUTI_USAC_CPE ? 2u : 1u;
     Fd fdv[2];
     Fd *fd = fdv;
@@ -631,8 +631,9 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
         r = fd_channel(cfg, e, b, &chs[c], &fd[c], common_window, common_tw, indep, reason);
         if (r != 1) return r;
     }
-    if (e->stereo_config_index || (cfg->sbr_mode == 3u)) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* MPS212 payload / eSBR 4:1 */
+    if (e->stereo_config_index) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* MPS212 payload */
     if (cfg->sbr_mode) {                                                    /* usac_sbr_data() follows the channel streams */
+        sbrst->header.slot_scale = cfg->sbr_mode == 3u ? 4u : 2u;
         r = sauti_usac_sbr_parse(e, nch, b, indep, cfg->sample_rate, sbrst, sbr_pl, &sbr_cpl);
         if (r != 1) { *reason = r < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SCE; return r; }
     }
@@ -664,7 +665,7 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
         { const int sr = synthesize(cfg, &fd[c], &chs[c], cfg->sbr_mode ? core[c] : out[c]); if (sr != 1) { *reason = sr < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SYNTH; return sr < 0 ? -1 : 0; } }
     }
     if (cfg->sbr_mode) {                                                    /* the core output goes through the QMF / HF generation / adjustment chain of HE-AAC */
-        SautiAacSbrComplex *grid = (SautiAacSbrComplex *)malloc(sizeof(SautiAacSbrComplex) * SAUTI_AAC_SBR_CHANNEL_GRID);
+        SautiAacSbrComplex *grid = (SautiAacSbrComplex *)malloc(sizeof(SautiAacSbrComplex) * 2u * SAUTI_AAC_SBR_CHANNEL_GRID);
         if (!grid) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
         for (c = 0; c < nch; c++)
             if (!sauti_aac_sbr_channel_frame(&sbrch[c], core[c], &sbr_pl[c], grid) || !sauti_aac_sbr_channel_synthesize(&sbrch[c], grid, out[c])) { free(grid); *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
@@ -686,13 +687,13 @@ static int decode_core(const SautiUsacConfig *cfg, SautiUsacState *next, const u
     unsigned why = 0, ch = 0, el, n, c, i;
     int indep, r;
     SautiUsacBits b;
-    float stage[SAUTI_USAC_MAX_CHANNELS][2048];
+    float stage[SAUTI_USAC_MAX_CHANNELS][4096];
     b.data = au; b.nbits = length * 8u; b.pos = 0;
     indep = (int)sauti_usac_get(&b, 1);
     n = cfg->out_frame_len;
     for (el = 0; el < cfg->num_elements; el++) {
         const SautiUsacElement *e = &cfg->e[el];
-        float out[2][2048];
+        float out[2][4096];
         if (e->type == SAUTI_USAC_EXT) {
             unsigned len;
             if (!sauti_usac_get(&b, 1)) continue;                           /* usacExtElementPresent */
@@ -710,7 +711,7 @@ static int decode_core(const SautiUsacConfig *cfg, SautiUsacState *next, const u
                 (void)sauti_usac_get(&p, 1); (void)sauti_usac_get(&p, 1);     /* applyCrossfade, reserved */
                 num = sauti_usac_escaped(&p, 2, 4, 0);
                 if (p.pos > p.nbits || num > SAUTI_USAC_MAX_PREROLL) { *reason = SAUTI_AAC_REASON_INVALID_TRAILING; r = 0; goto fail; }
-                scratch = (float *)malloc((size_t)SAUTI_USAC_MAX_CHANNELS * 2048u * sizeof(float));
+                scratch = (float *)malloc((size_t)SAUTI_USAC_MAX_CHANNELS * 4096u * sizeof(float));
                 if (!scratch) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; r = 0; goto fail; }
                 for (k = 0; k < num; k++) {
                     const unsigned al = sauti_usac_escaped(&p, 16, 16, 0); size_t j;

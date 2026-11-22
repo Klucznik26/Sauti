@@ -52,15 +52,18 @@ static void sorted_increments(unsigned minimum, int step[13]) {
     }
 }
 
-int sauti_aac_sbr_limits_compute(unsigned sample_rate, unsigned start_freq,
-                                 unsigned stop_freq, SautiAacSbrLimits *out) {
+int sauti_aac_sbr_limits_compute_ratio(unsigned sample_rate, int ratio4, unsigned start_freq,
+                                       unsigned stop_freq, SautiAacSbrLimits *out) {
     if (!out || start_freq > 15u || stop_freq > 15u) return 0;
+    const unsigned output_rate = sample_rate;
+    if (ratio4) sample_rate /= 2u;                       /* eSBR 4:1: the tables are those of a 2:1 stream at half the output rate, with the minimum start / stop bands halved (the 32 low QMF bands are 16) */
     const int group = sample_rate_group(sample_rate);
     if (group < 0) return 0;
     const unsigned base_hz = sample_rate < 32000u ? 3000u :
                              sample_rate < 64000u ? 4000u : 5000u;
-    const int start_min = (int)((base_hz * 128u + sample_rate/2u)/sample_rate);
-    const unsigned stop_min = (base_hz * 256u + sample_rate/2u)/sample_rate;
+    const unsigned q = ratio4 ? 1u : 2u;                 /* 128 / 256 (2:1) or 64 / 128 (4:1) */
+    const int start_min = (int)((base_hz * 64u * q + sample_rate/2u)/sample_rate);
+    const unsigned stop_min = (base_hz * 128u * q + sample_rate/2u)/sample_rate;
     const int k0 = start_min + start_offset[group][start_freq];
     if (k0 < 1 || k0 > 63 || stop_min < 1u || stop_min >= 64u) return 0;
 
@@ -77,10 +80,14 @@ int sauti_aac_sbr_limits_compute(unsigned sample_rate, unsigned start_freq,
         k2 = (unsigned)k0 * (stop_freq == 14u ? 2u : 3u);
     }
     if (k2 > 64u) k2 = 64u;
-    const unsigned max_width = sample_rate <= 32000u ? 48u :
+    const unsigned max_width = ratio4 ? 48u : sample_rate <= 32000u ? 48u :
                                sample_rate == 44100u ? 35u : 32u;
     if (k2 <= (unsigned)k0 || k2 - (unsigned)k0 > max_width) return 0;
-    SautiAacSbrLimits next = {sample_rate, (uint32_t)k0, k2};
+    SautiAacSbrLimits next = {output_rate, (uint32_t)k0, k2};
     *out = next;
     return 1;
+}
+int sauti_aac_sbr_limits_compute(unsigned sample_rate, unsigned start_freq,
+                                 unsigned stop_freq, SautiAacSbrLimits *out) {
+    return sauti_aac_sbr_limits_compute_ratio(sample_rate, 0, start_freq, stop_freq, out);
 }

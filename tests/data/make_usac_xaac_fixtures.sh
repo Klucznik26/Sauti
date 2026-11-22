@@ -5,6 +5,7 @@
 # first access unit, the encoder's own choice of window sequences, TNS, scale factors and arithmetic coding contexts.
 #   usac_x1  mono white noise, eSBR 2:1          usac_x2  mono tone comb, eSBR 2:1
 #   usac_x3  stereo harmonic series + noise, eSBR 2:1          usac_x4  stereo harmonic series + noise, no SBR
+#   usac_x8  mono, 48 kHz, eSBR 4:1 (core 12 kHz, 4096 samples per frame)     usac_x9  stereo, 48 kHz, eSBR 4:1
 #   usac_x5  stereo, 48 kHz, eSBR 8:3 (768-line core, core rate 18 kHz)     usac_x6  stereo, 44.1 kHz, eSBR 8:3 (core 16.5 kHz)     usac_x7  mono white noise, 32 kHz, eSBR 8:3 (core 12 kHz)
 # usage: tests/data/make_usac_xaac_fixtures.sh   (needs python3 + numpy and the libxaac encoder; XAAC=<dir with xaacenc> to override)
 set -euo pipefail
@@ -31,6 +32,7 @@ def stereo8k(fs2):                                                          # th
     return np.stack([h + b, 0.8 * h + 0.5 * b[::-1]], axis=1).reshape(-1)
 wav('x5', stereo8k(48000), 2, 48000); wav('x6', stereo8k(44100), 2, 44100)
 wav('x7', 0.1 * rng.standard_normal(32000 * 3 // 2), 1, 32000)
+st41 = stereo8k(48000); wav('x9', st41, 2, 48000); wav('x8', st41[0::2].copy(), 1, 48000)
 PY
 mk() {  # mk NAME FRAME_SAMPLES ENCODER_OPTIONS...
   local n="$1" fl="$2"; shift 2
@@ -53,3 +55,5 @@ mk x4 1024 -br:96000 -esbr:0
 mk x5 2048 -br:64000 -esbr:1 -ccfl_idx:2
 mk x6 2048 -br:64000 -esbr:1 -ccfl_idx:2
 mk x7 2048 -br:32000 -esbr:1 -ccfl_idx:2
+mk x8 4096 -br:48000 -esbr:1 -ccfl_idx:4
+mk x9 4096 -br:48000 -esbr:1 -ccfl_idx:4

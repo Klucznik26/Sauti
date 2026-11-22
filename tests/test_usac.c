@@ -144,10 +144,10 @@ static void test_unsupported(const Stream *s) {
         cfg.sbr_mode = 1u;
         r = sauti_usac_decode(&cfg, &st, s->au[0], s->au_n[0], pcm, &why);
         CHECK(r != 1 && memcmp(&before, &st, sizeof st) == 0, "%s: a plain stream must not be decoded as SBR (%d)", s->name, r);
-    } else {                                                                                                 /* an SBR stream configured as 4:1 (not implemented): reported, state untouched */
+    } else {                                                                                                 /* an SBR stream configured as 4:1: its data are no 4:1 data, refused, state untouched */
         cfg.sbr_mode = 3u;
         r = sauti_usac_decode(&cfg, &st, s->au[0], s->au_n[0], pcm, &why);
-        CHECK(r == -1 && memcmp(&before, &st, sizeof st) == 0, "%s: SBR 4:1 must be reported as unsupported (%d)", s->name, r);
+        CHECK(r != 1 && memcmp(&before, &st, sizeof st) == 0, "%s: a 2:1 stream read as eSBR 4:1 must not be decoded, state untouched (%d)", s->name, r);
     }
 }
 static void test_arguments(void) {

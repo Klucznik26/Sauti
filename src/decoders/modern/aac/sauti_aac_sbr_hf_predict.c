@@ -71,7 +71,7 @@ int sauti_aac_sbr_hf_predict(const SautiAacSbrPatches *patches,
                               SautiAacSbrComplex *high,
                               size_t high_count) {
     if(!low || !coeffs || !chirp || !high ||
-       slots<1u || slots>SAUTI_AAC_SBR_HF_MAX_SLOTS ||
+       slots<1u || slots>SAUTI_AAC_SBR_HF_PRED_MAX_SLOTS ||
        low_count<((size_t)slots+2u)*SAUTI_AAC_SBR_HF_LOW_BANDS ||
        high_count<(size_t)slots*SAUTI_AAC_SBR_HF_HIGH_BANDS ||
        !sauti_aac_sbr_hf_map_valid(patches,tables) ||
@@ -86,7 +86,7 @@ int sauti_aac_sbr_hf_predict(const SautiAacSbrPatches *patches,
     }
 
     SautiAacSbrComplex staged[
-        SAUTI_AAC_SBR_HF_MAX_SLOTS*SAUTI_AAC_SBR_HF_HIGH_BANDS];
+        SAUTI_AAC_SBR_HF_PRED_MAX_SLOTS*SAUTI_AAC_SBR_HF_HIGH_BANDS];
     memset(staged,0,(size_t)slots*SAUTI_AAC_SBR_HF_HIGH_BANDS*
                     sizeof(staged[0]));
 

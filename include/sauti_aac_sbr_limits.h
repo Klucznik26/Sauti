@@ -14,6 +14,8 @@ typedef struct {
 
 /* The sample_rate argument is SBR's output rate, not the AAC core rate.
  * No QMF, envelopes, or PCM reconstruction. Failure never modifies out. */
+/* The same for eSBR 4:1 (ratio4 = 1; sample_rate = the output rate). */
+int sauti_aac_sbr_limits_compute_ratio(unsigned sample_rate, int ratio4, unsigned start_freq, unsigned stop_freq, SautiAacSbrLimits *out);
 int sauti_aac_sbr_limits_compute(unsigned sample_rate, unsigned start_freq,
                                  unsigned stop_freq, SautiAacSbrLimits *out);
 #endif
