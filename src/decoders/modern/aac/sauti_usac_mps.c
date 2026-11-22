@@ -2,6 +2,7 @@
  * dequantisation, smoothing data.  Written for Sauti after studying decoder/ixheaacd_mps_parse.c and ixheaacd_mps_dec.c of libxaac (Apache 2.0); the data tables come from there (sauti_usac_mps_tables.c). */
 #include "sauti_usac_mps.h"
 #include "sauti_usac_mps_tables.h"
+#include <math.h>
 #include <string.h>
 
 enum { CLD = 0, ICC = 1, IPD = 2 };
@@ -424,7 +425,23 @@ int sauti_usac_mps212_parse(const SautiUsacMpsConfig *e, unsigned time_slots, Sa
     case 1: nf->stp_enable = sauti_usac_get(b, 1); nf->stp_ch[0] = nf->stp_ch[1] = 0u;                    /* STP: bsTempShapeEnable, then one flag per output channel */
             if (nf->stp_enable) { nf->stp_ch[0] = sauti_usac_get(b, 1); nf->stp_ch[1] = sauti_usac_get(b, 1); }
             break;
-    case 2: if (sauti_usac_get(b, 1)) return -1; break;
+    case 2:                                                                    /* GES: per channel a flag, then the envelope as (value, run length) pairs coded with the reshape Huffman table */
+        if (sauti_usac_get(b, 1)) {
+            unsigned ch, ts;
+            nf->ges_ch[0] = sauti_usac_get(b, 1); nf->ges_ch[1] = sauti_usac_get(b, 1);
+            for (ch = 0; ch < 2u; ch++) {
+                unsigned got = 0;
+                if (!nf->ges_ch[ch]) continue;
+                while (got < time_slots) {
+                    int node, val, len;
+                    if (!HREAD(b, sauti_usac_mps_reshape, &node)) return 0;
+                    if (node == 0) { val = 0; len = 2; }                                  /* the escape code: value 0, two slots */
+                    else { const int v8 = -(node + 1); val = v8 >> 4; len = (v8 & 15) + 1; }
+                    for (ts = 0; ts < (unsigned)len && got < time_slots; ts++, got++) nf->ges_env[ch][got] = (float)pow(2.0, (double)(float)val / (double)(e->env_quant + 2u) - 1.0);
+                }
+            }
+        }
+        break;
     default: return 0;
     }
     if (b->pos > b->nbits) return 0;

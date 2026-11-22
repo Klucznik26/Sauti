@@ -11,6 +11,7 @@
 #include "sauti_usac_tables.h"
 #include "sauti_usac_sbr.h"
 #include "sauti_aac_sbr_huffman.h"
+#include "sauti_usac_mps_tables.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,7 +21,7 @@ static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n &
 static FILE *g_elem_fu[8];
 static uint8_t hist_au[8][1 << 16]; static size_t hist_len[8];                /* the last access units (ring of 8) that go into a pre-roll payload */
 static int g_pvc;                                                            /* --pvc N: predictive vector coding in the SBR configuration; mono streams only.  1 the header mode switches at random between classic and PVC modes 1 / 2, 2 mode 1 only, 3 mode 2 only, 4 modes 1 / 2 without classic frames */
-static int g_mps_stp, g_mps_anti, g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr, g_mps_phase, g_mps_opd;   /* --mps-phase 1: phase coding (IPD / OPD) with one IPD set per frame, --mps-opd M: bsOpdSmoothingMode */   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
+static int g_mps_gesval = -1, g_mps_gesnear, g_mps_ges, g_mps_envq, g_mps_stp, g_mps_anti, g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr, g_mps_phase, g_mps_opd;   /* --mps-phase 1: phase coding (IPD / OPD) with one IPD set per frame, --mps-opd M: bsOpdSmoothingMode */   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
 static int g_hbe;                                                            /* --hbe N: harmonic transposer (bs_harmonicSBR): 1 random mix of sbrPatchingMode 0 / 1 frames, 2 always the transposer; random oversampling flag and sbrPitchInBins (0, 12, 24, 36 and 1..127) */
 static int g_intertes;                                                       /* --intertes: inter-subband temporal envelope shaping in the SBR configuration, random bs_temp_shape / mode after every envelope */
 static int g_lfe_short;                                                      /* diagnostic: the LFE uses an eight-short window from the second frame on (illegal: an LFE has long windows only) */
@@ -465,6 +466,37 @@ static void put_mps_data(Bw *w, int indep) {
         put(w, en, 1);
         if (en) { put(w, c0, 1); put(w, c1, 1); }
     }
+    if (g_mps_ges) {                                                        /* GES: bsTempShapeEnable, a flag per channel, and per flagged channel the envelope: runs (value, length) of the reshape Huffman table until 32 slots */
+        unsigned en = (rnd() % 4u) != 0u, c0 = rnd() & 1u, c1 = rnd() & 1u, ch;
+        if (g_mps_ges == 2) { en = 1; c0 = c1 = 1; } else if (g_mps_ges == 3) en = 0;
+        put(w, en, 1);
+        if (en) {
+            put(w, c0, 1); put(w, c1, 1);
+            for (ch = 0; ch < 2u; ch++) {
+                unsigned got = 0;
+                if (!(ch ? c1 : c0)) continue;
+                while (got < 32u) {                                         /* draw a random leaf of the table whose run fits; the code is the path to it */
+                    int stk_node[64], stk_len[64], stk_bits[64][16], sp = 1, leaf[64], plen[64], path[64][16], leafn = 0, pick, q, k;
+                    stk_node[0] = 0; stk_len[0] = 0;
+                    while (sp > 0) {
+                        int nd = stk_node[--sp], ln = stk_len[sp], bit, cur[16], q0;
+                        for (q0 = 0; q0 < ln; q0++) cur[q0] = stk_bits[sp][q0];
+                        for (bit = 0; bit < 2; bit++) {
+                            const int next = sauti_usac_mps_reshape[nd][bit]; int bits[16];
+                            for (q = 0; q < ln; q++) bits[q] = cur[q];
+                            bits[ln] = bit;
+                            if (next <= 0) { int len = next == 0 ? 2 : ((-(next + 1)) & 15) + 1, val = next == 0 ? 0 : (-(next + 1)) >> 4; if (leafn < 64 && got + (unsigned)len <= 32u && ((!g_mps_gesnear || (val >= g_mps_envq + 1 && val <= g_mps_envq + 3)) && (g_mps_gesval < 0 || val == g_mps_gesval))) { leaf[leafn] = next; plen[leafn] = ln + 1; for (q = 0; q <= ln; q++) path[leafn][q] = bits[q]; leafn++; } }
+                            else { stk_node[sp] = next; stk_len[sp] = ln + 1; for (q = 0; q <= ln; q++) stk_bits[sp][q] = bits[q]; sp++; }
+                        }
+                    }
+                    if (leafn == 0) { fprintf(stderr, "generator: no reshape leaf fits\n"); exit(1); }
+                    pick = (int)(rnd() % (unsigned)leafn);
+                    for (k = 0; k < plen[pick]; k++) put(w, (uint32_t)path[pick][k], 1);
+                    got += (unsigned)(leaf[pick] == 0 ? 2 : ((-(leaf[pick] + 1)) & 15) + 1);
+                }
+            }
+        }
+    }
 }
 
 /* state of one element: the arithmetic coder contexts, the window sequence history and the complex prediction history of its channels */
@@ -489,6 +521,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--mps-decorr") && a + 1 < argc) g_mps_decorr = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps-anti")) g_mps_anti = 1;                 /* bands 0..3 of every frame: CLD 0, ICC 0, IPD 8 (the anti-phase special case of the prediction upmix) */
         else if (!strcmp(argv[a], "--mps-stp") && a + 1 < argc) g_mps_stp = atoi(argv[++a]);   /* bsTempShapeConfig 1 (STP); N: 1 random flags per frame, 2 enabled in both channels in every frame, 3 configured but disabled in every frame (the same random stream otherwise) */
+        else if (!strcmp(argv[a], "--mps-ges") && a + 1 < argc) g_mps_ges = atoi(argv[++a]);    /* bsTempShapeConfig 2 (GES); N as for --mps-stp */
+        else if (!strcmp(argv[a], "--mps-ges-val") && a + 1 < argc) g_mps_gesval = atoi(argv[++a]);   /* only envelope leaves with this value (diagnostic) */
+        else if (!strcmp(argv[a], "--mps-ges-near")) g_mps_gesnear = 1;                     /* envelope values near 1 (2^(v / (q + 2) - 1) in 0.8 .. 2): a realistic envelope instead of a random one */
+        else if (!strcmp(argv[a], "--mps-envq") && a + 1 < argc) g_mps_envq = atoi(argv[++a]);  /* bsEnvQuantMode of the GES envelope */
         else if (!strcmp(argv[a], "--mps-phase") && a + 1 < argc) g_mps_phase = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps-opd") && a + 1 < argc) g_mps_opd = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps-fgain") && a + 1 < argc) g_mps_fgain = atoi(argv[++a]);
@@ -570,8 +606,9 @@ int main(int argc, char **argv) {
         if (o.channels == 2u) {
             put(&asc, (uint32_t)g_mps, 2);                                  /* stereoConfigIndex */
             if (g_mps) {                                                    /* Mps212Config: 28 parameter bands, no temporal shaping, no phase coding, one parameter set per frame */
-                put(&asc, 1, 3); put(&asc, (uint32_t)g_mps_fgain, 3); put(&asc, g_mps_stp ? 1u : 0u, 2); put(&asc, (uint32_t)g_mps_decorr, 2); put(&asc, 0, 1); put(&asc, (uint32_t)g_mps_phase, 1); put(&asc, 0, 1);
+                put(&asc, 1, 3); put(&asc, (uint32_t)g_mps_fgain, 3); put(&asc, g_mps_stp ? 1u : (g_mps_ges ? 2u : 0u), 2); put(&asc, (uint32_t)g_mps_decorr, 2); put(&asc, 0, 1); put(&asc, (uint32_t)g_mps_phase, 1); put(&asc, 0, 1);
                 if (g_mps >= 2) { put(&asc, (uint32_t)g_mps_res, 5); put(&asc, 0, 1); }
+                if (g_mps_ges) put(&asc, (uint32_t)g_mps_envq, 1);                  /* bsEnvQuantMode (temporal shaping configuration 2) */
             }
         }
     }

@@ -99,12 +99,47 @@ static void test_parse(void) {
         CHECK(parse(&w, &cfg1, 48, 1, &st, &f) == 0, "48 time slots accepted");
         { SautiUsacMpsConfig bad = cfg1; bad.freq_res = 0; CHECK(parse(&w, &bad, 32, 1, &st, &f) == 0, "bsFreqRes 0 accepted"); }
         {   /* STP (bsTempShapeConfig 1): bsTempShapeEnable and one flag per output channel are read; GES (2) and TSD (3) frames that use their tool are reported as unsupported */
-            SautiUsacMpsConfig ts = cfg1; unsigned cfgs; ts.temp_shape = 1;
+            SautiUsacMpsConfig ts = cfg1; ts.temp_shape = 1;
             memset(&w, 0, sizeof w); put(&w, 0, 2); put(&w, 0, 2); put(&w, 1, 1); put(&w, 1, 1); put(&w, 0, 1);
             CHECK(parse(&w, &ts, 32, 1, &st, &f) == 1 && f.stp_enable == 1u && f.stp_ch[0] == 1u && f.stp_ch[1] == 0u, "STP flags: enable %u channels %u %u", f.stp_enable, f.stp_ch[0], f.stp_ch[1]);
             memset(&w, 0, sizeof w); put(&w, 0, 2); put(&w, 0, 2); put(&w, 0, 1);
             CHECK(parse(&w, &ts, 32, 1, &st, &f) == 1 && f.stp_enable == 0u && f.stp_ch[0] == 0u && f.stp_ch[1] == 0u, "STP disabled in the frame");
-            for (cfgs = 2; cfgs <= 3u; cfgs++) { ts.temp_shape = cfgs; memset(&w, 0, sizeof w); put(&w, 0, 2); put(&w, 0, 2); put(&w, 1, 1); CHECK(parse(&w, &ts, 32, 1, &st, &f) == -1, "enabled temporal shaping %u must be reported as unsupported", cfgs); }
+            ts.temp_shape = 3; memset(&w, 0, sizeof w); put(&w, 0, 2); put(&w, 0, 2); put(&w, 1, 1); CHECK(parse(&w, &ts, 32, 1, &st, &f) == -1, "enabled TSD must be reported as unsupported");
+            {   /* GES (bsTempShapeConfig 2): one channel with a run-length envelope; leaves found by walking the reshape table */
+                int leaf[64], leafn = 0, path[64][16], plen[64], i;
+                {   /* iterative DFS over the Huffman nodes: collect the bit path of every leaf */
+                    int stk_node[64], stk_len[64], stk_bits[64][16], sp = 0;
+                    stk_node[0] = 0; stk_len[0] = 0; sp = 1;
+                    while (sp > 0) {
+                        int nd = stk_node[--sp], ln = stk_len[sp], bit, cur[16], q0;
+                        for (q0 = 0; q0 < ln; q0++) cur[q0] = stk_bits[sp][q0];
+                        for (bit = 0; bit < 2; bit++) {
+                            const int next = sauti_usac_mps_reshape[nd][bit];
+                            int bits[16], q;
+                            for (q = 0; q < ln; q++) bits[q] = cur[q];
+                            bits[ln] = bit;
+                            if (next <= 0) { if (leafn < 64) { leaf[leafn] = next; plen[leafn] = ln + 1; for (q = 0; q <= ln; q++) path[leafn][q] = bits[q]; leafn++; } }
+                            else { stk_node[sp] = next; stk_len[sp] = ln + 1; for (q = 0; q <= ln; q++) stk_bits[sp][q] = bits[q]; sp++; }
+                        }
+                    }
+                }
+                ts.temp_shape = 2; ts.env_quant = 1;
+                CHECK(leafn >= 3, "reshape table leaves %d", leafn);
+                memset(&w, 0, sizeof w); put(&w, 0, 2); put(&w, 0, 2); put(&w, 1, 1); put(&w, 0, 1); put(&w, 1, 1);          /* enable, channel 0 off, channel 1 on */
+                { unsigned got = 0, k; int firstlen = 0, firstval = 0;
+                  for (i = 0; got < 32u && i < leafn; i++) {
+                      int len, val;
+                      if (leaf[i] == 0) { val = 0; len = 2; } else { const int v8 = -(leaf[i] + 1); val = v8 >> 4; len = (v8 & 15) + 1; }
+                      if (got + (unsigned)len > 32u) continue;
+                      for (k = 0; k < (unsigned)plen[i]; k++) put(&w, (uint32_t)path[i][k], 1);
+                      if (!firstlen) { firstlen = len; firstval = val; }
+                      got += (unsigned)len;
+                  }
+                  while (got < 32u) { int e0 = -1; for (i = 0; i < leafn; i++) if (leaf[i] == 0) e0 = i; if (e0 < 0) break; for (k = 0; k < (unsigned)plen[e0]; k++) put(&w, (uint32_t)path[e0][k], 1); got += 2u; }
+                  CHECK(parse(&w, &ts, 32, 1, &st, &f) == 1 && f.ges_ch[0] == 0u && f.ges_ch[1] == 1u, "GES frame refused");
+                  CHECK(fabs((double)f.ges_env[1][0] - pow(2.0, (double)firstval / 3.0 - 1.0)) < 1e-6 && (firstlen < 2 || fabs((double)f.ges_env[1][firstlen - 1] - pow(2.0, (double)firstval / 3.0 - 1.0)) < 1e-6), "GES envelope value %g, expected %g", (double)f.ges_env[1][0], pow(2.0, (double)firstval / 3.0 - 1.0));
+                }
+            }
         }
     }
 }
@@ -300,7 +335,7 @@ static void test_residual(void) {
 static void test_golden_phase(void) {
     FILE *fp = fopen("tests/data/mps_phase_golden.bin", "rb");
     int32_t ns, si;
-    static SautiUsacMpsDec d; static SautiUsacMpsFrame f; static float inb[32 * 54 * 2], rb_[32 * 32 * 2]; static SautiAacSbrComplex in[32 * 64], rin[32 * 64], o0[32 * 64], o1[32 * 64];
+    static SautiUsacMpsDec d; static SautiUsacMpsFrame f; static float inb[32 * 54 * 2], rb_[32 * 32 * 2], genv[64]; static SautiAacSbrComplex in[32 * 64], rin[32 * 64], o0[32 * 64], o1[32 * 64];
     if (!fp) { CHECK(0, "cannot read tests/data/mps_phase_golden.bin (run from the repository root)"); return; }
     { char m[4]; if (fread(m, 1, 4, fp) != 4 || memcmp(m, "MPSF", 4) || fread(&ns, 4, 1, fp) != 1) { CHECK(0, "phase golden header"); fclose(fp); return; } }
     for (si = 0; si < ns; si++) {
@@ -309,24 +344,24 @@ static void test_golden_phase(void) {
         if (fread(sh, 4, 6, fp) != 6) { CHECK(0, "phase golden set %d header", (int)si); break; }
         memset(&d, 0, sizeof d); c.residual = (unsigned)sh[4]; c.residual_bands = (unsigned)sh[3]; c.phase_coding = (unsigned)sh[0]; c.bands_phase = c.residual_bands > 10u ? c.residual_bands : 10u; c.decorr = (unsigned)sh[1]; c.temp_shape = (unsigned)sh[5];
         for (fr = 0; fr < sh[2]; fr++) {
-            int32_t hd[9], cld[28], icc[28], ipd[28], i, s, b, ch;
-            if (fread(hd, 4, 9, fp) != 9 || fread(cld, 4, 28, fp) != 28 || fread(icc, 4, 28, fp) != 28 || fread(ipd, 4, 28, fp) != 28 || fread(inb, 4, 32u * 54u * 2u, fp) != 32u * 54u * 2u || (sh[3] && fread(rb_, 4, 32u * 32u * 2u, fp) != 32u * 32u * 2u)) { CHECK(0, "phase golden set %d frame %d truncated", (int)si, (int)fr); break; }
-            memset(&f, 0, sizeof f); f.num_sets = (unsigned)hd[1]; f.param_bands = (unsigned)hd[2]; f.param_slot[0] = (unsigned)hd[3]; f.phase_mode = (unsigned)hd[4]; f.opd_smoothing = (unsigned)hd[5]; f.ipd_coarse[0] = (unsigned)hd[6]; f.stp_ch[0] = (unsigned)hd[7]; f.stp_ch[1] = (unsigned)hd[8]; f.stp_enable = (unsigned)(hd[7] | hd[8]);
+            int32_t hd[11], cld[28], icc[28], ipd[28], i, s, b, ch;
+            if (fread(hd, 4, 11, fp) != 11 || fread(genv, 4, 64, fp) != 64 || fread(cld, 4, 28, fp) != 28 || fread(icc, 4, 28, fp) != 28 || fread(ipd, 4, 28, fp) != 28 || fread(inb, 4, 32u * 54u * 2u, fp) != 32u * 54u * 2u || (sh[3] && fread(rb_, 4, 32u * 32u * 2u, fp) != 32u * 32u * 2u)) { CHECK(0, "phase golden set %d frame %d truncated", (int)si, (int)fr); break; }
+            memset(&f, 0, sizeof f); f.num_sets = (unsigned)hd[1]; f.param_bands = (unsigned)hd[2]; f.param_slot[0] = (unsigned)hd[3]; f.phase_mode = (unsigned)hd[4]; f.opd_smoothing = (unsigned)hd[5]; f.ipd_coarse[0] = (unsigned)hd[6]; f.stp_ch[0] = (unsigned)hd[7]; f.stp_ch[1] = (unsigned)hd[8]; f.stp_enable = (unsigned)(hd[7] | hd[8]); f.ges_ch[0] = (unsigned)hd[9]; f.ges_ch[1] = (unsigned)hd[10]; { unsigned q; for (q = 0; q < 32u; q++) { f.ges_env[0][q] = genv[q]; f.ges_env[1][q] = genv[32u + q]; } }
             for (i = 0; i < 28; i++) { f.cld_idx[0][i] = cld[i]; f.icc_idx[0][i] = icc[i]; f.ipd_idx[0][i] = ipd[i]; }
             memset(in, 0, sizeof in); memset(rin, 0, sizeof rin);
             if (sh[3]) for (s = 0; s < 32; s++) for (b = 0; b < 32; b++) { rin[s * 64 + b].re = (float)(rb_[(s * 32 + b) * 2] / (32768.0 * 1.4142135623730951)); rin[s * 64 + b].im = (float)(rb_[(s * 32 + b) * 2 + 1] / (32768.0 * 1.4142135623730951)); }
             for (s = 0; s < 32; s++) for (b = 0; b < 54; b++) { in[s * 64 + b].re = (float)(inb[(s * 54 + b) * 2] / (32768.0 * 1.4142135623730951)); in[s * 64 + b].im = (float)(inb[(s * 54 + b) * 2 + 1] / (32768.0 * 1.4142135623730951)); }
             CHECK(sauti_usac_mps212_apply(&d, &c, &f, (unsigned)hd[0], 32, in, sh[3] ? rin : NULL, 32, o0, o1), "phase golden set %d frame %d refused", (int)si, (int)fr);
             for (ch = 0; ch < 2; ch++) {
-                double exp4[4], got[4] = { 0, 0, 0, 0 }, scale; const SautiAacSbrComplex *o = ch ? o1 : o0;
+                double exp4[4], got[4] = { 0, 0, 0, 0 }, scale, tol = sh[5] == 2 ? 3e-3 : 3e-5;      /* GES: the smoothed energies converge slowly from the reference's different first frame */ const SautiAacSbrComplex *o = ch ? o1 : o0;
                 if (fread(exp4, 8, 4, fp) != 4) { CHECK(0, "phase golden set %d frame %d sums", (int)si, (int)fr); break; }
-                if (fr < 3) continue;
+                if (fr < (sh[5] == 2 ? 10 : 3)) continue;                                                                /* GES energies are smoothed over about 10 frames: the start-up of the reference differs until then */
                 for (s = 0; s < 32; s++) for (b = 0; b < 54; b++) {
                     const double re = o[s * 64 + b].re * 32768.0 * 1.4142135623730951, im = o[s * 64 + b].im * 32768.0 * 1.4142135623730951, w = ((double)s * 131.0 + (double)b * 7.0 + 1.0) / (32.0 * 64.0);
                     got[0] += re; got[1] += im; got[2] += re * re + im * im; got[3] += (re + 2.0 * im) * w;
                 }
                 scale = sqrt(exp4[2] * 32.0 * 54.0) + 1e-9;
-                for (i = 0; i < 4; i++) CHECK(fabs(got[i] - exp4[i]) <= (i == 2 ? 3e-5 * exp4[2] : 3e-5 * scale) + 1e-9, "phase golden set %d (phase %d, decorr %d, res %d, pred %d) frame %d channel %d sum %d: %.9g, libxaac %.9g", (int)si, (int)sh[0], (int)sh[1], (int)sh[3], (int)sh[4], (int)fr, (int)ch, (int)i, got[i], exp4[i]);
+                for (i = 0; i < 4; i++) CHECK(fabs(got[i] - exp4[i]) <= (i == 2 ? tol * exp4[2] : tol * scale) + 1e-9, "phase golden set %d (phase %d, decorr %d, res %d, pred %d) frame %d channel %d sum %d: %.9g, libxaac %.9g", (int)si, (int)sh[0], (int)sh[1], (int)sh[3], (int)sh[4], (int)fr, (int)ch, (int)i, got[i], exp4[i]);
             }
         }
     }

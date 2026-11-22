@@ -228,6 +228,67 @@ static void stp_apply(SautiUsacMpsDec *d, const SautiUsacMpsFrame *f, unsigned s
     }
 }
 
+/* ---- GES, guided envelope shaping (bsTempShapeConfig 2): the temporal envelope of the direct part of each output channel (hybrid bands from 6) is scaled so that it follows the transmitted envelope, relative to the envelope of the
+ * downmix.  Both are estimated on the parameter bands 10..18 of the 20 band map with the energies whitened by their smoothed band energies; units of the reference again (our grids are 1 / (32768 sqrt 2) of its) ---- */
+#define GES_ALPHA 0.99637864f
+#define GES_BETA 0.9643691f
+#define GES_LAMBDA 4.0f
+
+static void ges_norm_env(SautiUsacMpsDec *d, unsigned idx, const float (*slot_e)[20], unsigned slots, float *env) {
+    const float abs_thr = 1.073741824f;
+    float pb[20] = { 0 }, w[20], avg, total;
+    unsigned t, p;
+    if (!d->ges_init) { for (t = 0; t < 3u; t++) d->ges_avg[t] = 32768.0f * 32768.0f; d->ges_init = 1u; }
+    for (p = 10; p <= 18u; p++) pb[p] = d->ges_pb[idx][p];
+    avg = d->ges_avg[idx];
+    for (t = 0; t < slots; t++) {
+        float e = 0.0f;
+        total = 0.0f;
+        for (p = 10; p <= 18u; p++) { pb[p] = (1.0f - GES_ALPHA) * slot_e[t][p] + GES_ALPHA * pb[p]; total += slot_e[t][p]; }
+        total /= 9.0f;
+        total = (1.0f - GES_ALPHA) * total + GES_ALPHA * d->ges_frame[idx];
+        d->ges_frame[idx] = total;
+        for (p = 10; p <= 18u; p++) w[p] = total / (pb[p] + abs_thr);
+        for (p = 10; p <= 18u; p++) e += slot_e[t][p] * w[p];
+        avg = (1.0f - GES_BETA) * e + GES_BETA * avg;
+        env[t] = (float)sqrt(e / (avg + abs_thr));
+    }
+    for (p = 10; p <= 18u; p++) d->ges_pb[idx][p] = pb[p];
+    d->ges_avg[idx] = avg;
+}
+
+/* dir / dif: [channel][slot][band] direct and decorrelated parts (the result of the shaping is dir + dif in dir); hyb: the hybrid downmix [slot][band] */
+static void ges_apply(SautiUsacMpsDec *d, const SautiUsacMpsFrame *f, unsigned slots, unsigned hyb_count, const cxf (*hyb)[HYB], cxf (*dir)[MAXS][HYB], cxf (*dif)[MAXS][HYB]) {
+    const float K = 2147483648.0f, abs_thr = 1.073741824f;
+    float slot_e[MAXS][20], dmx[MAXS], env[MAXS];
+    unsigned ch, t, k;
+    memset(slot_e, 0, sizeof slot_e);
+    for (t = 0; t < slots; t++) for (k = 0; k < hyb_count; k++) slot_e[t][sauti_usac_mps_band_map_20[k]] += (hyb[t][k].re * hyb[t][k].re + hyb[t][k].im * hyb[t][k].im) * K;
+    ges_norm_env(d, 2u, (const float (*)[20])slot_e, slots, dmx);
+    for (ch = 0; ch < 2u; ch++) {
+        memset(slot_e, 0, sizeof slot_e);
+        for (t = 0; t < slots; t++) for (k = 0; k < hyb_count; k++) {
+            const float re = dir[ch][t][k].re + dif[ch][t][k].re, im = dir[ch][t][k].im + dif[ch][t][k].im;
+            slot_e[t][sauti_usac_mps_band_map_20[k]] += (re * re + im * im) * K;
+        }
+        ges_norm_env(d, ch, (const float (*)[20])slot_e, slots, env);
+        if (!f->ges_ch[ch]) continue;
+        for (t = 0; t < slots; t++) {
+            const float gain = f->ges_env[ch][t] * dmx[t] / (env[t] + 1e-9f);
+            float ad = 0.0f, af = 0.0f, ratio;
+            for (k = 6; k < hyb_count; k++) {
+                ad += dir[ch][t][k].re * dir[ch][t][k].re + dir[ch][t][k].im * dir[ch][t][k].im;
+                af += dif[ch][t][k].re * dif[ch][t][k].re + dif[ch][t][k].im * dif[ch][t][k].im;
+            }
+            ratio = (float)sqrt((af * K) / (ad * K + abs_thr));
+            ratio = gain + ratio * (gain - 1.0f);
+            if (ratio < 1.0f / GES_LAMBDA) ratio = 1.0f / GES_LAMBDA;
+            if (ratio > GES_LAMBDA) ratio = GES_LAMBDA;
+            for (k = 6; k < hyb_count; k++) { dir[ch][t][k].re *= ratio; dir[ch][t][k].im *= ratio; }
+        }
+    }
+}
+
 void sauti_usac_mps212_residual_grid(SautiUsacMpsDec *d, const SautiAacSbrComplex *low, unsigned slots, SautiAacSbrComplex *grid) {
     unsigned i, k;
     if (slots < 6u) slots = 6u;                                                                 /* 32 / 64 in practice */
@@ -337,7 +398,7 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
         for (pb = 0; pb < f->param_bands; pb++) { d->phase_prev[0][pb] = pl[f->num_sets - 1u][pb]; d->phase_prev[1][pb] = pr[f->num_sets - 1u][pb]; }
     }
     memset(mixed, 0, sizeof mixed);
-    if (cfg->temp_shape == 1u) {
+    if (cfg->temp_shape == 1u || cfg->temp_shape == 2u) {
         mixed_d = (cxf (*)[MAXS][HYB])calloc(2u * MAXS * HYB, sizeof(cxf));
         if (!mixed_d) return 0;
     }
@@ -393,7 +454,10 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
     }
     if (mixed_d) {                                                              /* STP: split the output into its direct and decorrelated parts, then let the shaping recombine them */
         for (row = 0; row < 2u; row++) for (n = 0; n < slots; n++) for (k = 0; k < hyb_count; k++) { mixed[row][n][k].re -= mixed_d[row][n][k].re; mixed[row][n][k].im -= mixed_d[row][n][k].im; }
-        if (cfg->residual_bands != 28u) stp_apply(d, f, slots, hyb_count, cfg->residual_bands ? (unsigned)sauti_usac_mps_gain_set_index[cfg->residual_bands] : 0u, mixed, mixed_d);
+        if (cfg->temp_shape == 2u) {                                            /* GES shapes the direct part, then the decorrelated part is added unchanged */
+            ges_apply(d, f, slots, hyb_count > res_hyb_count ? hyb_count : res_hyb_count, (const cxf (*)[HYB])hyb, mixed, mixed_d);
+            for (row = 0; row < 2u; row++) for (n = 0; n < slots; n++) for (k = 0; k < hyb_count; k++) { mixed[row][n][k].re += mixed_d[row][n][k].re; mixed[row][n][k].im += mixed_d[row][n][k].im; }
+        } else if (cfg->residual_bands != 28u) stp_apply(d, f, slots, hyb_count, cfg->residual_bands ? (unsigned)sauti_usac_mps_gain_set_index[cfg->residual_bands] : 0u, mixed, mixed_d);
         else for (row = 0; row < 2u; row++) for (n = 0; n < slots; n++) for (k = 0; k < hyb_count; k++) { mixed[row][n][k].re += mixed_d[row][n][k].re; mixed[row][n][k].im += mixed_d[row][n][k].im; }
         free(mixed_d); mixed_d = NULL;
     }

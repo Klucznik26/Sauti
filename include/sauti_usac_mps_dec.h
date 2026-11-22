@@ -22,6 +22,8 @@ typedef struct {
     int32_t smooth_phase[2][SAUTI_USAC_MPS_BANDS];                                     /* smoothed overall phase difference, Q27 */
     float stp_nrg_dir, stp_nrg_dir_prev, stp_nrg_diff[2], stp_nrg_diff_prev[2], stp_scale_last[2];   /* STP: smoothed energies and the last scale */
     unsigned stp_init, stp_update;
+    float ges_pb[3][20], ges_avg[3], ges_frame[3];                                    /* GES: smoothed band energies, average energy and frame energy of the two outputs and the downmix */
+    unsigned ges_init;
     unsigned ready;
 } SautiUsacMpsDec;
 
