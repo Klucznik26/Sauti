@@ -18,6 +18,7 @@ typedef struct {
     unsigned param_slot[SAUTI_USAC_MPS_SETS];
     unsigned independency;
     unsigned phase_mode, opd_smoothing;
+    unsigned stp_enable, stp_ch[2];                        /* temporal shaping STP (bsTempShapeConfig 1): bsTempShapeEnable and the flag of each output channel */
     unsigned ipd_coarse[SAUTI_USAC_MPS_SETS];            /* IPD quantiser of the coded set (coarse: 8 levels) */
     unsigned param_bands;
     int cld_idx[SAUTI_USAC_MPS_SETS][SAUTI_USAC_MPS_BANDS], icc_idx[SAUTI_USAC_MPS_SETS][SAUTI_USAC_MPS_BANDS], ipd_idx[SAUTI_USAC_MPS_SETS][SAUTI_USAC_MPS_BANDS];

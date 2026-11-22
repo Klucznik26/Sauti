@@ -98,7 +98,14 @@ static void test_parse(void) {
         CHECK(parse(&w, &hr, 32, 1, &st, &f) == 0, "equal parameter slots accepted");
         CHECK(parse(&w, &cfg1, 48, 1, &st, &f) == 0, "48 time slots accepted");
         { SautiUsacMpsConfig bad = cfg1; bad.freq_res = 0; CHECK(parse(&w, &bad, 32, 1, &st, &f) == 0, "bsFreqRes 0 accepted"); }
-        { SautiUsacMpsConfig ts = cfg1; ts.temp_shape = 1; memset(&w, 0, sizeof w); put(&w, 0, 2); put(&w, 0, 2); put(&w, 1, 1); CHECK(parse(&w, &ts, 32, 1, &st, &f) == -1, "enabled temporal shaping must be reported as unsupported"); }
+        {   /* STP (bsTempShapeConfig 1): bsTempShapeEnable and one flag per output channel are read; GES (2) and TSD (3) frames that use their tool are reported as unsupported */
+            SautiUsacMpsConfig ts = cfg1; unsigned cfgs; ts.temp_shape = 1;
+            memset(&w, 0, sizeof w); put(&w, 0, 2); put(&w, 0, 2); put(&w, 1, 1); put(&w, 1, 1); put(&w, 0, 1);
+            CHECK(parse(&w, &ts, 32, 1, &st, &f) == 1 && f.stp_enable == 1u && f.stp_ch[0] == 1u && f.stp_ch[1] == 0u, "STP flags: enable %u channels %u %u", f.stp_enable, f.stp_ch[0], f.stp_ch[1]);
+            memset(&w, 0, sizeof w); put(&w, 0, 2); put(&w, 0, 2); put(&w, 0, 1);
+            CHECK(parse(&w, &ts, 32, 1, &st, &f) == 1 && f.stp_enable == 0u && f.stp_ch[0] == 0u && f.stp_ch[1] == 0u, "STP disabled in the frame");
+            for (cfgs = 2; cfgs <= 3u; cfgs++) { ts.temp_shape = cfgs; memset(&w, 0, sizeof w); put(&w, 0, 2); put(&w, 0, 2); put(&w, 1, 1); CHECK(parse(&w, &ts, 32, 1, &st, &f) == -1, "enabled temporal shaping %u must be reported as unsupported", cfgs); }
+        }
     }
 }
 
@@ -297,25 +304,25 @@ static void test_golden_phase(void) {
     if (!fp) { CHECK(0, "cannot read tests/data/mps_phase_golden.bin (run from the repository root)"); return; }
     { char m[4]; if (fread(m, 1, 4, fp) != 4 || memcmp(m, "MPSF", 4) || fread(&ns, 4, 1, fp) != 1) { CHECK(0, "phase golden header"); fclose(fp); return; } }
     for (si = 0; si < ns; si++) {
-        int32_t sh[5], fr;
+        int32_t sh[6], fr;
         SautiUsacMpsConfig c = cfg1;
-        if (fread(sh, 4, 5, fp) != 5) { CHECK(0, "phase golden set %d header", (int)si); break; }
-        memset(&d, 0, sizeof d); c.residual = (unsigned)sh[4]; c.residual_bands = (unsigned)sh[3]; c.phase_coding = (unsigned)sh[0]; c.bands_phase = c.residual_bands > 10u ? c.residual_bands : 10u; c.decorr = (unsigned)sh[1];
+        if (fread(sh, 4, 6, fp) != 6) { CHECK(0, "phase golden set %d header", (int)si); break; }
+        memset(&d, 0, sizeof d); c.residual = (unsigned)sh[4]; c.residual_bands = (unsigned)sh[3]; c.phase_coding = (unsigned)sh[0]; c.bands_phase = c.residual_bands > 10u ? c.residual_bands : 10u; c.decorr = (unsigned)sh[1]; c.temp_shape = (unsigned)sh[5];
         for (fr = 0; fr < sh[2]; fr++) {
-            int32_t hd[7], cld[28], icc[28], ipd[28], i, s, b, ch;
-            if (fread(hd, 4, 7, fp) != 7 || fread(cld, 4, 28, fp) != 28 || fread(icc, 4, 28, fp) != 28 || fread(ipd, 4, 28, fp) != 28 || fread(inb, 4, 32u * 54u * 2u, fp) != 32u * 54u * 2u || (sh[3] && fread(rb_, 4, 32u * 32u * 2u, fp) != 32u * 32u * 2u)) { CHECK(0, "phase golden set %d frame %d truncated", (int)si, (int)fr); break; }
-            memset(&f, 0, sizeof f); f.num_sets = (unsigned)hd[1]; f.param_bands = (unsigned)hd[2]; f.param_slot[0] = (unsigned)hd[3]; f.phase_mode = (unsigned)hd[4]; f.opd_smoothing = (unsigned)hd[5]; f.ipd_coarse[0] = (unsigned)hd[6];
+            int32_t hd[9], cld[28], icc[28], ipd[28], i, s, b, ch;
+            if (fread(hd, 4, 9, fp) != 9 || fread(cld, 4, 28, fp) != 28 || fread(icc, 4, 28, fp) != 28 || fread(ipd, 4, 28, fp) != 28 || fread(inb, 4, 32u * 54u * 2u, fp) != 32u * 54u * 2u || (sh[3] && fread(rb_, 4, 32u * 32u * 2u, fp) != 32u * 32u * 2u)) { CHECK(0, "phase golden set %d frame %d truncated", (int)si, (int)fr); break; }
+            memset(&f, 0, sizeof f); f.num_sets = (unsigned)hd[1]; f.param_bands = (unsigned)hd[2]; f.param_slot[0] = (unsigned)hd[3]; f.phase_mode = (unsigned)hd[4]; f.opd_smoothing = (unsigned)hd[5]; f.ipd_coarse[0] = (unsigned)hd[6]; f.stp_ch[0] = (unsigned)hd[7]; f.stp_ch[1] = (unsigned)hd[8]; f.stp_enable = (unsigned)(hd[7] | hd[8]);
             for (i = 0; i < 28; i++) { f.cld_idx[0][i] = cld[i]; f.icc_idx[0][i] = icc[i]; f.ipd_idx[0][i] = ipd[i]; }
             memset(in, 0, sizeof in); memset(rin, 0, sizeof rin);
-            if (sh[3]) for (s = 0; s < 32; s++) for (b = 0; b < 32; b++) { rin[s * 64 + b].re = rb_[(s * 32 + b) * 2] / 32768.0f; rin[s * 64 + b].im = rb_[(s * 32 + b) * 2 + 1] / 32768.0f; }
-            for (s = 0; s < 32; s++) for (b = 0; b < 54; b++) { in[s * 64 + b].re = inb[(s * 54 + b) * 2] / 32768.0f; in[s * 64 + b].im = inb[(s * 54 + b) * 2 + 1] / 32768.0f; }
+            if (sh[3]) for (s = 0; s < 32; s++) for (b = 0; b < 32; b++) { rin[s * 64 + b].re = (float)(rb_[(s * 32 + b) * 2] / (32768.0 * 1.4142135623730951)); rin[s * 64 + b].im = (float)(rb_[(s * 32 + b) * 2 + 1] / (32768.0 * 1.4142135623730951)); }
+            for (s = 0; s < 32; s++) for (b = 0; b < 54; b++) { in[s * 64 + b].re = (float)(inb[(s * 54 + b) * 2] / (32768.0 * 1.4142135623730951)); in[s * 64 + b].im = (float)(inb[(s * 54 + b) * 2 + 1] / (32768.0 * 1.4142135623730951)); }
             CHECK(sauti_usac_mps212_apply(&d, &c, &f, (unsigned)hd[0], 32, in, sh[3] ? rin : NULL, 32, o0, o1), "phase golden set %d frame %d refused", (int)si, (int)fr);
             for (ch = 0; ch < 2; ch++) {
                 double exp4[4], got[4] = { 0, 0, 0, 0 }, scale; const SautiAacSbrComplex *o = ch ? o1 : o0;
                 if (fread(exp4, 8, 4, fp) != 4) { CHECK(0, "phase golden set %d frame %d sums", (int)si, (int)fr); break; }
                 if (fr < 3) continue;
                 for (s = 0; s < 32; s++) for (b = 0; b < 54; b++) {
-                    const double re = o[s * 64 + b].re * 32768.0, im = o[s * 64 + b].im * 32768.0, w = ((double)s * 131.0 + (double)b * 7.0 + 1.0) / (32.0 * 64.0);
+                    const double re = o[s * 64 + b].re * 32768.0 * 1.4142135623730951, im = o[s * 64 + b].im * 32768.0 * 1.4142135623730951, w = ((double)s * 131.0 + (double)b * 7.0 + 1.0) / (32.0 * 64.0);
                     got[0] += re; got[1] += im; got[2] += re * re + im * im; got[3] += (re + 2.0 * im) * w;
                 }
                 scale = sqrt(exp4[2] * 32.0 * 54.0) + 1e-9;

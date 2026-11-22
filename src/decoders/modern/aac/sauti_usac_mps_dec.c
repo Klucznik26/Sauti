@@ -3,6 +3,7 @@
 #include "sauti_usac_mps_dec.h"
 #include "sauti_usac_mps_tables.h"
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef SautiAacSbrComplex cxf;
@@ -172,6 +173,61 @@ static float angle_interp(float a1, float a2, float alpha, float *step) {
     return (1.0f - alpha) * a1 + alpha * a2;
 }
 
+/* ---- STP, subband temporal processing (bsTempShapeConfig 1): the decorrelated part of the output is scaled slot by slot so that its temporal envelope in the hybrid bands 13..31 follows that of the direct part.  The energies are
+ * kept in the units of the reference (our QMF grids are 1 / (32768 * sqrt 2) of its) because the start values and the thresholds are absolute ---- */
+#define STP_BP 25
+static const float stp_bp[STP_BP] = { 0.0000f, 0.0005f, 0.0092f, 0.0587f, 0.2580f, 0.7392f, 0.9791f, 0.9993f, 1.0000f, 1.0000f, 1.0000f, 1.0000f, 0.9999f, 0.9984f, 0.9908f, 0.9639f, 0.8952f, 0.7711f, 0.6127f, 0.4609f, 0.3391f, 0.2493f, 0.1848f, 0.1387f, 0.1053f };
+static const float stp_gf[STP_BP] = { 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 1e-008f, 8.1e-007f, 3.61e-006f, 8.41e-006f, 1.6e-005f, 2.704e-005f, 3.969e-005f, 5.625e-005f, 7.396e-005f, 9.801e-005f, 0.00012321f, 0.00015625f, 0.00019881f, 0.00024964f, 0.00032041f, 0.00041209f, 0.00053824f, 0.00070756f, 0.00094249f };
+static const unsigned stp_h2q[10] = { 0, 0, 0, 0, 0, 0, 1, 1, 2, 2 };
+
+static void stp_scale(SautiUsacMpsDec *d, cxf (*dir)[MAXS][HYB], cxf (*dif)[MAXS][HYB], unsigned ts, float scale[2]) {
+    const float K = 2147483648.0f, abs_thr = 1.073741824f;                        /* 2 * 32768^2: our grids are 1 / (32768 sqrt 2) of the reference's; 1e-9 * 32768^2 */
+    float dir_e = 0.0f, diff_e[2];
+    unsigned n, ch;
+    if (!d->stp_init) { for (ch = 0; ch < 2u; ch++) { d->stp_scale_last[ch] = 1.0f; d->stp_nrg_diff_prev[ch] = 32768.0f * 32768.0f; } d->stp_nrg_dir_prev = 32768.0f * 32768.0f; d->stp_init = 1u; }
+    if (d->stp_update == 32u) { d->stp_update = 1u; d->stp_nrg_dir_prev = d->stp_nrg_dir; for (ch = 0; ch < 2u; ch++) d->stp_nrg_diff_prev[ch] = d->stp_nrg_diff[ch]; } else d->stp_update++;
+    for (n = 6; n < STP_BP; n++) {
+        const float lr = dir[0][ts][n + 7].re, rr = dir[1][ts][n + 7].re, li = dir[0][ts][n + 7].im, ri = dir[1][ts][n + 7].im;
+        const float t = ((lr + rr) * (lr + rr) + (li + ri) * (li + ri)) * K;
+        dir_e += t * stp_bp[n] * stp_bp[n] * stp_gf[n] * stp_gf[n];
+    }
+    d->stp_nrg_dir = (float)(0.950f * d->stp_nrg_dir + (1.0 - 0.950f) * dir_e);
+    dir_e /= (d->stp_nrg_dir_prev + abs_thr);
+    for (ch = 0; ch < 2u; ch++) {
+        diff_e[ch] = 0.0f;
+        for (n = 6; n < STP_BP; n++) {
+            const float t = (dif[ch][ts][n + 7].re * dif[ch][ts][n + 7].re + dif[ch][ts][n + 7].im * dif[ch][ts][n + 7].im) * K;
+            diff_e[ch] += t * stp_bp[n] * stp_bp[n] * stp_gf[n] * stp_gf[n];
+        }
+        d->stp_nrg_diff[ch] = (float)(0.950f * d->stp_nrg_diff[ch] + (1.0 - 0.950f) * diff_e[ch]);
+        diff_e[ch] /= (d->stp_nrg_diff_prev[ch] + abs_thr);
+    }
+    for (ch = 0; ch < 2u; ch++) {
+        float v = (float)sqrt(dir_e / (diff_e[ch] + 1e-9f));
+        v = 0.1f + (1.0f - 0.1f) * v;
+        if (v < (float)(1.0 / 2.82f)) v = (float)(1.0 / 2.82f);
+        if (v > 2.82f) v = 2.82f;
+        v = (float)(0.450f * v + (1.0 - 0.450f) * d->stp_scale_last[ch]);
+        d->stp_scale_last[ch] = v; scale[ch] = v;
+    }
+}
+
+/* dir / dif: the direct and the decorrelated hybrid outputs [channel][slot][band]; the result (direct + scaled decorrelated) replaces dir */
+static void stp_apply(SautiUsacMpsDec *d, const SautiUsacMpsFrame *f, unsigned slots, unsigned hyb_count, unsigned dif_s, cxf (*dir)[MAXS][HYB], cxf (*dif)[MAXS][HYB]) {
+    unsigned ch, ts, n;
+    for (ch = 0; ch < 2u; ch++) for (ts = 0; ts < slots; ts++) for (n = dif_s; n < 12u && n < hyb_count; n++) { dir[ch][ts][n].re += dif[ch][ts][n].re; dir[ch][ts][n].im += dif[ch][ts][n].im; dif[ch][ts][n].re = 0.0f; dif[ch][ts][n].im = 0.0f; }
+    for (ts = 0; ts < slots; ts++) {
+        float scale[2];
+        stp_scale(d, dir, dif, ts, scale);
+        for (ch = 0; ch < 2u; ch++) {
+            if (!f->stp_ch[ch]) { for (n = 0; n < hyb_count; n++) { dir[ch][ts][n].re += dif[ch][ts][n].re; dir[ch][ts][n].im += dif[ch][ts][n].im; } continue; }
+            for (n = 0; n < 10u && n < hyb_count; n++) { const float t = scale[ch] * stp_bp[stp_h2q[n]]; dir[ch][ts][n].re += dif[ch][ts][n].re * t; dir[ch][ts][n].im += dif[ch][ts][n].im * t; }
+            for (n = 7; n < 16u && n < hyb_count; n++) { const float t = scale[ch] * stp_bp[n - 7u]; dir[ch][ts][n].re += dif[ch][ts][n].re * t; dir[ch][ts][n].im += dif[ch][ts][n].im * t; }
+            for (; n < hyb_count; n++) { dir[ch][ts][n].re += dif[ch][ts][n].re * scale[ch]; dir[ch][ts][n].im += dif[ch][ts][n].im * scale[ch]; }
+        }
+    }
+}
+
 void sauti_usac_mps212_residual_grid(SautiUsacMpsDec *d, const SautiAacSbrComplex *low, unsigned slots, SautiAacSbrComplex *grid) {
     unsigned i, k;
     if (slots < 6u) slots = 6u;                                                                 /* 32 / 64 in practice */
@@ -188,6 +244,7 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
     cxf hyb[MAXS][HYB], diff[MAXS][HYB], mixed[2][MAXS][HYB], hres[MAXS][HYB];                 /* about 160 KiB of scratch on the stack */
     float resg[SAUTI_USAC_MPS_SETS][NB][2], decg[SAUTI_USAC_MPS_SETS][NB][2], rsdg[SAUTI_USAC_MPS_SETS][NB][2], img[SAUTI_USAC_MPS_SETS][NB][2];
     unsigned slot_diff[SAUTI_USAC_MPS_SETS];
+    cxf (*mixed_d)[MAXS][HYB] = NULL;                                              /* STP: the decorrelated part of the output on its own */
     float pl[SAUTI_USAC_MPS_SETS][NB], pr[SAUTI_USAC_MPS_SETS][NB];
     float phc[MAXS][NB][2], phs[MAXS][NB][2];                           /* cosine / sine of the interpolated phase per slot, parameter band and output channel */
     const uint8_t *map, *map28 = sauti_usac_mps_band_map_28;
@@ -195,7 +252,7 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
     unsigned hyb_count, res_hyb_count = 0, i, k, pb, n, ps, row;
     const double gain = cfg ? sauti_usac_mps_clip_gain[cfg->fixed_gain & 7u] : 1.0;
     if (!d || !cfg || !f || !in || !out0 || !out1 || slots == 0 || slots > MAXS || band_count < 4u || band_count > 64u || cfg->fixed_gain > 7u || cfg->decorr > 2u) return 0;
-    if ((cfg->phase_coding && cfg->bands_phase > f->param_bands) || cfg->residual_bands > f->param_bands || (cfg->residual_bands && (!res_in || res_band_count < 4u || res_band_count > 64u)) || f->num_sets == 0 || f->num_sets > SAUTI_USAC_MPS_SETS || cfg->freq_res == 0 || cfg->freq_res > 7u || cfg->temp_shape == 1u || cfg->temp_shape == 3u) return 0;
+    if ((cfg->phase_coding && cfg->bands_phase > f->param_bands) || cfg->residual_bands > f->param_bands || (cfg->residual_bands && (!res_in || res_band_count < 4u || res_band_count > 64u)) || f->num_sets == 0 || f->num_sets > SAUTI_USAC_MPS_SETS || cfg->freq_res == 0 || cfg->freq_res > 7u || cfg->temp_shape == 3u) return 0;
     map = band_map(f->param_bands);
     if (!map) return 0;
     split = split_freq[cfg->decorr];
@@ -280,6 +337,10 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
         for (pb = 0; pb < f->param_bands; pb++) { d->phase_prev[0][pb] = pl[f->num_sets - 1u][pb]; d->phase_prev[1][pb] = pr[f->num_sets - 1u][pb]; }
     }
     memset(mixed, 0, sizeof mixed);
+    if (cfg->temp_shape == 1u) {
+        mixed_d = (cxf (*)[MAXS][HYB])calloc(2u * MAXS * HYB, sizeof(cxf));
+        if (!mixed_d) return 0;
+    }
     {
         unsigned t = 0;
         for (ps = 0; ps < f->num_sets; ps++) {
@@ -317,8 +378,24 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
                         }
                     }
                 }
+                if (mixed_d) for (k = 0; k < hyb_count; k++) {
+                    const unsigned b = map[k];
+                    for (row = 0; row < 2u; row++) {
+                        if (cfg->phase_coding && !cfg->residual) {
+                            const float c = phc[t][b][row], sn = phs[t][b][row], g2 = (float)dg[b][row], gc2 = g2 * c, gs2 = g2 * sn, sg_ = k < 2u ? 1.0f : -1.0f;
+                            mixed_d[row][t][k].re = diff[t][k].re * gc2 + sg_ * diff[t][k].im * gs2;
+                            mixed_d[row][t][k].im = diff[t][k].im * gc2 - sg_ * diff[t][k].re * gs2;
+                        } else { mixed_d[row][t][k].re = (float)((double)diff[t][k].re * dg[b][row]); mixed_d[row][t][k].im = (float)((double)diff[t][k].im * dg[b][row]); }
+                    }
+                }
             }
         }
+    }
+    if (mixed_d) {                                                              /* STP: split the output into its direct and decorrelated parts, then let the shaping recombine them */
+        for (row = 0; row < 2u; row++) for (n = 0; n < slots; n++) for (k = 0; k < hyb_count; k++) { mixed[row][n][k].re -= mixed_d[row][n][k].re; mixed[row][n][k].im -= mixed_d[row][n][k].im; }
+        if (cfg->residual_bands != 28u) stp_apply(d, f, slots, hyb_count, cfg->residual_bands ? (unsigned)sauti_usac_mps_gain_set_index[cfg->residual_bands] : 0u, mixed, mixed_d);
+        else for (row = 0; row < 2u; row++) for (n = 0; n < slots; n++) for (k = 0; k < hyb_count; k++) { mixed[row][n][k].re += mixed_d[row][n][k].re; mixed[row][n][k].im += mixed_d[row][n][k].im; }
+        free(mixed_d); mixed_d = NULL;
     }
     for (pb = 0; pb < f->param_bands; pb++) for (row = 0; row < 2u; row++) { d->resid_prev[pb][row] = resg[f->num_sets - 1u][pb][row]; d->decor_prev[pb][row] = decg[f->num_sets - 1u][pb][row]; d->rsd_prev[pb][row] = rsdg[f->num_sets - 1u][pb][row]; d->im_prev[pb][row] = img[f->num_sets - 1u][pb][row]; }
     /* 4. hybrid synthesis: the six bands of QMF band 0 and the pairs of QMF bands 1 and 2 are added, the others are QMF bands */

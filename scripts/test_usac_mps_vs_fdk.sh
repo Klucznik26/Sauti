@@ -2,7 +2,8 @@
 # USAC MPEG Surround 212 against the Fraunhofer reference decoder (libfdk-aac, built with 32-bit PCM: tools/sauti_fdk_raw_oracle.c, build/sauti_fdk_raw_oracle), independent of libxaac.  The fixtures made by the libxaac ENCODER
 # (usac_z1..z4: stereoConfigIndex 2, eSBR 2:1, z4 with residual bands) carry loudness metadata that FDK applies by default (a constant gain of 0.5012 = -6 dB: ours / FDK = 1.995), so the comparison fits ONE constant gain
 # and requires USAC_MPS_FDK_MIN_DB (default 75; measured 82 dB).  The generator streams (usac_y1..y9: stereoConfigIndex 1 and 2, residual bands, phase coding; random eSBR data) have no such gain; they agree at about 40 dB
-# (the random eSBR data limit the agreement of two independent decoders), bound USAC_MPS_FDK_GEN_MIN_DB (default 30).  SKIP (exit 0, stated loudly) without the oracle / numpy.
+# (the random eSBR data limit the agreement of two independent decoders), bound USAC_MPS_FDK_GEN_MIN_DB (default 30).  usac_y11 (stereoConfigIndex 2 with STP) is NOT compared: for a prediction upmix with temporal shaping configured
+# (even disabled in every frame) FDK's output is about 1/8 of ours and libxaac's level (an unexplained deviation of FDK; libxaac and this decoder agree to 3e-4 on the upmix).  SKIP (exit 0, stated loudly) without the oracle / numpy.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -x build/sauti_fdk_raw_oracle ] || { echo "SKIP: no build/sauti_fdk_raw_oracle (the FDK oracle) - this is NOT a proof of agreement"; exit 0; }
@@ -10,7 +11,7 @@ python3 -c 'import numpy' 2>/dev/null || { echo "SKIP: no numpy"; exit 0; }
 make -s build/sauti_usac_raw >/dev/null
 W="$(mktemp -d "${TMPDIR:-/tmp}/sauti-mpsfdk.XXXXXX")"; trap 'rm -rf -- "${W:?}"' EXIT
 fail=0
-for f in z1 z2 z3 z4 y1 y2 y3 y4 y5 y6 y7 y8 y9; do
+for f in z1 z2 z3 z4 y1 y2 y3 y4 y5 y6 y7 y8 y9 y10; do
   python3 -I tools/mp4_dump_aus.py "tests/data/usac_$f.m4a" "$W/$f" >/dev/null
   build/sauti_usac_raw "$W/$f" "$W/$f.sau" >/dev/null 2>&1
   build/sauti_fdk_raw_oracle "$W/$f.asc" "$W/$f.aus" "$W/$f.fdk" >/dev/null 2>&1

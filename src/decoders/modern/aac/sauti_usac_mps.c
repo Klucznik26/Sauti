@@ -421,7 +421,9 @@ int sauti_usac_mps212_parse(const SautiUsacMpsConfig *e, unsigned time_slots, Sa
     switch (e->temp_shape) {                           /* temporal shaping: only frames that do not use it are handled */
     case 0: break;
     case 3: if (sauti_usac_get(b, 1)) return -1; break;
-    case 1: if (sauti_usac_get(b, 1)) return -1; break;
+    case 1: nf->stp_enable = sauti_usac_get(b, 1); nf->stp_ch[0] = nf->stp_ch[1] = 0u;                    /* STP: bsTempShapeEnable, then one flag per output channel */
+            if (nf->stp_enable) { nf->stp_ch[0] = sauti_usac_get(b, 1); nf->stp_ch[1] = sauti_usac_get(b, 1); }
+            break;
     case 2: if (sauti_usac_get(b, 1)) return -1; break;
     default: return 0;
     }

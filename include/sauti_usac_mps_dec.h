@@ -20,6 +20,8 @@ typedef struct {
     SautiAacSbrComplex res_tail[6][32];                                                /* the last 6 slots of QMF bands 3..31 of the residual analysis: the reference delays them against bands 0..2 */
     float phase_prev[2][SAUTI_USAC_MPS_BANDS];                                         /* phase of the last set of the previous frame (left, right output) */
     int32_t smooth_phase[2][SAUTI_USAC_MPS_BANDS];                                     /* smoothed overall phase difference, Q27 */
+    float stp_nrg_dir, stp_nrg_dir_prev, stp_nrg_diff[2], stp_nrg_diff_prev[2], stp_scale_last[2];   /* STP: smoothed energies and the last scale */
+    unsigned stp_init, stp_update;
     unsigned ready;
 } SautiUsacMpsDec;
 
