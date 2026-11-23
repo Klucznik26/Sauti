@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Regenerates tests/data/usac_r1..r4.m4a: short EXCERPTS (whole access units, cut at random access points, which carry AudioPreRoll) of the public xHE-AAC demo files of Fraunhofer IIS
+# Regenerates tests/data/usac_r1..r5.m4a: short EXCERPTS (whole access units, cut at random access points, which carry AudioPreRoll) of the public xHE-AAC demo files of Fraunhofer IIS
 # (https://www2.iis.fraunhofer.de/AAC/xhe-aac-abr.html, the "Sintel" files).  Sintel (c) Blender Foundation | durian.blender.org, licensed CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/);
 # the encoded streams are the demo content of Fraunhofer IIS.  They are REAL streams of a production encoder, the only ones of the repository, and each pins a feature that no generated or libxaac-encoded stream has:
 #   r1  Sintel_24kbps AUs 0 - 59:    eSBR 8:3 (768 core), LPD, MPS212 stereoConfigIndex 1 with 20 parameter bands, IPD / OPD, TSD, bs_sbr_preprocessing (from AU 26), the stale IPD quantiser flag of a kept set
 #   r2  Sintel_24kbps AUs 230 - 259: the first LPD -> FD transition (LONG_STOP without FAC, TCX 1024) at ccfl 768
 #   r3  Sintel_24kbps AUs 2436 - 2471: an LPD -> FD transition into EIGHT SHORT WINDOWS at ccfl 768 (AU 2462)
 #   r4  Sintel_64kbps AUs 0 - 59:    stereoConfigIndex 3 (eSBR AFTER the MPS212 upmix)
+#   r5  Sintel_24kbps AUs 2482 - 2511: a LONG_START window sequence after a LONG_START / EIGHT_SHORT one (AU 2493), which is a STOP_START sequence (the reference's win_seq_select; 12 dB -> 40 dB there)
 # usage: tests/data/make_usac_real_excerpts.sh DIR   (DIR holds xHE-AAC_demo_content_for_adaptive_bitrate__Sintel_{24,64}kbps_rap5s.mp4, see ~/Sauti-tools/real-files/README.txt)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -29,3 +30,4 @@ cut_au r1 24 0 60
 cut_au r2 24 230 30
 cut_au r3 24 2436 36
 cut_au r4 64 0 60
+cut_au r5 24 2482 30

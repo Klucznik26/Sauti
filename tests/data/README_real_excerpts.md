@@ -1,4 +1,4 @@
-# Real xHE-AAC excerpts (usac_r1 .. usac_r4.m4a)
+# Real xHE-AAC excerpts (usac_r1 .. usac_r5.m4a)
 
 Short excerpts (whole access units, cut at random access points) of the public xHE-AAC demo files of Fraunhofer IIS
 (<https://www2.iis.fraunhofer.de/AAC/xhe-aac-abr.html>, "Sintel" at 24 and 64 kbit/s).

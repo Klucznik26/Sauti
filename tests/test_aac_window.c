@@ -74,10 +74,20 @@ static void sequences(void){
     assert(!sauti_aac_window_synth(2,0,1,in,hist,pcm,next));
     assert(memcmp(pcm,previous,sizeof(previous))==0);
     assert(memcmp(next,previous_next,sizeof(previous_next))==0);
+    {   /* STOP_START (USAC): the left half of a stop sequence and the right half of a start sequence */
+        static float w1[2048],w3[2048],w4[2048];
+        unsigned i,sh;
+        for(sh=0;sh<2u;sh++){
+            assert(sauti_aac_window_long_weights(1024u,1u,sh,sh,w1) && sauti_aac_window_long_weights(1024u,3u,sh,sh,w3) && sauti_aac_window_long_weights(1024u,4u,sh,sh,w4));
+            for(i=0;i<1024u;i++)assert(w4[i]==w3[i]);
+            for(i=1024u;i<2048u;i++)assert(w4[i]==w1[i]);
+        }
+        assert(!sauti_aac_window_long_weights(1024u,5u,0,0,w4));
+    }
     in[100]=1.0f;hist[0]=INFINITY;
     assert(!sauti_aac_window_synth(0,0,1,in,hist,pcm,next));
     hist[0]=0.25f;
-    assert(!sauti_aac_window_synth(4,0,1,in,hist,pcm,next));
+    assert(!sauti_aac_window_synth(5,0,1,in,hist,pcm,next));   /* 0..3 are the AAC sequences, 4 (STOP_START) exists in USAC only: the next index is invalid */
     assert(!sauti_aac_window_synth(0,2,1,in,hist,pcm,next));
     assert(!sauti_aac_window_synth(0,0,2,in,hist,pcm,next));
     assert(!sauti_aac_window_synth(0,0,1,NULL,hist,pcm,next));

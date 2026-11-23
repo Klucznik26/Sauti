@@ -57,6 +57,7 @@ typedef struct {
     SautiUsacAcState ac;
     float overlap[1024];
     unsigned prev_shape;
+    unsigned win_last;                   /* window sequence the reference keeps for the next frame: 0..3, 4 = STOP_START (a LONG_START after a start / eight-short / stop-start frame); an LPD frame counts as eight short */
     uint32_t noise_seed;
     float prev_coef[1024];               /* CPE: the final spectrum of the previous frame (what went into the IMDCT): the downmix of the previous frame for complex prediction */
     /* complex stereo prediction state of a channel pair, kept in its first channel */

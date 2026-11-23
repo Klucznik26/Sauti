@@ -160,7 +160,7 @@ int sauti_usac_asc_parse(const uint8_t *asc, size_t size, SautiUsacConfig *out) 
 void sauti_usac_state_init(SautiUsacState *s, const SautiUsacConfig *cfg) {
     unsigned i, ch = 0;
     memset(s, 0, sizeof *s);
-    for (i = 0; i < SAUTI_USAC_MAX_CHANNELS; i++) { s->ch[i].prev_shape = 0xffu; sauti_usac_lpd_state_init(&s->ch[i].lpd, cfg->core_rate); }
+    for (i = 0; i < SAUTI_USAC_MAX_CHANNELS; i++) { s->ch[i].prev_shape = 0xffu; s->ch[i].win_last = 0u; sauti_usac_lpd_state_init(&s->ch[i].lpd, cfg->core_rate); }
     s->channels = cfg->out_channels < SAUTI_USAC_MAX_CHANNELS ? cfg->out_channels : SAUTI_USAC_MAX_CHANNELS;
     for (i = 0; i < SAUTI_USAC_MAX_CHANNELS; i++) { (void)sauti_aac_sbr_channel_init(&s->sbr_ch[i]); if (cfg->sbr_mode == 2u) s->sbr_ch[i].analysis_bands = 24u; else if (cfg->sbr_mode == 3u) s->sbr_ch[i].analysis_bands = 16u; }
     for (i = 0; i < cfg->num_elements; i++) {                              /* the noise generator starts at 0x3039 (first channel) / 0x10932 (second channel of a pair) */
@@ -344,6 +344,7 @@ static int tns_apply(Fd *fd) {                                              /* i
 static int synthesize(const SautiUsacConfig *cfg, Fd *fd, SautiUsacChannel *ch, float *pcm) {
     float time[2048], next[1024];
     const unsigned n = cfg->core_frame_len;
+    const unsigned wseq = fd->seq == 1u && (ch->win_last == 1u || ch->win_last == 2u || ch->win_last == 4u || ch->lpd.prev_lpd) ? 4u : fd->seq;   /* a start sequence after a start, eight-short, stop-start or LPD frame is a stop-start sequence (the reference's win_seq_select) */
     unsigned w, i;
     if (fd->seq == 2u) { for (w = 0; w < 8u; w++) if (!sauti_aac_imdct(fd->coef + w * fd->stride, fd->wlen, time + w * 2u * fd->wlen)) return 0; }
     else if (!sauti_aac_imdct(fd->coef, n, time)) return 0;
@@ -368,11 +369,12 @@ static int synthesize(const SautiUsacConfig *cfg, Fd *fd, SautiUsacChannel *ch, 
         for (i = 0; i < n; i++) ch->fd_tail[i] = next[i] * (SAUTI_USAC_OUT_SCALE * 32768.0f);
         for (i = 0; i < fd->wlen; i++) ch->fd_tail[(n - fd->wlen) / 2u + i] = time[7u * 2u * fd->wlen + fd->wlen + i] * (SAUTI_USAC_OUT_SCALE * 32768.0f);
         ch->fd_short = 1;
+        ch->win_last = 2u;
         ch->prev_shape = fd->shape;
         ch->fd_decoded = 1;
         return 1;
     }
-    if (!sauti_aac_window_synth_n(n, fd->seq, ch->prev_shape == 0xffu ? fd->shape : ch->prev_shape, fd->shape, time, ch->overlap, pcm, next)) return 0;
+    if (!sauti_aac_window_synth_n(n, wseq, ch->prev_shape == 0xffu ? fd->shape : ch->prev_shape, fd->shape, time, ch->overlap, pcm, next)) return 0;
     memcpy(ch->overlap, next, n * sizeof(float));
     for (i = 0; i < n; i++) pcm[i] *= SAUTI_USAC_OUT_SCALE;
     if (ch->lpd.prev_lpd) {                                                 /* the frame follows an LPD frame: its start is the look-ahead of the LPD synthesis plus the aliasing cancellation (stop window with the slope of ccfl / 4) */
@@ -386,6 +388,7 @@ static int synthesize(const SautiUsacConfig *cfg, Fd *fd, SautiUsacChannel *ch, 
     for (i = 0; i < n; i++) ch->fd_tail[i] = (fd->seq == 2u ? next[i] : time[n + i]) * (SAUTI_USAC_OUT_SCALE * 32768.0f);   /* the tail an LPD frame takes over: unwindowed after a long frame; after eight short windows the overlap of the first seven (windowed) and the RAW second half of the last window */
     if (fd->seq == 2u) for (i = 0; i < fd->wlen; i++) ch->fd_tail[(n - fd->wlen) / 2u + i] = time[7u * 2u * fd->wlen + fd->wlen + i] * (SAUTI_USAC_OUT_SCALE * 32768.0f);
     ch->fd_short = fd->seq == 2u;
+    ch->win_last = wseq;
     ch->prev_shape = fd->shape;
     ch->fd_decoded = 1;
     return 1;

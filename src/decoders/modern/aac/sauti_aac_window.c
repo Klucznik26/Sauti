@@ -53,9 +53,9 @@ int sauti_aac_window_generate(unsigned n,unsigned shape,float *window){
     return 1;
 }
 /* The weights of the 2n-sample window of a long, long-start or long-stop frame: first half the rising slope of the previous frame's shape, second half the falling slope of the current one;
- * start / stop frames replace one long slope by 1 / a short slope / 0 (the geometry of sauti_aac_window_synth_n).  Not defined for EIGHT_SHORT. */
+ * start / stop frames replace one long slope by 1 / a short slope / 0, sequence 4 (STOP_START, USAC only) does both (the geometry of sauti_aac_window_synth_n).  Not defined for EIGHT_SHORT. */
 int sauti_aac_window_long_weights(unsigned n,unsigned sequence,unsigned previous_shape,unsigned current_shape,float *weight){
-    if((n!=1024u && n!=960u && n!=768u) || sequence>3u || sequence==2u || previous_shape>1u || current_shape>1u || !weight)return 0;
+    if((n!=1024u && n!=960u && n!=768u) || sequence>4u || sequence==2u || previous_shape>1u || current_shape>1u || !weight)return 0;
     const unsigned ns=n/8u,lead=(n-ns)/2u;
     float long_prev[2048],long_curr[2048],short_prev[256],short_curr[256];
     if(!sauti_aac_window_generate(n,previous_shape,long_prev) ||
@@ -66,6 +66,7 @@ int sauti_aac_window_long_weights(unsigned n,unsigned sequence,unsigned previous
         float w;
         if(sequence==0u)w=i<n?long_prev[i]:long_curr[i];
         else if(sequence==1u)w=i<n?long_prev[i]:i<n+lead?1.0f:i<n+lead+ns?short_curr[ns+(i-(n+lead))]:0.0f;
+        else if(sequence==4u)w=i<lead?0.0f:i<lead+ns?short_prev[i-lead]:i<n+lead?1.0f:i<n+lead+ns?short_curr[ns+(i-(n+lead))]:0.0f;   /* STOP_START: the stop left half and the start right half */
         else w=i<lead?0.0f:i<lead+ns?short_prev[i-lead]:i<n?1.0f:long_curr[i];
         weight[i]=w;
     }
@@ -75,7 +76,7 @@ int sauti_aac_window_synth_n(unsigned n,unsigned sequence,unsigned previous_shap
                              unsigned current_shape,const float *imdct,
                              const float *previous_overlap,
                              float *pcm,float *next_overlap){
-    if((n!=1024u && n!=960u && n!=768u) || sequence>3u || previous_shape>1u || current_shape>1u ||
+    if((n!=1024u && n!=960u && n!=768u) || sequence>4u || previous_shape>1u || current_shape>1u ||
        !imdct || !previous_overlap || !pcm || !next_overlap)return 0;
     const unsigned ns=n/8u,lead=(n-ns)/2u;           /* short window length, offset of the first short block in the 2n frame (448 / 420) */
     for(unsigned i=0;i<2u*n;i++)
