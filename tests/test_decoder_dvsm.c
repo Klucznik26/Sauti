@@ -59,8 +59,9 @@ int main(void){
     assert(stereo[2]==1.0f/32768.0f && stereo[3]==99.0f/32768.0f);
     assert(stereo[4]==2.0f/32768.0f && stereo[5]==98.0f/32768.0f);
     assert(stereo[6]==-1.0f && stereo[7]==32767.0f/32768.0f);
-    assert(stereo[8]==-1.0f && stereo[9]==32767.0f/32768.0f);
-    assert(stereo[10]==-32767.0f/32768.0f && stereo[11]==32766.0f/32768.0f);
+    /* stereo = the decoders of WinRec Pro 2.11H: 16-bit WRAP-AROUND (R: 32767 + 30211 = -2558) and byte 0x80 = delta 0 (L stays at -32768) */
+    assert(stereo[8]==-1.0f && stereo[9]==-2558.0f/32768.0f);
+    assert(stereo[10]==-32767.0f/32768.0f && stereo[11]==-2559.0f/32768.0f);
     assert(sauti_legacy_decoder_seek(&d,3));
     assert(sauti_legacy_decoder_read(&d,stereo,1)==1 && stereo[0]==-1.0f);
     sauti_legacy_decoder_close(&d);

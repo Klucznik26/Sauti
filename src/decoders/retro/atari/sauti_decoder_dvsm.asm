@@ -103,24 +103,11 @@ sauti_dvsm_delta_stereo_block_asm:
     movzx r8d,byte [rdi]
     movsx r8d,word [rcx+r8*2]
     add eax,r8d
-    cmp eax,32767
-    jle .left_min
-    mov eax,32767
-.left_min:
-    cmp eax,-32768
-    jge .right
-    mov eax,-32768
-.right:
+    movsx eax,ax                 ; 16-bit wrap-around (WinRec Pro stereo decoder)
     movzx r9d,byte [rdi+1]
     movsx r9d,word [rcx+r9*2]
     add r10d,r9d
-    cmp r10d,32767
-    jle .right_min
-    mov r10d,32767
-.right_min:
-    cmp r10d,-32768
-    jge .emit
-    mov r10d,-32768
+    movsx r10d,r10w
 .emit:
     cvtsi2ss xmm0,eax
     mulss xmm0,[rel s16]
@@ -194,7 +181,7 @@ sauti_dvsm_voice_mono_asm:
     ret
 
 ; Stereo voice block: L/R BE16 seeds, then one byte per frame,
-; high nibble -> left, low nibble -> right, independent saturating states.
+; high nibble -> left, low nibble -> right, independent states with 16-bit WRAP-AROUND (as the Pro decoder).
 global sauti_dvsm_voice_stereo_block_asm
 sauti_dvsm_voice_stereo_block_asm:
     test rdx,rdx
@@ -223,22 +210,9 @@ sauti_dvsm_voice_stereo_block_asm:
     movsx r8d,word [rcx+r8*2]
     movsx r9d,word [rcx+r9*2]
     add eax,r8d
-    cmp eax,32767
-    jle .left_low
-    mov eax,32767
-.left_low:
-    cmp eax,-32768
-    jge .right
-    mov eax,-32768
-.right:
+    movsx eax,ax                 ; 16-bit wrap-around (WinRec Pro stereo decoder)
     add r10d,r9d
-    cmp r10d,32767
-    jle .right_low
-    mov r10d,32767
-.right_low:
-    cmp r10d,-32768
-    jge .emit
-    mov r10d,-32768
+    movsx r10d,r10w
 .emit:
     cvtsi2ss xmm0,eax
     mulss xmm0,[rel s16]

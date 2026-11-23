@@ -3,6 +3,7 @@
 #define S16 sp_u2f(0x38000000u)
 #define S8 sp_u2f(0x3c000000u)
 static int32_t sat(int32_t v) { return v > 32767 ? 32767 : (v < -32768 ? -32768 : v); }
+static int32_t wrap(int32_t v) { return (int32_t)(int16_t)(uint16_t)(uint32_t)v; }       /* stereo: 16-bit wrap-around as in WinRec Pro 2.11H (docs/falcon-dvsm-pack5.md) */
 static int32_t seed(const uint8_t *p) { return (int32_t)(int16_t)sp_be16(p); }
 void sauti_dvsm_pcm_f32_asm(const uint8_t *src, float *dst, size_t count, uint32_t depth) {
     size_t i;
@@ -18,7 +19,7 @@ void sauti_dvsm_delta_stereo_block_asm(const uint8_t *in, float *out, size_t fra
     int32_t l, r; size_t i;
     if (!frames) return;
     l = seed(in); r = seed(in + 2); in += 4; out[0] = (float)l * S16; out[1] = (float)r * S16;
-    for (i = 1; i < frames; i++, in += 2) { l = sat(l + steps[in[0]]); r = sat(r + steps[in[1]]); out[2 * i] = (float)l * S16; out[2 * i + 1] = (float)r * S16; }
+    for (i = 1; i < frames; i++, in += 2) { l = wrap(l + steps[in[0]]); r = wrap(r + steps[in[1]]); out[2 * i] = (float)l * S16; out[2 * i + 1] = (float)r * S16; }
 }
 void sauti_dvsm_voice_mono_asm(const uint8_t *in, float *out, size_t frames, const int16_t *steps) {
     int32_t a; size_t i;
@@ -33,5 +34,5 @@ void sauti_dvsm_voice_stereo_block_asm(const uint8_t *in, float *out, size_t fra
     int32_t l, r; size_t i;
     if (!frames) return;
     l = seed(in); r = seed(in + 2); in += 4; out[0] = (float)l * S16; out[1] = (float)r * S16;
-    for (i = 1; i < frames; i++, in++) { l = sat(l + steps[*in >> 4]); r = sat(r + steps[*in & 15u]); out[2 * i] = (float)l * S16; out[2 * i + 1] = (float)r * S16; }
+    for (i = 1; i < frames; i++, in++) { l = wrap(l + steps[*in >> 4]); r = wrap(r + steps[*in & 15u]); out[2 * i] = (float)l * S16; out[2 * i + 1] = (float)r * S16; }
 }

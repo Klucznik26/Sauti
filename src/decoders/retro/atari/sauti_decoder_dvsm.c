@@ -84,7 +84,7 @@ static void *open_dvsm(const uint8_t *p,size_t n,SautiPcmInfo *info){
             if(v>32767.0)v=32767.0;
             steps[i]=(int16_t)v;
         }
-        if(pack==2)steps[128]=-32767;                      /* DVSM.TAB of WinRec: symmetric, byte 0x80 is -32767 */
+        if(pack==2)steps[128]=channels==2?0:-32767;        /* DVSM.TAB of WinRec: symmetric, byte 0x80 is -32767 (mono); the stereo decoder of WinRec Pro 2.11H reads the entry past its table: 0 */
         if(pack==2)for(unsigned i=129;i<256;i++){
             double v=floor(pow(1.084618362,(double)(256-i)));
             if(v>32767.0)v=32767.0;

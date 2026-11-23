@@ -103,3 +103,43 @@ here = os.path.dirname(os.path.abspath(__file__))
 open(os.path.join(here, 'dvsm_voice.dvs'), 'wb').write(hdr + dvs)
 open(os.path.join(here, 'dvsm_voice.pcm'), 'wb').write(pcm)
 print('voice', len(hdr + dvs), len(pcm))
+
+# ---- stress streams made by the program's OWN encoders (Pack 2 at 0x4bf0, Voice at 0x4d1e): signals with full-scale jumps, which the encoders code through the 16-bit WRAP-AROUND of the decoder
+import unicorn
+def run_init(d0, d1):                                                          # the routine at 0x4b14 builds the code tables (d0 = 1: defaults, d1 = 2: Pack 2 / 4: Voice)
+    uc.mem_write(TAB, b'\0' * 512)                                           # a fresh program: the table area starts as zeros (code 8 of Voice reads the entry past the 8 words, so it depends on what was there before)
+    sp = STACK - 4; uc.mem_write(sp, struct.pack('>I', SENT))
+    uc.reg_write(UC_M68K_REG_A7, sp); uc.reg_write(UC_M68K_REG_D0, d0); uc.reg_write(UC_M68K_REG_D1, d1)
+    uc.emu_start(0x4b14, SENT, count=80_000_000)
+def call(entry, d0, d1, a0, a1):
+    uc.mem_write(0x4aa68, b'\0\0\0\0'); uc.mem_write(0x4aae8, struct.pack('>I', 1 << 24))
+    sp = STACK - 4; uc.mem_write(sp, struct.pack('>I', SENT))
+    uc.reg_write(UC_M68K_REG_A7, sp); uc.reg_write(UC_M68K_REG_D0, d0); uc.reg_write(UC_M68K_REG_D1, d1)
+    uc.reg_write(UC_M68K_REG_A0, a0); uc.reg_write(UC_M68K_REG_A1, a1)
+    uc.emu_start(entry, SENT, count=80_000_000)
+def stress(i, nfr):                                                            # block i of the stress signal: 0 square, 1 noise, 2 loud sine, 3 rails, 4 silence-impulses
+    kind = i % 5
+    if kind == 0: return [((32767 if (j // 7) % 2 else -32768), (-32768 if (j // 5) % 2 else 32767)) for j in range(nfr)]
+    if kind == 1: return [(random.randrange(-32768, 32768), random.randrange(-32768, 32768)) for j in range(nfr)]
+    if kind == 2: return [(int(32767 * math.sin(j * 0.05)), int(-32768 * math.sin(j * 0.031))) for j in range(nfr)]
+    if kind == 3: return [(32767 - random.randrange(0, 900), -32768 + random.randrange(0, 900)) for j in range(nfr)]
+    return [((32767 if j % 97 == 0 else 0), (-32768 if j % 61 == 0 else 0)) for j in range(nfr)]
+def stress_file(name, pack, entry_enc, entry_dec, init_d1, frames_per_block, enc_bytes):
+    run_init(1, init_d1)
+    dvs = b''; pcm = b''
+    for i in range(6):
+        nfr = frames_per_block if i < 5 else frames_per_block // 3
+        fr = stress(i, nfr)
+        uc.mem_write(IN, b''.join(struct.pack('>hh', l, r) for l, r in fr)); uc.mem_write(OUT, b'\0' * (8 * nfr + 64))
+        call(entry_enc, 2 * nfr, 0, IN, OUT)
+        blk = bytes(uc.mem_read(OUT, enc_bytes(nfr)))
+        uc.mem_write(IN, blk); uc.mem_write(0x400000, b'\0' * (8 * nfr + 64))
+        call(entry_dec, 0, len(blk), IN, 0x400000)
+        pcm += bytes(uc.mem_read(0x400000, 4 * nfr)); dvs += blk
+    hdr = b'DVSM\0\0' + struct.pack('>HHBBI', 16, 7, pack, 1, 1004)
+    here = os.path.dirname(os.path.abspath(__file__))
+    open(os.path.join(here, name + '.dvs'), 'wb').write(hdr + dvs); open(os.path.join(here, name + '.pcm'), 'wb').write(pcm)
+    print(name, len(hdr + dvs), len(pcm))
+random.seed(7)
+stress_file('dvsm_delta_stress', 2, 0x4bf0, 0x716a, 2, 501, lambda n: 4 + 2 * (n - 1))   # Pack 2 stereo: 4 + 2 bytes per further frame; blocks of 1004 bytes = 501 frames
+stress_file('dvsm_voice_stress', 4, 0x4d1e, 0x7252, 4, 1001, lambda n: 4 + (n - 1))     # Voice stereo: 4 + 1 byte per further frame; blocks of 1004 bytes = 1001 frames

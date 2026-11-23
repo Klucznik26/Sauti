@@ -37,6 +37,7 @@ static void st_clear(stage_t *s) { s->at = s->have = 0; }
 static uint16_t be16(const uint8_t *p) { return (uint16_t)(((unsigned)p[0] << 8) | p[1]); }
 static uint32_t be32(const uint8_t *p) { return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]; }
 static int32_t sat16(int32_t v) { return v > 32767 ? 32767 : (v < -32768 ? -32768 : v); }
+static int32_t wrap16(int32_t v) { return (int32_t)(int16_t)(uint16_t)(uint32_t)v; }                    /* 16-bit two's complement wrap-around (the add.w of WinRec's STEREO decoders) */
 static int32_t seed16(const uint8_t *p) { return (int32_t)(int16_t)be16(p); }
 static uint64_t default_mask(uint32_t ch) { return ch == 1u ? MAKTABASAUTI_LAYOUT_MONO : (ch == 2u ? MAKTABASAUTI_LAYOUT_STEREO : 0u); }
 
@@ -303,8 +304,9 @@ static maktabasauti_result_t dvsm_frame(dvsm_t *d, float *out) {
             if (r == MAKTABASAUTI_EOF) return st_avail(s) ? MAKTABASAUTI_E_TRUNCATED : MAKTABASAUTI_EOF;
             if (r != MAKTABASAUTI_OK) return r;
             p = s->buf + s->at;
-            if (d->pack == 2u) { d->acc[0] = sat16(d->acc[0] + d->steps[p[0]]); d->acc[1] = sat16(d->acc[1] + d->steps[p[1]]); }
-            else { d->acc[0] = sat16(d->acc[0] + d->steps[p[0] >> 4]); d->acc[1] = sat16(d->acc[1] + d->steps[p[0] & 15u]); }
+            /* stereo: WRAP-AROUND like the decoders of WinRec Pro 2.11H (its encoders code a full-scale jump as a small delta through the wrap); mono (old files, WinRec before 1.38): saturation, as the real files need */
+            if (d->pack == 2u) { d->acc[0] = wrap16(d->acc[0] + d->steps[p[0]]); d->acc[1] = wrap16(d->acc[1] + d->steps[p[1]]); }
+            else { d->acc[0] = wrap16(d->acc[0] + d->steps[p[0] >> 4]); d->acc[1] = wrap16(d->acc[1] + d->steps[p[0] & 15u]); }
             s->at += d->bpf;
         }
         out[0] = (float)d->acc[0] * S16; out[1] = (float)d->acc[1] * S16;
@@ -360,6 +362,7 @@ static maktabasauti_result_t MAKTABASAUTI_CALL dvsm_open(const maktabasauti_code
     d->total_known = size >= 0; d->total = total; d->tail = tail != 0; d->seekable = (int)flags; d->stride = 4096u;
     if (pack == 4u) { /* Pack-4 (Voice) table indexed by the 4-bit code, as the decoder of WinRec Pro 2.11H builds it: codes 0..7 = 0, 64, 256, 512, 1024, 2048, 4096, 8192 and codes 8..15 = -table[16 - code] = 0 (code 8: the entry past the table is 0), -8192 ... -64 (docs/falcon-dvsm-pack5.md, 'Voice') */ static const int16_t voice[16] = { 0, 64, 256, 512, 1024, 2048, 4096, 8192, 0, -8192, -4096, -2048, -1024, -512, -256, -64 }; memcpy(d->steps, voice, sizeof voice); }
     if (pack == 2u) for (i = 0; i < 256u; i++) d->steps[i] = step_value(i);
+    if (pack == 2u && channels == 2u) d->steps[128] = 0;                                      /* WinRec Pro's stereo decoder reads the entry past its 128-word table for byte 0x80: zero (mono: DVSM.TAB of the old program, -32767) */
     if (pack != 0 && d->seekable) {
         d->cps = (cp_t *)h->alloc(h->user, CP_MAX * sizeof *d->cps);
         if (!d->cps) { h->free(h->user, d); return MAKTABASAUTI_E_NO_MEMORY; }
