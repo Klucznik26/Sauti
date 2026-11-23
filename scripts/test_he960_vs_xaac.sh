@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # HE-AAC with 960 frames (tests/data/he960_mono.m4a, he960_stereo.m4a) against libxaac's decoder (xaacdec, Apache 2.0, built outside; XAAC=<dir>): PCM of both, delay from the low band (libxaac drops
-# its 2037-frame start-up), 16-bit truncation of ours as libxaac does, samples of full scale left out.  Bounds HE960_XAAC_MIN_DB (default 50; measured 55 - 75 dB).  FDK (the second reference) agrees with
-# the MONO stream (70 - 85 dB; scripts/test_he960_vs_fdk.sh); for the stereo stream it differs from libxaac, FFmpeg and this decoder alike, also at 1024 (FFmpeg == ours 136 dB there): not used.
+# its 2037-frame start-up), 16-bit truncation of ours as libxaac does, samples of full scale left out.  Bounds HE960_XAAC_MIN_DB (default 50; measured 55 - 75 dB).  FDK (the second reference, high quality QMF) agrees with
+# both streams (scripts/test_he960_vs_fdk.sh).
 # SKIP (exit 0, said loudly) without xaacdec / numpy.
 set -euo pipefail
 cd "$(dirname "$0")/.."

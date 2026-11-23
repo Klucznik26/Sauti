@@ -15,7 +15,7 @@ int main(int argc,char **argv){
     if(argc==4&&!strcmp(argv[1],"--adts")){                                 /* an ADTS stream through the library's transport layer; counts the CRC errors it reports (the library checks the ADTS error check) */
         long n=0,pos=0,frames=0,crc_errors=0,other=0;unsigned char *b=slurp(argv[2],&n);HANDLE_AACDECODER h=aacDecoder_Open(TT_MP4_ADTS,1);FILE *o=fopen(argv[3],"wb");static INT_PCM pcm[8*2048];static float f[8*2048];
         if(!b||!o)return 2;
-        (void)aacDecoder_SetParam(h,AAC_PCM_LIMITER_ENABLE,0);
+        (void)aacDecoder_SetParam(h,AAC_PCM_LIMITER_ENABLE,0); (void)aacDecoder_SetParam(h,AAC_QMF_LOWPOWER,0);   /* FDK decodes the SBR of a stereo stream in LOW POWER mode (real QMF) by default: 20 - 30 dB away from every other decoder; the high quality (complex) QMF is what the standard describes */
         while(pos<n){
             UINT valid,chunk=(UINT)(n-pos<4096?n-pos:4096);UCHAR *buf[1];UINT sz[1];AAC_DECODER_ERROR e;
             buf[0]=b+pos;sz[0]=chunk;valid=chunk;e=aacDecoder_Fill(h,buf,sz,&valid);pos+=chunk-valid;
@@ -31,7 +31,7 @@ int main(int argc,char **argv){
         fclose(o);fprintf(stderr,"frames %ld crc_errors %ld other_errors %ld\n",frames,crc_errors,other);return 0;
     }
     if(argc==4&&!strcmp(argv[1],"--loas")){
-        long n=0,pos=0,frames=0;unsigned char *b=slurp(argv[2],&n);HANDLE_AACDECODER h=aacDecoder_Open(TT_MP4_LOAS,1);FILE *o=fopen(argv[3],"wb");(void)aacDecoder_SetParam(h,AAC_PCM_LIMITER_ENABLE,0);static INT_PCM pcm[8*2048];static float f[8*2048];
+        long n=0,pos=0,frames=0;unsigned char *b=slurp(argv[2],&n);HANDLE_AACDECODER h=aacDecoder_Open(TT_MP4_LOAS,1);FILE *o=fopen(argv[3],"wb");(void)aacDecoder_SetParam(h,AAC_PCM_LIMITER_ENABLE,0); (void)aacDecoder_SetParam(h,AAC_QMF_LOWPOWER,0);   /* FDK decodes the SBR of a stereo stream in LOW POWER mode (real QMF) by default: 20 - 30 dB away from every other decoder; the high quality (complex) QMF is what the standard describes */static INT_PCM pcm[8*2048];static float f[8*2048];
         if(!b||!o)return 2;
         while(pos<n){
             UINT valid,chunk=(UINT)(n-pos<(1<<20)?n-pos:(1<<20))  /* the whole file at once: with 4096-byte pieces FDK loses a LOAS element that straddles a piece boundary (usac_c1.loas: one frame of 24) */;UCHAR *buf[1];UINT sz[1];AAC_DECODER_ERROR e;
@@ -49,7 +49,7 @@ int main(int argc,char **argv){
     if(argc!=4)return 2;
     if(sizeof(INT_PCM)!=4){fprintf(stderr,"this tool needs a 32-bit PCM build of libfdk-aac (INT_PCM is %zu bytes)\n",sizeof(INT_PCM));return 2;}
     asc=slurp(argv[1],&asc_n);aus=slurp(argv[2],&aus_n);if(!asc||!aus)return 2;
-    h=aacDecoder_Open(TT_MP4_RAW,1);(void)aacDecoder_SetParam(h,AAC_PCM_LIMITER_ENABLE,0);                /* no 15 ms limiter delay, no gain reduction: a faithful decode for comparison */
+    h=aacDecoder_Open(TT_MP4_RAW,1);(void)aacDecoder_SetParam(h,AAC_PCM_LIMITER_ENABLE,0); (void)aacDecoder_SetParam(h,AAC_QMF_LOWPOWER,0);   /* FDK decodes the SBR of a stereo stream in LOW POWER mode (real QMF) by default: 20 - 30 dB away from every other decoder; the high quality (complex) QMF is what the standard describes */                /* no 15 ms limiter delay, no gain reduction: a faithful decode for comparison */
     { UCHAR *conf[1]={asc};UINT len[1]={(UINT)asc_n};if(aacDecoder_ConfigRaw(h,conf,len)!=AAC_DEC_OK){fprintf(stderr,"ConfigRaw failed\n");return 3;} }
     o=fopen(argv[3],"wb");
     while(pos+4<=aus_n){
