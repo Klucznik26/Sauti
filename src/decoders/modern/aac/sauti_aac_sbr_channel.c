@@ -175,10 +175,21 @@ static int adjust_pvc_slot(const SautiAacSbrPayloadFrame *f,const SautiAacSbrPay
     return 1;
 }
 
+static int channel_frame_impl(SautiAacSbrChannel *ch,const float *core,const SautiAacSbrComplex *low_in,
+                               const SautiAacSbrPayloadFrame *f,SautiAacSbrComplex grid[]);
 int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
                                 const SautiAacSbrPayloadFrame *f,
                                 SautiAacSbrComplex grid[]){
-    if(!ch || !core || !f || !grid || ch->ready!=1u)return 0;
+    return channel_frame_impl(ch,core,NULL,f,grid);
+}
+/* stereoConfigIndex 3: the low band (slots * 32 QMF samples, the upmix output of the channel) is given instead of being analysed from the core signal; the QMF analysis state of the channel is not touched */
+int sauti_aac_sbr_channel_frame_low(SautiAacSbrChannel *ch,const SautiAacSbrComplex *low,
+                                    const SautiAacSbrPayloadFrame *f,SautiAacSbrComplex grid[]){
+    return channel_frame_impl(ch,NULL,low,f,grid);
+}
+static int channel_frame_impl(SautiAacSbrChannel *ch,const float *core,const SautiAacSbrComplex *low_in,
+                               const SautiAacSbrPayloadFrame *f,SautiAacSbrComplex grid[]){
+    if(!ch || (!core && !low_in) || !f || !grid || ch->ready!=1u)return 0;
     const SautiAacSbrTables *tab=&f->tables;
     const unsigned kx=tab->kx,k2=kx+tab->m;
     const int pvc=f->pvc.active!=0u;
@@ -204,14 +215,16 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
         if(ehi[e]<=elo[e])return 0;
     const unsigned core_len=ch->analysis_bands==24u?768u:1024u;
     if(ch->analysis_bands!=0u && ch->analysis_bands!=16u && ch->analysis_bands!=24u && ch->analysis_bands!=32u)return 0;
-    for(unsigned i=0u;i<core_len;i++)if(!isfinite(core[i]))return 0;
+    if(core)for(unsigned i=0u;i<core_len;i++)if(!isfinite(core[i]))return 0;
+    if(low_in && f->hbe.enabled)return 0;               /* the transposer works on the analysis of the core signal */
 
     SautiAacSbrChannel staged=*ch;                    /* committed only when the whole frame succeeded */
     SautiAacSbrChannel *next=&staged;
 
     /* 1. QMF analysis and the 40-slot low-band window */
     SautiAacSbrComplex low[SLOTS_MAX*32u];
-    if(ch->analysis_bands==24u){
+    if(low_in)memcpy(low,low_in,(size_t)SLOTS*32u*sizeof(SautiAacSbrComplex));
+    else if(ch->analysis_bands==24u){
         if(!sauti_aac_sbr_qmf_analyze_24(core,768u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;
     }else if(ch->analysis_bands==16u){
         if(!sauti_aac_sbr_qmf_analyze_16(core,1024u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;

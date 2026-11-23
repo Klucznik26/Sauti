@@ -303,6 +303,20 @@ void sauti_usac_mps212_residual_grid(SautiUsacMpsDec *d, const SautiAacSbrComple
     for (i = 0; i < 12u; i++) memcpy(d->res_tail[i], low + (size_t)(slots - 12u + i) * 32u, 32u * sizeof *low);
 }
 
+void sauti_usac_mps212_downmix_grid(SautiUsacMpsDec *d, const SautiAacSbrComplex *low, unsigned slots, unsigned lag_lo, unsigned lag_hi, SautiAacSbrComplex *grid) {
+    unsigned i, k;
+    if (lag_lo > 12u) lag_lo = 12u;
+    if (lag_hi > 12u) lag_hi = 12u;
+    if (slots < 12u) slots = 12u;
+    memset(grid, 0, (size_t)slots * 64u * sizeof *grid);
+    for (i = 0; i < slots; i++)
+        for (k = 0; k < 32u; k++) {
+            const unsigned lag = k < 3u ? lag_lo : lag_hi;
+            grid[(size_t)i * 64u + k] = i < lag ? d->dmx_tail[12u - lag + i][k] : low[(size_t)(i - lag) * 32u + k];
+        }
+    for (i = 0; i < 12u; i++) memcpy(d->dmx_tail[i], low + (size_t)(slots - 12u + i) * 32u, 32u * sizeof *low);
+}
+
 int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, const SautiUsacMpsFrame *f, unsigned band_count, unsigned slots,
                             const SautiAacSbrComplex *in, const SautiAacSbrComplex *res_in, unsigned res_band_count, SautiAacSbrComplex *out0, SautiAacSbrComplex *out1) {
     cxf hyb[MAXS][HYB], diff[MAXS][HYB], mixed[2][MAXS][HYB], hres[MAXS][HYB];                 /* about 160 KiB of scratch on the stack */

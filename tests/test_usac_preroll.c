@@ -104,8 +104,8 @@ static void test_damage(const Stream *s, unsigned pre) {
       CHECK((b[indep_bit >> 3] >> (7u - (indep_bit & 7u))) & 1u, "%s: the first pre-roll access unit is independent in the fixture", s->name);
       memcpy(b, s->au[0], s->au_n[0]);                                                                       /* a valid pre-roll access unit the decoder cannot decode (here: the stream configured with MPEG Surround 212 and phase coding, not implemented): the access unit is unsupported (-1), not malformed */
       { SautiUsacConfig cfg4 = cfg; unsigned ei;
-        cfg4.sbr_mode = 1u;
-        for (ei = 0; ei < cfg4.num_elements; ei++) { cfg4.e[ei].stereo_config_index = 3u; }                 /* stereoConfigIndex 3 (pseudo-LR, eSBR after the upmix): not implemented */
+        cfg4.sbr_mode = 0u;
+        for (ei = 0; ei < cfg4.num_elements; ei++) { cfg4.e[ei].stereo_config_index = 2u; }                 /* MPEG Surround 212 without eSBR (stereoConfigIndex 2, no SBR): not implemented (stereoConfigIndex 3 was the example until docs SBR-128) */
         sauti_usac_state_init(&st, &cfg4); before = st;
         CHECK(sauti_usac_decode(&cfg4, &st, b, s->au_n[0], pcm, &why) == -1 && memcmp(&before, &st, sizeof st) == 0, "%s: an unsupported pre-roll frame makes the access unit unsupported", s->name);
         memcpy(b, s->au[0], s->au_n[0]); }
