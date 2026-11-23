@@ -828,9 +828,9 @@ int sauti_aac_sbr_payload_ld_parse(const uint8_t *bytes,size_t bytes_count,size_
     SautiAacSbrPayloadFrame result[2];memset(result,0,sizeof(result));
     for(unsigned c=0u;c<channels;c++){
         if(!sauti_aac_sbr_payload_frame_finish(&result[c],&header,&grid[c],&control[c],&quant[c],&energy[c],&master,&tables,&patches,harmonic[c],(uint32_t)(pos-bit_start)))return 0;
-        result[c].transient_env=grid[c].frame_class==1u?grid[c].pointer:grid[c].env_count;     /* LD_TRAN: from the table; FIXFIX: none */
+        result[c].transient_env=grid[c].frame_class==1u?grid[c].pointer:0u;     /* LD_TRAN: from the table; FIXFIX: none, which is 0 as in the other grids (env_count would mean an onset at the start of the NEXT frame) */
         result[c].attack[0]=0u;
-        if(result[c].transient_env<grid[c].env_count)result[c].attack[result[c].transient_env]=result[c].transient_env!=0u?1u:0u;
+        if(grid[c].frame_class==1u && result[c].transient_env<grid[c].env_count)result[c].attack[result[c].transient_env]=1u;    /* a low-delay transient envelope is an attack even at index 0 (the table's first rows put the onset in the first envelope; the reference's tranEnv 0) */
     }
     next.frames++;
     for(unsigned c=0u;c<channels;c++)out[c]=result[c];

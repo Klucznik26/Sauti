@@ -224,13 +224,17 @@ static void usac_setup(dec_t *d, const mp4_priv_t *p) {
     d->usac_ready = 0;
     if (p->mi.aot == 42u && p->mi.asc_len && sauti_usac_asc_parse(p->mi.asc, p->mi.asc_len, &d->usac) == 1) d->usac_ready = 1;
 }
+static void eld_setup(dec_t *d, const mp4_priv_t *p) {
+    d->eld_ready = 0;
+    if (p->mi.aot == 39u && p->mi.asc_len && sauti_aac_er_asc_parse(p->mi.asc, p->mi.asc_len, &d->eld_asc) == 1 && d->eld_asc.ld_sbr) d->eld_ready = 1;
+}
 static maktabasauti_result_t mp4_prepare(dec_t *d) {
     const maktabasauti_host_t *h = d->host; mp4_priv_t *p; SautiAacMp4Alloc al; int64_t fsize, at; int pass;
     maktabasauti_result_t r;
     p = (mp4_priv_t *)h->alloc(h->user, sizeof *p);
     if (!p) return MAKTABASAUTI_E_NO_MEMORY;
     memset(p, 0, sizeof *p); d->cptr = p;
-    if (!d->seekable) { r = live_prepare(d, p); if (r == MAKTABASAUTI_OK) usac_setup(d, p); return r; }
+    if (!d->seekable) { r = live_prepare(d, p); if (r == MAKTABASAUTI_OK) { usac_setup(d, p); eld_setup(d, p); } return r; }
     al.user = (void *)h; al.alloc = a_alloc; al.free = a_free;
     fsize = h->size(h->user, d->rd);
     for (pass = 0; pass < 2; pass++) {                                                  /* 1: moov, 2: moof (po znalezieniu moov) */
@@ -264,7 +268,7 @@ static maktabasauti_result_t mp4_prepare(dec_t *d) {
     }
     if (!p->idx || sauti_aac_mp4_index_count(p->idx) == 0) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     p->pos = 0;
-    usac_setup(d, p);
+    usac_setup(d, p); eld_setup(d, p);
     return h->seek(h->user, d->rd, 0, 0) < 0 ? MAKTABASAUTI_E_NOT_SEEKABLE : MAKTABASAUTI_OK;
 }
 

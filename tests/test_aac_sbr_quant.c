@@ -304,6 +304,50 @@ static void test_value_limits(void) {
     assert(pos==0 && memcmp(&state,&old,sizeof(state))==0 &&
            memcmp(&frame,&prior,sizeof(frame))==0);
 }
+
+/* AAC-ELD (low-delay grids): the first envelope / noise floor of a frame may be coded in time against a previous frame of ANOTHER coupling mode (the reference decoder takes the stored values as they are);
+ * the same stream with a classic grid is still rejected. */
+static void ld_across_modes(unsigned ld, int *accepted) {
+    SautiAacSbrGrid g;
+    SautiAacSbrTables t;
+    SautiAacSbrControl c;
+    setup(&g,&t,&c);
+    g.freq_res[0]=1;g.freq_res[1]=1;
+    c.df_env[0]=0;c.df_env[1]=1;
+    c.df_noise[0]=0;c.df_noise[1]=1;
+    Bits b={0};
+    freq_env(&b,1,0,8,10,0);
+    time_env(&b,1,0,8,1);
+    freq_noise(&b,0,2,6,1);
+    time_noise(&b,0,2,-1);
+    SautiAacSbrQuantState state={0};
+    SautiAacSbrQuantFrame frame={0};
+    size_t pos=0;
+    g.ld=ld;
+    assert(sauti_aac_sbr_quant_decode(b.bytes,bytes_used(&b),&pos,&g,&t,&c,1,0,&state,&frame));
+    /* frame 2: BALANCED (coupled) after the unbalanced frame, both envelopes and both noise floors in time */
+    c.df_env[0]=1;c.df_env[1]=1;c.df_noise[0]=1;c.df_noise[1]=1;
+    b=(Bits){0};
+    time_env(&b,1,1,8,1);
+    time_env(&b,1,1,8,-1);
+    time_noise(&b,1,2,0);
+    time_noise(&b,1,2,0);
+    pos=0;
+    *accepted=sauti_aac_sbr_quant_decode(b.bytes,bytes_used(&b),&pos,&g,&t,&c,1,1,&state,&frame);
+    if(*accepted){
+        assert(pos==b.bit);
+        for(unsigned j=0;j<8;j++)assert(frame.env[0][j]==13u && frame.env[1][j]==11u);   /* 11 (the last envelope of frame 1) + 2 (balanced step) - 2 */
+        assert(frame.noise[0][0]==5u && frame.noise[0][1]==6u && frame.noise[1][0]==5u && frame.noise[1][1]==6u);
+    }
+}
+static void test_ld_time_delta_across_modes(void) {
+    int accepted=0;
+    ld_across_modes(1u,&accepted);
+    assert(accepted);
+    ld_across_modes(0u,&accepted);
+    assert(!accepted);
+}
+
 int main(void) {
     test_mixed_resolution_and_history();
     test_odd_band_cross_resolution();
@@ -311,6 +355,7 @@ int main(void) {
     test_forced_amp_resolution();
     test_atomic_rollback();
     test_value_limits();
+    test_ld_time_delta_across_modes();
     puts("PASS HE-AAC SBR-08 quantized envelopes/noise: time/frequency, coupling, history, rollback");
     return 0;
 }

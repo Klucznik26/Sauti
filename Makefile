@@ -120,7 +120,7 @@ AAC_SBR_QMF_SYNTH_MOD_AVX2 := $(OBJDIR)/sauti_aac_sbr_qmf_synth_mod_avx2.o
 # Keep the original SSE2 kernels; AVX2 is dispatched only after CPUID/OSXSAVE.
 AAC_SBR_QMF_SYNTH_WINDOW_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_window.c $(AAC_SBR_QMF_SYNTH_WINDOW_ASM) $(AAC_SBR_QMF_SYNTH_WINDOW_AVX2)
 AAC_SBR_QMF_SYNTH_MOD_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_synth_mod.c $(AAC_SBR_QMF_SYNTH_MOD_ASM) $(AAC_SBR_QMF_SYNTH_MOD_AVX2)
-AAC_SBR_QMF_ANALYSIS_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_analysis.c
+AAC_SBR_QMF_ANALYSIS_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_analysis.c src/decoders/modern/aac/sauti_aac_sbr_ld_qmf.c src/decoders/modern/aac/sauti_aac_sbr_ld_table.c
 AAC_SBR_QMF_FRAME_SRC := src/decoders/modern/aac/sauti_aac_sbr_qmf_frame.c
 AAC_SBR_PAYLOAD_SRC := src/decoders/modern/aac/sauti_aac_sbr_payload.c
 AAC_SBR_CRC_SRC := src/decoders/modern/aac/sauti_aac_sbr_crc.c
@@ -2418,6 +2418,11 @@ $(OBJDIR)/test_he960: tests/test_he960.c tests/test_he960_fingerprints.h $(MKS_D
 .PHONY: test-he960
 test-he960: $(OBJDIR)/test_he960
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_he960
+$(OBJDIR)/test_eldsbr: tests/test_eldsbr.c tests/test_eldsbr_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_eldsbr.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-eldsbr
+test-eldsbr: $(OBJDIR)/test_eldsbr
+	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_eldsbr
 $(OBJDIR)/test_usac_xaac: tests/test_usac_xaac.c tests/test_usac_xaac_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_usac_xaac.c $(MKS_DEPS) -lm -lpthread -no-pie
 .PHONY: test-usac-xaac

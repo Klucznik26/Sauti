@@ -22,8 +22,9 @@ Wymaganie użytkownika: kodek AAC w bibliotece ma obsługiwać WSZYSTKIE wersje,
 | TwinVQ (AOT 7), ER TwinVQ (AOT 21) | BRAK, BLOK | FFmpeg (twinvq) jako wzorzec; poza „AAC" w ścisłym sensie | |
 | ER BSAC (AOT 22) | BRAK, BLOK | żaden dostępny dekoder (faad2 bez BSAC) | tablice arytmetyczne tylko w normie |
 | AAC-LD (AOT 23) 480 / 512 | OK-syn | FDK enc + dec | |
-| **AAC-LD + SBR, AAC-ELD (AOT 39) + SBR (ELD-SBR, 480 / 512, niskoopóźnieniowy QMF)** | **BRAK** (`no codec recognised`) | FDK enc (`AACENC_SBR_MODE`) + dec, libxaac enc/dec (`is_ld_sbr`) | wysoki priorytet (VoIP, FaceTime) |
-| AAC-ELD v2 (ELD + SBR + PS) | BRAK | FDK dec | |
+| AAC-ELD (AOT 39) + SBR niskoopóźnieniowe (CLDFB), JEDNOKROTNE i PODWÓJNE, 512 | OK (2026-11-23, SBR-131) | FDK dec: 77 – 83 dB na muzyce (fixtury syntetyczne: mediana 70 / 74 dB), libxaac dec 59 – 72 dB | fixtury `eldsbr_single/dual.m4a`, `test_eldsbr`; ramka 480 bez strumienia testowego |
+| **AAC-LD + zwykły SBR; ELD + SBR w LATM/LOAS** | **BRAK** | FDK enc + dec | |
+| **AAC-ELD v2 (ELD + SBR + PS)** | **BRAK** (ładunek PS w ELD odrzucany) | FDK dec | |
 | ER Parametric Stereo, ER CELP, HVXC, HILN, TTSI, SLS, SLS-nonCore | BRAK, poza AAC | | patrz „Spoza AAC" |
 | USAC (AOT 42, xHE-AAC): FD, LPD (ACELP, TCX, FAC), eSBR 2:1 / 8:3 / 4:1, PVC, inter-TES, HBE 2:1 i 4:1, MPS212 (idx 1 / 2 / 3, IPD, TSD, STP, GES), predykcja zespolona, AudioPreRoll | OK | Fraunhofer: 82 – 93 dB wobec libxaac i FDK; HBE 4:1 stereo wobec FDK 86,7 dB | |
 | USAC: MPS212 z niezerową resztą w parze mieszanej FD+LPD | BRAK | generator + libxaac dec | rzadkie |
@@ -39,6 +40,6 @@ ADTS, ADIF, LATM/LOAS (AudioMuxElement, StreamMuxConfig), MP4 / M4A / 3GP / fMP4
 * SSR / Scalable / BSAC: bez tekstu normy i bez dekodera referencyjnego o dozwolonej licencji nie da się ich zrobić ani zweryfikować. Jedyny dostępny dekoder SSR to faad2 (GPL-2): jako WZORZEC WYJŚCIA (czarna skrzynka, jak FDK) nie przenosi licencji na naszą bibliotekę, ale algorytm trzeba zaimplementować z wiedzy o normie, nie z kodu GPL. Do rozstrzygnięcia z użytkownikiem; do tego czasu SSR / Scalable / BSAC oznaczone BLOK.
 * Wzorzec dla niejednoznacznych miejsc: FDK (producent) przed libxaac (patrz SBR-128, Błąd 8; SBR-129: kanał 1 pary w libxaac).
 
-## Następny krok: AAC-ELD / AAC-LD z SBR (notatki z lektury libxaac, 2026-11-23)
+## AAC-ELD / AAC-LD z SBR (notatki z lektury libxaac, 2026-11-23; ELD + SBR ZROBIONE, szczegóły SBR-131 w `AAC_FAMILY_ASM.md`; zostają PS dla ELD v2, AAC-LD + zwykły SBR, LATM/LOAS)
 Stan: `sauti_aac_er_asc_parse` zna już `ldSbrPresentFlag`, `ldSbrSamplingRate`, `ldSbrCrcFlag`; silnik odrzuca strumień przy otwarciu (`no codec recognised`). Strumień testowy: FDK (`AACENC_SBR_MODE`, mój mały enkoder `enc.c`: `SBRMODE=1 ./enc raw 48000 2 39 48000 512 0 out.aus out.asc`, potem `tools/mux_raw_aus_mp4.py ... 512`), dekoder FDK (`sauti_fdk_raw_oracle`) i libxaac (`-aot:39`, `is_ld_sbr`) jako wzorce.
 Różnice względem klasycznego SBR (z `ixheaacd_*`): (1) ładunek SBR NIE jest elementem FIL: to reszta bitów jednostki dostępu po elemencie rdzenia (typ rozszerzenia wynika z `ldSbrCrcFlag`: 13 albo 14, bez czterech bitów typu), liczba bitów niekoniecznie wielokrotność 8; (2) granice obwiedni są w szczelinach QMF (`timeStep = 1`, bez mnożenia ×2), 16 szczelin dla ramki 512 albo 15 dla 480; siatka z tablicami LD (`LD_TRAN`, `ld_env_table_512/480`), nagłówki `ld_sbr_header` w ASC; (3) `op_delay = 0`: brak 6 szczelin nakładki / dopływu na końcu ramki, obwiednie nie wychodzą poza ramkę; (4) kowariancja LPC i `auto_corr_length` liczone inaczej (bez gałęzi 36); (5) niskoopóźnieniowy bank QMF (CLDFB, prototyp 640 próbek), inna kompensacja opóźnienia niż w klasycznym SBR; (6) brak rezerwacji / skalowania nakładki w `env_calc`. Etapy: ASC + ładunek (koniec elementu rdzenia z `sauti_aac_er_decode`), siatka LD i tabele, CLDFB (tablice z libxaac: dozwolone, Apache 2.0, wpis per tablica), kanał SBR z `op_delay = 0`, PS dla ELD v2.

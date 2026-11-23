@@ -92,6 +92,13 @@ static void core_reset(dec_t *d) {
             SautiAacLcnConfig lc; lcn_config(&lc, d->er_aot, d->rate_index, d->config, d->er_480);
             d->core.lcm = (SautiAacLcmState *)d->host->alloc(d->host->user, sizeof *d->core.lcm);
             if (d->core.lcm) sauti_aac_lcm_state_init(d->core.lcm, &lc);
+        } else if (d->er_aot == 39u && d->eldsbr) {
+            eldsbr_t *e = &d->core.u.eld;
+            const unsigned slots = d->er_480 ? 15u : 16u;
+            sauti_aac_er_state_init(&e->er);
+            e->pl.time_slots = slots; e->pl.crc = d->eld_asc.ld_sbr_crc; e->pl.have_header = 1u; e->pl.header = d->eld_asc.ld_header;
+            (void)sauti_aac_sbr_channel_init(&e->channel[0]); (void)sauti_aac_sbr_channel_init(&e->channel[1]);
+            e->channel[0].ld = e->channel[1].ld = d->eldsbr; e->channel[0].frame_slots = e->channel[1].frame_slots = slots;
         } else if (aot_is_lcn(d->er_aot) && d->he960) {
             he960_t *h = &d->core.u.h9;
             sauti_aac_lcn_state_init(&h->lcn);
@@ -188,10 +195,31 @@ static prod_t decode_he960(dec_t *d) {
         return all_finite(d->cache, 3840u) ? P_OK : P_FAIL;
     }
 }
+/* AAC-ELD z niskoopoznieniowym SBR: rdzen ELD, potem ladunek SBR z reszty jednostki dostepu, CLDFB; jednokrotny (eldsbr 1): wyjscie n probek na kanal w czestotliwosci rdzenia, dwukrotny (eldsbr 2): 2n probek, synteza 64-pasmowa */
+static prod_t decode_eldsbr(dec_t *d) {
+    eldsbr_t *s = &d->core.u.eld;
+    SautiAacErConfig c; SautiAacReason why = SAUTI_AAC_REASON_OK; SautiAacSbrPayloadLdState ns = s->pl; SautiAacSbrPayloadFrame fr[2];
+    float core[2u * 512u], cc[1024], pcm[1024]; size_t end = 0; unsigned cpl = 0, ch = d->config, n = d->er_480 ? 480u : 512u, no = n * d->eldsbr, i, k; int r;
+    const uint8_t *raw = d->frame + 7u; const size_t rawn = d->frame_len - 7u;
+    SautiAacSbrComplex *grid = d->scratch_grid;
+    c.aot = 39u; c.rate_index = d->rate_index; c.frame480 = d->er_480; c.channel_config = ch;
+    if (ch != 1u && ch != 2u) return P_UNSUPPORTED;
+    r = sauti_aac_er_decode_ex(&c, &s->er, raw, rawn, core, &why, &end);
+    if (r != 1) return r < 0 ? P_UNSUPPORTED : P_FAIL;
+    if (!sauti_aac_sbr_payload_ld_parse(raw, rawn, end, rawn * 8u, 2u * d->core_rate, ch, &ns, fr, &cpl)   /* the frequency tables are those of the SBR processing rate = twice the core rate, at the single rate and at the dual rate (FDK: sbrProcSmplRate) */) return P_FAIL;
+    for (k = 0; k < ch; k++) {
+        for (i = 0; i < n; i++) cc[i] = core[ch * i + k];
+        if (!sauti_aac_sbr_channel_frame(&s->channel[k], cc, &fr[k], grid) || !sauti_aac_sbr_channel_synthesize(&s->channel[k], grid, pcm)) return P_FAIL;
+        for (i = 0; i < no; i++) d->cache[ch * i + k] = pcm[i];
+    }
+    s->pl = ns;
+    return all_finite(d->cache, (size_t)no * ch) ? P_OK : P_FAIL;
+}
 static prod_t decode_er(dec_t *d) {
     SautiAacErConfig c; SautiAacReason reason = SAUTI_AAC_REASON_OK; int r;
     if (d->er_aot == 42u) return decode_usac(d);
     if (d->he960) return decode_he960(d);
+    if (d->eldsbr) return decode_eldsbr(d);
     if (aot_is_lcn(d->er_aot) && d->config > 2u) {                           /* wielokanalowy: sauti_aac_lcm */
         SautiAacLcnConfig lc; lcn_config(&lc, d->er_aot, d->rate_index, d->config, d->er_480);
         if (!d->core.lcm) return P_FAIL;
@@ -536,7 +564,12 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
         if (!n || (hd.crc_present && (hd.er_aot == 39u || hd.er_aot == 23u || hd.er_aot == 2u || hd.er_aot == 17u || hd.er_aot == 19u || hd.config > 2u))) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;   /* error check: AAC Main / LTP and (via sauti_aac_lcn) ADTS only; LD / ELD and the 960 layout have none */
         d->variant = V_ER; d->er_aot = hd.er_aot; d->er_480 = hd.er_480;
         d->core_channels = hd.config > 2u ? sauti_aac_lc_multi_config_channels(hd.config) : hd.config; d->out_channels = d->core_channels; d->ps_mode = 0;
-        d->frame_pcm = n; d->out_rate = d->core_rate; d->he960 = 0u;
+        d->frame_pcm = n; d->out_rate = d->core_rate; d->he960 = 0u; d->eldsbr = 0u;
+        if (hd.er_aot == 39u && d->eld_ready && d->eld_asc.ld_sbr) {                          /* ELD z SBR niskoopoznieniowym: jednokrotny (wyjscie w czestotliwosci rdzenia) albo dwukrotny (wyjscie 2x) */
+            if (hd.config < 1u || hd.config > 2u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+            d->eldsbr = d->eld_asc.ld_sbr_downsampled ? 2u : 1u;
+            d->frame_pcm = n * d->eldsbr; d->out_rate = d->core_rate * d->eldsbr;
+        }
         core_reset(d);
         pr = decode_er(d);
         if (pr == P_UNSUPPORTED && hd.er_aot == 2u && hd.config >= 1u && hd.config <= 2u) {      /* HE-AAC z ramka 960: SBR (wykrywany z pierwszej ramki) */

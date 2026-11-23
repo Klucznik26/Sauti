@@ -111,7 +111,7 @@ static int decode_envelopes(const uint8_t *data,size_t size,size_t *pos,
         const unsigned n=res?tables->n_high:tables->n_low;
         next->freq_res[e]=(uint8_t)res;
         if(control->df_env[e]){
-            if(e==0u && (!state->has_env || !mode->geometry_ok || !mode->mode_ok))return 0;
+            if(e==0u && (!state->has_env || !mode->geometry_ok || (!mode->mode_ok && !grid->ld)))return 0;   /* low delay: the previous values are used as they are, whatever the coupling or resolution of the previous frame (the reference does not convert them) */
             const unsigned prev_res=e?grid->freq_res[e-1u]:state->prev_freq_res;
             const uint8_t *prev=e?next->env[e-1u]:state->prev_env;
             const unsigned prev_n=prev_res?tables->n_high:tables->n_low;
@@ -148,7 +148,7 @@ static int decode_noise(const uint8_t *data,size_t size,size_t *pos,
     for(unsigned e=0u;e<grid->noise_count;e++){
         const unsigned n=tables->n_noise;
         if(control->df_noise[e]){
-            if(e==0u && (!state->has_noise || !mode->geometry_ok || state->balanced!=(mode->factor==2u)))return 0;
+            if(e==0u && (!state->has_noise || !mode->geometry_ok || (state->balanced!=(mode->factor==2u) && !grid->ld)))return 0;
             const uint8_t *prev=e?next->noise[e-1u]:state->prev_noise;
             for(unsigned j=0u;j<n;j++){
                 int32_t delta=0;if(!sauti_aac_sbr_huffman_decode(data,size,pos,mode->noise_t,&delta))return 0;

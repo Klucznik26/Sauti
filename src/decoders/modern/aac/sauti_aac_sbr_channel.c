@@ -202,7 +202,7 @@ static int channel_frame_impl(SautiAacSbrChannel *ch,const float *core,const Sau
 #endif
     const int hbe_on=f->hbe.enabled!=0u;                  /* bs_harmonicSBR: low band and transposer lag the analysis by one frame */
     const unsigned R=ch->analysis_bands==16u?2u:1u;       /* 1: 2:1 / 8:3 (32 slots), 2: 4:1 (64 slots) */
-    const unsigned SLOTS=ch->frame_slots?ch->frame_slots:SAUTI_AAC_SBR_CHANNEL_SLOTS*R,HIST=2u+6u*R,MAXI=SLOTS+6u*R;
+    const unsigned SLOTS=ch->frame_slots?ch->frame_slots:SAUTI_AAC_SBR_CHANNEL_SLOTS*R,HIST=ch->ld?2u:2u+6u*R,MAXI=ch->ld?SLOTS:SLOTS+6u*R;
     const unsigned rate=2u*R;                         /* QMF slots per time slot */
     unsigned elo[SAUTI_USAC_PVC_SLOTS],ehi[SAUTI_USAC_PVC_SLOTS];   /* the QMF slots of every envelope */
     for(unsigned e=0u;e<envs;e++){
@@ -224,7 +224,9 @@ static int channel_frame_impl(SautiAacSbrChannel *ch,const float *core,const Sau
     /* 1. QMF analysis and the 40-slot low-band window */
     SautiAacSbrComplex low[SLOTS_MAX*32u];
     if(low_in)memcpy(low,low_in,(size_t)SLOTS*32u*sizeof(SautiAacSbrComplex));
-    else if(ch->analysis_bands==24u){
+    else if(ch->ld){
+        if(!sauti_aac_sbr_qmf_analyze_ld(core,SLOTS,low,&next->analysis))return 0;
+    }else if(ch->analysis_bands==24u){
         if(!sauti_aac_sbr_qmf_analyze_24(core,768u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;
     }else if(ch->analysis_bands==16u){
         if(!sauti_aac_sbr_qmf_analyze_16(core,1024u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;
@@ -582,6 +584,14 @@ int sauti_aac_sbr_channel_synthesize(SautiAacSbrChannel *ch,
                                      const SautiAacSbrComplex grid[],
                                      float pcm[]){
     if(!ch || !grid || !pcm || ch->ready!=1u)return 0;
+    if(ch->ld){
+        SautiAacSbrLdSynthState ls=ch->ld_synth;
+        const unsigned N=ch->ld==2u?64u:32u;              /* ld 2: the dual rate, the output has twice the rate of the core: 64-band synthesis */
+        if(!ch->frame_slots || !(N==64u?sauti_aac_sbr_qmf_synth_ld64(grid,64u,ch->frame_slots,pcm,&ls):sauti_aac_sbr_qmf_synth_ld(grid,64u,ch->frame_slots,pcm,&ls)))return 0;
+        for(unsigned i=0u;i<ch->frame_slots*N;i++)if(!isfinite(pcm[i]))return 0;
+        ch->ld_synth=ls;
+        return 1;
+    }
     SautiAacSbrQmfSynthWindowState synth=ch->synth;
     float out[4096];
     const unsigned half=ch->analysis_bands==16u?2u:1u;                    /* 4:1: 64 slots = two calls of 32 */

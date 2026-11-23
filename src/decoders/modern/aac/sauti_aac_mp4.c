@@ -108,8 +108,10 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     if(cc==0xffffffffu||cc>7u)return 0;
     if(aot==17u||aot==19u||aot==23u||aot==39u){                               /* ER AAC LC / LTP, AAC-LD / AAC-ELD: ASC wg sauti_aac_er_asc_parse; jednostki dostepu nie sa ADTS (patrz aac_er_wrap w silniku) */
         SautiAacErAsc er;
-        if(sauti_aac_er_asc_parse(asc,n,&er)!=1||er.ld_sbr||(aot==19u&&er.frame480))return 0;                 /* ER AAC LTP nie ma wariantu 960 */
+        if(sauti_aac_er_asc_parse(asc,n,&er)!=1||(aot==19u&&er.frame480))return 0;                 /* ER AAC LTP nie ma wariantu 960 */
+        if(er.ld_sbr&&(aot!=39u||er.channel_config<1u||er.channel_config>2u||n>sizeof(info->asc)))return 0;       /* ELD z SBR niskoopoznieniowym: mono i stereo; konfiguracja (ld_sbr_header) jest czescia ASC */
         info->aot=aot;info->rate_index=er.rate_index;info->sample_rate=rates[er.rate_index];info->channel_config=er.channel_config;info->frame480=er.frame480;
+        if(er.ld_sbr){memcpy(info->asc,asc,n);info->asc_len=(unsigned)n;}
         return 1;
     }
     if(aot!=1u&&aot!=2u&&aot!=5u&&aot!=29u&&aot!=4u)return 0;                         /* Main, LC, albo HE/HEv2 (rdzen LC + SBR w FIL) */

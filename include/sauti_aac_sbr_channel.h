@@ -6,6 +6,7 @@
 #include "sauti_aac_sbr_qmf_analysis.h"
 #include "sauti_aac_sbr_qmf_synth_mod.h"
 #include "sauti_usac_hbe.h"
+#include "sauti_aac_sbr_ld_qmf.h"
 
 /* SBR-82: one SBR channel decoded the way the standard lays it out, with all state in one object.
  *
@@ -32,6 +33,8 @@
 
 typedef struct {
     uint32_t ready;
+    uint32_t ld;                                      /* 1: AAC-LD / ELD low-delay SBR (single rate): CLDFB analysis and synthesis; 2: the same at the dual rate (32-band analysis of the core, 64-band synthesis: the output has twice the rate of the core); two slots of history, no look-ahead / spill (frame_slots 16 or 15) */
+    SautiAacSbrLdSynthState ld_synth;
     uint32_t frame_slots;                             /* QMF slots per frame of a 32-band 2:1 channel when the frame is not 1024 core samples (960: 30, ELD 480: 30); 0 = 32 (4:1: 64) */
     uint32_t analysis_bands;                          /* 0 / 32: 1024 core samples per frame through the 32-band QMF; 24: eSBR 8:3, 768 core samples through the 24-band QMF; 16: eSBR 4:1, 1024 core samples through the 16-band QMF, 64 slots per frame, grid of 64 * 64 and 4096 output samples (set by the USAC decoder after init) */
     uint64_t frames;
