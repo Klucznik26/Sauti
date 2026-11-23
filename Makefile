@@ -2273,6 +2273,11 @@ test-aac-er: $(OBJDIR)/test_aac_er
 .PHONY: test-maktabasauti-pcm-stream
 test-maktabasauti-pcm-stream: $(OBJDIR)/test_maktabasauti_pcm_stream
 	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_pcm_stream
+$(OBJDIR)/test_maktabasauti_g711: tests/test_maktabasauti_g711.c tests/g711_golden.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -Itests -o $@ tests/test_maktabasauti_g711.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-maktabasauti-g711
+test-maktabasauti-g711: $(OBJDIR)/test_maktabasauti_g711
+	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_g711
 $(OBJDIR)/test_maktabasauti_voc_stream: tests/test_maktabasauti_voc_stream.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_voc_stream.c $(MKS_DEPS) -lm -lpthread -no-pie
 .PHONY: test-maktabasauti-voc-stream

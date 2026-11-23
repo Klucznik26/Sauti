@@ -1,4 +1,7 @@
-/* MaktabaSauti, modul maktabasauti_pcm: STRUMIENIOWE dekodery RIFF/WAVE PCM i AIFF / AIFF-C (NONE, sowt), napisane w czystym C.
+/* MaktabaSauti, modul maktabasauti_pcm: STRUMIENIOWE dekodery RIFF/WAVE PCM, AIFF / AIFF-C (NONE, sowt) i Sun/NeXT AU (.au / .snd), napisane w czystym C.
+ *
+ * G.711 (ITU-T, 8 bit, 8 kHz w telefonii, tu dowolna czestotliwosc zapisana w pliku): mu-law i A-law w WAV (format 6 / 7, takze WAVE_FORMAT_EXTENSIBLE), AIFF-C (ulaw / ULAW / alaw / ALAW) i AU (kodowanie 1 / 27).
+ * Dekodowanie = definicja ITU-T G.711 (segmenty, wartosc srodka przedzialu; jak implementacja referencyjna Sun, domena publiczna): 16-bitowa liczba ze znakiem, wyjscie f32 = wartosc / 32768.
  *
  * Plik NIE jest wczytywany do pamieci: dane ida przez maly bufor posredni (4 KiB), wiec wejscie moze byc nieprzewijalne, bez znanego rozmiaru i dowolnie dlugie.  Dla poprawnych plikow wynik jest
  * IDENTYCZNY bit w bit z dawnymi adapterami (sauti_decoder_wav.c / sauti_decoder_aiff.c): te same wyrazenia (8 bit bez znaku: (v-128)/128, pozostale: wartosc ze znakiem / 2^(bits-1)).
@@ -9,6 +12,7 @@
  *   - plik ucięty: ramki sprzed ucięcia sa wydawane, potem E_TRUNCATED (stary adapter odrzucal caly plik przy otwarciu);
  *   - koniec naglowka dalej niz dane (chunki za danymi, np. LIST) nie sa sprawdzane, gdy fmt/COMM wystepuje przed danymi; wejscie przewijalne szuka ich za danymi;
  *   - WAV z rozmiarem RIFF 0 / 0xFFFFFFFF albo rozmiarem data 0xFFFFFFFF (zapis strumieniowy, np. potok): dlugosc = reszta wejscia (nieznana, gdy rozmiar wejscia nieznany);
+ *   - AU: kodowania 1 (mu-law), 27 (A-law), 2..5 (PCM ze znakiem 8 / 16 / 24 / 32 bit, big-endian); rozmiar danych 0xffffffff = reszta wejscia; niepelna ostatnia ramka jest pomijana;
  *   - WAV IEEE float 32/64 bit (format 3, takze WAVE_FORMAT_EXTENSIBLE): dekoder to czyta; dawny adapter odrzucal te pliki (stala kontrola format == 1).
  *
  * Przewijanie: dokladne z arytmetyki pozycji (wejscie przewijalne).  Bledy sa lepkie (E_TRUNCATED), czyszczone przez seek/reset/flush. */
@@ -99,10 +103,26 @@ static maktabasauti_result_t sc_begin(scan_t *s, const maktabasauti_host_t *h, m
     return MAKTABASAUTI_OK;
 }
 
+/* ---- G.711 (ITU-T): mu-law i A-law -> 16 bit ze znakiem; wzor implementacji referencyjnej Sun (g711.c, domena publiczna), tablice tylko z definicji segmentow ---- */
+static int g711_ulaw(uint8_t u) {
+    int t; u = (uint8_t)~u;
+    t = (((int)u & 0x0f) << 3) + 0x84;
+    t <<= ((int)u & 0x70) >> 4;
+    return (u & 0x80u) ? 0x84 - t : t - 0x84;
+}
+static int g711_alaw(uint8_t a) {
+    int t, seg; a ^= 0x55u;
+    t = ((int)a & 0x0f) << 4;
+    seg = ((int)a & 0x70) >> 4;
+    if (seg == 0) t += 8;
+    else { t += 0x108; if (seg > 1) t <<= seg - 1; }
+    return (a & 0x80u) ? t : -t;
+}
+
 /* ---- wspolny stan odczytu ---- */
 typedef struct {
     const maktabasauti_host_t *host; maktabasauti_reader_t *rd; stage_t st;
-    uint32_t channels, bits, width; int kind;                         /* kind: 0 = WAV PCM, 1 = WAV float, 2 = AIFF big-endian, 3 = AIFF little-endian (sowt) */
+    uint32_t channels, bits, width; int kind;                         /* kind: 0 = WAV PCM, 1 = WAV float, 2 = AIFF / AU big-endian, 3 = AIFF little-endian (sowt), 4 = G.711 mu-law, 5 = G.711 A-law */
     uint64_t data_off, total, pos; int seekable, total_known;
     maktabasauti_result_t pend;
 } pcm_t;
@@ -114,13 +134,15 @@ static void fill_info(maktabasauti_stream_info_t *info, const pcm_t *p, uint32_t
     info->native_format = MAKTABASAUTI_FORMAT_F32;
     info->bits_per_sample = 0;
     info->total_frames = (p->total_known && p->total) ? p->total : MAKTABASAUTI_UNKNOWN_LENGTH;
-    info->flags = (p->seekable ? MAKTABASAUTI_STREAM_SEEKABLE : 0u) | MAKTABASAUTI_STREAM_LOSSLESS;
-    strncpy(info->codec_name, "pcm", sizeof info->codec_name - 1u);
+    info->flags = (p->seekable ? MAKTABASAUTI_STREAM_SEEKABLE : 0u) | (p->kind >= 4 ? 0u : MAKTABASAUTI_STREAM_LOSSLESS);
+    strncpy(info->codec_name, p->kind == 4 ? "g711-ulaw" : p->kind == 5 ? "g711-alaw" : "pcm", sizeof info->codec_name - 1u);
     strncpy(info->container_name, container, sizeof info->container_name - 1u);
 }
 
 static float sample_value(const pcm_t *p, const uint8_t *v) {
     switch (p->kind) {
+    case 4: return (float)g711_ulaw(v[0]) / 32768.0f;
+    case 5: return (float)g711_alaw(v[0]) / 32768.0f;
     case 1:
         if (p->bits == 32u) { uint32_t raw = le32(v); float x; memcpy(&x, &raw, 4); return isfinite(x) ? x : 0.0f; }
         else { uint64_t raw = (uint64_t)le32(v) | ((uint64_t)le32(v + 4) << 32); double x; memcpy(&x, &raw, 8); return isfinite(x) ? (float)x : 0.0f; }
@@ -243,9 +265,9 @@ static maktabasauti_result_t MAKTABASAUTI_CALL wav_open(const maktabasauti_codec
         off = start + step;
     }
     if (!fmt_seen || !data_seen) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
-    if (!rate || channels == 0u || channels > 32u || !((format == 1u && (bits == 8u || bits == 16u || bits == 24u || bits == 32u)) || (format == 3u && (bits == 32u || bits == 64u))) ||
+    if (!rate || channels == 0u || channels > 32u || !((format == 1u && (bits == 8u || bits == 16u || bits == 24u || bits == 32u)) || (format == 3u && (bits == 32u || bits == 64u)) || ((format == 6u || format == 7u) && bits == 8u)) ||
         align != channels * (bits / 8u)) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
-    proto.channels = channels; proto.bits = bits; proto.width = bits / 8u; proto.kind = format == 3u ? 1 : 0;
+    proto.channels = channels; proto.bits = bits; proto.width = bits / 8u; proto.kind = format == 3u ? 1 : format == 6u ? 5 : format == 7u ? 4 : 0;   /* WAVE_FORMAT_ALAW = 6, WAVE_FORMAT_MULAW = 7 */
     if (data_sz == 0xffffffffu || (placeholder && data_sz == 0u)) {                              /* dlugosc = reszta wejscia */
         const int64_t sz_in = h->size ? h->size(h->user, rd) : -1;
         if (sz_in >= 0 && (uint64_t)sz_in >= proto.data_off) { size_in = (uint64_t)sz_in - proto.data_off; proto.total = size_in / align; proto.total_known = 1; }
@@ -275,7 +297,7 @@ static int32_t MAKTABASAUTI_CALL aiff_probe(const maktabasauti_codec_t *self, co
 }
 static maktabasauti_result_t MAKTABASAUTI_CALL aiff_open(const maktabasauti_codec_t *self, const maktabasauti_host_t *h, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
     scan_t s; pcm_t proto; uint8_t ch[8], body[22] = { 0 }; maktabasauti_result_t r; uint64_t end, off = 12, pcm_bytes = 0; unsigned chunks = 0;
-    uint32_t form_size, frames = 0, rate = 0, channels = 0, bits = 0; int aifc, saw_comm = 0, saw_ssnd = 0, little = 0;
+    uint32_t form_size, frames = 0, rate = 0, channels = 0, bits = 0; int aifc, saw_comm = 0, saw_ssnd = 0, little = 0, law = 0;
     (void)self; *state = NULL;
     r = sc_begin(&s, h, rd);
     if (r != MAKTABASAUTI_OK) return r;
@@ -297,7 +319,12 @@ static maktabasauti_result_t MAKTABASAUTI_CALL aiff_open(const maktabasauti_code
             r = sc_fetch(&s, body_at, body, need);
             if (r != MAKTABASAUTI_OK) return r;
             channels = be16(body); frames = be32(body + 2); bits = be16(body + 6); rate = parse_rate(body + 8);
-            if (aifc) { if (is_tag(body + 18, "sowt")) little = 1; else if (!is_tag(body + 18, "NONE")) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT; }
+            if (aifc) {
+                if (is_tag(body + 18, "sowt")) little = 1;
+                else if (is_tag(body + 18, "ulaw") || is_tag(body + 18, "ULAW")) law = 4;               /* G.711 w AIFF-C: sampleSize 16 (rozmiar po dekodowaniu), w pliku 8 bit na probke */
+                else if (is_tag(body + 18, "alaw") || is_tag(body + 18, "ALAW")) law = 5;
+                else if (!is_tag(body + 18, "NONE")) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+            }
         } else if (is_tag(ch, "SSND")) {
             uint32_t offset;
             if (saw_ssnd++ || size < 8u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
@@ -313,10 +340,45 @@ static maktabasauti_result_t MAKTABASAUTI_CALL aiff_open(const maktabasauti_code
         off += size;
         if (size & 1u) { if (off >= end) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT; ++off; }
     }
+    if (law && bits != 16u && bits != 8u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    if (law) bits = 8u;                                                                         /* w pliku bajt na probke */
     if (!saw_comm || !saw_ssnd || !frames || !rate || channels < 1u || channels > 2u || (bits != 8u && bits != 16u && bits != 24u && bits != 32u)) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     if ((uint64_t)frames > pcm_bytes / ((bits / 8u) * channels)) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
-    proto.channels = channels; proto.bits = bits; proto.width = bits / 8u; proto.kind = little ? 3 : 2; proto.total = frames; proto.total_known = 1;
+    proto.channels = channels; proto.bits = bits; proto.width = bits / 8u; proto.kind = law ? law : little ? 3 : 2; proto.total = frames; proto.total_known = 1;
     return pcm_finish(&s, h, rd, &proto, rate, "aiff", info, state);
+}
+
+/* ======================================================================= AU ======================================================================= */
+#define AU_HEADER_MAX (16u << 20)
+static int32_t MAKTABASAUTI_CALL au_probe(const maktabasauti_codec_t *self, const uint8_t *p, size_t n, const char *hint) {
+    (void)self; (void)hint;
+    return (p && n >= 24u && !memcmp(p, ".snd", 4)) ? 50 : 0;
+}
+static maktabasauti_result_t MAKTABASAUTI_CALL au_open(const maktabasauti_codec_t *self, const maktabasauti_host_t *h, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
+    scan_t s; pcm_t proto; maktabasauti_result_t r; uint32_t off, size, enc, rate, channels, align; uint64_t size_in = 0;
+    (void)self; *state = NULL;
+    r = sc_begin(&s, h, rd);
+    if (r != MAKTABASAUTI_OK) return r;
+    if (s.pre_n < 24u || memcmp(s.pre, ".snd", 4) != 0) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    off = be32(s.pre + 4); size = be32(s.pre + 8); enc = be32(s.pre + 12); rate = be32(s.pre + 16); channels = be32(s.pre + 20);
+    if (off < 24u || off > AU_HEADER_MAX || rate < 1u || rate > 768000u || channels < 1u || channels > 32u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    memset(&proto, 0, sizeof proto);
+    switch (enc) {
+    case 1: proto.kind = 4; proto.bits = 8u; break;                                             /* G.711 mu-law */
+    case 27: proto.kind = 5; proto.bits = 8u; break;                                            /* G.711 A-law */
+    case 2: proto.kind = 2; proto.bits = 8u; break;
+    case 3: proto.kind = 2; proto.bits = 16u; break;
+    case 4: proto.kind = 2; proto.bits = 24u; break;
+    case 5: proto.kind = 2; proto.bits = 32u; break;
+    default: return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;                                          /* float, ADPCM (G.721 / G.723), ... */
+    }
+    proto.channels = channels; proto.width = proto.bits / 8u; align = channels * proto.width; proto.data_off = off;
+    if (size == 0xffffffffu) {                                                                  /* rozmiar nieznany (zapis strumieniowy): reszta wejscia */
+        const int64_t sz_in = h->size ? h->size(h->user, rd) : -1;
+        if (sz_in >= 0 && (uint64_t)sz_in >= off) { size_in = (uint64_t)sz_in - off; proto.total = size_in / align; proto.total_known = 1; }
+        else { proto.total = 0; proto.total_known = 0; }
+    } else { proto.total = size / align; proto.total_known = 1; }
+    return pcm_finish(&s, h, rd, &proto, rate, "au", info, state);
 }
 
 const maktabasauti_codec_t maktabasauti_pcm_wav_desc = {
@@ -328,4 +390,9 @@ const maktabasauti_codec_t maktabasauti_pcm_aiff_desc = {
     sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "aiff-pcm", "AIFF / AIFF-C PCM (streaming)", "maktabasauti_pcm",
     MAKTABASAUTI_CODEC_FLAG_STREAMING | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
     aiff_probe, aiff_open, pcm_read, pcm_seek, pcm_reset, pcm_flush, NULL, pcm_last_error, NULL, pcm_close, { NULL }, { NULL }
+};
+const maktabasauti_codec_t maktabasauti_pcm_au_desc = {
+    sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "au-pcm", "Sun/NeXT AU: PCM, G.711 mu-law / A-law (streaming)", "maktabasauti_pcm",
+    MAKTABASAUTI_CODEC_FLAG_STREAMING | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
+    au_probe, au_open, pcm_read, pcm_seek, pcm_reset, pcm_flush, NULL, pcm_last_error, NULL, pcm_close, { NULL }, { NULL }
 };

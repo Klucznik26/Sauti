@@ -37,6 +37,7 @@ Punkt wyjścia: błąd minimp3 z commita `b2bdd74` (niezainicjowane `free_format
 | wav-pcm | `n>=12`, `RIFF`, `WAVE` @8 | długość sprawdzona przed odczytem | bezpieczna |
 | creative-voc-pcm | `n>=26`, 20 B etykiety, `le16` @20/22/24, `le16(p+20)<=n` | j.w. | bezpieczna |
 | aiff-pcm | `n>=12`, `FORM`, `AIFF/AIFC` @8 | j.w. | bezpieczna |
+| au-pcm | `n>=24`, `.snd` @0 | j.w. (przesunięcie danych ≤ 16 MiB, kodowanie z listy, kanały 1..32, częstotliwość 1..768000) | bezpieczna |
 | aac-lc-native-adts, -mono-adts, -multi-adts, aac-he-native-adts, aac-he-cpe-native-adts | `size>=7` + `sauti_aac_adts_parse_asm` (NASM: sprawdza `size>=7` i 9 przy CRC, długość ramki ≤ rozmiar) | czyta bajty 0..8 po sprawdzeniu; kanały/AOT/liczba bloków wg nagłówka | bezpieczne; nakładanie (stereo ADTS rozpoznają LC i HE-CPE) z założenia, wygrywa kolejność rejestru |
 | aac-native-mp4 | `size>=12`, `ftyp` @4 | j.w. | bezpieczna |
 | aac-native-latm | `size>=6`, bajty 0–2, `data[3+len]`, `data[4+len]` | `3+len>size` odrzuca; drugi odczyt po `size>=3+len+2` | bezpieczna |

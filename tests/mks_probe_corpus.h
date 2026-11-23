@@ -80,6 +80,26 @@ static inline void corpus_add_synthetic(corpus_t *c) {
     mk_patch_be32(&m, 4, (uint32_t)(m.n - 8));
     corpus_add(c, "syn.aiff", "aiff-pcm", m.b, m.n);
 
+    /* AU: mu-law, mono 8 kHz (kodowanie 1), potem A-law w WAV (format 6) i mu-law w AIFF-C */
+    memset(&m, 0, sizeof m);
+    mk_str(&m, ".snd"); mk_be32(&m, 24); mk_be32(&m, 100); mk_be32(&m, 1); mk_be32(&m, 8000); mk_be32(&m, 1);
+    for (i = 0; i < 100; i++) mk_u8(&m, (unsigned)(i * 5u) & 255u);
+    corpus_add(c, "syn.au", "au-pcm", m.b, m.n);
+    memset(&m, 0, sizeof m);
+    mk_str(&m, "RIFF"); mk_le32(&m, 0); mk_str(&m, "WAVE"); mk_str(&m, "fmt "); mk_le32(&m, 18);
+    mk_le16(&m, 6); mk_le16(&m, 1); mk_le32(&m, 8000); mk_le32(&m, 8000); mk_le16(&m, 1); mk_le16(&m, 8); mk_le16(&m, 0);
+    mk_str(&m, "data"); mk_le32(&m, 100);
+    for (i = 0; i < 100; i++) mk_u8(&m, (unsigned)(i * 3u) & 255u);
+    mk_patch_le32(&m, 4, (uint32_t)(m.n - 8));
+    corpus_add(c, "syn_alaw.wav", "wav-pcm", m.b, m.n);
+    memset(&m, 0, sizeof m);
+    mk_str(&m, "FORM"); mk_be32(&m, 0); mk_str(&m, "AIFC"); mk_str(&m, "FVER"); mk_be32(&m, 4); mk_be32(&m, 0xA2805140u);
+    mk_str(&m, "COMM"); mk_be32(&m, 24); mk_be16(&m, 1); mk_be32(&m, 100); mk_be16(&m, 16); mk_be16(&m, 0x400E); mk_be32(&m, 0xAC440000u); mk_be32(&m, 0); mk_str(&m, "ulaw"); mk_u8(&m, 1); mk_u8(&m, 'x');
+    mk_str(&m, "SSND"); mk_be32(&m, 8 + 100); mk_be32(&m, 0); mk_be32(&m, 0);
+    for (i = 0; i < 100; i++) mk_u8(&m, (unsigned)(i * 7u) & 255u);
+    mk_patch_be32(&m, 4, (uint32_t)(m.n - 8));
+    corpus_add(c, "syn_ulaw.aifc", "aiff-pcm", m.b, m.n);
+
     /* VOC: blok 1 (dane 8 bit), terminator */
     memset(&m, 0, sizeof m);
     mk_str(&m, "Creative Voice File"); mk_u8(&m, 0x1a); mk_le16(&m, 26); mk_le16(&m, 0x010A); mk_le16(&m, (~0x010Au + 0x1234u) & 0xffffu);

@@ -552,7 +552,7 @@ static void test_legacy_bridge(void) {
             if (strcmp(ci.module, "maktabasauti_pcm") == 0) pcm++;
             if (strcmp(ci.module, "maktabasauti_voc") == 0) voc++;
         }
-        assert(aac == 4 && flac == 1 && dvs == 3 && pcm == 2 && voc == 1);               /* AAC: ADTS (modul strumieniowy, jedno wejscie), MP4, LOAS, ADIF */
+        assert(aac == 4 && flac == 1 && dvs == 3 && pcm == 3 && voc == 1);               /* AAC: ADTS (modul strumieniowy, jedno wejscie), MP4, LOAS, ADIF; PCM: WAV, AIFF, AU */
         assert(maktabasauti_registry_codec_info(reg, 9999, &ci) == MAKTABASAUTI_E_OUT_OF_RANGE);
         assert(maktabasauti_registry_add((maktabasauti_registry_t *)reg, &tst_codec) == MAKTABASAUTI_E_INVALID_ARGUMENT);    /* domyslny jest niezmienny */
     }

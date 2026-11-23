@@ -176,7 +176,7 @@ z arytmetyki pozycji, delta przez punkty kontrolne akumulatorów (pula 1024, prz
 bloków, obcięcia na każdej długości ze znanym i nieznanym rozmiarem, plik 9 MB z wyczerpaniem puli punktów, wrogie nagłówki; sprawdzone mutacją). Nie dotyczy: DTM (Digital Tracker) to format modułowy (próbki + wzorce), który z natury
 wymaga całego pliku: zostaje opakowanym adapterem `NEEDS_FULL_BUFFER`.
 
-**Moduły PCM (WAV, AIFF) i VOC: strumieniowe (od 2026-11-20).** `src/decoders/modern/maktabasauti_pcm.c` (`wav-pcm`, `aiff-pcm`) i `src/decoders/retro/pc/maktabasauti_voc.c` (`creative-voc-pcm`), czysty C, bez wczytywania pliku (bufor 4 KiB;
+**Moduły PCM (WAV, AIFF) i VOC: strumieniowe (od 2026-11-20).** `src/decoders/modern/maktabasauti_pcm.c` (`wav-pcm`, `aiff-pcm`, `au-pcm`; G.711 mu-law / A-law w WAV, AIFF-C i AU: `docs/G711.md`) i `src/decoders/retro/pc/maktabasauti_voc.c` (`creative-voc-pcm`), czysty C, bez wczytywania pliku (bufor 4 KiB;
 test: generator ~100 MB bez rozmiaru, szczyt pamięci dekodera < 64 KiB). Nazwy kodeków, nazwy strumienia (`pcm` / `wav|aiff|voc`) i PCM dla poprawnych plików są IDENTYCZNE bit w bit z dawnymi adapterami (te same wyrażenia:
 8 bit bez znaku `(v−128)/128`, pozostałe wartość ze znakiem / 2^(bity−1), AIFF z `sowt`, VOC 8/16 bit); stary adapter jest w testach wzorcem. **Nagłówek** jest czytany z prefiksu okna czytnika (`peek`, 512 B), więc
 `E_WOULD_BLOCK` przy otwarciu jest wznawialny; gdy nagłówek jest dłuższy (duży chunk `LIST` przed danymi), moduł przechodzi chunk po chunku (seek albo odczyt z odrzuceniem; wtedy otwarcie z wejścia nieprzewijalnego nie jest
