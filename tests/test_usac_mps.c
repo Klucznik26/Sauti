@@ -30,6 +30,30 @@ static int parse(Bw *w, const SautiUsacMpsConfig *c, unsigned slots, int indep, 
     return sauti_usac_mps212_parse(c, slots, &b, indep, st, f);
 }
 
+/* the IPD quantiser flag of a set without coded data is the flag of the last frame that coded that set index (found with a real file of the Fraunhofer encoder, docs SBR-128): a frame that keeps its IPD values after one coded
+ * with the coarse quantiser smooths the phases with the coarse flag */
+static void test_ipd_flag_hold(void) {
+    static SautiUsacMpsState st; static SautiUsacMpsFrame f;
+    SautiUsacMpsConfig c = cfg1;
+    Bw w; unsigned cv[28], iv[28], pv[10], i;
+    c.phase_coding = 1u; c.bands_phase = 10u;
+    for (i = 0; i < 28u; i++) { cv[i] = (i * 5u + 3u) % 31u; iv[i] = (i * 3u) % 8u; }
+    for (i = 0; i < 10u; i++) pv[i] = i % 8u;
+    memset(&w, 0, sizeof w); memset(&st, 0, sizeof st);
+    put_pcm_set(&w, 0, 0, 28, cv, 5); put_pcm_set(&w, 0, 0, 28, iv, 3);
+    put(&w, 1, 1); put(&w, 0, 1);                                                                    /* bsPhaseMode = 1, bsOpdSmoothingMode = 0 */
+    put_pcm_set(&w, 1, 0, 10, pv, 3);                                                                /* IPD: new data, coarse quantiser */
+    CHECK(parse(&w, &c, 32, 1, &st, &f) == 1, "coarse IPD frame refused");
+    CHECK(f.ipd_coarse[0] == 1u, "the coarse flag of the coded IPD set is %u", f.ipd_coarse[0]);
+    memset(&w, 0, sizeof w);
+    put(&w, 0, 1);                                                                                   /* bsIndependencyFlag = 0 */
+    put(&w, 1, 2); put(&w, 1, 2);                                                                    /* CLD keep, ICC keep */
+    put(&w, 1, 1); put(&w, 0, 1);                                                                    /* bsPhaseMode = 1, bsOpdSmoothingMode = 0 */
+    put(&w, 1, 2);                                                                                   /* IPD keep: no data, no quantiser flag */
+    CHECK(parse(&w, &c, 32, 0, &st, &f) == 1, "keep IPD frame refused");
+    CHECK(f.ipd_coarse[0] == 1u, "a kept IPD set loses the coarse flag of the frame that coded it (%u)", f.ipd_coarse[0]);
+}
+
 static void test_parse(void) {
     static SautiUsacMpsState st; static SautiUsacMpsFrame f;
     Bw w; unsigned cv[28], iv[28], i, ok;
@@ -554,7 +578,7 @@ static void test_tsd(void) {
 }
 
 int main(void) {
-    test_tables(); test_parse(); test_signal(); test_golden(); test_golden_res(); test_residual(); test_golden_phase(); test_golden_hr(); test_phase(); test_phase_pred(); test_tsd();
+    test_tables(); test_parse(); test_ipd_flag_hold(); test_signal(); test_golden(); test_golden_res(); test_residual(); test_golden_phase(); test_golden_hr(); test_phase(); test_phase_pred(); test_tsd();
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_mps: all passed\n"); return 0;
 }
