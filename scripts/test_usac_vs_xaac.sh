@@ -18,9 +18,9 @@ python3 -c 'import numpy' 2>/dev/null || { echo "SKIP: no numpy"; exit 0; }
 make -s build/sauti_usac_raw >/dev/null
 W="$(mktemp -d "${TMPDIR:-/tmp}/sauti-xaacdec.XXXXXX")"; trap 'rm -rf -- "$W"' EXIT
 fail=0
-for n in x1 x2 x3 x4 x5 x6 x7 x8 x9 l1 l2 l3 l4 l5 l6 l7 p1 p2 p3 v1 v2 v3 h1 h2 h3 h4 h5 h6 w1 w2 w3 z1 z2 z3 z4 y1 y2 y3 y4 y5 y6 y7 y8 y9 y10 y11 y12 y13 y14 y15 y16 z5 z6 z7 z8 z9 y17 y18 y19 y20 y21 z10; do
-  ch=1; ts=24000; fl=1024; cmpc=all; mn="$MIN"                                            # channels, time scale (core rate), core frame length, channels compared
-  case "$n" in x3|x4) ch=2;; x5) ch=2; ts=18000; fl=768;; x6) ch=2; ts=16537; fl=768; cmpc=0;; x7) ts=12000; fl=768;; x8) ts=12000;; x9) ch=2; ts=12000; cmpc=0;; l1|l3) ts=16000;; l2|l4|l5|l6) ts=24000;; l7) ch=2; ts=24000;; v1|v2|v3) ts=48000; fl=2048; mn="${USAC_XAAC_GEN_MIN_DB:-50}";; h1|h2|h4) fl=2048;; h3) ch=2; fl=2048;; h5) fl=4096;; h6) ch=2; fl=4096;; w1|w2) ts=48000; fl=2048; mn="${USAC_XAAC_HBE_GEN_MIN_DB:-45}";; w3) ch=2; ts=48000; fl=2048; mn="${USAC_XAAC_HBE_GEN_MIN_DB:-45}";; z1|z2|z3|z4|z9|z10) ch=2; fl=2048;; z5|z6) ch=2; ts=12000; fl=4096;; z7|z8) ch=2; ts=18000; fl=768;; y1|y2|y3|y4|y5|y6|y7|y8|y9|y10|y11|y12|y13|y14|y15|y16|y17|y18|y19|y20|y21) ch=2; ts=24000; fl=2048; mn="${USAC_XAAC_MPSGEN_MIN_DB:-12}";; esac
+for n in x1 x2 x3 x4 x5 x6 x7 x8 x9 l1 l2 l3 l4 l5 l6 l7 p1 p2 p3 v1 v2 v3 h1 h2 h3 h4 h5 h6 w1 w2 w3 z1 z2 z3 z4 y1 y2 y3 y4 y5 y6 y7 y8 y9 y10 y11 y12 y13 y14 y15 y16 z5 z6 z7 z8 z9 y17 y18 y19 y20 y21 z10 z11; do
+  ch=1; ts=24000; fl=1024; cmpc=all; sk=0; mn="$MIN"                                            # channels, time scale (core rate), core frame length, channels compared
+  case "$n" in x3|x4) ch=2;; x5) ch=2; ts=18000; fl=768;; x6) ch=2; ts=16537; fl=768; cmpc=0;; x7) ts=12000; fl=768;; x8) ts=12000;; x9) ch=2; ts=12000; cmpc=0;; l1|l3) ts=16000;; l2|l4|l5|l6) ts=24000;; l7) ch=2; ts=24000;; v1|v2|v3) ts=48000; fl=2048; mn="${USAC_XAAC_GEN_MIN_DB:-50}";; h1|h2|h4) fl=2048;; h3) ch=2; fl=2048;; h5) fl=4096;; h6) ch=2; fl=4096;; w1|w2) ts=48000; fl=2048; mn="${USAC_XAAC_HBE_GEN_MIN_DB:-45}";; w3) ch=2; ts=48000; fl=2048; mn="${USAC_XAAC_HBE_GEN_MIN_DB:-45}";; z1|z2|z3|z4|z9|z10) ch=2; fl=2048;; z11) ch=2; ts=24000; fl=1024; sk=4096;; z5|z6) ch=2; ts=12000; fl=4096;; z7|z8) ch=2; ts=18000; fl=768;; y1|y2|y3|y4|y5|y6|y7|y8|y9|y10|y11|y12|y13|y14|y15|y16|y17|y18|y19|y20|y21) ch=2; ts=24000; fl=2048; mn="${USAC_XAAC_MPSGEN_MIN_DB:-12}";; esac
   python3 -I tools/mp4_dump_aus.py "tests/data/usac_$n.m4a" "$W/$n" >/dev/null
   python3 -I - "$W" "$n" "$ts" "$fl" <<'PY'
 import struct, sys
@@ -34,9 +34,9 @@ open("%s/%s.txt" % (W, n), 'w').write('\n'.join(t + ['-ia_mp4_stsz_size:%d' % le
 PY
   build/sauti_usac_raw "$W/$n" "$W/$n.sau" 2>/dev/null
   "$XAAC/xaacdec" -ifile:"$W/$n.es" -imeta:"$W/$n.txt" -mp4:1 -ofile:"$W/$n.pcm" -pcmsz:16 >/dev/null 2>&1 || true
-  r="$(python3 -I - "$W" "$n" "$ch" "$mn" "$cmpc" <<'PY'
+  r="$(python3 -I - "$W" "$n" "$ch" "$mn" "$cmpc" "$sk" <<'PY'
 import sys, numpy as np
-W, n, ch, mn, cmpc = sys.argv[1], sys.argv[2], int(sys.argv[3]), float(sys.argv[4]), sys.argv[5]
+W, n, ch, mn, cmpc, sk = sys.argv[1], sys.argv[2], int(sys.argv[3]), float(sys.argv[4]), sys.argv[5], int(sys.argv[6])
 try:
     o = np.fromfile("%s/%s.sau" % (W, n), dtype='<f4'); x = np.fromfile("%s/%s.pcm" % (W, n), dtype='<i2').astype(np.float32) / 32768.0
 except Exception:
@@ -46,7 +46,7 @@ best = None
 for d in range(-200 * ch, 200 * ch + 1, ch):
     a = o[max(0, d):]; b = x[max(0, -d):]; m = min(len(a), len(b)) - 4096
     if m < 8000: continue
-    a2 = a[:m]; b2 = b[:m]
+    a2 = a[sk * ch:m]; b2 = b[sk * ch:m]                                      # sk: samples to leave out at the start (a stream without AudioPreRoll: libxaac's first frames differ)
     if cmpc == '0' and ch == 2: a2 = a2[0::2]; b2 = b2[0::2]                  # x6 (m = 31 high-band channels): libxaac starts the noise sequence of the SECOND channel one frame (32 slots) behind - 32*m = 992 = 480 mod 512 indices - FDK and this decoder do not (FDK agrees with us at 84 dB on both channels of the 2:1 44.1 kHz stereo stream); the channels agree only when 32*m = 0 mod 512
     k = np.abs(a2) < 0.999                                                   # libxaac's 16-bit output WRAPS around on a sample beyond full scale instead of saturating: those samples are excluded
     e = float(np.sum((a2[k] - b2[k]) ** 2)); s = float(np.sum(b2[k] ** 2)); v = 999.0 if e == 0 else 10 * np.log10(s / e)

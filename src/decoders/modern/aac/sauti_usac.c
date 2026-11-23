@@ -625,6 +625,68 @@ done:
     return r;
 }
 
+/* A channel pair whose two channels have different core modes (one FD, one LPD): there is no common window, no stereo prediction and no TNS header; every channel is the channel stream of its own core mode (an FD channel with its own tns_data_present bit),
+ * decoded as if it were a mono element; the eSBR / MPS side information that follows is that of the pair. */
+static int mixed_element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiUsacBits *b, const unsigned core_mode[2], SautiUsacChannel *chs, SautiUsacSbrState *sbrst, SautiAacSbrChannel *sbrch, int indep, float out[2][4096], unsigned *reason) {
+    const int mps = e->stereo_config_index != 0u;
+    SautiUsacMpsConfig mc; SautiUsacMpsFrame mf;
+    SautiUsacLpdFrame *lf = (SautiUsacLpdFrame *)malloc(2u * sizeof *lf);
+    Fd *fdv = (Fd *)calloc(2u, sizeof *fdv);
+    SautiAacSbrPayloadFrame sbr_pl[2];
+    SautiAacSbrComplex *grid = NULL;
+    float core[2][1024];
+    unsigned c, i, sbr_cpl = 0;
+    int r = 1;
+    if (!lf || !fdv) { free(lf); free(fdv); *reason = SAUTI_AAC_REASON_INVALID_SYNTH; return 0; }
+    memset(&mc, 0, sizeof mc); memset(&mf, 0, sizeof mf);
+    for (c = 0; c < 2u; c++) {
+        if (core_mode[c]) {
+            if (!sauti_usac_lpd_parse(b, cfg->core_frame_len, indep, &chs[c].ac, &lf[c])) { *reason = SAUTI_AAC_REASON_INVALID_SCE; r = 0; goto done; }
+        } else {
+            fdv[c].tns_data_present = sauti_usac_get(b, 1);
+            r = fd_channel(cfg, e, b, &chs[c], &fdv[c], 0, 0, indep, reason);
+            if (r != 1) goto done;
+        }
+    }
+    if (mps) {
+        r = mps_side(cfg, e, b, indep, sbrst, sbr_pl, &sbr_cpl, &mc, &mf, reason);
+        if (r != 1) goto done;
+    } else if (cfg->sbr_mode) {
+        sbrst->header.slot_scale = cfg->sbr_mode == 3u ? 4u : 2u;
+        r = sauti_usac_sbr_parse(e, 2u, b, indep, cfg->sample_rate, sbrst, sbr_pl, &sbr_cpl);
+        if (r != 1) { *reason = r < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SCE; goto done; }
+    }
+    for (c = 0; c < 2u; c++) {
+        if (core_mode[c]) {
+            float pcm[1024];
+            const int d = sauti_usac_lpd_decode(&chs[c].lpd, &lf[c], cfg->core_frame_len, &chs[c].noise_seed, chs[c].fd_decoded ? chs[c].fd_tail : NULL, (int)chs[c].fd_short, pcm);
+            if (d != 1) { *reason = d < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SYNTH; r = d < 0 ? -1 : 0; goto done; }
+            for (i = 0; i < cfg->core_frame_len; i++) core[c][i] = pcm[i] * (1.0f / 32768.0f);
+            if (!cfg->sbr_mode) memcpy(out[c], core[c], cfg->core_frame_len * sizeof(float));
+        } else {
+            Fd *fd = &fdv[c];
+            int sr;
+            if (e->noise_fill) noise_fill(cfg, fd, &chs[c].noise_seed);
+            scale_spectrum(fd);
+            if (fd->tns_present && !tns_apply(fd)) { *reason = SAUTI_AAC_REASON_TNS; r = 0; goto done; }
+            sr = synthesize(cfg, fd, &chs[c], cfg->sbr_mode ? core[c] : out[c]);
+            if (sr != 1) { *reason = sr < 0 ? SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT : SAUTI_AAC_REASON_INVALID_SYNTH; r = sr < 0 ? -1 : 0; goto done; }
+        }
+    }
+    if (cfg->sbr_mode && mps) {
+        if (!mps_render(cfg, e, sbrst, sbrch, core, sbr_pl, &mc, &mf, out, reason)) { r = 0; goto done; }
+    } else if (cfg->sbr_mode) {
+        grid = (SautiAacSbrComplex *)malloc(sizeof(SautiAacSbrComplex) * 2u * SAUTI_AAC_SBR_CHANNEL_GRID);
+        if (!grid) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; r = 0; goto done; }
+        for (c = 0; c < 2u; c++)
+            if (!sauti_aac_sbr_channel_frame(&sbrch[c], core[c], &sbr_pl[c], grid) || !sauti_aac_sbr_channel_synthesize(&sbrch[c], grid, out[c])) { *reason = SAUTI_AAC_REASON_INVALID_SYNTH; r = 0; goto done; }
+    }
+    r = 1;
+done:
+    free(grid); free(lf); free(fdv);
+    return r;
+}
+
 /* One SCE / LFE / CPE.  out[c] = PCM of channel c.  1 ok, 0 malformed, -1 unsupported. */
 static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiUsacBits *b, SautiUsacChannel *chs, SautiUsacSbrState *sbrst, SautiAacSbrChannel *sbrch, int indep, float out[2][4096], unsigned *reason) {
     const unsigned nch = (e->type == SAUTI_USAC_CPE && e->stereo_config_index != 1u) ? 2u : 1u;     /* stereoConfigIndex 1: one core channel (the downmix), 2 / 3: the downmix and a residual */
@@ -651,7 +713,8 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
         unsigned core_mode[2] = { 0, 0 };
         for (c = 0; c < nch; c++) core_mode[c] = sauti_usac_get(b, 1);
         if (core_mode[0] || core_mode[1]) {                                 /* core_mode 1: LPD (ACELP / TCX) */
-            if (core_mode[0] != core_mode[nch - 1u] || e->tw_mdct) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }   /* a pair of one FD and one LPD channel, time-warped MDCT */
+            if (e->tw_mdct) { *reason = SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT; return -1; }                       /* time-warped MDCT */
+            if (core_mode[0] != core_mode[nch - 1u]) return mixed_element(cfg, e, b, core_mode, chs, sbrst, sbrch, indep, out, reason);   /* one FD and one LPD channel */
             return lpd_element(cfg, e, b, chs, sbrst, sbrch, indep, out, reason);
         }
     }
