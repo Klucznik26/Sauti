@@ -43,6 +43,14 @@ int main(void){
     assert(sauti_legacy_decoder_seek(&d,3));
     assert(sauti_legacy_decoder_read(&d,pcm,1)==1 && pcm[0]==1.0f/32768.0f);
     sauti_legacy_decoder_close(&d);
+    /* Pack 2 wraps around at 16 bits like the add.w of the 68000 player (Wax D2D Pro): 32767 + 1 = -32768, -32768 - 1 = 32767. */
+    memset(b,0,sizeof(b));memcpy(b,"DVSM",4);
+    be16(b+6,16);be16(b+8,3);b[10]=2;b[11]=3;
+    b[16]=0x7f;b[17]=0xff;b[18]=1;b[19]=255;
+    assert(sauti_legacy_decoder_open(&d,ops,1,b,20));
+    assert(sauti_legacy_decoder_read(&d,pcm,3)==3);
+    assert(pcm[0]==32767.0f/32768.0f && pcm[1]==-1.0f && pcm[2]==32767.0f/32768.0f);
+    sauti_legacy_decoder_close(&d);
     /* Two stereo blocks: each 4-byte seeds and two LR delta pairs. */
     memset(b,0,sizeof(b));memcpy(b,"DVSM",4);
     be16(b+6,16);be16(b+8,7);b[10]=2;b[11]=1;
@@ -59,8 +67,9 @@ int main(void){
     assert(stereo[2]==1.0f/32768.0f && stereo[3]==99.0f/32768.0f);
     assert(stereo[4]==2.0f/32768.0f && stereo[5]==98.0f/32768.0f);
     assert(stereo[6]==-1.0f && stereo[7]==32767.0f/32768.0f);
-    assert(stereo[8]==-1.0f && stereo[9]==32767.0f/32768.0f);
-    assert(stereo[10]==-32767.0f/32768.0f && stereo[11]==32766.0f/32768.0f);
+    /* the second block starts at L = -32768, R = 32767: the deltas -32767 and +30211 wrap around (68000 add.w): L = 1, R = -2558, then +1 / -1 */
+    assert(stereo[8]==1.0f/32768.0f && stereo[9]==-2558.0f/32768.0f);
+    assert(stereo[10]==2.0f/32768.0f && stereo[11]==-2559.0f/32768.0f);
     assert(sauti_legacy_decoder_seek(&d,3));
     assert(sauti_legacy_decoder_read(&d,stereo,1)==1 && stereo[0]==-1.0f);
     sauti_legacy_decoder_close(&d);

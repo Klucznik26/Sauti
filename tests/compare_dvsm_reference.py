@@ -18,6 +18,10 @@ def clip(x):
     return max(-32768, min(32767, x))
 
 
+def wrap(x):                                  # pack 2: the add.w of the 68000 player (Wax D2D Pro) wraps around
+    return ((x + 32768) & 0xffff) - 32768
+
+
 def delta_table():
     values = [0] * 256
     for index in range(1, 128):
@@ -58,7 +62,7 @@ def reference(blob):
             for byte in part[2:]:
                 indices = [byte] if pack == 2 else [byte >> 4, byte & 15]
                 for index in indices:
-                    predictor = clip(predictor + table[index])
+                    predictor = (wrap if pack == 2 else clip)(predictor + table[index])
                     pcm.append(predictor)
     else:
         if block < 4 or (pack == 2 and block % 2):
@@ -72,8 +76,8 @@ def reference(blob):
             pcm.extend((left, right))
             if pack == 2:
                 for index in range(4, len(part), 2):
-                    left = clip(left + table[part[index]])
-                    right = clip(right + table[part[index+1]])
+                    left = wrap(left + table[part[index]])
+                    right = wrap(right + table[part[index+1]])
                     pcm.extend((left, right))
             else:
                 for byte in part[4:]:
