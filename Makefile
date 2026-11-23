@@ -2413,6 +2413,11 @@ $(OBJDIR)/test_usac_preroll: tests/test_usac_preroll.c tests/test_usac_pr_vector
 .PHONY: test-usac-preroll
 test-usac-preroll: $(OBJDIR)/test_usac_preroll
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_usac_preroll
+$(OBJDIR)/test_he960: tests/test_he960.c tests/test_he960_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_he960.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-he960
+test-he960: $(OBJDIR)/test_he960
+	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_he960
 $(OBJDIR)/test_usac_xaac: tests/test_usac_xaac.c tests/test_usac_xaac_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_usac_xaac.c $(MKS_DEPS) -lm -lpthread -no-pie
 .PHONY: test-usac-xaac

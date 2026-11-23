@@ -41,6 +41,14 @@ typedef struct {
     uint32_t flushed;
 } he_state_t;
 
+/* HE-AAC z ramka 960 (DAB+ itp.): rdzen AAC-LC 960 (sauti_aac_lcn) + SBR w polu wypelnienia; ramka SBR ma 15 szczelin czasowych (30 szczelin QMF), wyjscie 1920 probek na kanal */
+typedef struct {
+    SautiAacLcnState lcn;
+    SautiAacSbrPayloadState mono;
+    SautiAacSbrPayloadCpeState cpe;
+    SautiAacSbrChannel channel[2];
+} he960_t;
+
 /* caly stan dekodowania: kopia = punkt kontrolny */
 typedef struct {
     union {
@@ -49,6 +57,7 @@ typedef struct {
         he_state_t he;
         SautiAacErState er;
         SautiAacLcnState lcn;                            /* V_ER z er_aot == 2: AAC-LC z ramka 960 */
+        he960_t h9;                                      /* V_ER z er_aot == 2 i he960: HE-AAC z ramka 960 */
     } u;
     SautiUsacState *usac_hs;                             /* V_ER z er_aot == 42: USAC (xHE-AAC), sauti_usac: stan na stercie (ok. 250 KiB), kopiowany gleboko jak lcm */
     SautiAacLcmState *lcm;                               /* AAC Main / LTP wielokanalowy (sauti_aac_lcm): stan na stercie (230 KiB), kopiowany gleboko przy punktach kontrolnych (lcm_dup) */
@@ -73,7 +82,7 @@ typedef struct {
     SautiUsacConfig usac;                                /* USAC (er_aot == 42): konfiguracja z ASC, ustawiana przez kontener (stala w calym strumieniu) */
     unsigned usac_ready;
     unsigned er_aot, er_480;                             /* V_ER: typ obiektu (23 / 39; 2 = AAC-LC z ramka 960 bez narzedzi ER) i dlugosc ramki 480 zamiast 512 */
-    unsigned out_channels, out_rate, frame_pcm, ps_mode;
+    unsigned out_channels, out_rate, frame_pcm, ps_mode, he960;
     SautiAacLcLayout layout;                             /* tylko config 0 (PCE) */
     int seekable, total_known;
     uint64_t known_frames;                               /* liczba ramek ADTS z przejscia po naglowkach (gdy total_known) */
