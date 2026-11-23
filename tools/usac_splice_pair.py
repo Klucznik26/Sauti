@@ -6,6 +6,7 @@ tns_data_present bit of an FD channel stays in front of its stream.  Because the
 bit and its start-up frames).
 The access units are taken without the AudioPreRoll extension element of the first one (usacExtElementPresent = 0): the first access unit is independent anyway.  The END bit of every channel element (where its channel stream stops: the position
 a decoder reaches after parsing it) cannot be found without parsing the stream; the caller passes them in a JSON file {"A": [[mode, end], ...], "B": [...]} (mode "L" / "F").
+With eSBR the streams carry usac_sbr_data(): the pair's eSBR payload cannot be made from two mono payloads, so it is taken from T (a stereo stream of the same settings) access unit by access unit: the JSON then has a third key "T": {"ends": [[mode, end], ...], "sbr": [bit position where the SBR payload ends, ...]} and the payload is the bits of T from its channel streams' END to that position (the SBR payload does not depend on the core modes; the PCM of the spliced stream is then not that of the mono streams, but a decoder must agree with another decoder on it).
 usage: usac_splice_pair.py DIR A B T ENDS.json N OUT   (DIR/A.es + A.txt ... as written by xaacenc; T = a stereo stream of the same settings, its configuration is used; N access units; writes OUT.asc and OUT.aus)"""
 import json, re, struct, sys
 def bits(b): return ''.join(format(x, '08b') for x in b)
@@ -30,7 +31,8 @@ def main():
     for name, nm in ((a, 'A'), (b_, 'B')):
         asc, aus = read(d, name); st = [strip0(aus[0])] + [bits(x) for x in aus[1:]]
         mono[nm] = [(st[i], ends[nm][i][0], ends[nm][i][1]) for i in range(n)]
-    asc2, _ = read(d, t); pair = []
+    asc2, taus = read(d, t); pair = []
+    tst = [strip0(taus[0])] + [bits(x) for x in taus[1:]] if 'T' in ends else None
     for i in range(n):
         (sa, ma, ea), (sb, mb, eb) = mono['A'][i], mono['B'][i]
         assert sa[0] == sb[0]
@@ -42,7 +44,8 @@ def main():
             body = ca[2:] + cb[2:]
         else:
             hdr = ''; body = ca[1:] + cb[1:]
-        pair.append(sa[0] + '0' + cm + hdr + body + '0')                    # usacExtElementPresent = 0 of the element that follows the channel element
+        sbr = tst[i][ends['T']['ends'][i][1]:ends['T']['sbr'][i]] if tst else ''
+        pair.append(sa[0] + '0' + cm + hdr + body + sbr + '0')                    # usacExtElementPresent = 0 of the element that follows the channel element
     open(out + '.asc', 'wb').write(asc2); open(out + '.aus', 'wb').write(b''.join(struct.pack('>I', len(x)) + x for x in (frombits(s) for s in pair)))
     print('%d access units: %d both FD, %d mixed, %d both LPD' % (n, sum(1 for i in range(n) if ends['A'][i][0] == ends['B'][i][0] == 'F'), sum(1 for i in range(n) if ends['A'][i][0] != ends['B'][i][0]), sum(1 for i in range(n) if ends['A'][i][0] == ends['B'][i][0] == 'L')))
 main()
