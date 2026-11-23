@@ -36,8 +36,6 @@ static void st_clear(stage_t *s) { s->at = s->have = 0; }
 
 static uint16_t be16(const uint8_t *p) { return (uint16_t)(((unsigned)p[0] << 8) | p[1]); }
 static uint32_t be32(const uint8_t *p) { return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]; }
-/* Pack 2 wraps around like the add.w of the 68000 player (Wax D2D Pro); the Voice pack (4) keeps saturating (no reference known) */
-static int32_t wrap16(int32_t v) { return (int32_t)(((uint32_t)v & 0xffffu) ^ 0x8000u) - 0x8000; }
 static int32_t sat16(int32_t v) { return v > 32767 ? 32767 : (v < -32768 ? -32768 : v); }
 static int32_t seed16(const uint8_t *p) { return (int32_t)(int16_t)be16(p); }
 static uint64_t default_mask(uint32_t ch) { return ch == 1u ? MAKTABASAUTI_LAYOUT_MONO : (ch == 2u ? MAKTABASAUTI_LAYOUT_STEREO : 0u); }
@@ -257,7 +255,7 @@ static maktabasauti_result_t dvsm_frame(dvsm_t *d, float *out) {
             r = st_need(d->host, d->rd, s, 1u);
             if (r == MAKTABASAUTI_EOF) return MAKTABASAUTI_EOF;
             if (r != MAKTABASAUTI_OK) return r;
-            if (d->pack == 2u) { d->acc[0] = wrap16(d->acc[0] + d->steps[s->buf[s->at]]); s->at++; }
+            if (d->pack == 2u) { d->acc[0] = sat16(d->acc[0] + d->steps[s->buf[s->at]]); s->at++; }
             else {                                                                           /* Pack-4: dwa kody 4-bitowe w bajcie, starszy pierwszy */
                 const uint8_t b = s->buf[s->at]; const unsigned odd = (unsigned)((jm - 1u) & 1u);
                 d->acc[0] = sat16(d->acc[0] + d->steps[odd ? (b & 15u) : (unsigned)(b >> 4)]);
@@ -277,7 +275,7 @@ static maktabasauti_result_t dvsm_frame(dvsm_t *d, float *out) {
             if (r == MAKTABASAUTI_EOF) return st_avail(s) ? MAKTABASAUTI_E_TRUNCATED : MAKTABASAUTI_EOF;
             if (r != MAKTABASAUTI_OK) return r;
             p = s->buf + s->at;
-            if (d->pack == 2u) { d->acc[0] = wrap16(d->acc[0] + d->steps[p[0]]); d->acc[1] = wrap16(d->acc[1] + d->steps[p[1]]); }
+            if (d->pack == 2u) { d->acc[0] = sat16(d->acc[0] + d->steps[p[0]]); d->acc[1] = sat16(d->acc[1] + d->steps[p[1]]); }
             else { d->acc[0] = sat16(d->acc[0] + d->steps[p[0] >> 4]); d->acc[1] = sat16(d->acc[1] + d->steps[p[0] & 15u]); }
             s->at += d->bpf;
         }
