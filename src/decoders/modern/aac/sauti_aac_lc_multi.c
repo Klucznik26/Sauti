@@ -267,7 +267,7 @@ int sauti_aac_lc_adts_multi_decode_ex(const uint8_t *frame,size_t length,
     }
     while(pos&7u){
         uint32_t pad=1;
-        if(!get(raw,raw_length,&pos,1,&pad)||pad){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
+        if(!get(raw,raw_length,&pos,1,&pad)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
     }
     if(pos!=raw_length*8u||used!=next.channels){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
     next.pns_seed=shared_pns;

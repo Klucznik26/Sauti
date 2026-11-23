@@ -111,7 +111,7 @@ int sauti_aac_he_adts_cpe_decode_ex(
     if(!got_sbr){*reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;return -1;}
     while(pos&7u){
         uint32_t padding=1u;
-        if(!read_bits(raw,raw_length,&pos,1u,&padding) || padding){
+        if(!read_bits(raw,raw_length,&pos,1u,&padding)){
             *reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;
         }
     }

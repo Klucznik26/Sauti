@@ -159,7 +159,7 @@ static int mono_decode_impl(
     }
     while(pos&7u){
         uint32_t padding=1u;
-        if(!read(raw,raw_length,&pos,1u,&padding) || padding){
+        if(!read(raw,raw_length,&pos,1u,&padding)){
             *reason=SAUTI_AAC_REASON_INVALID_TRAILING;
             return 0;
         }

@@ -280,7 +280,7 @@ static void robustness(void){
         case 2: broken[2]|=0x3cu;break; /* invalid sample rate */
         case 3: broken[3]&=(uint8_t)~0x80u;break; /* mono ADTS */
         case 4: broken[5]|=0xe0u;break; /* declared length too large */
-        case 5: broken[length-1u]|=1u;break; /* invalid byte padding */
+        case 5: size=length-2u;break; /* truncated by two bytes */
         case 6: {
             Bits reserved;sample(&reserved,1,3);
             assert(reserved.bits==valid.bits);
@@ -297,6 +297,14 @@ static void robustness(void){
         assert(reason==SAUTI_AAC_REASON_OK);
         assert(memcmp(expected,pcm,sizeof(expected))==0);
         assert(memcmp(state,retry,sizeof(state))==0);
+    }
+    /* The padding bits after ID_END are not required to be zero: the encoder of Fraunhofer IIS writes ones there (every
+     * file of its public xHE-AAC demo set), FFmpeg and FAAD2 ignore them. */
+    {
+        uint8_t padded[128];SautiAacLcSynthesis retry[2]={baseline[0],baseline[1]};float pcm[2048];
+        memcpy(padded,frame,length);padded[length-1u]|=1u;
+        assert(sauti_aac_lc_adts_stereo_decode_ex(padded,length,retry,pcm,&reason)==1);
+        assert(memcmp(expected,pcm,sizeof(expected))==0);
     }
     /* Reject every truncated byte prefix of a well-formed raw CPE;
      * preserve both parser output and caller bit cursor. */

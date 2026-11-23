@@ -84,7 +84,7 @@ int sauti_aac_lcm_decode(const SautiAacLcnConfig *cfg,SautiAacLcmState *state,co
     }
     while(pos&7u){
         uint32_t pad=1;
-        if(!get(au,length,&pos,1,&pad)||pad){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;goto fail0;}
+        if(!get(au,length,&pos,1,&pad)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;goto fail0;}
     }
     if((!cfg->er && pos!=length*8u)||pos>length*8u||used!=channels){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;goto fail0;}
     next->pns_seed=seed;

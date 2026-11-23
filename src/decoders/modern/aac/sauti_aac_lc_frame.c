@@ -181,7 +181,7 @@ int sauti_aac_lc_adts_mono_decode_ex(const uint8_t *frame,size_t length,
     /* ADTS bitstream is padded to a whole byte after ID_END. */
     while((pos&7u)!=0u){
         uint32_t pad=1;
-        if(!read(raw,raw_length,&pos,1,&pad) || pad){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
+        if(!read(raw,raw_length,&pos,1,&pad)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
     }
     if(pos!=raw_length*8u){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;return 0;}
     /* Once earlier frames were skipped, the overlap history cannot be
