@@ -43,6 +43,7 @@ typedef struct {
     SautiAacSbrHeader header;
     SautiAacSbrQuantState quant_state;
     SautiAacPsHeaderState ps;
+    uint32_t time_slots;                              /* SBR time slots per frame (numTimeSlots): 0 = 16 (1024 core samples); 15 for 960 */
 } SautiAacSbrPayloadState;
 
 typedef struct {
@@ -134,6 +135,7 @@ typedef struct {
     uint64_t frames;
     SautiAacSbrHeader header;
     SautiAacSbrQuantState quant_state[2];
+    uint32_t time_slots;                              /* as SautiAacSbrPayloadState */
 } SautiAacSbrPayloadCpeState;
 
 typedef struct {

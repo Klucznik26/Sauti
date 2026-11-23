@@ -32,6 +32,10 @@ int sauti_aac_lcn_decode(const SautiAacLcnConfig *config,SautiAacLcnState *state
  * CRC-16 over the header and the protected bits of the channel element (the first 192 bits after its id, plus for a CPE the first 128 bits of the second channel; zero-padded when shorter)
  * must match, otherwise 0 (malformed) and nothing changes. */
 int sauti_aac_lcn_decode_adts(const SautiAacLcnConfig *config,SautiAacLcnState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,const uint8_t adts_header[7],unsigned crc);
+/* The same for HE-AAC with 960 (DAB+): the SBR extension payload of the first SBR fill element (type 13 / 14) is not refused but reported (`bits` includes the 4-bit type nibble, as in
+ * SautiAacFillInfo); `sbr->present` = 0 when the access unit carries none.  The core PCM is the plain AAC-LC core signal at the core rate. */
+typedef struct { unsigned present, type; size_t start_bit, bits; } SautiAacLcnSbr;
+int sauti_aac_lcn_decode_sbr(const SautiAacLcnConfig *config,SautiAacLcnState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,SautiAacLcnSbr *sbr);
 /* Element level (shared with the multichannel decoder sauti_aac_lcm.h): the state pointers of one channel (pred / ltp may be NULL when the profile does not use them). */
 typedef struct { SautiAacLcSynthesis *syn; SautiAacPredState *pred; SautiAacLtpState *ltp; } SautiAacLcnChannel;
 unsigned sauti_aac_lcn_index(const SautiAacLcnConfig *config);       /* the packed index (rate + layout + profile flag) of a configuration */

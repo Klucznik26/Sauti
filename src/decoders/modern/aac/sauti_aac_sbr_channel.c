@@ -202,7 +202,7 @@ static int channel_frame_impl(SautiAacSbrChannel *ch,const float *core,const Sau
 #endif
     const int hbe_on=f->hbe.enabled!=0u;                  /* bs_harmonicSBR: low band and transposer lag the analysis by one frame */
     const unsigned R=ch->analysis_bands==16u?2u:1u;       /* 1: 2:1 / 8:3 (32 slots), 2: 4:1 (64 slots) */
-    const unsigned SLOTS=SAUTI_AAC_SBR_CHANNEL_SLOTS*R,HIST=2u+6u*R,MAXI=38u*R;
+    const unsigned SLOTS=ch->frame_slots?ch->frame_slots:SAUTI_AAC_SBR_CHANNEL_SLOTS*R,HIST=2u+6u*R,MAXI=SLOTS+6u*R;
     const unsigned rate=2u*R;                         /* QMF slots per time slot */
     unsigned elo[SAUTI_USAC_PVC_SLOTS],ehi[SAUTI_USAC_PVC_SLOTS];   /* the QMF slots of every envelope */
     for(unsigned e=0u;e<envs;e++){
@@ -213,7 +213,7 @@ static int channel_frame_impl(SautiAacSbrChannel *ch,const float *core,const Sau
     if(t0>6u*R || tN<SLOTS || tN>MAXI)return 0;
     for(unsigned e=0u;e<envs;e++)
         if(ehi[e]<=elo[e])return 0;
-    const unsigned core_len=ch->analysis_bands==24u?768u:1024u;
+    const unsigned core_len=ch->analysis_bands==24u?768u:(ch->frame_slots?ch->frame_slots*32u:1024u);
     if(ch->analysis_bands!=0u && ch->analysis_bands!=16u && ch->analysis_bands!=24u && ch->analysis_bands!=32u)return 0;
     if(core)for(unsigned i=0u;i<core_len;i++)if(!isfinite(core[i]))return 0;
     if(low_in && f->hbe.enabled)return 0;               /* the transposer works on the analysis of the core signal */
@@ -228,7 +228,7 @@ static int channel_frame_impl(SautiAacSbrChannel *ch,const float *core,const Sau
         if(!sauti_aac_sbr_qmf_analyze_24(core,768u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;
     }else if(ch->analysis_bands==16u){
         if(!sauti_aac_sbr_qmf_analyze_16(core,1024u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;
-    }else if(!sauti_aac_sbr_qmf_analyze_32(core,1024u,SLOTS,32u,low,SLOTS*32u,&next->analysis))return 0;
+    }else if(!sauti_aac_sbr_qmf_analyze_32(core,core_len,SLOTS,32u,low,SLOTS*32u,&next->analysis))return 0;
     SautiAacSbrComplex xlow[(SLOTS_MAX+14u)*32u];
     SautiUsacHbeCx xpv[(14u+64u)*64u];                /* transposer output of the frame, with the HIST slots before it */
     const SautiAacSbrComplex *lowsrc=low;
@@ -585,10 +585,11 @@ int sauti_aac_sbr_channel_synthesize(SautiAacSbrChannel *ch,
     SautiAacSbrQmfSynthWindowState synth=ch->synth;
     float out[4096];
     const unsigned half=ch->analysis_bands==16u?2u:1u;                    /* 4:1: 64 slots = two calls of 32 */
+    const unsigned slots=ch->frame_slots?ch->frame_slots:SAUTI_AAC_SBR_CHANNEL_SLOTS;
     for(unsigned h=0u;h<half;h++)
-        if(!sauti_aac_sbr_qmf_synth_64(grid+(size_t)h*SAUTI_AAC_SBR_CHANNEL_GRID,SAUTI_AAC_SBR_CHANNEL_GRID,SAUTI_AAC_SBR_CHANNEL_SLOTS,out+(size_t)h*2048u,2048u,&synth))return 0;
-    for(unsigned i=0u;i<2048u*half;i++)if(!isfinite(out[i]))return 0;
+        if(!sauti_aac_sbr_qmf_synth_64(grid+(size_t)h*SAUTI_AAC_SBR_CHANNEL_GRID,SAUTI_AAC_SBR_CHANNEL_GRID,slots,out+(size_t)h*2048u,2048u,&synth))return 0;
+    for(unsigned i=0u;i<slots*64u*half;i++)if(!isfinite(out[i]))return 0;
     ch->synth=synth;
-    memcpy(pcm,out,2048u*half*sizeof(float));
+    memcpy(pcm,out,(size_t)slots*64u*half*sizeof(float));
     return 1;
 }

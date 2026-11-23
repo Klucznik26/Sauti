@@ -117,7 +117,14 @@ unsigned sauti_aac_lcn_index(const SautiAacLcnConfig *cfg){
     if(cfg->er)return SAUTI_AAC_IDX(cfg->rate_index,cfg->frame960?SAUTI_AAC_LAYOUT_960:SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_ER_FLAG|(cfg->ltp?SAUTI_AAC_IDX_LTP_FLAG:0u);
     return cfg->main?(SAUTI_AAC_IDX(cfg->rate_index,cfg->frame960?SAUTI_AAC_LAYOUT_960:SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_MAIN_FLAG):cfg->ltp?(SAUTI_AAC_IDX(cfg->rate_index,SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_LTP_FLAG):SAUTI_AAC_IDX(cfg->rate_index,SAUTI_AAC_LAYOUT_960);
 }
+static int lcn_decode_impl(const SautiAacLcnConfig *cfg,SautiAacLcnState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,const uint8_t adts_header[7],unsigned adts_crc,SautiAacLcnSbr *sbr);
 int sauti_aac_lcn_decode_adts(const SautiAacLcnConfig *cfg,SautiAacLcnState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,const uint8_t adts_header[7],unsigned adts_crc){
+    return lcn_decode_impl(cfg,state,au,length,pcm,reason,adts_header,adts_crc,NULL);
+}
+int sauti_aac_lcn_decode_sbr(const SautiAacLcnConfig *cfg,SautiAacLcnState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,SautiAacLcnSbr *sbr){
+    return lcn_decode_impl(cfg,state,au,length,pcm,reason,NULL,0u,sbr);
+}
+static int lcn_decode_impl(const SautiAacLcnConfig *cfg,SautiAacLcnState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,const uint8_t adts_header[7],unsigned adts_crc,SautiAacLcnSbr *sbr){
     SautiAacReason local=SAUTI_AAC_REASON_INVALID_SCE;
     if(!reason)reason=&local;
     *reason=SAUTI_AAC_REASON_INVALID_SCE;
@@ -125,6 +132,7 @@ int sauti_aac_lcn_decode_adts(const SautiAacLcnConfig *cfg,SautiAacLcnState *sta
     if(!n || !state || !au || !pcm || length>SIZE_MAX/8u)return 0;
     const unsigned idx=sauti_aac_lcn_index(cfg);
     const unsigned channels=cfg->channel_config;
+    if(sbr)memset(sbr,0,sizeof(*sbr));
     SautiAacLcnState next=*state;
     float out[2][1024],mix[2*1024];
     int status=0,done=0;
@@ -140,6 +148,12 @@ int sauti_aac_lcn_decode_adts(const SautiAacLcnConfig *cfg,SautiAacLcnState *sta
         if(id==7u)break;
         if(id==6u){                                                           /* fill element: SBR / PS would change the output */
             const int s=sauti_aac_fill_skip_non_sbr(au,length,&pos,NULL);
+            if(s==-1 && sbr){                                                 /* HE-AAC: the caller takes the SBR extension payload (the first one; PS travels inside it) */
+                SautiAacFillInfo fill;
+                if(!sauti_aac_fill_parse(au,length,&pos,&fill))return 0;
+                if(!sbr->present && fill.sbr_candidate){sbr->present=1u;sbr->type=fill.extension_type;sbr->start_bit=fill.extension_start_bit;sbr->bits=fill.extension_bits;}
+                continue;
+            }
             if(s!=1){*reason=s==-1?SAUTI_AAC_REASON_UNSUPPORTED_FIL:SAUTI_AAC_REASON_INVALID_SCE;return s==-1?-1:0;}
             continue;
         }

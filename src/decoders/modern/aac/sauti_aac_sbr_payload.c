@@ -124,7 +124,9 @@ static int payload_parse_impl(
     if(!bits(packed,len,&pos,1u,&v))return 0;
     if(v && !bits(packed,len,&pos,4u,&v))return 0;
 
-    if(!sauti_aac_sbr_grid_parse(packed,len,&pos,16u,
+    const unsigned ts=state->time_slots?state->time_slots:16u;
+    if(ts<8u || ts>16u)return 0;
+    if(!sauti_aac_sbr_grid_parse(packed,len,&pos,ts,
                                 &result.grid))
         return 0;
     /* For the first 1024-sample/32-slot bridge, require complete
@@ -133,9 +135,9 @@ static int payload_parse_impl(
     if(stage)*stage=SAUTI_SBR_PAYLOAD_BORDERS;
     if(!allow_temporal &&
        (result.grid.env_border[0]!=0u ||
-        result.grid.env_border[result.grid.env_count]!=16u ||
+        result.grid.env_border[result.grid.env_count]!=ts ||
         result.grid.noise_border[0]!=0u ||
-        result.grid.noise_border[result.grid.noise_count]!=16u))
+        result.grid.noise_border[result.grid.noise_count]!=ts))
         return 0;
 
     if(stage)*stage=SAUTI_SBR_PAYLOAD_CONTROL;
@@ -375,9 +377,11 @@ int sauti_aac_sbr_payload_cpe_parse(
     if(!bits(packed,len,&pos,1u,&coupling))return 0;
     SautiAacSbrGrid grid[2];
     SautiAacSbrControl control[2];
-    if(!sauti_aac_sbr_grid_parse(packed,len,&pos,16u,&grid[0]))return 0;
+    const unsigned ts=state->time_slots?state->time_slots:16u;
+    if(ts<8u || ts>16u)return 0;
+    if(!sauti_aac_sbr_grid_parse(packed,len,&pos,ts,&grid[0]))return 0;
     if(coupling)grid[1]=grid[0];
-    else if(!sauti_aac_sbr_grid_parse(packed,len,&pos,16u,&grid[1]))return 0;
+    else if(!sauti_aac_sbr_grid_parse(packed,len,&pos,ts,&grid[1]))return 0;
     if(coupling){
         if(!cpe_control_parse(packed,len,&pos,&grid[0],&tables,0u,
                               &control[0]) ||
