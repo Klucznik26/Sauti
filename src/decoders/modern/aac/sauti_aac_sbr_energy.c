@@ -66,7 +66,7 @@ int sauti_aac_sbr_energy_dequant(const SautiAacSbrQuantFrame *quant,
     next.env_count = grid->env_count;
     next.noise_count = grid->noise_count;
     const unsigned fine =
-        (grid->frame_class == 0u && grid->env_count == 1u) ||
+        (grid->frame_class == 0u && grid->env_count == 1u && !grid->ld) ||
         amp_res == 0u;
 
     /* The ISO SBR formulas are exactly representable in double except
@@ -143,7 +143,7 @@ int sauti_aac_sbr_coupled_dequant(
         return 0;
 
     const int fine = (grid->frame_class == 0u &&
-                      grid->env_count == 1u) || amp_res == 0u;
+                      grid->env_count == 1u && !grid->ld) || amp_res == 0u;
     const double alpha = fine ? 0.5 : 1.0;
     const int pan_offset = fine ? 24 : 12;
     const double sqrt_two = 1.41421356237309504880168872420969808;

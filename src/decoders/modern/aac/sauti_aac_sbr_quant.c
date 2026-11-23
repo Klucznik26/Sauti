@@ -85,7 +85,7 @@ static void quant_mode(const SautiAacSbrGrid *grid,
                        const SautiAacSbrTables *tables,
                        const SautiAacSbrQuantState *state,
                        unsigned amp_res,unsigned balanced,QuantMode *mode){
-    mode->effective_amp=(grid->frame_class==0u && grid->env_count==1u)
+    mode->effective_amp=(grid->frame_class==0u && grid->env_count==1u && !grid->ld)
         ? 0u : amp_res;
     mode->factor=balanced?2u:1u;
     mode->bits=mode->effective_amp?(balanced?5u:6u):(balanced?6u:7u);
@@ -233,20 +233,20 @@ int sauti_aac_sbr_quant_decode_noise_only(const uint8_t *data,size_t size,size_t
     return 1;
 }
 
-int sauti_aac_sbr_quant_decode_cpe_uncoupled(
+int sauti_aac_sbr_quant_decode_cpe_uncoupled_amp(
     const uint8_t *data,size_t size,size_t *bit_offset,
     const SautiAacSbrGrid grid[2],const SautiAacSbrTables *tables,
-    const SautiAacSbrControl control[2],unsigned amp_res,
+    const SautiAacSbrControl control[2],const unsigned amp_res[2],
     SautiAacSbrQuantState state[2],SautiAacSbrQuantFrame out[2]){
     if(!data || !bit_offset || !grid || !tables || !control || !state || !out ||
        size>SIZE_MAX/8u || *bit_offset>size*8u ||
-       !validate(&grid[0],tables,&control[0],&state[0],amp_res,0u) ||
-       !validate(&grid[1],tables,&control[1],&state[1],amp_res,0u))return 0;
+       !validate(&grid[0],tables,&control[0],&state[0],amp_res[0],0u) ||
+       !validate(&grid[1],tables,&control[1],&state[1],amp_res[1],0u))return 0;
     size_t pos=*bit_offset;SautiAacSbrQuantState next_state[2]={state[0],state[1]};
     SautiAacSbrQuantFrame next[2]={{0}};QuantMode mode[2];
     for(unsigned ch=0u;ch<2u;ch++){
         next[ch].env_count=grid[ch].env_count;next[ch].noise_count=grid[ch].noise_count;
-        quant_mode(&grid[ch],tables,&state[ch],amp_res,0u,&mode[ch]);
+        quant_mode(&grid[ch],tables,&state[ch],amp_res[ch],0u,&mode[ch]);
         if(!decode_envelopes(data,size,&pos,&grid[ch],tables,&control[ch],&state[ch],&mode[ch],&next[ch]))return 0;
     }
     for(unsigned ch=0u;ch<2u;ch++)
@@ -254,4 +254,12 @@ int sauti_aac_sbr_quant_decode_cpe_uncoupled(
     for(unsigned ch=0u;ch<2u;ch++)quant_commit(&next_state[ch],tables,&grid[ch],&mode[ch],0u,&next[ch]);
     state[0]=next_state[0];state[1]=next_state[1];out[0]=next[0];out[1]=next[1];*bit_offset=pos;
     return 1;
+}
+int sauti_aac_sbr_quant_decode_cpe_uncoupled(
+    const uint8_t *data,size_t size,size_t *bit_offset,
+    const SautiAacSbrGrid grid[2],const SautiAacSbrTables *tables,
+    const SautiAacSbrControl control[2],unsigned amp_res,
+    SautiAacSbrQuantState state[2],SautiAacSbrQuantFrame out[2]){
+    const unsigned amp[2]={amp_res,amp_res};
+    return sauti_aac_sbr_quant_decode_cpe_uncoupled_amp(data,size,bit_offset,grid,tables,control,amp,state,out);
 }

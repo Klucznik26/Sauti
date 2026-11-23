@@ -1,6 +1,7 @@
 #ifndef SAUTI_AAC_ER_H
 #define SAUTI_AAC_ER_H
 #include "sauti_aac_cpe.h"
+#include "sauti_aac_syntax.h"
 #include "sauti_aac_layout.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -42,6 +43,7 @@ typedef struct {
     unsigned ld_sbr;           /* ELD only: ldSbrPresentFlag */
     unsigned ld_sbr_downsampled; /* ELD only: ldSbrSamplingRate (1 = the SBR output has twice the core rate) */
     unsigned ld_sbr_crc;
+    SautiAacSbrHeader ld_header; /* ELD with SBR: the (first) ld_sbr_header() of the configuration (valid when ld_sbr) */
     unsigned bits;             /* number of bits the configuration occupies (a LATM StreamMuxConfig continues right after it) */
 } SautiAacErAsc;
 int sauti_aac_er_asc_parse(const uint8_t *asc,size_t length,SautiAacErAsc *out);
@@ -66,6 +68,8 @@ void sauti_aac_er_state_init(SautiAacErState *state);
 
 /* Decode one access unit to interleaved float PCM (channels x frame_samples).  Atomic: on failure the state and `pcm` are unchanged.
  * 1 decoded, 0 malformed / truncated, -1 valid but unsupported tool (gain control, LTP, ...). */
+/* The same, and *end_bit (when not NULL) receives the bit position after the channel element(s): what follows is the SBR payload of AAC-ELD with the low-delay SBR tool (sauti_aac_sbr_payload_ld_parse). */
+int sauti_aac_er_decode_ex(const SautiAacErConfig *config,SautiAacErState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,size_t *end_bit);
 int sauti_aac_er_decode(const SautiAacErConfig *config,SautiAacErState *state,
                         const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason);
 #endif

@@ -64,20 +64,27 @@ int sauti_aac_er_asc_parse(const uint8_t *asc,size_t length,SautiAacErAsc *out){
             uint32_t rate=0,crc=0;
             if(!get(asc,length,&pos,1,&rate) || !get(asc,length,&pos,1,&crc))return 0;
             a.ld_sbr_downsampled=rate;a.ld_sbr_crc=crc;
-            /* the ld_sbr_header()s follow: they are parsed by the SBR decoder from the first frames' data; here we only need to find the end of the config */
-        }
-        if(!sbr){
-            for(;;){                                                          /* ELD extension loop: types other than ELDEXT_TERM (0) carry a length and are skipped */
-                uint32_t type=0,len=0,add=0;
-                if(!get(asc,length,&pos,4,&type))return 0;
-                if(type==0u)break;
-                if(!get(asc,length,&pos,4,&len))return 0;
-                if(len==15u){if(!get(asc,length,&pos,8,&add))return 0;len+=add;if(add==255u){if(!get(asc,length,&pos,16,&add))return 0;len+=add-15u;}}
-                for(uint32_t i=0;i<len;i++)if(!get(asc,length,&pos,8,&v))return 0;
+            /* ld_sbr_header(): one sbr_header() per channel element (1 for channel configurations 1 and 2) */
+            {
+                const unsigned headers=chan==1u||chan==2u?1u:chan==3u?2u:chan==7u?4u:chan>=4u&&chan<=6u?3u:0u;
+                if(!headers)return 0;
+                for(unsigned h=0u;h<headers;h++){
+                    SautiAacSbrHeader hd;
+                    if(!sauti_aac_sbr_header_parse(asc,length,&pos,&hd))return 0;
+                    if(h==0u)a.ld_header=hd;
+                }
             }
         }
+        for(;;){                                                          /* ELD extension loop: types other than ELDEXT_TERM (0) carry a length and are skipped */
+            uint32_t type=0,len=0,add=0;
+            if(!get(asc,length,&pos,4,&type))return 0;
+            if(type==0u)break;
+            if(!get(asc,length,&pos,4,&len))return 0;
+            if(len==15u){if(!get(asc,length,&pos,8,&add))return 0;len+=add;if(add==255u){if(!get(asc,length,&pos,16,&add))return 0;len+=add-15u;}}
+            for(uint32_t i=0;i<len;i++)if(!get(asc,length,&pos,8,&v))return 0;
+        }
     }
-    if(aot!=SAUTI_AAC_AOT_ER_ELD || !a.ld_sbr){
+    {
         if(!get(asc,length,&pos,2,&ep))return 0;                              /* epConfig */
         if(ep)return -1;
     }
@@ -248,7 +255,7 @@ static int synthesize_channel(const SautiAacErConfig *cfg,unsigned idx,SautiAacE
     if(cfg->aot==SAUTI_AAC_AOT_ER_LD)return ld_synthesis(state,n,data->ics.window_shape,s,pcm);
     return eld_synthesis(state,n,s,pcm);
 }
-int sauti_aac_er_decode(const SautiAacErConfig *cfg,SautiAacErState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason){
+int sauti_aac_er_decode_ex(const SautiAacErConfig *cfg,SautiAacErState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,size_t *end_bit){
     SautiAacReason local=SAUTI_AAC_REASON_INVALID_SCE;
     if(!reason)reason=&local;
     *reason=SAUTI_AAC_REASON_INVALID_SCE;
@@ -298,6 +305,10 @@ int sauti_aac_er_decode(const SautiAacErConfig *cfg,SautiAacErState *state,const
         }
     }
     *state=next;
+    if(end_bit)*end_bit=pos;
     *reason=SAUTI_AAC_REASON_OK;
     return 1;
+}
+int sauti_aac_er_decode(const SautiAacErConfig *cfg,SautiAacErState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason){
+    return sauti_aac_er_decode_ex(cfg,state,au,length,pcm,reason,NULL);
 }

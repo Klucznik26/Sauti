@@ -276,4 +276,19 @@ static inline unsigned sauti_aac_sbr_env_delta(const SautiAacSbrPayloadFrame *f,
     return 1u;
 }
 
+/* SBR payload of AAC-LD / AAC-ELD (low delay): NOT a FIL element, the bits that follow the channel element of the access unit.  Layout (ISO/IEC 14496-3 4.5.2.8, ld): [bs_sbr_crc_bits (10) when the ASC says so]
+ * bs_header_flag [sbr_header()] bs_data_extra [reserved] (CPE: bs_coupling) grid(s) (low-delay grid, sauti_aac_sbr_grid_parse_ld) dtdf / invf / envelope / noise / harmonics / bs_extended_data (must be 0).
+ * Borders are in QMF slots (the frame has `time_slots` 16 or 15 of them): the frames returned have slot_scale 1 (env_edges == borders).  `state` starts zeroed except `header` (the ld_sbr_header() of the ASC,
+ * parsed by the caller) with `have_header` 1, `time_slots` and `crc` set.  1 parsed, 0 malformed.  Atomic. */
+typedef struct {
+    uint32_t have_header;
+    uint64_t frames;
+    SautiAacSbrHeader header;
+    SautiAacSbrQuantState quant_state[2];
+    uint32_t time_slots;              /* 16 (frame 512) or 15 (480) */
+    uint32_t crc;                     /* ldSbrCrcFlag */
+} SautiAacSbrPayloadLdState;
+int sauti_aac_sbr_payload_ld_parse(const uint8_t *bytes,size_t bytes_count,size_t bit_start,size_t bit_end,unsigned output_rate,unsigned channels,
+                                   SautiAacSbrPayloadLdState *state,SautiAacSbrPayloadFrame out[2],unsigned *coupling);
+
 #endif

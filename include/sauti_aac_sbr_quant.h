@@ -59,4 +59,7 @@ int sauti_aac_sbr_quant_decode_cpe_uncoupled(
     const SautiAacSbrGrid grid[2],const SautiAacSbrTables *tables,
     const SautiAacSbrControl control[2],unsigned amp_res,
     SautiAacSbrQuantState state[2],SautiAacSbrQuantFrame out[2]);
+/* The same with an amplitude resolution of its own for each channel (AAC-ELD: the one-envelope grids carry bs_amp_res). */
+int sauti_aac_sbr_quant_decode_cpe_uncoupled_amp(const uint8_t *data,size_t size,size_t *bit_offset,const SautiAacSbrGrid grid[2],const SautiAacSbrTables *tables,
+    const SautiAacSbrControl control[2],const unsigned amp_res[2],SautiAacSbrQuantState state[2],SautiAacSbrQuantFrame out[2]);
 #endif

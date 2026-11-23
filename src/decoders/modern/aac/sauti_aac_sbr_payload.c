@@ -315,7 +315,7 @@ int sauti_aac_sbr_payload_frame_finish(SautiAacSbrPayloadFrame *frame,
     result.quant=*quant;result.energy=*energy;result.master=*master;
     result.tables=*tables;result.patches=*patches;
     memcpy(result.harmonic,harmonic,tables->n_high);
-    const unsigned scale=header->slot_scale==4u?4u:2u;
+    const unsigned scale=header->slot_scale==4u?4u:header->slot_scale==1u?1u:2u;
     for(unsigned i=0;i<=grid->env_count;i++)
         result.env_edges[i]=scale*grid->env_border[i];
     for(unsigned i=0;i<=grid->noise_count;i++)
@@ -768,5 +768,72 @@ int sauti_aac_sbr_temporal_hf_targets(
             }
     }
     *out=next;
+    return 1;
+}
+
+/* ---- AAC-LD / AAC-ELD ---- */
+int sauti_aac_sbr_payload_ld_parse(const uint8_t *bytes,size_t bytes_count,size_t bit_start,size_t bit_end,unsigned output_rate,unsigned channels,
+                                   SautiAacSbrPayloadLdState *state,SautiAacSbrPayloadFrame out[2],unsigned *coupling){
+    if(!bytes || !state || !out || !coupling || (channels!=1u && channels!=2u) || bytes_count>SIZE_MAX/8u || bit_start>bit_end || bit_end>bytes_count*8u ||
+       (state->time_slots!=15u && state->time_slots!=16u) || state->crc>1u)return 0;
+    size_t pos=bit_start;
+    uint32_t v=0,received_crc=0;
+    SautiAacSbrPayloadLdState next=*state;
+    if(next.crc && !bits(bytes,bytes_count,&pos,10u,&received_crc))return 0;
+    const size_t crc_start=pos;
+    if(!bits(bytes,bytes_count,&pos,1u,&v))return 0;
+    if(v){if(!sauti_aac_sbr_header_parse(bytes,bytes_count,&pos,&next.header))return 0;next.have_header=1u;}
+    else if(!next.have_header)return 0;
+    SautiAacSbrHeader header=next.header;
+    SautiAacSbrMaster master;SautiAacSbrTables tables;SautiAacSbrPatches patches;
+    if(!sauti_aac_sbr_payload_build(&header,output_rate,&master,&tables,&patches))return 0;
+    header.slot_scale=1u;
+    if(!bits(bytes,bytes_count,&pos,1u,&v))return 0;                              /* bs_data_extra */
+    if(v){uint32_t reserved=0u;if(!bits(bytes,bytes_count,&pos,4u,&reserved) || (channels==2u && !bits(bytes,bytes_count,&pos,4u,&reserved)))return 0;}
+    uint32_t cpl=0u;
+    if(channels==2u && !bits(bytes,bytes_count,&pos,1u,&cpl))return 0;
+    SautiAacSbrGrid grid[2];unsigned amp[2]={header.amp_res,header.amp_res};
+    for(unsigned c=0u;c<channels;c++){
+        if(c==1u && cpl){grid[1]=grid[0];amp[1]=amp[0];break;}
+        if(!sauti_aac_sbr_grid_parse_ld(bytes,bytes_count,&pos,next.time_slots,&amp[c],&grid[c]))return 0;
+    }
+    SautiAacSbrControl control[2];SautiAacSbrQuantFrame quant[2];SautiAacSbrEnergyFrame energy[2];
+    if(channels==1u){
+        if(!sauti_aac_sbr_control_parse(bytes,bytes_count,&pos,&grid[0],&tables,&control[0]) ||
+           !sauti_aac_sbr_quant_decode(bytes,bytes_count,&pos,&grid[0],&tables,&control[0],amp[0],0u,&next.quant_state[0],&quant[0]) ||
+           !sauti_aac_sbr_energy_dequant(&quant[0],&grid[0],&tables,amp[0],0u,&energy[0]))return 0;
+    }else if(cpl){
+        if(!cpe_control_parse(bytes,bytes_count,&pos,&grid[0],&tables,0u,&control[0]) || !cpe_control_parse(bytes,bytes_count,&pos,&grid[1],&tables,1u,&control[1]))return 0;
+        memcpy(control[0].invf_mode,control[1].invf_mode,sizeof(control[0].invf_mode));
+        if(!sauti_aac_sbr_quant_decode(bytes,bytes_count,&pos,&grid[0],&tables,&control[0],amp[0],0u,&next.quant_state[0],&quant[0]) ||
+           !sauti_aac_sbr_quant_decode(bytes,bytes_count,&pos,&grid[1],&tables,&control[1],amp[1],1u,&next.quant_state[1],&quant[1]) ||
+           !sauti_aac_sbr_coupled_dequant(&quant[0],&quant[1],&grid[0],&tables,amp[0],&energy[0],&energy[1]))return 0;
+    }else{
+        if(!cpe_control_parse(bytes,bytes_count,&pos,&grid[0],&tables,0u,&control[0]) || !cpe_control_parse(bytes,bytes_count,&pos,&grid[1],&tables,0u,&control[1]))return 0;
+        for(unsigned c=0u;c<2u;c++)for(unsigned i=0u;i<tables.n_noise;i++){if(!bits(bytes,bytes_count,&pos,2u,&v))return 0;control[c].invf_mode[i]=(uint8_t)v;}
+        if(grid[0].ld==0u || grid[1].ld==0u)return 0;
+        if(!sauti_aac_sbr_quant_decode_cpe_uncoupled_amp(bytes,bytes_count,&pos,grid,&tables,control,amp,next.quant_state,quant) ||
+           !sauti_aac_sbr_energy_dequant(&quant[0],&grid[0],&tables,amp[0],0u,&energy[0]) || !sauti_aac_sbr_energy_dequant(&quant[1],&grid[1],&tables,amp[1],0u,&energy[1]))return 0;
+    }
+    uint8_t harmonic[2][SAUTI_AAC_SBR_MAX_MASTER_BANDS]={{0}};
+    for(unsigned c=0u;c<channels;c++){
+        if(!bits(bytes,bytes_count,&pos,1u,&v))return 0;
+        if(v)for(unsigned i=0u;i<tables.n_high;i++){if(!bits(bytes,bytes_count,&pos,1u,&v))return 0;harmonic[c][i]=(uint8_t)v;}
+    }
+    if(!bits(bytes,bytes_count,&pos,1u,&v) || v || pos>bit_end)return 0;           /* bs_extended_data: PS in ELD is not decoded here */
+    if(next.crc){
+        uint16_t calculated=0u;
+        if(!sauti_aac_sbr_crc10_bits(bytes,bytes_count,crc_start,pos-crc_start,&calculated) || calculated!=received_crc)return 0;
+    }
+    SautiAacSbrPayloadFrame result[2];memset(result,0,sizeof(result));
+    for(unsigned c=0u;c<channels;c++){
+        if(!sauti_aac_sbr_payload_frame_finish(&result[c],&header,&grid[c],&control[c],&quant[c],&energy[c],&master,&tables,&patches,harmonic[c],(uint32_t)(pos-bit_start)))return 0;
+        result[c].transient_env=grid[c].frame_class==1u?grid[c].pointer:grid[c].env_count;     /* LD_TRAN: from the table; FIXFIX: none */
+        result[c].attack[0]=0u;
+        if(result[c].transient_env<grid[c].env_count)result[c].attack[result[c].transient_env]=result[c].transient_env!=0u?1u:0u;
+    }
+    next.frames++;
+    for(unsigned c=0u;c<channels;c++)out[c]=result[c];
+    *coupling=cpl;*state=next;
     return 1;
 }

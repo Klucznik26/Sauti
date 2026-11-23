@@ -19,6 +19,7 @@ typedef struct {
     uint8_t freq_res[SAUTI_AAC_SBR_MAX_ENV];
     uint8_t env_border[SAUTI_AAC_SBR_MAX_ENV + 1u];
     uint8_t noise_border[3];
+    uint32_t ld;                    /* 1: low-delay grid (AAC-LD / ELD with SBR): borders in QMF slots, and bs_amp_res of a one-envelope FIXFIX grid is transmitted instead of being 0 */
 } SautiAacSbrGrid;
 
 /* time_slots=16 for 1024-sample AAC, or 15 for 960-sample AAC.
@@ -28,6 +29,9 @@ int sauti_aac_sbr_grid_parse(const uint8_t *data, size_t size,
                              size_t *bit_offset, unsigned time_slots,
                              SautiAacSbrGrid *out);
 /* The same with the largest accepted envelope count chosen by the caller (5 classic, 8 for USAC). */
+/* sbr_grid() of AAC-LD / AAC-ELD (ISO/IEC 14496-3 4.6.18, low delay): bs_frame_class has ONE bit (0 FIXFIX, 1 LD_TRAN); `time_slots` 16 (frame 512) or 15 (480); *amp_res receives the transmitted bs_amp_res of
+ * a one-envelope FIXFIX grid (else untouched), `grid->ld` is set. */
+int sauti_aac_sbr_grid_parse_ld(const uint8_t *data, size_t size, size_t *bit_offset, unsigned time_slots, unsigned *amp_res, SautiAacSbrGrid *out);
 int sauti_aac_sbr_grid_parse_max(const uint8_t *data, size_t size,
                                  size_t *bit_offset, unsigned time_slots,
                                  unsigned max_env, SautiAacSbrGrid *out);
