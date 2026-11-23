@@ -496,14 +496,14 @@ static void lpd_overlap(const SautiUsacLpdState *st, unsigned ccfl, float *ovl) 
     for (i = LEN_SUBFR + delay + fac; i < ccfl; i++) ovl[i] = 0.0f;
 }
 /* the long-term post-filter over the start of the FD frame (out[0..704) are replaced) */
-static int bpf_continue(SautiUsacLpdState *st, int is_short, float *out) {
+static int bpf_continue(SautiUsacLpdState *st, unsigned ccfl, int is_short, float *out) {
     float synth_buf[MAX_PITCH + SAUTI_LPD_SYNTH_DELAY_MAX + 1024 + 64], sig[1024 + 64], gain[16];
     int pitch[16];
-    const unsigned by2 = 7u, sf = 8u;
+    const unsigned sf = 2u * (ccfl / 256u), by2 = sf - 1u;                       /* ixheaacd_lpd_bpf_fix: lpd_sbf_len 8 / 6 (1024 / 768), the synthesis delay (by2 * 64) 448 / 320 */
     unsigned i, k;
     memset(synth_buf, 0, sizeof synth_buf);
-    memcpy(synth_buf, st->synth_prev, (MAX_PITCH + 448u) * sizeof(float));
-    memcpy(synth_buf + MAX_PITCH - LEN_SUBFR, out, 1024u * sizeof(float));      /* the reference copies synth_delay + ccfl + 64 samples from the frame buffer: what lies behind the frame is not part of the output */
+    memcpy(synth_buf, st->synth_prev, (MAX_PITCH + by2 * LEN_SUBFR) * sizeof(float));
+    memcpy(synth_buf + MAX_PITCH - LEN_SUBFR, out, ccfl * sizeof(float));      /* the reference copies synth_delay + ccfl + 64 samples from the frame buffer: what lies behind the frame is not part of the output */
     for (i = 0; i < by2; i++) { pitch[i] = st->pitch_prev[i]; gain[i] = st->gain_prev[i]; }
     for (i = by2; i < sf + 3u; i++) { pitch[i] = 64; gain[i] = 0.0f; }
     if (st->mode_prev == 0) { pitch[by2] = pitch[by2 - 1u]; gain[by2] = gain[by2 - 1u]; if (!is_short) { pitch[by2 + 1u] = pitch[by2]; gain[by2 + 1u] = gain[by2]; } }
@@ -512,14 +512,14 @@ static int bpf_continue(SautiUsacLpdState *st, int is_short, float *out) {
         for (i = 0; i < by2 + 2u; i++) {
             const int tp = pitch[i];
             if ((int)(i * LEN_SUBFR + MAX_PITCH) < tp) return 0;
-            if ((int)(i * LEN_SUBFR + MAX_PITCH) - tp >= 1883 || i * LEN_SUBFR + LEN_SUBFR > 1024u || (int)(i * LEN_SUBFR + LEN_SUBFR) - tp > 1024) return 0;
+            if ((int)(i * LEN_SUBFR + MAX_PITCH) - tp >= 1883 || i * LEN_SUBFR + LEN_SUBFR > ccfl || (int)(i * LEN_SUBFR + LEN_SUBFR) - tp > (int)ccfl) return 0;
             if (gain[i] > 0.0f) {
                 float corr = 0.0f, en = 1e-6f;
                 for (k = 0; k < LEN_SUBFR; k++) { corr += synth[i * LEN_SUBFR + k] * synth[(int)(i * LEN_SUBFR) - tp + (int)k]; en += synth[(int)(i * LEN_SUBFR) - tp + (int)k] * synth[(int)(i * LEN_SUBFR) - tp + (int)k]; }
                 gain[i] = corr / en;
             }
         }
-        if (!bass_postfilter(synth, pitch, gain, sig, (int)((sf + 2u) * LEN_SUBFR + LEN_SUBFR), (int)(1024u - (sf + 4u) * LEN_SUBFR), st->bpf_prev)) return 0;
+        if (!bass_postfilter(synth, pitch, gain, sig, (int)((sf + 2u) * LEN_SUBFR + LEN_SUBFR), (int)(ccfl - (sf + 4u) * LEN_SUBFR), st->bpf_prev)) return 0;
     }
     memcpy(out, sig, ((sf + 2u) * LEN_SUBFR + LEN_SUBFR) * sizeof(float));
     return 1;
@@ -534,7 +534,7 @@ int sauti_usac_lpd_fd_frame(SautiUsacLpdState *st, unsigned ccfl, unsigned seq, 
     lpd_overlap(st, ccfl, ovl);
     if (seq == 0u) {                                     /* ONLY_LONG after LPD: the reference overlaps the whole frame with a full sine slope and ignores the FAC data (LONG_START after LPD is STOP_START, LONG_STOP stays: both take the path below) */
         for (i = 0; i < ccfl; i++) out[i] = x[i] * sine_win(ccfl, i) + ovl[i] * sine_win(ccfl, ccfl - 1u - i);
-        if (!bpf_continue(st, 0, out)) return 0;
+        if (!bpf_continue(st, ccfl, 0, out)) return 0;
         st->prev_lpd = 0;
         return 1;
     }
@@ -551,7 +551,7 @@ int sauti_usac_lpd_fd_frame(SautiUsacLpdState *st, unsigned ccfl, unsigned seq, 
         for (; i < ccfl; i++) out[i] = x[i];
         for (i = 0; i < n_flat; i++) out[i] = ovl[i];
     }
-    if (!bpf_continue(st, 0, out)) return 0;
+    if (!bpf_continue(st, ccfl, 0, out)) return 0;
     st->prev_lpd = 0;
     return 1;
 }
@@ -582,8 +582,8 @@ int sauti_usac_lpd_fd_short_begin(const SautiUsacLpdState *st, unsigned ccfl, co
     if (fac && fac->present && !fd_fac_signal(st, fac, ccfl / 16u, ccfl / 8u, facsig)) return 0;
     return 1;
 }
-int sauti_usac_lpd_fd_finish(SautiUsacLpdState *st, int is_short, float *out) {
-    if (!bpf_continue(st, is_short, out)) return 0;
+int sauti_usac_lpd_fd_finish(SautiUsacLpdState *st, unsigned ccfl, int is_short, float *out) {
+    if (!bpf_continue(st, ccfl, is_short, out)) return 0;
     st->prev_lpd = 0;
     return 1;
 }

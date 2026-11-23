@@ -53,5 +53,5 @@ int sauti_usac_lpd_fd_frame(SautiUsacLpdState *st, unsigned ccfl, unsigned seq, 
 /* The same for an FD frame with eight short windows (lfac = ccfl / 16): returns the overlap the LPD core leaves (ovl[ccfl], PCM scale) and the FAC signal (facsig[2 * 64]); the caller assembles the output
  * (the first window with the transition slope, + facsig at [ccfl / 2, ccfl / 2 + 2 * 64) ) and ends with lpd_fd_finish, which continues the long-term post-filter over the start of out[] and leaves the LPD state. */
 int sauti_usac_lpd_fd_short_begin(const SautiUsacLpdState *st, unsigned ccfl, const SautiUsacLpdFac *fac, float *ovl, float *facsig);
-int sauti_usac_lpd_fd_finish(SautiUsacLpdState *st, int is_short, float *out);
+int sauti_usac_lpd_fd_finish(SautiUsacLpdState *st, unsigned ccfl, int is_short, float *out);
 #endif

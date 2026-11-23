@@ -96,7 +96,7 @@ static void test_random(void) {
                 fb.data = buf; fb.nbits = b.nbits; fb.pos = (size_t)(rand() % 64);
                 memset(&fac, 0, sizeof fac);
                 if (sauti_usac_lpd_fac_parse(&fb, (it & 8u) ? 64u : 128u, 1, &fac) != 1) memset(&fac, 0, sizeof fac);
-                if (seq == 2) { rr = sauti_usac_lpd_fd_short_begin(&c, 1024, &fac, ovl, fs2); if (rr == 1) { memcpy(o, x, sizeof o); rr = sauti_usac_lpd_fd_finish(&c, 1, o); } }
+                if (seq == 2) { rr = sauti_usac_lpd_fd_short_begin(&c, 1024, &fac, ovl, fs2); if (rr == 1) { memcpy(o, x, sizeof o); rr = sauti_usac_lpd_fd_finish(&c, 1024u, 1, o); } }
                 else rr = sauti_usac_lpd_fd_frame(&c, 1024, (unsigned)seq, x, &fac, o);
                 if (rr == 1) for (i = 0; i < 1024; i++) if (!isfinite(o[i])) { CHECK(0, "non-finite FD output"); break; }
             }

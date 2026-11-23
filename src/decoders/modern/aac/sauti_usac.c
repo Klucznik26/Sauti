@@ -348,19 +348,20 @@ static int synthesize(const SautiUsacConfig *cfg, Fd *fd, SautiUsacChannel *ch, 
     if (fd->seq == 2u) { for (w = 0; w < 8u; w++) if (!sauti_aac_imdct(fd->coef + w * fd->stride, fd->wlen, time + w * 2u * fd->wlen)) return 0; }
     else if (!sauti_aac_imdct(fd->coef, n, time)) return 0;
     if (ch->lpd.prev_lpd && fd->seq == 2u) {                                /* eight short windows after an LPD frame: the first window starts with the transition slope (sine, 128 samples) over the LPD overlap, the FAC fills [512, 640) */
-        float ovl[1024], fs[128], prev[1024], o[1024], x0[1024];
+        float ovl[1024], fs[192], prev[1024], o[1024], x0[1024];
+        const unsigned wl = fd->wlen, base = n / 2u - wl / 2u, half = wl / 2u;                 /* the first short window starts at base (448 at 1024, 336 at 768); its transition slope is wl samples long */
         const float sc = 1.0f / (SAUTI_USAC_OUT_SCALE * 32768.0f);
         int r = sauti_usac_lpd_fd_short_begin(&ch->lpd, n, &fd->fac, ovl, fs);
         if (r != 1) return r;
         memset(prev, 0, sizeof prev);
-        for (i = 0; i < 448u; i++) prev[i] = ovl[i] * sc;
-        if (fd->fac.present) { for (i = 0; i < 64u; i++) prev[448u + i] = ovl[448u + i] * sc; memset(time, 0, 64u * sizeof(float)); }
-        else for (i = 0; i < 128u; i++) prev[448u + i] = ovl[448u + i] * sc * (float)sin(3.14159265358979323846 * (127.0 - (double)i + 0.5) / 256.0);
+        for (i = 0; i < base; i++) prev[i] = ovl[i] * sc;
+        if (fd->fac.present) { for (i = 0; i < half; i++) prev[base + i] = ovl[base + i] * sc; memset(time, 0, half * sizeof(float)); }
+        else for (i = 0; i < wl; i++) prev[base + i] = ovl[base + i] * sc * (float)sin(3.14159265358979323846 * ((double)wl - 1.0 - (double)i + 0.5) / (2.0 * (double)wl));
         (void)x0;
         if (!sauti_aac_window_synth_n(n, 2u, 0u, fd->shape, time, prev, pcm, next)) return 0;
         for (i = 0; i < n; i++) o[i] = pcm[i] * (SAUTI_USAC_OUT_SCALE * 32768.0f);
-        if (fd->fac.present) for (i = 0; i < 128u; i++) o[512u + i] += fs[i];
-        r = sauti_usac_lpd_fd_finish(&ch->lpd, 1, o);
+        if (fd->fac.present) for (i = 0; i < wl; i++) o[n / 2u + i] += fs[i];
+        r = sauti_usac_lpd_fd_finish(&ch->lpd, n, 1, o);
         if (r != 1) return r;
         memcpy(ch->overlap, next, n * sizeof(float));
         for (i = 0; i < n; i++) pcm[i] = o[i] * (1.0f / 32768.0f);
