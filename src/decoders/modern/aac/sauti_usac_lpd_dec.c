@@ -486,14 +486,14 @@ static int bass_postfilter(const float *synth_sig, const int *pitch, const float
 
 
 /* ---- LPD -> FD ---- */
-static int fd_fac_signal(const SautiUsacLpdState *st, const SautiUsacLpdFac *fac, unsigned lfac, float *tmp);
+static int fd_fac_signal(const SautiUsacLpdState *st, const SautiUsacLpdFac *fac, unsigned lfac, unsigned center, float *tmp);
 /* The part of the LPD synthesis that is still to be output when an FD frame follows (the look-ahead of the post-filter) and the memory that the FAC of the FD frame needs.  ccfl = 1024 only. */
-static void lpd_overlap(const SautiUsacLpdState *st, float *ovl) {
-    const unsigned fac = 128u, delay = 448u;
+static void lpd_overlap(const SautiUsacLpdState *st, unsigned ccfl, float *ovl) {
+    const unsigned fac = ccfl / 8u, lpd_sbf_len = 2u * (ccfl / 256u), delay = (lpd_sbf_len - 1u) * LEN_SUBFR;       /* ixheaacd_lpd_dec_update: 448 / fac 128 at 1024, 320 / 96 at 768 */
     unsigned i;
     for (i = 0; i < LEN_SUBFR + delay; i++) ovl[i] = st->synth_prev[MAX_PITCH - LEN_SUBFR + i];
     for (i = 0; i < 2u * fac; i++) ovl[LEN_SUBFR + delay - fac + i] = st->exc_prev[i + 1u];
-    for (i = LEN_SUBFR + delay + fac; i < 1024u; i++) ovl[i] = 0.0f;
+    for (i = LEN_SUBFR + delay + fac; i < ccfl; i++) ovl[i] = 0.0f;
 }
 /* the long-term post-filter over the start of the FD frame (out[0..704) are replaced) */
 static int bpf_continue(SautiUsacLpdState *st, int is_short, float *out) {
@@ -531,7 +531,7 @@ int sauti_usac_lpd_fd_frame(SautiUsacLpdState *st, unsigned ccfl, unsigned seq, 
     unsigned i;
     if (ccfl != 1024u && ccfl != 768u) return -1;
     if (st->fscale < 6000u || st->fscale > 24000u) return -1;
-    lpd_overlap(st, ovl);
+    lpd_overlap(st, ccfl, ovl);
     if (seq == 0u) {                                     /* ONLY_LONG after LPD: the reference overlaps the whole frame with a full sine slope and ignores the FAC data (LONG_START after LPD is STOP_START, LONG_STOP stays: both take the path below) */
         for (i = 0; i < ccfl; i++) out[i] = x[i] * sine_win(ccfl, i) + ovl[i] * sine_win(ccfl, ccfl - 1u - i);
         if (!bpf_continue(st, 0, out)) return 0;
@@ -541,7 +541,7 @@ int sauti_usac_lpd_fd_frame(SautiUsacLpdState *st, unsigned ccfl, unsigned seq, 
     for (i = 0; i < n_flat + lfac; i++) out[i] = ovl[i];
     if (fac && fac->present) {                           /* the aliasing cancellation signal of the FD frame */
         float tmp[256];
-        if (!fd_fac_signal(st, fac, lfac, tmp)) return 0;
+        if (!fd_fac_signal(st, fac, lfac, ccfl / 8u, tmp)) return 0;
         for (i = n_flat + lfac; i < n_flat + n_trans; i++) out[i] = x[i] * sine_win(n_trans, lfac + (i - (n_flat + lfac))) + tmp[i - (n_flat + lfac)];
         for (; i < n_flat + 3u * lfac; i++) out[i] = x[i] + tmp[i - (n_flat + lfac)];
         for (; i < ccfl; i++) out[i] = x[i];
@@ -557,7 +557,7 @@ int sauti_usac_lpd_fd_frame(SautiUsacLpdState *st, unsigned ccfl, unsigned seq, 
 }
 
 /* the aliasing cancellation signal of an FD frame after an LPD frame, 2 * lfac samples (PCM scale); lfac = ccfl / 8 (long) or ccfl / 16 (eight short windows) */
-static int fd_fac_signal(const SautiUsacLpdState *st, const SautiUsacLpdFac *fac, unsigned lfac, float *tmp) {
+static int fd_fac_signal(const SautiUsacLpdState *st, const SautiUsacLpdFac *fac, unsigned lfac, unsigned center, float *tmp) {
     int32_t iv[192];
     float fx[192] = { 0 }, y[2 * 192 + 16];
     const float gain = (float)pow(10.0, (double)fac->gain / 28.0);
@@ -569,7 +569,7 @@ static int fd_fac_signal(const SautiUsacLpdState *st, const SautiUsacLpdFac *fac
     synth_weighted_inplace(st->lp_prev + 17, y + 16, (int)(2u * lfac));
     for (i = 0; i < lfac; i++) {
         const float w0 = sine_win(2u * lfac, lfac - 1u - i) * sine_win(2u * lfac, lfac + i), w1 = 1.0f - sine_win(2u * lfac, lfac + i) * sine_win(2u * lfac, lfac + i);
-        tmp[i] = y[16 + i] * gain + st->exc_prev[129u + i] * w1 + st->exc_prev[128u - i] * w0;
+        tmp[i] = y[16 + i] * gain + st->exc_prev[center + 1u + i] * w1 + st->exc_prev[center - i] * w0;     /* center = ccfl / 8 = the middle of the stored excitation (128 at 1024, 96 at 768), also for the eight short windows (lfac = ccfl / 16) */
         tmp[lfac + i] = y[16 + lfac + i] * gain;
     }
     return 1;
@@ -577,9 +577,9 @@ static int fd_fac_signal(const SautiUsacLpdState *st, const SautiUsacLpdFac *fac
 
 int sauti_usac_lpd_fd_short_begin(const SautiUsacLpdState *st, unsigned ccfl, const SautiUsacLpdFac *fac, float *ovl, float *facsig) {
     if ((ccfl != 1024u && ccfl != 768u) || st->fscale < 6000u || st->fscale > 24000u) return -1;
-    lpd_overlap(st, ovl);
+    lpd_overlap(st, ccfl, ovl);
     memset(facsig, 0, 128 * sizeof(float));
-    if (fac && fac->present && !fd_fac_signal(st, fac, 64u, facsig)) return 0;
+    if (fac && fac->present && !fd_fac_signal(st, fac, ccfl / 16u, ccfl / 8u, facsig)) return 0;
     return 1;
 }
 int sauti_usac_lpd_fd_finish(SautiUsacLpdState *st, int is_short, float *out) {
