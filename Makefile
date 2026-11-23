@@ -2423,11 +2423,11 @@ $(OBJDIR)/test_eldsbr: tests/test_eldsbr.c tests/test_eldsbr_fingerprints.h $(MK
 .PHONY: test-eldsbr
 test-eldsbr: $(OBJDIR)/test_eldsbr
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_eldsbr
-$(OBJDIR)/test_dvsm_adpcm: tests/test_dvsm_adpcm.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
-	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_dvsm_adpcm.c $(MKS_DEPS) -lm -lpthread -no-pie
-.PHONY: test-dvsm-adpcm
-test-dvsm-adpcm: $(OBJDIR)/test_dvsm_adpcm
-	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_dvsm_adpcm
+$(OBJDIR)/test_dvsm_winrec: tests/test_dvsm_winrec.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_dvsm_winrec.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-dvsm-winrec
+test-dvsm-winrec: $(OBJDIR)/test_dvsm_winrec
+	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_dvsm_winrec
 $(OBJDIR)/test_usac_xaac: tests/test_usac_xaac.c tests/test_usac_xaac_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_usac_xaac.c $(MKS_DEPS) -lm -lpthread -no-pie
 .PHONY: test-usac-xaac

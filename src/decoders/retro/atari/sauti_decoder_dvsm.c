@@ -76,7 +76,7 @@ static void *open_dvsm(const uint8_t *p,size_t n,SautiPcmInfo *info){
         if(!s->decoded){free(s);return NULL;}
         int16_t steps[256]={0};
         if(pack==4){
-            static const int16_t voice[16]={-8192,-4096,-2048,-1024,-512,-256,-64,0,64,256,512,1024,2048,4096,8192,16384};
+            /* Pack-4 (Voice) table indexed by the 4-bit code, as the decoder of WinRec Pro 2.11H builds it: codes 0..7 = 0, 64, 256, 512, 1024, 2048, 4096, 8192 and codes 8..15 = -table[16 - code] = 0 (code 8: the entry past the table is 0), -8192 ... -64 (docs/falcon-dvsm-pack5.md, 'Voice') */ static const int16_t voice[16]={0,64,256,512,1024,2048,4096,8192,0,-8192,-4096,-2048,-1024,-512,-256,-64};
             memcpy(steps,voice,sizeof(voice));
         }
         if(pack==2)for(unsigned i=1;i<128;i++){

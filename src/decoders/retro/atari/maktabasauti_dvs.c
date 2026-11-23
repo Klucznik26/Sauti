@@ -358,7 +358,7 @@ static maktabasauti_result_t MAKTABASAUTI_CALL dvsm_open(const maktabasauti_code
     d->host = h; d->rd = rd; d->channels = channels; d->bits = bits; d->pack = pack; d->block = block; d->data_off = (int64_t)offset; d->bpf = pack == 2u ? 2u : 1u;
     d->fpb = pack == 5u ? 0u : (pack != 0 && channels == 2u) ? 1u + (block - 4u) / d->bpf : (pack != 0 && channels == 1u && block >= 3u) ? 1u + (block - 2u) * (pack == 2u ? 1u : 2u) : 0u;
     d->total_known = size >= 0; d->total = total; d->tail = tail != 0; d->seekable = (int)flags; d->stride = 4096u;
-    if (pack == 4u) { static const int16_t voice[16] = { -8192, -4096, -2048, -1024, -512, -256, -64, 0, 64, 256, 512, 1024, 2048, 4096, 8192, 16384 }; memcpy(d->steps, voice, sizeof voice); }
+    if (pack == 4u) { /* Pack-4 (Voice) table indexed by the 4-bit code, as the decoder of WinRec Pro 2.11H builds it: codes 0..7 = 0, 64, 256, 512, 1024, 2048, 4096, 8192 and codes 8..15 = -table[16 - code] = 0 (code 8: the entry past the table is 0), -8192 ... -64 (docs/falcon-dvsm-pack5.md, 'Voice') */ static const int16_t voice[16] = { 0, 64, 256, 512, 1024, 2048, 4096, 8192, 0, -8192, -4096, -2048, -1024, -512, -256, -64 }; memcpy(d->steps, voice, sizeof voice); }
     if (pack == 2u) for (i = 0; i < 256u; i++) d->steps[i] = step_value(i);
     if (pack != 0 && d->seekable) {
         d->cps = (cp_t *)h->alloc(h->user, CP_MAX * sizeof *d->cps);

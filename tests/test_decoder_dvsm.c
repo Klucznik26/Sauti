@@ -69,10 +69,10 @@ int main(void){
     b[15]=8;assert(!sauti_legacy_decoder_open(&d,ops,1,b,19));
 
     b[11]=3;b[10]=5;assert(!sauti_legacy_decoder_open(&d,ops,1,b,23));
-    /* Voice pack 4 mono: seed=0, high nibble 8 -> +64, low 6 -> -64. */
+    /* Voice pack 4 mono: seed=0, high nibble 1 -> +64, low 15 -> -64 (the code table of WinRec Pro 2.11H: 0, 64, 256 ... 8192, 0, -8192 ... -64). */
     memset(b,0,sizeof(b));memcpy(b,"DVSM",4);
     be16(b+6,16);be16(b+8,7);b[10]=4;b[11]=3;
-    b[16]=0;b[17]=0;b[18]=0x86;
+    b[16]=0;b[17]=0;b[18]=0x1f;
     assert(sauti_legacy_decoder_open(&d,ops,1,b,19));
     assert(d.info.channels==1 && d.info.total_frames==3);
     assert(sauti_legacy_decoder_read(&d,pcm,3)==3);
@@ -83,7 +83,7 @@ int main(void){
     /* Voice stereo: one block, 2 seeds, high nibble L and low R. */
     memset(b,0,sizeof(b));memcpy(b,"DVSM",4);
     be16(b+6,16);be16(b+8,7);b[10]=4;b[11]=1;b[15]=6;
-    b[16]=0;b[17]=0;b[18]=0;b[19]=0;b[20]=0x8a;b[21]=0x67;
+    b[16]=0;b[17]=0;b[18]=0;b[19]=0;b[20]=0x13;b[21]=0xf0;
     assert(sauti_legacy_decoder_open(&d,ops,1,b,22));
     assert(d.info.channels==2 && d.info.total_frames==3);
     float voice[6]={0};
