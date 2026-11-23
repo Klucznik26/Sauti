@@ -388,6 +388,18 @@ static void test_live_mdat_first(const char *dir, const Ref *ref) {
     CHECK(orc == MAKTABASAUTI_E_UNSUPPORTED_FEATURE && m.live == 0, "mdat-first, live: expected E_UNSUPPORTED_FEATURE at open (open %d, end %d)", (int)orc, (int)rr);
     free(out); free(b);
 }
+/* edytor przemianowal pudelko moov na free (FFmpeg: "Detected moov in a free atom"; prawdziwy plik Frula_Show z probek FFmpeg): jego pierwszym dzieckiem jest mvhd; ten sam PCM co z moov, wejscie przewijalne */
+static void test_moov_in_free(const uint8_t *b, size_t n, const Ref *ref, const char *name) {
+    TBox bx[512]; const size_t nb = top_boxes(b, n, bx, 512); size_t i, hit = 0; uint8_t *w = (uint8_t *)malloc(n);
+    float *out = (float *)malloc((ref->frames + 4096) * ref->ch * sizeof(float));
+    Mem m; size_t got = 0; maktabasauti_result_t orc, rr; int closed = 0;
+    memcpy(w, b, n);
+    for (i = 0; i < nb; i++) if (bx[i].type == 0x6d6f6f76u) { memcpy(w + bx[i].off + 4, "free", 4); hit++; }
+    CHECK(hit == 1, "%s: expected one moov, found %zu", name, hit);
+    rr = live_decode(w, n, 1, 0, out, ref->frames + 4096, ref->ch, &got, &orc, &m, &closed);
+    CHECK(orc == MAKTABASAUTI_OK && rr == MAKTABASAUTI_EOF && got == ref->frames && same(out, ref->pcm, got * ref->ch), "%s: moov renamed to free: PCM differs (open %d, end %d, %zu frames)", name, (int)orc, (int)rr, got);
+    free(w); free(out);
+}
 /* wrogie naglowki (uszkodzone pudelko: drain wznawia po E_CORRUPT_DATA przez flush, a MP4 nie ma synchronizacji, wiec strumien konczy sie EOF; deklaracje rozmiaru: blad): moof deklarujacy 1 GiB (odmowa bez alokacji), moof deklarujacy 10 MiB i urwany po 100 B (pamiec nie idzie za deklaracja), pudelko o rozmiarze < naglowka */
 static void test_live_hostile(const uint8_t *b, size_t n, const Ref *ref, const char *name) {
     TBox bx[512]; const size_t nb = top_boxes(b, n, bx, 512); size_t moof = 0, i, k; uint8_t *w = (uint8_t *)malloc(n + 256);
@@ -665,6 +677,7 @@ int main(int argc, char **argv) {
         if (g_mp4) test_no_gapless(b, n, &ref, files[i]);
         if (g_frag) { test_live_truncation(b, n, &ref, files[i]); test_live_hostile(b, n, &ref, files[i]); test_live_memory(b, n, files[i]); test_live_mdat_first(dir, &ref); }
         if (g_mp4 && !g_frag && g_live_ok) test_live_truncation(b, n, &ref, files[i]);
+        if (g_mp4 && !g_frag) test_moov_in_free(b, n, &ref, files[i]);
         if (!g_adif) test_memory(b, n, files[i]);                              /* generator: cykliczne sklejanie pliku jest poprawnym strumieniem tylko dla ADTS/LOAS */
         test_seek(b, n, &ref, files[i], 0);
         test_seek(b, n, &ref, files[i], 1);

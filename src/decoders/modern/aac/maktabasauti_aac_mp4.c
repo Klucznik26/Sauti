@@ -242,6 +242,10 @@ static maktabasauti_result_t mp4_prepare(dec_t *d) {
             if (r == MAKTABASAUTI_E_CORRUPT_DATA || r == MAKTABASAUTI_E_TRUNCATED) { if (p->idx) break; return MAKTABASAUTI_E_UNSUPPORTED_FORMAT; }   /* smieci/znacznik za ostatnim pudelkiem: koniec przegladu (jak w starym demuxerze) */
             if (r != MAKTABASAUTI_OK) return r;
             if (fsize >= 0 && at + (int64_t)size > fsize) break;                       /* urwane ostatnie pudelko: ignorujemy (jak w starym demuxerze) */
+            if (pass == 0 && !p->idx && type == 0x66726565u && size >= (uint64_t)hdr + 8u) {   /* 'free' (or 'skip' / 'wide'-like padding) that holds a movie header: an editor renamed the moov box (FFmpeg: "Detected moov in a free atom"); its first child is 'mvhd' */
+                uint64_t csz = 0; uint32_t ctype = 0; unsigned chdr = 0;
+                if (box_header(d, at + (int64_t)hdr, &csz, &ctype, &chdr, fsize) == MAKTABASAUTI_OK && ctype == 0x6d766864u) type = 0x6d6f6f76u;
+            }
             if (pass == 0 && type == 0x6d6f6f76u && !p->idx) {                         /* 'moov' */
                 r = read_payload(d, at, size, hdr, MOOV_MAX, &buf, &bn);
                 if (r != MAKTABASAUTI_OK) return r;
