@@ -106,6 +106,7 @@ int main(int argc, char **argv) {
                       { "l4", "tests/data/usac_l4.m4a", 1, 1024, NBL4, 24000, l4_fp }, { "l5", "tests/data/usac_l5.m4a", 1, 1024, NBL5, 24000, l5_fp }, { "l6", "tests/data/usac_l6.m4a", 1, 1024, NBL6, 24000, l6_fp },
                       { "l7", "tests/data/usac_l7.m4a", 2, 1024, NBL7, 24000, l7_fp },
                       { "x8", "tests/data/usac_x8.m4a", 1, 4096, NB8, 48000, x8_fp }, { "x9", "tests/data/usac_x9.m4a", 2, 4096, NB9, 48000, x9_fp },
+                      { "x10", "tests/data/usac_x10.m4a", 2, 4096, NB9, 48000, x10_fp }, { "x11", "tests/data/usac_x11.m4a", 2, 2048, 33, 48000, x11_fp },
                       { "t1", "tests/data/usac_t1.m4a", 1, 2048, NBT1, 48000, t1_fp },
                       { "p1", "tests/data/usac_p1.m4a", 1, 2048, NBP, 24000, p1_fp }, { "p2", "tests/data/usac_p2.m4a", 1, 2048, NBP, 24000, p2_fp }, { "p3", "tests/data/usac_p3.m4a", 1, 2048, NBP, 24000, p3_fp },
                       { "v1", "tests/data/usac_v1.m4a", 1, 2048, NBV1, 48000, v1_fp }, { "v2", "tests/data/usac_v2.m4a", 1, 2048, NBV2, 48000, v2_fp }, { "v3", "tests/data/usac_v3.m4a", 1, 2048, NBV1, 48000, v3_fp },
@@ -138,10 +139,10 @@ int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "--dump")) {                                                       /* build/test_usac_xaac --dump > tests/test_usac_xaac_fingerprints.h */
         g_dump = 1;
         printf("/* Per-block fingerprints (sum, sum of squares, position weighted sum, second difference energy) of the decoded PCM of the libxaac-encoded fixtures, written by `build/test_usac_xaac --dump` AFTER the decode agreed\n * with libxaac's decoder (scripts/test_usac_vs_xaac.sh: 73-79 dB). Only the first MAXB blocks of each stream. */\n#define MAXB 40\n");
-        for (k = 0; k < 72; k++) test_fixture(&fx[k]);
+        for (k = 0; k < 74; k++) test_fixture(&fx[k]);
         return g_failures ? 1 : 0;
     }
-    for (k = 0; k < 72; k++) test_fixture(&fx[k]);
+    for (k = 0; k < 74; k++) test_fixture(&fx[k]);
     if (g_failures) { printf("%d FAILURES\n", g_failures); return 1; }
     printf("test_usac_xaac: all passed\n"); return 0;
 }

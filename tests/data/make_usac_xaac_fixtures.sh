@@ -33,6 +33,7 @@ def stereo8k(fs2):                                                          # th
 wav('x5', stereo8k(48000), 2, 48000); wav('x6', stereo8k(44100), 2, 44100)
 wav('x7', 0.1 * rng.standard_normal(32000 * 3 // 2), 1, 32000)
 st41 = stereo8k(48000); wav('x9', st41, 2, 48000); wav('x8', st41[0::2].copy(), 1, 48000)
+wav('x10', st41, 2, 48000); wav('x11', st41, 2, 48000)                       # the same stereo signal through harmonic eSBR (HBE): 4:1 and 2:1
 PY
 mk() {  # mk NAME FRAME_SAMPLES ENCODER_OPTIONS...
   local n="$1" fl="$2"; shift 2
@@ -57,3 +58,5 @@ mk x6 2048 -br:64000 -esbr:1 -ccfl_idx:2
 mk x7 2048 -br:32000 -esbr:1 -ccfl_idx:2
 mk x8 4096 -br:48000 -esbr:1 -ccfl_idx:4
 mk x9 4096 -br:48000 -esbr:1 -ccfl_idx:4
+mk x10 4096 -br:48000 -esbr:1 -ccfl_idx:4 -harmonic_sbr:1
+mk x11 2048 -br:48000 -esbr:1 -ccfl_idx:3 -harmonic_sbr:1
