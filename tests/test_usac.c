@@ -208,13 +208,13 @@ static void test_empty_spectrum(void) {
     #undef PUT
 }
 
-/* usac_sbr_data(): what is not implemented is reported (-1), never decoded as something else */
+/* usac_sbr_data(): what is not implemented is reported (-1), never decoded as something else (bs_sbr_preprocessing was the first item of this list until real files of the Fraunhofer encoder used it) */
 static void test_sbr_unsupported(void) {
     SautiUsacElement e; SautiUsacSbrState st; SautiAacSbrPayloadFrame pl[2]; SautiUsacBits b; unsigned cpl; uint8_t d[8];
     memset(&e, 0, sizeof e); memset(&st, 0, sizeof st); e.sbr_start_freq = 5; e.sbr_stop_freq = 9; e.sbr_freq_scale = 2; e.sbr_alter_scale = 1; e.sbr_noise_bands = 2; e.sbr_limiter_bands = 2; e.sbr_limiter_gains = 2; e.sbr_interpol_freq = 1; e.sbr_smoothing_mode = 1;
     memset(d, 0, sizeof d); d[0] = 0x04u;                                                                    /* independent frame: amp_res 0, xover 0000, bs_sbr_preprocessing 1 */
     b.data = d; b.nbits = sizeof d * 8u; b.pos = 0;
-    CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) == -1, "bs_sbr_preprocessing = 1 is not implemented");
+    CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) != -1, "bs_sbr_preprocessing = 1 is implemented (docs SBR-128): not refused as unsupported");
     d[0] = 0x00u; b.pos = 0;
     CHECK(sauti_usac_sbr_parse(&e, 1, &b, 1, 48000, &st, pl, &cpl) != -1, "preprocessing 0 is not refused for that reason");
     {   /* the harmonic transposer is implemented (docs SBR-115): an independent frame with bs_harmonicSBR reads sbrPatchingMode (here 0: transposer), sbrOversamplingFlag and the pitch flag before the grid */

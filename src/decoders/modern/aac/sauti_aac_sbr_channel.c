@@ -302,8 +302,43 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
                 xh[(size_t)i*64u+k].re=(float)re;xh[(size_t)i*64u+k].im=(float)im;
             }
         }
-    }else if(!sauti_aac_sbr_hf_predict(&f->patches,tab,xlow+(size_t)g0*32u,(size_t)(gN-g0+2u)*32u,gN-g0,&lpc,&chirp,
+    }else{
+        /* bs_sbr_preprocessing: the carrier is made from the low band scaled per band by 10^((mean - fit) / 20), where `fit` is a cubic least squares fit over the band index of the
+         * low band's mean energy in dB (10 log10(1 + E) in the units of the reference decoder, 2 * 32768^2 times ours) over the slots of the frame and `mean` the mean of that envelope; the
+         * covariance (the LPC) is that of the unscaled band */
+        const SautiAacSbrComplex *carrier_src=xlow+(size_t)g0*32u;
+        SautiAacSbrComplex scaled[(MAX_I+2u)*32u];
+        if(f->header.preproc && kx<=32u && tN>t0){
+            double env[32],mean=0.0,a[4][4]={{0}},bb[4]={0},p[4],gain[32];
+            for(unsigned k=0u;k<kx;k++){
+                double e=0.0;
+                for(unsigned i=t0;i<tN;i++){const SautiAacSbrComplex z=xlow[(size_t)(i+2u)*32u+k];e+=(double)z.re*z.re+(double)z.im*z.im;}
+                env[k]=10.0*log10(e/(double)(tN-t0)*2147483648.0+1.0);mean+=env[k];
+            }
+            mean/=(double)kx;
+            for(unsigned k=0u;k<kx;k++){
+                double v[7];v[0]=1.0;for(unsigned i=1u;i<7u;i++)v[i]=(double)k*v[i-1u];
+                for(unsigned i=0u;i<4u;i++){bb[i]+=v[3u-i]*env[k];for(unsigned j=0u;j<4u;j++)a[i][j]+=v[6u-i-j];}
+            }
+            for(unsigned i=0u;i<4u;i++){                            /* Gauss elimination with partial pivoting, as the reference */
+                unsigned imax=i;
+                for(unsigned k=i+1u;k<4u;k++)if(fabs(a[k][i])>fabs(a[imax][i]))imax=k;
+                if(imax!=i){double t=bb[imax];bb[imax]=bb[i];bb[i]=t;for(unsigned j=i;j<4u;j++){t=a[imax][j];a[imax][j]=a[i][j];a[i][j]=t;}}
+                const double piv=a[i][i];bb[i]/=piv;for(unsigned j=i;j<4u;j++)a[i][j]/=piv;
+                for(unsigned k=i+1u;k<4u;k++){const double m=a[k][i];bb[k]-=m*bb[i];for(unsigned j=i+1u;j<4u;j++)a[k][j]-=m*a[i][j];}
+            }
+            for(int i=3;i>=0;i--){p[i]=bb[i];for(int j=i+1;j<4;j++)p[i]-=a[i][j]*p[j];}
+            for(unsigned k=0u;k<kx;k++){const double x=(double)k,fit=p[3]+p[2]*x+p[1]*x*x+p[0]*x*x*x;gain[k]=pow(10.0,(mean-fit)/20.0);}
+            for(size_t r=0u;r<(size_t)(gN-g0+2u);r++)
+                for(unsigned k=0u;k<32u;k++){
+                    const double gk=k<kx?gain[k]:1.0;
+                    scaled[r*32u+k].re=(float)(carrier_src[r*32u+k].re*gk);scaled[r*32u+k].im=(float)(carrier_src[r*32u+k].im*gk);
+                }
+            carrier_src=scaled;
+        }
+        if(!sauti_aac_sbr_hf_predict(&f->patches,tab,carrier_src,(size_t)(gN-g0+2u)*32u,gN-g0,&lpc,&chirp,
                                  xh+(size_t)g0*64u,(size_t)(gN-g0)*64u))return 0;
+    }
     if(pvc){
         if(t0<g0){
             if(!ch->have_previous || ch->previous.pvc.active==0u || g0>12u)return 0;

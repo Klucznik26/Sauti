@@ -529,7 +529,7 @@ int sauti_usac_lpd_fd_frame(SautiUsacLpdState *st, unsigned ccfl, unsigned seq, 
     const unsigned lfac = ccfl / 8u, n_flat = (ccfl - 2u * lfac) / 2u, n_trans = 2u * lfac;
     float ovl[1024];
     unsigned i;
-    if (ccfl != 1024u) return -1;
+    if (ccfl != 1024u && ccfl != 768u) return -1;
     if (st->fscale < 6000u || st->fscale > 24000u) return -1;
     lpd_overlap(st, ovl);
     if (seq == 0u) {                                     /* ONLY_LONG after LPD: the reference overlaps the whole frame with a full sine slope and ignores the FAC data (LONG_START after LPD is STOP_START, LONG_STOP stays: both take the path below) */
@@ -576,7 +576,7 @@ static int fd_fac_signal(const SautiUsacLpdState *st, const SautiUsacLpdFac *fac
 }
 
 int sauti_usac_lpd_fd_short_begin(const SautiUsacLpdState *st, unsigned ccfl, const SautiUsacLpdFac *fac, float *ovl, float *facsig) {
-    if (ccfl != 1024u || st->fscale < 6000u || st->fscale > 24000u) return -1;
+    if ((ccfl != 1024u && ccfl != 768u) || st->fscale < 6000u || st->fscale > 24000u) return -1;
     lpd_overlap(st, ovl);
     memset(facsig, 0, 128 * sizeof(float));
     if (fac && fac->present && !fd_fac_signal(st, fac, 64u, facsig)) return 0;

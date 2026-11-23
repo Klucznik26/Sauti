@@ -131,7 +131,7 @@ int sauti_usac_sbr_parse(const SautiUsacElement *e, unsigned channels, SautiUsac
     if (info_present) {
         next.header.amp_res = sauti_usac_get(b, 1);
         next.header.xover_band = sauti_usac_get(b, 4);
-        if (sauti_usac_get(b, 1)) return -1;                                  /* bs_sbr_preprocessing */
+        next.header.preproc = sauti_usac_get(b, 1);                           /* bs_sbr_preprocessing */
         next.header.pvc_mode = e->sbr_pvc ? sauti_usac_get(b, 2) : 0u;
     }
     if (header_present) {
