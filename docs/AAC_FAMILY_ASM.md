@@ -8022,7 +8022,7 @@ Test: `test_24_band_bank` w `tests/test_aac_sbr_qmf_analysis.c` (niezależny wzo
 
 **Przełączanie FD ↔ LPD z MPS (uzupełnienie, 2026-11-22).** Encoder libxaac w trybie `-usac:0` przełącza rdzeń sam, jeśli sygnał jest mowopodobny + akordy + szum z trzaskami (`make_usac_mps_fixtures.sh`, sygnał 1): fixtura `usac_z10` (40 jednostek: FD, 10 × LPD, 16 × FD, LPD: oba przejścia) **77,0 dB** wobec `xaacdec` (186 ramek całego strumienia: 76,9 dB), 57,0 dB wobec FDK po dopasowaniu wzmocnienia (próg 50). Uwaga o poziomie FDK: oracle FDK daje poziom różny od libxaac i tego dekodera także dla strumieni BEZ MPS (`usac_x1`: stosunek 4,6; `usac_z1`: 1,9953 = dokładnie 6,0 dB), więc to nie cecha MPS — zgodnie z wcześniejszą notatką prawdopodobna domyślna normalizacja głośności / DRC FDK; testy dopasowują wzmocnienie.
 
-**Nie sprawdzone:** para kanałów jeden FD, jeden LPD (nadal odmowa), LPD z resztką.
+**LPD z kanałem resztkowym (2026-11-23).** Strumień `-usac:2` z wpisanym `bsResidualBands = 8` (jak `usac_z4`; `make_usac_mps_fixtures.sh`: `usac_z12`): resztka z kanału LPD zastępuje dekorelator w ośmiu pasmach (wyjście różni się od `usac_z9` o 4,5 dB poniżej sygnału, więc resztka jest aktywna), **74,7 dB** wobec `xaacdec`, 56,3 dB wobec FDK (próg 50). Para FD + LPD: zob. SBR-127.
 
 ### SBR-126 — USAC: MPEG Surround 212, tryb wysokiej szybkości (bsHighRateMode), wygładzanie macierzy w czasie (2026-11-22)
 
