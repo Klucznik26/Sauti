@@ -21,6 +21,8 @@ static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if ((w->n &
 static FILE *g_elem_fu[8];
 static uint8_t hist_au[8][1 << 16]; static size_t hist_len[8];                /* the last access units (ring of 8) that go into a pre-roll payload */
 static int g_pvc;                                                            /* --pvc N: predictive vector coding in the SBR configuration; mono streams only.  1 the header mode switches at random between classic and PVC modes 1 / 2, 2 mode 1 only, 3 mode 2 only, 4 modes 1 / 2 without classic frames */
+static int g_mps_fr = 1;                                                    /* bsFreqRes: 1 = 28 parameter bands, 2 = 20, 3 = 14, 4 = 10, 5 = 7, 6 = 5, 7 = 4 */
+static unsigned mps_nb(void) { static const unsigned t[8] = { 28, 28, 20, 14, 10, 7, 5, 4 }; return t[g_mps_fr & 7]; }
 static int g_mps_hrint, g_mps_hr, g_sbr41, g_mps_pslr, g_mps_tsd, g_mps_gesval = -1, g_mps_gesnear, g_mps_ges, g_mps_envq, g_mps_stp, g_mps_anti, g_mps, g_mps_res, g_mps_fgain = 2, g_mps_decorr, g_mps_phase, g_mps_opd;   /* --mps-phase 1: phase coding (IPD / OPD) with one IPD set per frame, --mps-opd M: bsOpdSmoothingMode */   /* --mps N: MPEG Surround 212 with stereoConfigIndex N (2: the second core channel is the residual; --mps-res B: residual bands, --mps-decorr D: decorrelator configuration) */
 static int g_hbe;                                                            /* --hbe N: harmonic transposer (bs_harmonicSBR): 1 random mix of sbrPatchingMode 0 / 1 frames, 2 always the transposer; random oversampling flag and sbrPitchInBins (0, 12, 24, 36 and 1..127) */
 static int g_intertes;                                                       /* --intertes: inter-subband temporal envelope shaping in the SBR configuration, random bs_temp_shape / mode after every envelope */
@@ -459,7 +461,7 @@ static void put_mps_hr_core(Bw *w, int indep) {
     }
     if (!indep) { ind = (rnd() % 4u) == 0u; put(w, ind, 1); } else ind = 1u;
     for (type = 0; type < (g_mps_phase ? 3u : 2u); type++) {               /* 0 = CLD, 1 = ICC, 2 = IPD (after bsPhaseMode and bsOpdSmoothingMode) */
-        const unsigned nbands = type == 2u ? ((g_mps >= 2 && (unsigned)g_mps_res > 10u) ? (unsigned)g_mps_res : 10u) : 28u;
+        const unsigned nbands = type == 2u ? ((g_mps >= 2 && (unsigned)g_mps_res > 10u) ? (unsigned)g_mps_res : 10u) : mps_nb();
         if (type == 2u) { put(w, 1, 1); put(w, (uint32_t)g_mps_opd, 1); }
         for (i = 0; i < sets; i++) {
             const unsigned r = rnd() % 10u;
@@ -485,7 +487,7 @@ static void put_mps_hr_core(Bw *w, int indep) {
         }
     }
     for (i = 0; i < sets; i++) {                                            /* smoothing data of the set; every value is drawn in every case so that the rest of the stream does not depend on the diagnostic switches */
-        const unsigned m0 = rnd() & 3u, tm = rnd() & 3u, st = rnd() & 3u, fac = fac_tab[st], groups = (28u - 1u) / fac + 1u;
+        const unsigned m0 = rnd() & 3u, tm = rnd() & 3u, st = rnd() & 3u, fac = fac_tab[st], groups = (mps_nb() - 1u) / fac + 1u;
         unsigned gr[28];
         const unsigned m = ((indep && getenv("GEN_HR_NOSMOOTH_INDEP")) || getenv("GEN_HR_NOSMOOTH_ALL")) ? 0u : m0;       /* diagnostic: no smoothing (in the independent frames: the first frame of libxaac runs a start-up path) */
         for (k = 0; k < groups; k++) gr[k] = rnd() & 1u;
@@ -502,9 +504,9 @@ static void put_mps_data(Bw *w, int indep) {
     if (g_mps_hr) { put_mps_hr_core(w, indep); goto shaping; }
     if (!indep) put(w, 1, 1);                                               /* bsIndependencyFlag */
     put(w, 3, 2); put(w, 0, 1); put(w, coarse, 1); put(w, 0, 2); put(w, 1, 1);          /* CLD: new data, no pair, quantiser, stride 0, PCM */
-    for (i = 0; i < 28u; i++) put(w, (g_mps_anti && i < 4u) ? (coarse ? 7u : 15u) : (coarse ? (uint32_t)rr(3, 11) : (uint32_t)rr(5, 25)), coarse ? 4u : 5u);
+    for (i = 0; i < mps_nb(); i++) put(w, (g_mps_anti && i < 4u) ? (coarse ? 7u : 15u) : (coarse ? (uint32_t)rr(3, 11) : (uint32_t)rr(5, 25)), coarse ? 4u : 5u);
     put(w, 3, 2); put(w, 0, 1); put(w, 0, 1); put(w, 0, 2); put(w, 1, 1);               /* ICC */
-    for (i = 0; i < 28u; i++) put(w, (g_mps_anti && i < 4u) ? 0u : (uint32_t)rr(0, 7), 3);
+    for (i = 0; i < mps_nb(); i++) put(w, (g_mps_anti && i < 4u) ? 0u : (uint32_t)rr(0, 7), 3);
     if (g_mps_phase) {                                                      /* bsPhaseMode = 1, bsOpdSmoothingMode, then EcData of IPD for the 10 bands of the default phase band count: PCM, fine (4 bit values) or coarse (3 bit) */
         const unsigned c2 = (rnd() % 3u) == 0u;
         put(w, 1, 1); put(w, (uint32_t)g_mps_opd, 1);
@@ -586,6 +588,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[a], "--hbe") && a + 1 < argc) g_hbe = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps") && a + 1 < argc) g_mps = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps-res") && a + 1 < argc) g_mps_res = atoi(argv[++a]);
+        else if (!strcmp(argv[a], "--mps-freqres") && a + 1 < argc) g_mps_fr = atoi(argv[++a]);        /* bsFreqRes 1..7: 28 / 20 / 14 / 10 / 7 / 5 / 4 parameter bands */
         else if (!strcmp(argv[a], "--mps-decorr") && a + 1 < argc) g_mps_decorr = atoi(argv[++a]);
         else if (!strcmp(argv[a], "--mps-anti")) g_mps_anti = 1;                 /* bands 0..3 of every frame: CLD 0, ICC 0, IPD 8 (the anti-phase special case of the prediction upmix) */
         else if (!strcmp(argv[a], "--mps-stp") && a + 1 < argc) g_mps_stp = atoi(argv[++a]);   /* bsTempShapeConfig 1 (STP); N: 1 random flags per frame, 2 enabled in both channels in every frame, 3 configured but disabled in every frame (the same random stream otherwise) */
@@ -679,7 +682,7 @@ int main(int argc, char **argv) {
         if (o.channels == 2u) {
             put(&asc, (uint32_t)g_mps, 2);                                  /* stereoConfigIndex */
             if (g_mps) {                                                    /* Mps212Config: 28 parameter bands, no temporal shaping, no phase coding, one parameter set per frame */
-                put(&asc, 1, 3); put(&asc, (uint32_t)g_mps_fgain, 3); put(&asc, g_mps_stp ? 1u : (g_mps_ges ? 2u : (g_mps_tsd ? 3u : 0u)), 2); put(&asc, (uint32_t)g_mps_decorr, 2); put(&asc, (uint32_t)g_mps_hr, 1); put(&asc, (uint32_t)g_mps_phase, 1); put(&asc, 0, 1);
+                put(&asc, (uint32_t)g_mps_fr, 3); put(&asc, (uint32_t)g_mps_fgain, 3); put(&asc, g_mps_stp ? 1u : (g_mps_ges ? 2u : (g_mps_tsd ? 3u : 0u)), 2); put(&asc, (uint32_t)g_mps_decorr, 2); put(&asc, (uint32_t)g_mps_hr, 1); put(&asc, (uint32_t)g_mps_phase, 1); put(&asc, 0, 1);
                 if (g_mps >= 2) { put(&asc, (uint32_t)g_mps_res, 5); put(&asc, (uint32_t)g_mps_pslr, 1); }
                 if (g_mps_ges) put(&asc, (uint32_t)g_mps_envq, 1);                  /* bsEnvQuantMode (temporal shaping configuration 2) */
             }

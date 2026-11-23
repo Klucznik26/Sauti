@@ -37,6 +37,7 @@ typedef struct {
     int cmp_cld_prev[SAUTI_USAC_MPS_BANDS], cmp_icc_prev[SAUTI_USAC_MPS_BANDS], cmp_ipd_prev[SAUTI_USAC_MPS_BANDS];   /* last coded (grouped) indices, EcData history */
     int cld_pre[SAUTI_USAC_MPS_BANDS], icc_pre[SAUTI_USAC_MPS_BANDS], ipd_pre[SAUTI_USAC_MPS_BANDS];                    /* last mapped indices, "keep / interpolate" history */
     unsigned quant_coarse_prev[3];                       /* CLD, ICC, IPD */
+    unsigned ipd_coarse_hist[SAUTI_USAC_MPS_SETS];       /* the IPD quantiser flags of the coded sets as the reference holds them: a set without coded IPD data (keep / default) keeps the flag of the last frame that coded that set index (it smooths the phases with it) */
     unsigned smooth_time_prev;
     uint8_t smooth_data_prev[SAUTI_USAC_MPS_BANDS];
 } SautiUsacMpsState;

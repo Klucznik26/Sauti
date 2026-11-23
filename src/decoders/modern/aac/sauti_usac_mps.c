@@ -360,6 +360,7 @@ int sauti_usac_mps212_parse(const SautiUsacMpsConfig *e, unsigned time_slots, Sa
     num_bands_ipd = e->bands_phase;
     memset(nf, 0, sizeof *nf);
     memset(&cld, 0, sizeof cld); memset(&icc, 0, sizeof icc); memset(&ipd, 0, sizeof ipd);
+    memcpy(ipd.coarse, ns.ipd_coarse_hist, sizeof ipd.coarse);
     nf->param_bands = bands;
     if (e->high_rate) {
         const unsigned framing = sauti_usac_get(b, 1);
@@ -470,7 +471,7 @@ int sauti_usac_mps212_parse(const SautiUsacMpsConfig *e, unsigned time_slots, Sa
     if (!map_data(&cld, CLD, sets, nf->param_slot, bands, ns.cld_pre, &ns.quant_coarse_prev[0], nf->cld_idx, nf->cld)) return 0;
     if (!map_data(&icc, ICC, sets, nf->param_slot, bands, ns.icc_pre, &ns.quant_coarse_prev[1], nf->icc_idx, nf->icc)) return 0;
     if (e->phase_coding && !map_data(&ipd, IPD, sets, nf->param_slot, bands, ns.ipd_pre, &ns.quant_coarse_prev[2], nf->ipd_idx, nf->ipd)) return 0;
-    if (e->phase_coding) { unsigned i; for (i = 0; i < SAUTI_USAC_MPS_SETS; i++) nf->ipd_coarse[i] = ipd.coarse[i]; }                  /* the reference indexes the flag by the coded set (not by the parameter set) when it smooths the phases */
+    if (e->phase_coding) { unsigned i; for (i = 0; i < SAUTI_USAC_MPS_SETS; i++) nf->ipd_coarse[i] = ipd.coarse[i]; memcpy(ns.ipd_coarse_hist, ipd.coarse, sizeof ns.ipd_coarse_hist); }                  /* the reference indexes the flag by the coded set (not by the parameter set) when it smooths the phases */
     for (i = 0; i < sets; i++) {                                                                  /* the same checks as the reference makes on the distances of the sets */
         const unsigned diff = i ? nf->param_slot[i] - nf->param_slot[i - 1u] : nf->param_slot[0] + 1u;
         if (diff == 0 || diff > 72u) return 0;
