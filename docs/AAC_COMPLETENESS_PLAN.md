@@ -16,7 +16,7 @@ Wymaganie użytkownika: kodek AAC w bibliotece ma obsługiwać WSZYSTKIE wersje,
 | SBR (AOT 5), HE-AAC v1, 1024 | OK | pakiet CT, 21 plików ffmpeg, Fraunhofer | |
 | PS, HE-AAC v2 (AOT 29), 1024 | OK | pakiet CT: 78,4 dB wobec wzorca producenta (3201 z 692224 próbek ±1 LSB) | znak IPD/OPD: wzorzec producenta zgodny |
 | HE-AAC (SBR) z ramką 960 (DAB+), mono i stereo | OK-syn (2026-11-23) | libxaac enc + dec: mono 68,4 dB, stereo 60,3 dB; FDK dec (QMF wysokiej jakości): mono 82,4 dB, stereo 81,8 / 83,2 dB | fixtury `he960_mono/stereo.m4a`; brak prawdziwego pliku DAB+ |
-| **HE-AAC v2 (PS) z ramką 960** | **BRAK** (odrzucane) | libxaac enc `-aot:29 -framesize:960`; FDK dec | PS ma 30 kolumn czasu zamiast 32 (`MAX_NUM_COLUMNS_960`), wymaga uogólnienia mostu PS |
+| HE-AAC v2 (PS) z ramką 960 | OK-syn (2026-11-23, SBR-132) | FDK dec: 75 – 85 dB (muzyka), 81 – 84 dB (fixtura) | fixtura `he960_ps.m4a`; brak prawdziwego pliku DAB+; stereo (CPE) z PS nie istnieje w normie |
 | ER AAC LC / LTP (AOT 17 / 19) | OK-syn | | |
 | AAC Scalable (AOT 6), ER AAC Scalable (AOT 20) | BRAK, BLOK | żaden dostępny dekoder; brak strumieni | |
 | TwinVQ (AOT 7), ER TwinVQ (AOT 21) | BRAK, BLOK | FFmpeg (twinvq) jako wzorzec; poza „AAC" w ścisłym sensie | |

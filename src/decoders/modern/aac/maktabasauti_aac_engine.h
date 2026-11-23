@@ -47,6 +47,11 @@ typedef struct {
     SautiAacSbrPayloadState mono;
     SautiAacSbrPayloadCpeState cpe;
     SautiAacSbrChannel channel[2];
+    SautiAacHePsBridgeState ps;                                       /* HE-AAC v2 (PS) z ramka 960: mono + PS, 30 kolumn QMF */
+    SautiAacSbrComplex pending[SAUTI_AAC_SBR_CHANNEL_GRID];           /* siatka ramki czekajacej na wyprzedzenie 6 szczelin z nastepnej */
+    SautiAacSbrPayloadFrame pending_payload;
+    uint32_t pending_valid;
+    uint32_t flushed;
 } he960_t;
 
 /* AAC-ELD z niskoopoznieniowym SBR (jednokrotnym): rdzen ELD (sauti_aac_er) + ladunek SBR z reszty jednostki dostepu + CLDFB */

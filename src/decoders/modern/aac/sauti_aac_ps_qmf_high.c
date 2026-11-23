@@ -16,10 +16,11 @@ int sauti_aac_ps_qmf_high_extract(const SautiAacPsHybridSchedule *schedule,
     }else if(schedule->parameter_bands==34u && schedule->hybrid_bands==91u){
         first_qmf=5u;first_hybrid=32u;high_bands=59u;
     }else return 0;
-    if(high_count < SAUTI_AAC_PS_QMF_SLOTS*high_bands ||
+    const unsigned S=sauti_aac_ps_schedule_slots(schedule);
+    if(high_count < S*high_bands ||
        schedule->env_count==0u || schedule->env_count>SAUTI_AAC_PS_MAX_ENVELOPES)
         return 0;
-    for(unsigned slot=0;slot<SAUTI_AAC_PS_QMF_SLOTS;slot++){
+    for(unsigned slot=0;slot<S;slot++){
         if(schedule->slot_to_env[slot]>=schedule->env_count)return 0;
     }
     for(unsigned k=0;k<high_bands;k++){
@@ -27,13 +28,13 @@ int sauti_aac_ps_qmf_high_extract(const SautiAacPsHybridSchedule *schedule,
             return 0;
     }
     SautiAacSbrComplex next[SAUTI_AAC_PS_QMF_SLOTS*SAUTI_AAC_PS_HIGH_QMF_MAX_BANDS];
-    for(unsigned slot=0;slot<SAUTI_AAC_PS_QMF_SLOTS;slot++){
+    for(unsigned slot=0;slot<S;slot++){
         for(unsigned k=0;k<high_bands;k++){
             const SautiAacSbrComplex x=qmf[slot*64u+first_qmf+k];
             if(!isfinite(x.re)||!isfinite(x.im))return 0;
             next[slot*high_bands+k]=x;
         }
     }
-    memmove(high,next,(size_t)SAUTI_AAC_PS_QMF_SLOTS*high_bands*sizeof(*high));
+    memmove(high,next,(size_t)S*high_bands*sizeof(*high));
     return 1;
 }

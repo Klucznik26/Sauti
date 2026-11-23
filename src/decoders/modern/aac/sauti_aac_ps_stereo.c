@@ -50,13 +50,14 @@ int sauti_aac_ps_stereo_hybrid_apply(
     SautiAacSbrComplex *right,size_t right_count){
     if(!schedule||!matrix||!qmf||!state||!left||!right)return 0;
     const unsigned bands=schedule->hybrid_bands,pars=schedule->parameter_bands;
+    const unsigned S=sauti_aac_ps_schedule_slots(schedule);
     if(!((pars==20u&&bands==71u)||(pars==34u&&bands==91u))||
        matrix->bands!=pars||matrix->env_count!=schedule->env_count||
        matrix->has_phase>1u||matrix->env_count==0u||
        matrix->env_count>SAUTI_AAC_PS_MAX_ENVELOPES||
-       qmf_count<38u*64u||left_count<(size_t)32u*bands||
-       right_count<(size_t)32u*bands)return 0;
-    const size_t data_bytes=(size_t)32u*bands*sizeof(*left);
+       qmf_count<38u*64u||left_count<(size_t)S*bands||
+       right_count<(size_t)S*bands)return 0;
+    const size_t data_bytes=(size_t)S*bands*sizeof(*left);
     const size_t qmf_bytes=(size_t)38u*64u*sizeof(*qmf);
     if(!disjoint(left,data_bytes,right,data_bytes)||
        !disjoint(left,data_bytes,qmf,qmf_bytes)||
@@ -79,7 +80,7 @@ int sauti_aac_ps_stereo_hybrid_apply(
     SautiAacPsStereoState next=*state;
     SautiAacSbrComplex direct[32u*91u],diffuse[32u*91u];
     SautiAacSbrComplex ltmp[32u*91u],rtmp[32u*91u];
-    const size_t count=(size_t)32u*bands;
+    const size_t count=(size_t)S*bands;
     /* start of the stream: zero (the matrix ramps up); topology change 20 <-> 34: the previous end values are mapped to the new layout */
     SautiAacPsComplexMatrixCoefficients start[SAUTI_AAC_PS_MAX_PARAMETERS];
     memcpy(start,next.previous,sizeof(start));

@@ -374,6 +374,8 @@ int sauti_aac_ps_frame_parse(const uint8_t *data,size_t size,
     uint32_t header_present=0,esc=0;
     SautiAacPsHeaderState next_state=*state;
     SautiAacPsFrame next;memset(&next,0,sizeof(next));
+    const unsigned S=state->slots==30u?30u:32u;               /* QMF columns of the frame (960: 30) */
+    next.slots=S;
     if(!read(data,size,&header_pos,1,&header_present) ||
        !sauti_aac_ps_header_state_parse(data,size,&pos,&next_state,
                                         &next.header) ||
@@ -388,11 +390,23 @@ int sauti_aac_ps_frame_parse(const uint8_t *data,size_t size,
                (e && border<=next.border_position[e-1u]))return 0;
             next.border_position[e]=(uint8_t)border;
         }
+        if(S==30u){
+            /* 30 columns: a 5-bit border may point past the frame; the reference limits every envelope START to leave room for the envelopes that follow
+             * (start <= columns - remaining envelopes) and keeps at least one column per envelope */
+            for(uint32_t e=1u;e<next.num_env;e++){
+                unsigned start=next.border_position[e-1u]+1u;
+                const unsigned thr=S-(next.num_env-e);
+                if(start>thr){start=thr;next.border_position[e-1u]=(uint8_t)(start-1u);}
+                const unsigned prev_start=e>1u?next.border_position[e-2u]+1u:0u;
+                if(start<prev_start+1u){start=prev_start+1u;next.border_position[e-1u]=(uint8_t)(start-1u);}
+            }
+            if(next.num_env && next.border_position[next.num_env-1u]>=S)next.border_position[next.num_env-1u]=(uint8_t)(S-1u);
+        }
     }else if(next.num_env){
         /* Fixed-frame borders are the final QMF-slot index of each envelope
          * in the standard 32-slot PS frame: 31, 15/31 or 7/15/23/31. */
         for(uint32_t e=0u;e<next.num_env;e++)
-            next.border_position[e]=(uint8_t)(((e+1u)*32u)/next.num_env-1u);
+            next.border_position[e]=(uint8_t)(((e+1u)*S)/next.num_env-1u);
     }
     if(next.header.enable_iid){
         next.iid_count=(uint8_t)ps_parameter_count(next.header.iid_mode);
@@ -448,7 +462,7 @@ int sauti_aac_ps_frame_parse(const uint8_t *data,size_t size,
      * slot; materialize a tail from the current final envelope (or streaming
      * history) without altering the signaled syntax count. */
     next.resolved_num_env=next.num_env;
-    if(!next.num_env || next.border_position[next.num_env-1u]<31u){
+    if(!next.num_env || next.border_position[next.num_env-1u]<S-1u){
         const unsigned target=next.resolved_num_env++;
         if(target>=SAUTI_AAC_PS_MAX_ENVELOPES)return 0;
         if(next.num_env){
@@ -462,7 +476,7 @@ int sauti_aac_ps_frame_parse(const uint8_t *data,size_t size,
             memcpy(next.ipd[target],next_state.ipd_last,sizeof(next.ipd[target]));
             memcpy(next.opd[target],next_state.opd_last,sizeof(next.opd[target]));
         }
-        next.border_position[target]=31u;
+        next.border_position[target]=(uint8_t)(S-1u);
     }
     if(next.header.enable_iid){
         if(next.num_env)memcpy(next_state.iid_last,next.iid[next.num_env-1u],

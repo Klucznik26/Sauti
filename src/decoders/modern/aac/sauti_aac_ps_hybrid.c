@@ -29,6 +29,8 @@ int sauti_aac_ps_hybrid_schedule_build(const SautiAacPsFrame *frame,
     next.parameter_bands=mapped->bands;
     next.hybrid_bands=mapped->bands==34u?91u:71u;
     next.env_count=frame->resolved_num_env;
+    next.slots=frame->slots==30u?30u:SAUTI_AAC_PS_QMF_SLOTS;
+    const unsigned S=next.slots;
     const uint8_t *routing=mapped->bands==34u?k_to_i_34:k_to_i_20;
     memcpy(next.hybrid_to_parameter,routing,next.hybrid_bands);
     for(unsigned k=0u;k<next.hybrid_bands;k++){
@@ -39,11 +41,11 @@ int sauti_aac_ps_hybrid_schedule_build(const SautiAacPsFrame *frame,
     unsigned start=0u;
     for(unsigned e=0u;e<next.env_count;e++){
         const unsigned stop=frame->border_position[e];
-        if(stop<start||stop>=SAUTI_AAC_PS_QMF_SLOTS)return 0;
+        if(stop<start||stop>=S)return 0;
         for(unsigned slot=start;slot<=stop;slot++)next.slot_to_env[slot]=(uint8_t)e;
         start=stop+1u;
     }
-    if(start!=SAUTI_AAC_PS_QMF_SLOTS)return 0;
+    if(start!=S)return 0;
     *out=next;
     return 1;
 }

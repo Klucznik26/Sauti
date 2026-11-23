@@ -119,6 +119,7 @@ typedef struct {
     int8_t icc_last[SAUTI_AAC_PS_MAX_PARAMETERS];
     int8_t ipd_last[SAUTI_AAC_PS_MAX_PHASE_PARAMETERS];
     int8_t opd_last[SAUTI_AAC_PS_MAX_PHASE_PARAMETERS];
+    uint32_t slots;             /* QMF time columns of a PS frame: 32 (frame of 1024 core samples; 0 = 32) or 30 (960, DAB+) */
 } SautiAacPsHeaderState;
 int sauti_aac_ps_header_state_init(SautiAacPsHeaderState *state);
 int sauti_aac_ps_header_state_parse(const uint8_t *bytes,size_t size,
@@ -150,6 +151,7 @@ typedef struct {
     int8_t ipd[SAUTI_AAC_PS_MAX_ENVELOPES][SAUTI_AAC_PS_MAX_PHASE_PARAMETERS];
     int8_t opd[SAUTI_AAC_PS_MAX_ENVELOPES][SAUTI_AAC_PS_MAX_PHASE_PARAMETERS];
     uint32_t extension_bytes;   /* length of the bounded ps_extension payload */
+    uint32_t slots;             /* QMF time columns of the frame: 32 or 30; borders are the LAST column of each envelope */
 } SautiAacPsFrame;
 int sauti_aac_ps_frame_parse(const uint8_t *bytes,size_t size,
                              size_t *bit_offset,

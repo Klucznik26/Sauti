@@ -15,10 +15,12 @@ typedef struct {
     uint32_t parameter_bands; /* 20 or 34 */
     uint32_t hybrid_bands;    /* 71 or 91 */
     uint32_t env_count;
+    uint32_t slots;           /* QMF columns of the frame: 32 (0 counts as 32) or 30 (frame of 960 core samples) */
     uint8_t slot_to_env[SAUTI_AAC_PS_QMF_SLOTS];
     uint8_t hybrid_to_parameter[SAUTI_AAC_PS_MAX_HYBRID_BANDS];
     int8_t phase_imaginary_sign[SAUTI_AAC_PS_MAX_HYBRID_BANDS];
 } SautiAacPsHybridSchedule;
+static inline unsigned sauti_aac_ps_schedule_slots(const SautiAacPsHybridSchedule *s){return s->slots==30u?30u:SAUTI_AAC_PS_QMF_SLOTS;}
 
 /* Builds the QMF-slot envelope routing and ISO PS hybrid-band routing
  * atomically.  Returns zero if the parsed and mapped views disagree or do

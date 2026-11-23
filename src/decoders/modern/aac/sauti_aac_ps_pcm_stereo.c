@@ -13,14 +13,15 @@ static int apart(const void *a,size_t an,const void *b,size_t bn){
     return x<=y?y-x>=an:x-y>=bn;
 }
 static int render_pair(const SautiAacSbrComplex *left_qmf,
-                       const SautiAacSbrComplex *right_qmf,
+                       const SautiAacSbrComplex *right_qmf,unsigned slots,
                        SautiAacPsPcmStereoState *next,float *pcm){
     float l[PS_PCM_SAMPLES],r[PS_PCM_SAMPLES];
-    if(!sauti_aac_sbr_qmf_synth_64(left_qmf,PS_PCM_SAMPLES,PS_PCM_SLOTS,
-                l,PS_PCM_SAMPLES,&next->left)||
-       !sauti_aac_sbr_qmf_synth_64(right_qmf,PS_PCM_SAMPLES,PS_PCM_SLOTS,
-                r,PS_PCM_SAMPLES,&next->right))return 0;
-    for(size_t i=0;i<PS_PCM_SAMPLES;i++){
+    const size_t samples=(size_t)slots*PS_PCM_BANDS;
+    if(!sauti_aac_sbr_qmf_synth_64(left_qmf,samples,slots,
+                l,samples,&next->left)||
+       !sauti_aac_sbr_qmf_synth_64(right_qmf,samples,slots,
+                r,samples,&next->right))return 0;
+    for(size_t i=0;i<samples;i++){
         if(!isfinite(l[i])||!isfinite(r[i]))return 0;
         pcm[2u*i]=l[i];pcm[2u*i+1u]=r[i];
     }
@@ -44,7 +45,7 @@ int sauti_aac_ps_pcm_stereo_from_qmf(
        !apart(state,sizeof(*state),pcm_interleaved,pbytes))return 0;
     SautiAacPsPcmStereoState next=*state;
     float tmp[PS_PCM_INTERLEAVED];
-    if(!render_pair(left_qmf,right_qmf,&next,tmp))return 0;
+    if(!render_pair(left_qmf,right_qmf,PS_PCM_SLOTS,&next,tmp))return 0;
     memcpy(pcm_interleaved,tmp,pbytes);
     *state=next;
     return 1;
@@ -58,6 +59,7 @@ int sauti_aac_ps_pcm_stereo_from_mono_qmf(
     if(!schedule||!matrix||!mono_qmf||!state||!pcm_interleaved||
        mono_count<38u*64u||pcm_count<PS_PCM_INTERLEAVED)return 0;
     const unsigned bands=schedule->hybrid_bands;
+    const unsigned S=sauti_aac_ps_schedule_slots(schedule);
     if(!((schedule->parameter_bands==20u&&bands==71u)||
          (schedule->parameter_bands==34u&&bands==91u)))return 0;
     const size_t pbytes=PS_PCM_INTERLEAVED*sizeof(*pcm_interleaved);
@@ -74,13 +76,13 @@ int sauti_aac_ps_pcm_stereo_from_mono_qmf(
     SautiAacSbrComplex ql[PS_PCM_SAMPLES],qr[PS_PCM_SAMPLES];
     float pcm[PS_PCM_INTERLEAVED];
     if(!sauti_aac_ps_stereo_hybrid_apply(schedule,matrix,mono_qmf,mono_count,
-                                         &next.hybrid,hl,(size_t)32u*bands,
-                                         hr,(size_t)32u*bands)||
-       !sauti_aac_ps_hybrid_synthesize_stereo(schedule,hl,(size_t)32u*bands,
-                                              hr,(size_t)32u*bands,
+                                         &next.hybrid,hl,(size_t)S*bands,
+                                         hr,(size_t)S*bands)||
+       !sauti_aac_ps_hybrid_synthesize_stereo(schedule,hl,(size_t)S*bands,
+                                              hr,(size_t)S*bands,
                                               ql,PS_PCM_SAMPLES,qr,PS_PCM_SAMPLES)||
-       !render_pair(ql,qr,&next.synthesis,pcm))return 0;
-    memcpy(pcm_interleaved,pcm,pbytes);
+       !render_pair(ql,qr,S,&next.synthesis,pcm))return 0;
+    memcpy(pcm_interleaved,pcm,(size_t)S*PS_PCM_BANDS*2u*sizeof(*pcm));
     *state=next;
     return 1;
 }

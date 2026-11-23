@@ -146,11 +146,11 @@ static int he_render_ps(dec_t *d, const SautiAacSbrComplex *lookahead, float *pc
 }
 
 /* ramka bez danych PS: te same parametry co poprzednia ramka, plasko na cala ramke (jak w starym adapterze) */
-static void he_ps_hold(const SautiAacPsFrame *prev, SautiAacPsFrame *out) {
+static void he_ps_hold(const SautiAacPsFrame *prev, SautiAacPsFrame *out, unsigned slots) {
     const unsigned last = prev->resolved_num_env ? prev->resolved_num_env - 1u : 0u;
     memset(out, 0, sizeof(*out));
     out->header = prev->header;
-    out->resolved_num_env = 1u; out->border_position[0] = 31u;
+    out->resolved_num_env = 1u; out->border_position[0] = (uint8_t)(slots - 1u); out->slots = slots;
     out->iid_count = prev->iid_count; out->icc_count = prev->icc_count;
     memcpy(out->iid[0], prev->iid[last], sizeof(out->iid[0]));
     memcpy(out->icc[0], prev->icc[last], sizeof(out->icc[0]));
@@ -165,7 +165,19 @@ static prod_t decode_usac(dec_t *d) {
     if (r == 1 && !all_finite(d->cache, (size_t)d->frame_pcm * d->out_channels)) r = 0;
     return r == 1 ? P_OK : (r < 0 ? P_UNSUPPORTED : P_FAIL);
 }
-/* HE-AAC z ramka 960 (mono / stereo, bez PS): rdzen LC 960, ladunek SBR z pola wypelnienia (15 szczelin czasowych), 30 szczelin QMF, 1920 probek na kanal */
+/* HE-AAC v2 z ramka 960: render PS ramki czekajacej (30 kolumn QMF + 6 szczelin wyprzedzenia z nastepnej ramki albo cisza na koncu strumienia); wyjscie 1920 probek na kanal */
+static int he960_render_ps(dec_t *d, const SautiAacSbrComplex *lookahead, float *pcm_stereo) {
+    he960_t *s = &d->core.u.h9;
+    SautiAacSbrComplex *qmf38 = d->scratch_qmf38;
+    float st[4096];
+    memset(qmf38, 0, 38u * 64u * sizeof(qmf38[0]));
+    memcpy(qmf38, s->pending, 30u * 64u * sizeof(qmf38[0]));
+    if (lookahead) memcpy(qmf38 + 30u * 64u, lookahead, 6u * 64u * sizeof(qmf38[0]));
+    if (!sauti_aac_he_ps_bridge_render(&s->pending_payload, qmf38, 38u * 64u, &s->ps, st, 4096u)) return 0;
+    memcpy(pcm_stereo, st, 3840u * sizeof(float));
+    return 1;
+}
+/* HE-AAC z ramka 960 (mono / stereo; mono z PS = HE-AAC v2): rdzen LC 960, ladunek SBR z pola wypelnienia (15 szczelin czasowych), 30 szczelin QMF, 1920 probek na kanal */
 static prod_t decode_he960(dec_t *d) {
     he960_t *s = &d->core.u.h9;
     SautiAacLcnConfig lc; SautiAacLcnSbr sb; SautiAacReason why = SAUTI_AAC_REASON_OK;
@@ -178,8 +190,26 @@ static prod_t decode_he960(dec_t *d) {
     if (!sb.present || (ch != 1u && ch != 2u)) return P_FAIL;
     if (ch == 1u) {
         SautiAacSbrPayloadState ns = s->mono; SautiAacSbrPayloadFrame pl;
+        ns.ps.slots = 30u;                                                             /* PS: 30 kolumn QMF na ramke 960 */
         if (!sauti_aac_sbr_payload_temporal_parse_ex(raw, rawn, sb.start_bit, sb.bits, d->out_rate, &ns, &pl, NULL)) return P_FAIL;
-        if (pl.has_ps) return P_UNSUPPORTED;
+        if (pl.has_ps && !d->ps_mode) { d->ps_mode = 1; d->out_channels = 2u; }       /* PS wykryte w pierwszej ramce: wyjscie stereo */
+        if (d->ps_mode) {
+            if (!pl.has_ps) {
+                if (!s->pending_payload.has_ps) return P_FAIL;                         /* nie ma czego powtorzyc */
+                he_ps_hold(&s->pending_payload.ps, &pl.ps, 30u); pl.has_ps = 1u;
+            }
+            if (!sauti_aac_sbr_channel_frame(&s->channel[0], core, &pl, grid)) return P_FAIL;
+            s->mono = ns;
+            if (s->pending_valid) {
+                if (!he960_render_ps(d, grid, d->cache)) return P_FAIL;
+                memcpy(s->pending, grid, sizeof(s->pending));
+                s->pending_payload = pl;
+                return all_finite(d->cache, 3840u) ? P_OK : P_FAIL;
+            }
+            memcpy(s->pending, grid, sizeof(s->pending));
+            s->pending_payload = pl; s->pending_valid = 1u;
+            return P_NEED_MORE;
+        }
         if (!sauti_aac_sbr_channel_frame(&s->channel[0], core, &pl, grid) || !sauti_aac_sbr_channel_synthesize(&s->channel[0], grid, d->cache)) return P_FAIL;
         s->mono = ns;
         return all_finite(d->cache, 1920u) ? P_OK : P_FAIL;
@@ -250,7 +280,7 @@ static prod_t decode_he(dec_t *d) {
         if (d->ps_mode) {
             if (!payload.has_ps) {
                 if (!s->pending_payload.has_ps) return P_FAIL;           /* nie ma czego powtorzyc */
-                he_ps_hold(&s->pending_payload.ps, &payload.ps); payload.has_ps = 1u;
+                he_ps_hold(&s->pending_payload.ps, &payload.ps, 32u); payload.has_ps = 1u;
             }
         }
         if (!sauti_aac_sbr_channel_frame(&s->channel[0], core, &payload, grid)) return P_FAIL;
@@ -314,6 +344,14 @@ static maktabasauti_result_t produce(dec_t *d) {
     d->cache_pos = d->cache_len = 0;
     for (;;) {
         maktabasauti_result_t fr; prod_t p;
+        if (d->variant == V_ER && d->he960 && d->ps_mode && d->core.u.h9.pending_valid && (d->src_eof || at_known_end(d))) {          /* HE-AAC v2 960: zalegly blok, cisza jako wyprzedzenie */
+            he960_t *s = &d->core.u.h9;
+            if (s->flushed) return MAKTABASAUTI_EOF;
+            if (!he960_render_ps(d, NULL, d->cache)) return MAKTABASAUTI_E_CORRUPT_DATA;
+            s->pending_valid = 0; s->flushed = 1;
+            if (!all_finite(d->cache, 3840u)) return MAKTABASAUTI_E_CORRUPT_DATA;
+            goto produced;
+        }
         if ((d->variant == V_HE_MONO) && d->ps_mode && d->core.u.he.pending_valid && (d->src_eof || at_known_end(d) || d->fmt_pending)) {
             he_state_t *s = &d->core.u.he;
             if (s->flushed) return MAKTABASAUTI_EOF;
@@ -576,7 +614,7 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
             d->he960 = 1u; d->frame_pcm = 1920u; d->out_rate = d->core_rate * 2u;
             core_reset(d);
             pr = decode_er(d);
-            if (!(pr == P_OK || pr == P_NEED_MORE)) d->he960 = 0u;
+            if (!(pr == P_OK || pr == P_NEED_MORE)) { d->he960 = 0u; d->ps_mode = 0; d->out_channels = d->core_channels; }
         }
         if (!(pr == P_OK || pr == P_NEED_MORE)) { lcm_free(d, &d->core); return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
         core_reset(d);

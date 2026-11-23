@@ -76,7 +76,8 @@ int sauti_aac_ps_qmf_low_analyze(const SautiAacPsHybridSchedule *schedule,
     }else if(schedule->parameter_bands==34u&&schedule->hybrid_bands==91u){
         bands=32u;source_bands=5u;
     }else return 0;
-    const size_t output_samples=(size_t)32u*bands;
+    const unsigned S=sauti_aac_ps_schedule_slots(schedule);       /* QMF columns of the frame (30 for 960) */
+    const size_t output_samples=(size_t)S*bands;
     if(low_count<output_samples||schedule->env_count==0u||
        schedule->env_count>SAUTI_AAC_PS_MAX_ENVELOPES||
        !nonoverlap(qmf,SAUTI_AAC_PS_LOW_QMF_INPUT*sizeof(*qmf),
@@ -84,7 +85,7 @@ int sauti_aac_ps_qmf_low_analyze(const SautiAacPsHybridSchedule *schedule,
        !nonoverlap(state,sizeof(*state),low,output_samples*sizeof(*low))||
        !nonoverlap(state,sizeof(*state),qmf,SAUTI_AAC_PS_LOW_QMF_INPUT*sizeof(*qmf)))
         return 0;
-    for(unsigned i=0;i<32u;i++)
+    for(unsigned i=0;i<S;i++)
         if(schedule->slot_to_env[i]>=schedule->env_count)return 0;
     for(unsigned i=0;i<bands;i++)
         if(schedule->hybrid_to_parameter[i]>=schedule->parameter_bands)return 0;
@@ -92,7 +93,7 @@ int sauti_aac_ps_qmf_low_analyze(const SautiAacPsHybridSchedule *schedule,
     /* The history of all five low QMF bands is kept in every layout: a 20-band frame splits only three of them, but the next frame may be a
      * 34-band one, whose filters need the preceding slots of bands 3 and 4 (the reference decoders keep them, too). */
     (void)source_bands;
-    for(unsigned t=0;t<38u;t++)for(unsigned b=0;b<5u;b++){
+    for(unsigned t=0;t<S+6u;t++)for(unsigned b=0;b<5u;b++){
         const SautiAacSbrComplex x=qmf[t*64u+b];
         if(!isfinite(x.re)||!isfinite(x.im))return 0;
     }
@@ -105,7 +106,7 @@ int sauti_aac_ps_qmf_low_analyze(const SautiAacPsHybridSchedule *schedule,
     const SautiAacPsQmfLowState *prev=state->initialized?state:&empty;
     SautiAacPsQmfLowState next=*prev;
     SautiAacSbrComplex tmp[32u*SAUTI_AAC_PS_LOW_QMF_MAX_BANDS];
-    for(unsigned t=0;t<32u;t++){
+    for(unsigned t=0;t<S;t++){
         SautiAacSbrComplex *dst=&tmp[t*bands];
         if(bands==10u){
             SautiAacSbrComplex eight[8];
@@ -130,7 +131,7 @@ int sauti_aac_ps_qmf_low_analyze(const SautiAacPsHybridSchedule *schedule,
     }
     /* Retain the six samples preceding NEXT frame, not the lookahead tail. */
     for(unsigned b=0;b<5u;b++)for(unsigned h=0;h<6u;h++)
-        next.history[b][h]=qmf[(26u+h)*64u+b];
+        next.history[b][h]=qmf[(S-6u+h)*64u+b];
     next.initialized=1u;
     memcpy(low,tmp,output_samples*sizeof(*low));
     *state=next;

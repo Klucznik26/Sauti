@@ -25,7 +25,7 @@ int sauti_aac_he_ps_bridge_render(
 
     SautiAacHePsBridgeState next=*state;
     SautiAacPsRenderPlan plan;
-    float stage[4096u];
+    float stage[4096u]={0};
     if(!sauti_aac_ps_render_plan_build(&payload->ps,&next.render,&plan)||
        !sauti_aac_ps_pcm_stereo_from_mono_qmf(
            &plan.schedule,&plan.complex_matrix,

@@ -35,19 +35,20 @@ int sauti_aac_ps_decorrelate(const SautiAacPsHybridSchedule *schedule,
     if(!schedule||!direct||!state||!out)return 0;
     const unsigned bands=schedule->hybrid_bands;
     const unsigned is34=schedule->parameter_bands==34u&&bands==91u;
+    const unsigned S=sauti_aac_ps_schedule_slots(schedule);
     if(!((schedule->parameter_bands==20u&&bands==71u)||is34)||
-       direct_count<(size_t)32u*bands||out_count<(size_t)32u*bands||
+       direct_count<(size_t)S*bands||out_count<(size_t)S*bands||
        (state->bands!=0u&&state->bands!=71u&&state->bands!=91u)||
        !schedule->env_count||schedule->env_count>SAUTI_AAC_PS_MAX_ENVELOPES)
         return 0;
-    if(!apart(direct,(size_t)32u*bands*sizeof(*direct),
-              out,(size_t)32u*bands*sizeof(*out))||
-       !apart(state,sizeof(*state),direct,(size_t)32u*bands*sizeof(*direct))||
-       !apart(state,sizeof(*state),out,(size_t)32u*bands*sizeof(*out)))
+    if(!apart(direct,(size_t)S*bands*sizeof(*direct),
+              out,(size_t)S*bands*sizeof(*out))||
+       !apart(state,sizeof(*state),direct,(size_t)S*bands*sizeof(*direct))||
+       !apart(state,sizeof(*state),out,(size_t)S*bands*sizeof(*out)))
         return 0;
     for(unsigned k=0;k<bands;k++)
         if(schedule->hybrid_to_parameter[k]>=schedule->parameter_bands)return 0;
-    for(unsigned n=0;n<32u;n++)
+    for(unsigned n=0;n<S;n++)
         if(schedule->slot_to_env[n]>=schedule->env_count)return 0;
 
     SautiAacPsDecorrelateState next=*state;
@@ -71,7 +72,7 @@ int sauti_aac_ps_decorrelate(const SautiAacPsHybridSchedule *schedule,
         double decay=1.0-0.05*((double)k-(double)cutoff);
         if(decay<0.0)decay=0.0;
         if(decay>1.0)decay=1.0;
-        for(unsigned n=0;n<32u;n++){
+        for(unsigned n=0;n<S;n++){
             const SautiAacSbrComplex x=direct[(size_t)n*bands+k];
             if(!valid(x))return 0;
             SautiAacSbrComplex y;
@@ -102,7 +103,7 @@ int sauti_aac_ps_decorrelate(const SautiAacPsHybridSchedule *schedule,
             next.input_history[k][13]=x;
         }
     }
-    memcpy(out,tmp,(size_t)32u*bands*sizeof(*out));
+    memcpy(out,tmp,(size_t)S*bands*sizeof(*out));
     *state=next;
     return 1;
 }

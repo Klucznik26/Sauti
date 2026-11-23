@@ -100,15 +100,16 @@ static void test_fixture(const Fx *x) {
 }
 
 int main(int argc, char **argv) {
-    static const Fx fx[] = { { "he960_mono", "tests/data/he960_mono.m4a", 1, 1920, 100, 48000, he960_mono_fp }, { "he960_stereo", "tests/data/he960_stereo.m4a", 2, 1920, 100, 48000, he960_stereo_fp } };
+    static const Fx fx[] = { { "he960_mono", "tests/data/he960_mono.m4a", 1, 1920, 100, 48000, he960_mono_fp }, { "he960_stereo", "tests/data/he960_stereo.m4a", 2, 1920, 100, 48000, he960_stereo_fp },
+                                { "he960_ps", "tests/data/he960_ps.m4a", 2, 1920, 100, 48000, he960_ps_fp } };
     unsigned k;
     if (argc > 1 && !strcmp(argv[1], "--dump")) {
         g_dump = 1;
         printf("/* Per-block fingerprints of the HE-AAC 960 fixtures, written by `build/test_he960 --dump` after the decode agreed with libxaac (scripts/test_he960_vs_xaac.sh). Only the first MAXB blocks. */\n#define MAXB 40\n");
-        for (k = 0; k < 2; k++) test_fixture(&fx[k]);
+        for (k = 0; k < 3; k++) test_fixture(&fx[k]);
         return 0;
     }
-    for (k = 0; k < 2; k++) test_fixture(&fx[k]);
+    for (k = 0; k < 3; k++) test_fixture(&fx[k]);
     if (g_failures) { printf("test_he960: %d FAILURES\n", g_failures); return 1; }
     printf("test_he960: all passed\n");
     return 0;

@@ -14,19 +14,20 @@ int sauti_aac_ps_transient_gains(const SautiAacPsHybridSchedule *schedule,
     if(!schedule||!input||!state||!gains)return 0;
     const unsigned bands=schedule->parameter_bands;
     const unsigned hybrid=schedule->hybrid_bands;
+    const unsigned S=sauti_aac_ps_schedule_slots(schedule);
     if(!((bands==20u&&hybrid==71u)||(bands==34u&&hybrid==91u))||
-       input_count<(size_t)32u*hybrid||gain_count<(size_t)32u*bands||
+       input_count<(size_t)S*hybrid||gain_count<(size_t)S*bands||
        (state->bands!=0u&&state->bands!=20u&&state->bands!=34u)||
        !schedule->env_count||schedule->env_count>SAUTI_AAC_PS_MAX_ENVELOPES)
         return 0;
-    if(!separate(input,(size_t)32u*hybrid*sizeof(*input),gains,
-                 (size_t)32u*bands*sizeof(*gains))||
-       !separate(input,(size_t)32u*hybrid*sizeof(*input),state,sizeof(*state))||
-       !separate(gains,(size_t)32u*bands*sizeof(*gains),state,sizeof(*state)))
+    if(!separate(input,(size_t)S*hybrid*sizeof(*input),gains,
+                 (size_t)S*bands*sizeof(*gains))||
+       !separate(input,(size_t)S*hybrid*sizeof(*input),state,sizeof(*state))||
+       !separate(gains,(size_t)S*bands*sizeof(*gains),state,sizeof(*state)))
         return 0;
     for(unsigned k=0;k<hybrid;k++)
         if(schedule->hybrid_to_parameter[k]>=bands)return 0;
-    for(unsigned n=0;n<32u;n++)
+    for(unsigned n=0;n<S;n++)
         if(schedule->slot_to_env[n]>=schedule->env_count)return 0;
 
     SautiAacPsTransientState next=*state;
@@ -41,7 +42,7 @@ int sauti_aac_ps_transient_gains(const SautiAacPsHybridSchedule *schedule,
     float temp[32u*34u];
     /* Reference: ffmpeg n6.1 aacps.c, transient detection. First sum energy
      * of every hybrid subband mapped to each parameter band in each slot. */
-    for(unsigned n=0;n<32u;n++){
+    for(unsigned n=0;n<S;n++){
         double energy[34]={0};
         for(unsigned k=0;k<hybrid;k++){
             const SautiAacSbrComplex v=input[(size_t)n*hybrid+k];
@@ -66,7 +67,7 @@ int sauti_aac_ps_transient_gains(const SautiAacPsHybridSchedule *schedule,
             temp[(size_t)n*bands+b]=(float)gain;
         }
     }
-    memcpy(gains,temp,(size_t)32u*bands*sizeof(*gains));
+    memcpy(gains,temp,(size_t)S*bands*sizeof(*gains));
     *state=next;
     return 1;
 }

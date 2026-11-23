@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates tests/data/he960_mono.m4a and he960_stereo.m4a: HE-AAC (AAC-LC 960 + SBR, DAB+ framing, implicit signalling in a 2-byte AudioSpecificConfig, frameLengthFlag = 1) made by the libxaac encoder
+# Regenerates tests/data/he960_mono.m4a, he960_stereo.m4a and he960_ps.m4a (HE-AAC v2: mono core + SBR + parametric stereo): HE-AAC (AAC-LC 960 + SBR, DAB+ framing, implicit signalling in a 2-byte AudioSpecificConfig, frameLengthFlag = 1) made by the libxaac encoder
 # (Apache 2.0, built OUTSIDE the repository; XAAC=<dir with xaacenc>) from SYNTHETIC signals generated below, wrapped into M4A by tools/mux_raw_aus_mp4.py.  usage: tests/data/make_he960_fixtures.sh
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -17,9 +17,9 @@ b = 0.1 * rng.standard_normal(n) * (np.sin(2 * np.pi * 3 * t) > 0.6)
 wav('mono', h + b, 1)
 wav('stereo', np.stack([h + b, 0.8 * h + 0.5 * b[::-1]], axis=1).reshape(-1), 2)
 PY
-mk() {  # mk NAME BITRATE
-  local n="$1"
-  "$ENC" -ifile:"$W/$n.wav" -ofile:"$W/$n.es" -aot:5 -br:"$2" -framesize:960 >/dev/null 2>&1
+mk() {  # mk NAME BITRATE [AOT] [INPUT]
+  local n="$1" aot="${3:-5}" in="${4:-$1}"
+  "$ENC" -ifile:"$W/$in.wav" -ofile:"$W/$n.es" -aot:"$aot" -br:"$2" -framesize:960 >/dev/null 2>&1
   python3 -I - "$W" "$n" <<'PY'
 import re, struct, sys
 W, n = sys.argv[1], sys.argv[2]
@@ -33,3 +33,4 @@ PY
 }
 mk mono 32000
 mk stereo 48000
+mk ps 32000 29 stereo

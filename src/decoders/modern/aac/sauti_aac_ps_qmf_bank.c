@@ -15,9 +15,10 @@ int sauti_aac_ps_qmf_bank_analyze(const SautiAacPsHybridSchedule *schedule,
        qmf_count<38u*64u)return 0;
     const unsigned bands=schedule->parameter_bands==20u&&schedule->hybrid_bands==71u?71u:
        schedule->parameter_bands==34u&&schedule->hybrid_bands==91u?91u:0u;
-    if(!bands||out_count<(size_t)32u*bands)return 0;
+    const unsigned S=sauti_aac_ps_schedule_slots(schedule);
+    if(!bands||out_count<(size_t)S*bands)return 0;
     const size_t in_size=(size_t)38u*64u*sizeof(*qmf);
-    const size_t out_size=(size_t)32u*bands*sizeof(*out);
+    const size_t out_size=(size_t)S*bands*sizeof(*out);
     if(!distinct(qmf,in_size,out,out_size)||
        !distinct(qmf,in_size,state,sizeof(*state))||
        !distinct(out,out_size,state,sizeof(*state)))return 0;
@@ -27,10 +28,10 @@ int sauti_aac_ps_qmf_bank_analyze(const SautiAacPsHybridSchedule *schedule,
     SautiAacSbrComplex low[32u*32u], high[32u*61u], next[32u*91u];
     SautiAacPsQmfLowState next_state=*state;
     if(!sauti_aac_ps_qmf_low_analyze(schedule,qmf,qmf_count,
-                                     &next_state,low,(size_t)32u*low_bands) ||
+                                     &next_state,low,(size_t)S*low_bands) ||
        !sauti_aac_ps_qmf_high_extract(schedule,qmf,qmf_count,
-                                     high,(size_t)32u*high_bands))return 0;
-    for(unsigned slot=0;slot<32u;slot++){
+                                     high,(size_t)S*high_bands))return 0;
+    for(unsigned slot=0;slot<S;slot++){
         memcpy(next+(size_t)slot*bands,low+(size_t)slot*low_bands,
                low_bands*sizeof(*next));
         memcpy(next+(size_t)slot*bands+low_bands,

@@ -16,7 +16,7 @@ static int validate_schedule(const SautiAacPsHybridSchedule *s){
     if(!((p==20u&&h==71u)||(p==34u&&h==91u))||
        !s->env_count||s->env_count>SAUTI_AAC_PS_MAX_ENVELOPES)
         return 0;
-    for(unsigned slot=0;slot<PS_SYNTH_SLOTS;slot++)
+    for(unsigned slot=0;slot<sauti_aac_ps_schedule_slots(s);slot++)
         if(s->slot_to_env[slot]>=s->env_count)return 0;
     for(unsigned k=0;k<h;k++)
         if(s->hybrid_to_parameter[k]>=p)return 0;
@@ -27,7 +27,7 @@ static int validate_samples(const SautiAacSbrComplex *v,size_t n){
         if(!isfinite(v[i].re)||!isfinite(v[i].im))return 0;
     return 1;
 }
-static int synth_raw(const SautiAacSbrComplex *hybrid,unsigned bands,
+static int synth_raw(const SautiAacSbrComplex *hybrid,unsigned bands,unsigned slots,
                      SautiAacSbrComplex *qmf){
     static const unsigned split20[3]={6u,2u,2u};
     static const unsigned split34[5]={12u,8u,4u,4u,4u};
@@ -35,7 +35,7 @@ static int synth_raw(const SautiAacSbrComplex *hybrid,unsigned bands,
     const unsigned nlow=is34?5u:3u;
     const unsigned *splits=is34?split34:split20;
     const unsigned high_start=is34?32u:10u;
-    for(unsigned slot=0;slot<PS_SYNTH_SLOTS;slot++){
+    for(unsigned slot=0;slot<slots;slot++){
         const SautiAacSbrComplex *src=hybrid+(size_t)slot*bands;
         SautiAacSbrComplex *dst=qmf+(size_t)slot*PS_SYNTH_QMF_BANDS;
         unsigned start=0u;
@@ -60,14 +60,15 @@ int sauti_aac_ps_hybrid_synthesize(const SautiAacPsHybridSchedule *schedule,
                                    const SautiAacSbrComplex *hybrid,size_t hybrid_count,
                                    SautiAacSbrComplex *qmf,size_t qmf_count){
     if(!validate_schedule(schedule)||!hybrid||!qmf)return 0;
-    const size_t n=(size_t)PS_SYNTH_SLOTS*schedule->hybrid_bands;
-    const size_t m=(size_t)PS_SYNTH_SLOTS*PS_SYNTH_QMF_BANDS;
+    const unsigned S=sauti_aac_ps_schedule_slots(schedule);
+    const size_t n=(size_t)S*schedule->hybrid_bands;
+    const size_t m=(size_t)S*PS_SYNTH_QMF_BANDS;
     if(hybrid_count<n||qmf_count<m||
        !disjoint(hybrid,n*sizeof(*hybrid),qmf,m*sizeof(*qmf))||
        !disjoint(schedule,sizeof(*schedule),qmf,m*sizeof(*qmf))||
        !validate_samples(hybrid,n))return 0;
     SautiAacSbrComplex temp[PS_SYNTH_SLOTS*PS_SYNTH_QMF_BANDS];
-    if(!synth_raw(hybrid,schedule->hybrid_bands,temp))return 0;
+    if(!synth_raw(hybrid,schedule->hybrid_bands,S,temp))return 0;
     memcpy(qmf,temp,m*sizeof(*qmf));
     return 1;
 }
@@ -78,8 +79,9 @@ int sauti_aac_ps_hybrid_synthesize_stereo(const SautiAacPsHybridSchedule *schedu
                                           SautiAacSbrComplex *right_qmf,size_t right_qmf_count){
     if(!validate_schedule(schedule)||!left||!right||!left_qmf||!right_qmf)
         return 0;
-    const size_t n=(size_t)PS_SYNTH_SLOTS*schedule->hybrid_bands;
-    const size_t m=(size_t)PS_SYNTH_SLOTS*PS_SYNTH_QMF_BANDS;
+    const unsigned S=sauti_aac_ps_schedule_slots(schedule);
+    const size_t n=(size_t)S*schedule->hybrid_bands;
+    const size_t m=(size_t)S*PS_SYNTH_QMF_BANDS;
     if(left_count<n||right_count<n||left_qmf_count<m||right_qmf_count<m)
         return 0;
     const size_t nb=n*sizeof(*left),mb=m*sizeof(*left_qmf);
@@ -93,8 +95,8 @@ int sauti_aac_ps_hybrid_synthesize_stereo(const SautiAacPsHybridSchedule *schedu
         return 0;
     SautiAacSbrComplex ltmp[PS_SYNTH_SLOTS*PS_SYNTH_QMF_BANDS];
     SautiAacSbrComplex rtmp[PS_SYNTH_SLOTS*PS_SYNTH_QMF_BANDS];
-    if(!synth_raw(left,schedule->hybrid_bands,ltmp)||
-       !synth_raw(right,schedule->hybrid_bands,rtmp))return 0;
+    if(!synth_raw(left,schedule->hybrid_bands,S,ltmp)||
+       !synth_raw(right,schedule->hybrid_bands,S,rtmp))return 0;
     memcpy(left_qmf,ltmp,mb);
     memcpy(right_qmf,rtmp,mb);
     return 1;
