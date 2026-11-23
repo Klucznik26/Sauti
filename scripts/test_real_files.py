@@ -55,7 +55,8 @@ def main():
                         if os.path.exists(n + '.fdk'): ref['FDK'] = np.fromfile(n + '.fdk', '<f4')
             for k, b in ref.items():
                 if len(b) < hi - ch * 4096 or hi - lo < 8000: line += "  %s: too short" % k; continue
-                r = snr(a[lo:hi], b[lo:hi + 8192 * ch], k == 'FDK', ch)
+                am = np.trunc(a[lo:hi].astype(np.float64) * 32768.0) / 32768.0 if k == 'libxaac' else a[lo:hi]    # libxaac's 16-bit output TRUNCATES toward zero: quantise ours the same way, or quiet passages are limited by its quantisation noise
+                r = snr(am, b[lo:hi + 8192 * ch], k == 'FDK', ch)
                 line += "  %s %s" % (k, "%.1f dB" % r[0] if r else "n/a")
             print(line); sys.stdout.flush()
     return 0
