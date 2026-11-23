@@ -1,0 +1,96 @@
+/* Atari Falcon DVSM Pack 5 (ADPCM = IMA, stereo 16-bit, one byte per frame: left high nibble, right low nibble, no blocks, state from zero) decoded through the engine.
+ * tests/data/dvsm_adpcm.dvs and dvsm_adpcm.pcm come from the ORIGINAL encoder and decoder routines of WinRec Pro 2.11H run in an M68K emulation (tests/data/make_dvsm_adpcm_fixture.py): the PCM must
+ * be reproduced bit for bit, also after seeks and with reads of any size.  Mono / 8-bit ADPCM (no such variant in WinRec), a PACK table with Pack 5 and unknown methods are refused, not guessed. */
+#define _POSIX_C_SOURCE 200809L
+#include "maktabasauti/maktabasauti.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static int g_failures;
+#define CHECK(cond, ...) do { if (!(cond)) { g_failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
+static uint8_t *slurp(const char *path, size_t *n) {
+    FILE *f = fopen(path, "rb"); uint8_t *b; long len;
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END); len = ftell(f); fseek(f, 0, SEEK_SET); b = (uint8_t *)malloc((size_t)len + 1u);
+    if (!b || fread(b, 1, (size_t)len, f) != (size_t)len) { fclose(f); free(b); return NULL; }
+    fclose(f); *n = (size_t)len; return b;
+}
+static maktabasauti_result_t open_mem(const uint8_t *data, size_t n, maktabasauti_decoder_t **out, maktabasauti_stream_info_t *info) {
+    maktabasauti_open_params_t p; maktabasauti_result_t r;
+    memset(&p, 0, sizeof p); p.struct_size = sizeof p; p.abi_version = MAKTABASAUTI_ABI_VERSION; *out = NULL;
+    if (maktabasauti_io_from_memory(data, n, NULL, &p.io) != MAKTABASAUTI_OK) return MAKTABASAUTI_E_IO;
+    r = maktabasauti_decoder_open(&p, out);
+    if (r != MAKTABASAUTI_OK) { p.io.close(p.io.user); return r; }
+    if (info) { info->struct_size = sizeof *info; (void)maktabasauti_decoder_get_info(*out, info); }
+    return MAKTABASAUTI_OK;
+}
+static float *read_all(maktabasauti_decoder_t *d, size_t chunk, size_t *frames_out) {
+    float *pcm = NULL, *buf = (float *)malloc(chunk * 2u * sizeof(float)); size_t total = 0, got, cap = 0; maktabasauti_result_t r;
+    for (;;) {
+        r = maktabasauti_decoder_read(d, buf, chunk, MAKTABASAUTI_FORMAT_F32, &got);
+        if (got) { if (total + got > cap) { cap = (total + got) * 2u; pcm = (float *)realloc(pcm, cap * 2u * sizeof(float)); } memcpy(pcm + total * 2u, buf, got * 2u * sizeof(float)); total += got; }
+        if (r != MAKTABASAUTI_OK) break;
+    }
+    free(buf); *frames_out = total; return pcm;
+}
+static void expect_refused(const char *what, const uint8_t *data, size_t n) {
+    maktabasauti_decoder_t *d; const maktabasauti_result_t r = open_mem(data, n, &d, NULL);
+    CHECK(r != MAKTABASAUTI_OK, "%s: opened, but must be refused", what);
+    if (r == MAKTABASAUTI_OK) maktabasauti_decoder_close(d);
+}
+
+int main(void) {
+    size_t n, npcm, frames, frames2, i, k; uint8_t *dvs = slurp("tests/data/dvsm_adpcm.dvs", &n), *gold = slurp("tests/data/dvsm_adpcm.pcm", &npcm);
+    maktabasauti_decoder_t *d; maktabasauti_stream_info_t info; float *pcm, *pcm2;
+    if (!dvs || !gold) { printf("cannot read the fixtures (run from the repository root)\n"); return 1; }
+    CHECK(open_mem(dvs, n, &d, &info) == MAKTABASAUTI_OK, "open");
+    if (!d) return 1;
+    CHECK(info.channels == 2 && info.sample_rate == 49170 && (info.flags & MAKTABASAUTI_STREAM_SEEKABLE), "%u ch %u Hz", (unsigned)info.channels, (unsigned)info.sample_rate);
+    pcm = read_all(d, 4096, &frames);
+    CHECK(pcm && frames == npcm / 4u && frames == n - 16u, "%zu frames (expected %zu)", frames, npcm / 4u);
+    for (i = 0; pcm && i < frames * 2u && i < npcm / 2u; i++) {
+        const int16_t g = (int16_t)(((unsigned)gold[2u * i] << 8) | gold[2u * i + 1u]);
+        if (pcm[i] != (float)g * (1.0f / 32768.0f)) { CHECK(0, "sample %zu: %.9g, WinRec %d", i, (double)pcm[i], g); break; }
+    }
+    maktabasauti_decoder_close(d);
+    /* reads of other sizes */
+    for (k = 0; k < 3; k++) {
+        static const size_t chunks[3] = { 1, 333, 1000 };
+        CHECK(open_mem(dvs, n, &d, NULL) == MAKTABASAUTI_OK, "reopen");
+        pcm2 = d ? read_all(d, chunks[k], &frames2) : NULL;
+        CHECK(pcm && pcm2 && frames2 == frames && memcmp(pcm, pcm2, frames * 2u * sizeof(float)) == 0, "reads of %zu frames give other PCM", chunks[k]);
+        free(pcm2); if (d) maktabasauti_decoder_close(d);
+    }
+    /* exact seeks (checkpoints, backwards and forwards) */
+    if (open_mem(dvs, n, &d, NULL) == MAKTABASAUTI_OK) {
+        static const uint64_t t[] = { 1, 777, 4500, 8999, 1234, 0, 8192, 4096, 8191, 12, 6000 };     /* the engine keeps a checkpoint every 4096 frames: seeks before / after / exactly at them */
+        float a[2 * 100];
+        for (i = 0; i < sizeof t / sizeof t[0]; i++) {
+            size_t got, want = t[i] + 100u <= frames ? 100u : (size_t)(frames - t[i]);
+            CHECK(maktabasauti_decoder_seek(d, t[i], MAKTABASAUTI_SEEK_EXACT, NULL) == MAKTABASAUTI_OK, "seek %llu", (unsigned long long)t[i]);
+            (void)maktabasauti_decoder_read(d, a, want, MAKTABASAUTI_FORMAT_F32, &got);
+            CHECK(got == want && memcmp(a, pcm + t[i] * 2u, want * 2u * sizeof(float)) == 0, "seek to %llu differs from sequential decoding", (unsigned long long)t[i]);
+        }
+        maktabasauti_decoder_close(d);
+    }
+    free(pcm);
+    /* refusals: mono, 8-bit, a PACK table, an unknown method */
+    {   uint8_t *m = (uint8_t *)malloc(n + 600u); size_t head = 16u;
+        memcpy(m, dvs, n);
+        m[11] = 3; expect_refused("mono ADPCM", m, n);
+        m[11] = 0; expect_refused("8-bit ADPCM", m, n);
+        m[11] = 1; m[10] = 3; expect_refused("unknown method 3", m, n);
+        m[10] = 6; expect_refused("unknown method 6", m, n);
+        m[10] = 5;
+        memcpy(m, dvs, 16u); m[6] = (uint8_t)((head + 518u) >> 8); m[7] = (uint8_t)(head + 518u);                    /* a PACK cookie (6 + 512 bytes) before the data */
+        memcpy(m + 16, "PACK", 4); m[20] = (uint8_t)((6 + 512) >> 8); m[21] = (uint8_t)(6 + 512);
+        memset(m + 22, 0, 512); memcpy(m + 16 + 518, dvs + 16, n - 16u);
+        expect_refused("Pack 5 with a PACK table", m, n + 518u);
+        free(m);
+    }
+    free(dvs); free(gold);
+    if (g_failures) { printf("test_dvsm_adpcm: %d FAILURES\n", g_failures); return 1; }
+    printf("test_dvsm_adpcm: all passed\n");
+    return 0;
+}

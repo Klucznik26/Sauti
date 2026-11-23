@@ -152,13 +152,13 @@ static maktabasauti_result_t MAKTABASAUTI_CALL avr_flush(void *state) { ((avr_t 
 static void MAKTABASAUTI_CALL avr_close(void *state) { avr_t *a = (avr_t *)state; if (a) a->host->free(a->host->user, a); }
 
 /* =============================================================== DVSM ============================================================== */
-typedef struct { uint64_t frame; int32_t acc[2]; } cp_t;
+typedef struct { uint64_t frame; int32_t acc[2]; uint8_t idx[2]; } cp_t;
 typedef struct {
     const maktabasauti_host_t *host; maktabasauti_reader_t *rd; stage_t st;
     uint32_t channels, bits, pack, bpf;                   /* bpf: bajty danych delty na ramke stereo (2 = Pack-2, 1 = Pack-4) */
     uint64_t block, fpb;                                  /* rozmiar bloku stereo w bajtach i liczba ramek pelnego bloku */
     int64_t data_off; int seekable, total_known, tail; uint64_t total;
-    uint64_t pos; int32_t acc[2];                         /* nastepna ramka do wydania i akumulatory PO ramce pos-1 */
+    uint64_t pos; int32_t acc[2]; uint8_t idx[2];         /* nastepna ramka do wydania i akumulatory PO ramce pos-1 (Pack-5: predyktor i indeks kroku IMA ADPCM) */
     int16_t steps[256];
     cp_t *cps; size_t ncp; uint64_t stride;
     maktabasauti_result_t pend;
@@ -174,6 +174,24 @@ static int16_t step_value(unsigned i) {
     if (i < 128) { v = floor(pow(1.084618362, (double)i)); if (v > 32767.0) v = 32767.0; return (int16_t)v; }
     v = floor(pow(1.084618362, (double)(256 - i))); if (v > 32767.0) v = 32767.0;
     return (int16_t)-v;
+}
+
+/* Pack-5 = IMA ADPCM, stereo 16-bit, bez blokow: jeden bajt na ramke (starszy polbajt = lewy, mlodszy = prawy), predyktor i indeks kroku zaczynaja od 0 na poczatku pliku i trwaja do konca.  Tablica 89 krokow
+ * i tablica poprawek indeksu {-1,-1,-1,-1,2,4,6,8} sa standardowe (IMA); ich uzycie, kolejnosc polbajtow i nasycenie predyktora do 16 bitow odczytane z procedury dekodujacej WinRec Pro 2.11H i
+ * potwierdzone jej uruchomieniem (emulacja M68K) na losowych danych: wynik bit w bit (docs/falcon-dvsm-pack5.md).  Krok liczony jak tam: step>>3 + (bit 4: step) + (bit 2: step>>1) + (bit 1: step>>2). */
+static const int16_t ima_step[89] = { 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408,
+    449, 494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635,
+    13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767 };
+static int32_t ima_nibble(int32_t pred, uint8_t *idx, unsigned nib) {
+    static const int8_t adj[8] = { -1, -1, -1, -1, 2, 4, 6, 8 };
+    const int32_t step = ima_step[*idx]; int32_t d = step >> 3; int ix;
+    if (nib & 4u) d += step;
+    if (nib & 2u) d += step >> 1;
+    if (nib & 1u) d += step >> 2;
+    pred = (nib & 8u) ? pred - d : pred + d;
+    pred = pred > 32767 ? 32767 : pred < -32768 ? -32768 : pred;
+    ix = (int)*idx + adj[nib & 7u]; *idx = (uint8_t)(ix < 0 ? 0 : ix > 88 ? 88 : ix);
+    return pred;
 }
 
 /* Naglowek DVSM za pierwszymi 16 bajtami: ciasteczka [4 B id][2 B dlugosc = 6 + dane][dane].  'PACK' (512 B = 256 slow big-endian, indeks = bajt ze znakiem + 128) zastepuje tablice Pack-2 (jak w odtwarzaczu Wax);
@@ -215,6 +233,7 @@ static int32_t MAKTABASAUTI_CALL dvsm_probe(const maktabasauti_codec_t *self, co
 /* bajt, od ktorego trzeba czytac, zeby zdekodowac ramke `f` (stan akumulatorow sprzed niej jest osobno) */
 static uint64_t dvsm_locate(const dvsm_t *d, uint64_t f) {
     if (d->pack == 0u) return (uint64_t)d->data_off + f * d->channels * (d->bits / 8u);
+    if (d->pack == 5u) return (uint64_t)d->data_off + f;
     if (d->channels == 1u && d->fpb == 0u) return f == 0 ? (uint64_t)d->data_off : (uint64_t)d->data_off + 2u + (d->pack == 2u ? f - 1u : (f - 1u) / 2u);
     if (d->channels == 1u) { const uint64_t blk = f / d->fpb, j = f % d->fpb; return (uint64_t)d->data_off + blk * d->block + (j == 0 ? 0u : 2u + (d->pack == 2u ? j - 1u : (j - 1u) / 2u)); }
     { const uint64_t blk = f / d->fpb, j = f % d->fpb; return (uint64_t)d->data_off + blk * d->block + (j == 0 ? 0u : 4u + (j - 1u) * d->bpf); }
@@ -229,7 +248,7 @@ static void cp_note(dvsm_t *d) {                          /* punkt kontrolny co 
         d->ncp = CP_MAX / 2u; d->stride *= 2u;
         if (d->pos % d->stride != 0) return;
     }
-    d->cps[d->ncp].frame = d->pos; d->cps[d->ncp].acc[0] = d->acc[0]; d->cps[d->ncp].acc[1] = d->acc[1]; d->ncp++;
+    d->cps[d->ncp].frame = d->pos; d->cps[d->ncp].acc[0] = d->acc[0]; d->cps[d->ncp].acc[1] = d->acc[1]; d->cps[d->ncp].idx[0] = d->idx[0]; d->cps[d->ncp].idx[1] = d->idx[1]; d->ncp++;
 }
 
 /* jedna ramka; OK / EOF (czyste, na granicy) / E_TRUNCATED (urwana ramka) / blad wejscia (E_WOULD_BLOCK: nic nie zuzyte, ponowienie) */
@@ -244,6 +263,15 @@ static maktabasauti_result_t dvsm_frame(dvsm_t *d, float *out) {
         p = s->buf + s->at;
         for (i = 0; i < d->channels; i++) out[i] = d->bits == 16u ? (float)seed16(p + 2u * i) * S16 : (float)(int32_t)(int8_t)p[i] * S8;
         s->at += fb;
+    } else if (d->pack == 5u) {                                                                  /* IMA ADPCM: bajt = lewy (starszy polbajt) i prawy (mlodszy), stan ciagly */
+        r = st_need(d->host, d->rd, s, 1u);
+        if (r == MAKTABASAUTI_EOF) return MAKTABASAUTI_EOF;
+        if (r != MAKTABASAUTI_OK) return r;
+        p = s->buf + s->at;
+        d->acc[0] = ima_nibble(d->acc[0], &d->idx[0], (unsigned)(p[0] >> 4));
+        d->acc[1] = ima_nibble(d->acc[1], &d->idx[1], (unsigned)(p[0] & 15u));
+        s->at++;
+        out[0] = (float)d->acc[0] * S16; out[1] = (float)d->acc[1] * S16;
     } else if (d->channels == 1u) {
         const uint64_t jm = d->fpb ? d->pos % d->fpb : d->pos;              /* mono: z blokiem (pole bloku >= 3) kazdy blok zaczyna sie nowym ziarnem, jak w odtwarzaczu WinRec */
         if (jm == 0) {
@@ -295,7 +323,8 @@ static maktabasauti_result_t MAKTABASAUTI_CALL dvsm_open(const maktabasauti_code
     offset = be16(hd + 6); hz = be16(hd + 8); pack = hd[10]; mode = hd[11]; block = be32(hd + 12);
     channels = (mode & 2u) ? 1u : 2u; bits = (mode & 1u) ? 16u : 8u;
     if (mode > 3u || offset < 16u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
-    if (pack != 0 && pack != 2u && pack != 4u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;       /* ADPCM i PACK override: nieobslugiwane (jak dawniej) */
+    if (pack != 0 && pack != 2u && pack != 4u && pack != 5u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;       /* inne metody pakowania: nieznane */
+    if (pack == 5u && (channels != 2u || bits != 16u)) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;         /* ADPCM WinReca to tylko 16-bitowe stereo: procedura dekodujaca nie ma wariantu mono ani 8-bitowego */
     if ((pack == 2u || pack == 4u) && bits != 16u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     if (hz < 8u) hz = rates[hz];
     if (hz < 256u || hz > 384000u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
@@ -307,6 +336,7 @@ static maktabasauti_result_t MAKTABASAUTI_CALL dvsm_open(const maktabasauti_code
         bytes = (uint64_t)size - offset;
         if (bytes == 0) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
         if (pack == 0) { total = bytes / fb; tail = bytes % fb; }
+        else if (pack == 5u) total = bytes;                                                       /* jeden bajt na ramke stereo, bez blokow */
         else if (bytes < 2u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
         else if (channels == 1u && block < 3u) total = pack == 2u ? bytes - 1u : 1u + 2u * (bytes - 2u);
         else if (channels == 1u) {                                                                /* mono z blokami: ziarno (2 B) i delty co `block` bajtow */
@@ -326,7 +356,7 @@ static maktabasauti_result_t MAKTABASAUTI_CALL dvsm_open(const maktabasauti_code
     if (!d) return MAKTABASAUTI_E_NO_MEMORY;
     memset(d, 0, sizeof *d);
     d->host = h; d->rd = rd; d->channels = channels; d->bits = bits; d->pack = pack; d->block = block; d->data_off = (int64_t)offset; d->bpf = pack == 2u ? 2u : 1u;
-    d->fpb = (pack != 0 && channels == 2u) ? 1u + (block - 4u) / d->bpf : (pack != 0 && channels == 1u && block >= 3u) ? 1u + (block - 2u) * (pack == 2u ? 1u : 2u) : 0u;
+    d->fpb = pack == 5u ? 0u : (pack != 0 && channels == 2u) ? 1u + (block - 4u) / d->bpf : (pack != 0 && channels == 1u && block >= 3u) ? 1u + (block - 2u) * (pack == 2u ? 1u : 2u) : 0u;
     d->total_known = size >= 0; d->total = total; d->tail = tail != 0; d->seekable = (int)flags; d->stride = 4096u;
     if (pack == 4u) { static const int16_t voice[16] = { -8192, -4096, -2048, -1024, -512, -256, -64, 0, 64, 256, 512, 1024, 2048, 4096, 8192, 16384 }; memcpy(d->steps, voice, sizeof voice); }
     if (pack == 2u) for (i = 0; i < 256u; i++) d->steps[i] = step_value(i);
@@ -363,12 +393,12 @@ static maktabasauti_result_t MAKTABASAUTI_CALL dvsm_read(void *state, void *dst,
 }
 
 static maktabasauti_result_t dvsm_goto(dvsm_t *d, uint64_t frame) {
-    uint64_t from = 0; int32_t acc0 = 0, acc1 = 0; size_t i; float tmp[2];
+    uint64_t from = 0; int32_t acc0 = 0, acc1 = 0; uint8_t ix0 = 0, ix1 = 0; size_t i; float tmp[2];
     if (d->pack != 0 && frame != 0) {
-        for (i = d->ncp; i > 0; i--) if (d->cps[i - 1u].frame <= frame) { from = d->cps[i - 1u].frame; acc0 = d->cps[i - 1u].acc[0]; acc1 = d->cps[i - 1u].acc[1]; break; }
+        for (i = d->ncp; i > 0; i--) if (d->cps[i - 1u].frame <= frame) { from = d->cps[i - 1u].frame; acc0 = d->cps[i - 1u].acc[0]; acc1 = d->cps[i - 1u].acc[1]; ix0 = d->cps[i - 1u].idx[0]; ix1 = d->cps[i - 1u].idx[1]; break; }
     } else from = frame;
     if (d->host->seek(d->host->user, d->rd, (int64_t)dvsm_locate(d, from), 0) < 0) return MAKTABASAUTI_E_NOT_SEEKABLE;
-    st_clear(&d->st); d->pos = from; d->acc[0] = acc0; d->acc[1] = acc1; d->pend = MAKTABASAUTI_OK;
+    st_clear(&d->st); d->pos = from; d->acc[0] = acc0; d->acc[1] = acc1; d->idx[0] = ix0; d->idx[1] = ix1; d->pend = MAKTABASAUTI_OK;
     while (d->pos < frame) {                                                                  /* odtworzenie od punktu kontrolnego (ramki odrzucane); ponawianie przy E_WOULD_BLOCK nie dotyczy wejsc przewijalnych */
         const maktabasauti_result_t r = dvsm_frame(d, tmp);
         if (r != MAKTABASAUTI_OK) return r == MAKTABASAUTI_EOF ? MAKTABASAUTI_E_TRUNCATED : r;
@@ -399,7 +429,7 @@ const maktabasauti_codec_t maktabasauti_dvs_avr_desc = {
     avr_probe, avr_open, avr_read, avr_seek, avr_reset, avr_flush, NULL, dvs_last_error, NULL, avr_close, { NULL }, { NULL }
 };
 const maktabasauti_codec_t maktabasauti_dvs_dvsm_desc = {
-    sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "atari-falcon-dvsm-pcm", "Atari Falcon DVSM (PCM, Pack-2, Pack-4; streaming)", "maktabasauti_dvs",
+    sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "atari-falcon-dvsm-pcm", "Atari Falcon DVSM (PCM, Pack-2, Pack-4, Pack-5 ADPCM; streaming)", "maktabasauti_dvs",
     MAKTABASAUTI_CODEC_FLAG_STREAMING | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
     dvsm_probe, dvsm_open, dvsm_read, dvsm_seek, dvsm_reset, dvsm_flush, NULL, dvs_last_error, NULL, dvsm_close, { NULL }, { NULL }
 };
