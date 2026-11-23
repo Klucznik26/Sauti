@@ -11,11 +11,11 @@ python3 -c 'import numpy' 2>/dev/null || { echo "SKIP: no numpy"; exit 0; }
 make -s build/sauti_usac_raw >/dev/null
 W="$(mktemp -d "${TMPDIR:-/tmp}/sauti-mpsfdk.XXXXXX")"; trap 'rm -rf -- "${W:?}"' EXIT
 fail=0
-for f in z1 z2 z3 z4 z5 z6 z7 z8 z9 y1 y2 y3 y4 y5 y6 y7 y8 y9 y10 y14 y15 y16 y17 y18 y19 y20 y21 z10 z11 z12 z13 z14; do
+for f in z1 z2 z3 z4 z5 z6 z7 z8 z9 y1 y2 y3 y4 y5 y6 y7 y8 y9 y10 y14 y15 y16 y17 y18 y19 y20 y21 z10 z11 z12 z13 z14 r1 r2 r3 r4; do
   python3 -I tools/mp4_dump_aus.py "tests/data/usac_$f.m4a" "$W/$f" >/dev/null
   build/sauti_usac_raw "$W/$f" "$W/$f.sau" >/dev/null 2>&1
   build/sauti_fdk_raw_oracle "$W/$f.asc" "$W/$f.aus" "$W/$f.fdk" >/dev/null 2>&1
-  case "$f" in z11|z13|z14) min="${USAC_MPS_FDK_MIXED_MIN_DB:-25}";; z9|z10|z12) min="${USAC_MPS_FDK_LPD_MIN_DB:-50}";; z*) min="${USAC_MPS_FDK_MIN_DB:-75}";; *) min="${USAC_MPS_FDK_GEN_MIN_DB:-30}";; esac
+  case "$f" in r1) min="${USAC_MPS_FDK_REAL_MIN_DB:-35}";; r2|r3|r4) min="${USAC_MPS_FDK_REAL_MIN_DB:-35}";; z11|z13|z14) min="${USAC_MPS_FDK_MIXED_MIN_DB:-25}";; z9|z10|z12) min="${USAC_MPS_FDK_LPD_MIN_DB:-50}";; z*) min="${USAC_MPS_FDK_MIN_DB:-75}";; *) min="${USAC_MPS_FDK_GEN_MIN_DB:-30}";; esac
   r="$(python3 -I - "$W/$f.sau" "$W/$f.fdk" "$min" <<'PY'
 import sys, numpy as np
 a = np.fromfile(sys.argv[1], '<f4'); b = np.fromfile(sys.argv[2], '<f4'); lo = float(sys.argv[3]); m = min(len(a), len(b))
