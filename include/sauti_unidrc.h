@@ -79,8 +79,10 @@ int sauti_unidrc_loudness_parse(SautiUsacBits *b, SautiUniDrcLoudnessSet *out);
 int sauti_unidrc_gain_parse(const SautiUniDrcConfig *cfg, unsigned frame_size, unsigned rate, SautiUsacBits *b, SautiUniDrcGain *out);
 unsigned sauti_unidrc_delta_tmin(unsigned rate);
 
-/* Gain curve of one gain sequence for one frame (stage U3).  The state carries the last node of the previous frame (its time is relative to the previous frame: frame_size - 1 + offset - frame_size). */
-typedef struct { int have; int time; float gain_db, slope; } SautiUniDrcSeqState;
+/* Gain curve of one gain sequence (stage U3).  The gain of a frame is final only when the NEXT frame's nodes are known (a frame whose last node is before its end continues with the first segment of the next one,
+ * which starts at that node), so the output of a call is the gain of the PREVIOUS frame: the PCM that the access unit N produces is multiplied by the gains of access unit N - 1 completed by access unit N (measured against
+ * libxaac: the gain buffer of its DRC processing, 87 dB).  The state holds the gains of the frame still open. */
+typedef struct { int have; int time; float gain_db, slope; float open[4096]; } SautiUniDrcSeqState;
 typedef struct {
     float boost, compress;                  /* user factors on the positive / negative gains (1.0 = off) */
     unsigned scaling_flag; float attn, ampl;/* gain modifiers of the instruction (band 0) */
@@ -88,6 +90,6 @@ typedef struct {
     unsigned ducking_flag; float ducking_scaling;
     int limiter_present; float limiter_peak, norm_gain_db;   /* limiter peak target and the loudness normalisation gain (clipping prevention) */
 } SautiUniDrcCurveParams;
-/* lin[0 .. frame_size - 1] = the LINEAR gain of every sample of the frame; the state is advanced.  1 = ok, 0 = malformed */
+/* lin[0 .. frame_size - 1] = the LINEAR gain of every sample of the previous frame (1.0 in the first call); the state is advanced.  1 = ok, 0 = malformed */
 int sauti_unidrc_curve(const SautiUniDrcGainSet *gs, const SautiUniDrcNodes *n, unsigned frame_size, unsigned rate, const SautiUniDrcCurveParams *p, SautiUniDrcSeqState *st, float *lin);
 #endif

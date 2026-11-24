@@ -66,17 +66,23 @@ int main(void) {
             jb.pos = i; (void)sauti_unidrc_loudness_parse(&jb, &ls);
         }
     }
-    {   /* gain curve (U3): linear interpolation in the LINEAR domain between nodes, the state carries the last node into the next frame */
-        SautiUniDrcGainSet gs; SautiUniDrcNodes nd; SautiUniDrcSeqState ss; SautiUniDrcCurveParams cp; static float lin[2048];
-        memset(&gs, 0, sizeof gs); gs.interpolation = 1; gs.profile = 0; gs.band_count = 1;
-        memset(&nd, 0, sizeof nd); memset(&ss, 0, sizeof ss); memset(&cp, 0, sizeof cp); cp.boost = cp.compress = 1.0f;
-        nd.count = 2; nd.time[0] = 1023; nd.gain_db[0] = -6.0f; nd.time[1] = 2047; nd.gain_db[1] = -6.0f;
-        CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1, "curve");
-        CHECK(fabsf(lin[1023] - 0.5f) < 1e-6f && fabsf(lin[2047] - 0.5f) < 1e-6f && fabsf(lin[511] - 0.75f) < 1e-3f && fabsf(lin[0] - (1.0f - 0.5f / 1024.0f)) < 1e-3f, "curve values %f %f %f", (double)lin[0], (double)lin[511], (double)lin[1023]);
-        nd.count = 1; nd.time[0] = 2047; nd.gain_db[0] = 0.0f;
-        CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1 && fabsf(lin[0] - (0.5f + 0.5f / 2048.0f)) < 1e-3f && fabsf(lin[2047] - 1.0f) < 1e-6f, "second frame starts at the previous node: %f", (double)lin[0]);
+    {   /* gain curve (U3): linear interpolation in the LINEAR domain between nodes; the output of a call is the PREVIOUS frame, completed by the first segment of this one */
+        static SautiUniDrcGainSet gs; static SautiUniDrcNodes nd; static SautiUniDrcSeqState ss; static SautiUniDrcCurveParams cp; static float lin[2048];
+        unsigned i;
+        gs.interpolation = 1; gs.profile = 0; gs.band_count = 1;
+        cp.boost = cp.compress = 1.0f;
+        nd.count = 2; nd.time[0] = 1023; nd.gain_db[0] = -6.0f; nd.time[1] = 2015; nd.gain_db[1] = -6.0f;       /* frame A: the last node is 32 samples before the end */
+        CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1, "curve 1");
+        for (i = 0; i < 2048; i++) if (lin[i] != 1.0f) { CHECK(0, "first call must return unity (sample %u = %f)", i, (double)lin[i]); break; }
+        nd.count = 2; nd.time[0] = 31; nd.gain_db[0] = 0.0f; nd.time[1] = 2047; nd.gain_db[1] = 0.0f;           /* frame B */
+        CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1, "curve 2");
+        CHECK(fabsf(lin[1023] - 0.5f) < 1e-6f && fabsf(lin[511] - 0.75f) < 1e-3f && fabsf(lin[0] - (1.0f - 0.5f / 1024.0f)) < 1e-3f, "frame A values %f %f %f", (double)lin[0], (double)lin[511], (double)lin[1023]);
+        CHECK(fabsf(lin[2015] - 0.5f) < 1e-6f && fabsf(lin[2047] - 0.75f) < 1e-3f, "the tail of frame A is the first segment of frame B: %f %f", (double)lin[2015], (double)lin[2047]);
+        nd.count = 1; nd.time[0] = 2047; nd.gain_db[0] = 0.0f;                                                   /* frame C returns frame B: 1.0 from sample 31 on */
+        CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1 && fabsf(lin[31] - 1.0f) < 1e-6f && fabsf(lin[2047] - 1.0f) < 1e-6f, "frame B");
         cp.scaling_flag = 1; cp.attn = 0.5f; cp.ampl = 1.0f;                                                   /* attenuation scaled by one half: -6 dB -> -3 dB */
         memset(&ss, 0, sizeof ss); nd.count = 1; nd.time[0] = 2047; nd.gain_db[0] = -6.0f;
+        CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1, "scaling frame 1");
         CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1 && fabsf(lin[2047] - (float)pow(2.0, -3.0 / 6.0)) < 1e-6f, "gain scaling");
         nd.time[0] = 5000; CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 0, "a node far beyond the frame accepted");
     }

@@ -555,26 +555,33 @@ static void interpolate(unsigned spline, unsigned steps, float g1, float g2, flo
 
 int sauti_unidrc_curve(const SautiUniDrcGainSet *gs, const SautiUniDrcNodes *nd, unsigned frame_size, unsigned rate, const SautiUniDrcCurveParams *p, SautiUniDrcSeqState *st, float *lin) {
     static float seg[8192 + 8];
+    float next[4096];
     unsigned k, delta_tmin;
     int time_prev, i;
     float g_prev, s_prev;
     if (!gs || !nd || !p || !st || !lin || frame_size == 0 || frame_size > 4096u || nd->count == 0) return 0;
     delta_tmin = gs->time_delta_min ? gs->time_delta_min : sauti_unidrc_delta_tmin(rate);
-    if (!st->have) { st->have = 1; st->time = -1; st->gain_db = 0.0f; st->slope = 0.0f; }
+    if (!st->have) { st->have = 1; st->time = -1; st->gain_db = 0.0f; st->slope = 0.0f; for (i = 0; i < 4096; i++) st->open[i] = 1.0f; }
     time_prev = st->time; g_prev = st->gain_db; s_prev = st->slope;
-    for (i = 0; i < (int)frame_size; i++) lin[i] = 1.0f;
+    for (i = 0; i < (int)frame_size; i++) next[i] = 1.0f;
     for (k = 0; k < nd->count; k++) {
         const int t = nd->time[k];
         float l1, l2, sl1, sl2;
         int steps = t - time_prev, s;
-        if (steps <= 0 || t >= (int)frame_size + 8 || time_prev < -(int)frame_size) return 0;
+        if (steps <= 0 || steps > 8192 || t >= (int)frame_size + 8 || time_prev < -(int)frame_size) return 0;
         to_linear(p, g_prev, s_prev, &l1, &sl1);
         to_linear(p, nd->gain_db[k], nd->slope[k], &l2, &sl2);
         if (gs->interpolation == 0u) { sl1 /= (float)delta_tmin; sl2 /= (float)delta_tmin; }
         interpolate(gs->interpolation == 0u, (unsigned)steps, l1, l2, sl1, sl2, seg);
-        for (s = 1; s <= steps; s++) { const int at = time_prev + s; if (at >= 0 && at < (int)frame_size) lin[at] = seg[s]; }
+        for (s = 1; s <= steps; s++) {
+            const int at = time_prev + s;
+            if (at < 0) { if (at + (int)frame_size >= 0) st->open[at + (int)frame_size] = seg[s]; }      /* the tail of the previous frame */
+            else if (at < (int)frame_size) next[at] = seg[s];
+        }
         time_prev = t; g_prev = nd->gain_db[k]; s_prev = nd->slope[k];
     }
+    memcpy(lin, st->open, sizeof(float) * frame_size);
+    memcpy(st->open, next, sizeof(float) * frame_size);
     st->time = time_prev - (int)frame_size; st->gain_db = g_prev; st->slope = s_prev;
     return 1;
 }
