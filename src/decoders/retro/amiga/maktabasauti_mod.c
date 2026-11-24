@@ -1,49 +1,81 @@
-/* MaktabaSauti, modul maktabasauti_mod: odtwarzacz modulow ProTracker / SoundTracker (4 kanaly, 31 instrumentow).
+/* MaktabaSauti, modul maktabasauti_mod: odtwarzacz modulow ProTracker / SoundTracker
+ * (15 i 31 instrumentow, 1..32 kanalow).
  *
  * Kod jest nasz: uklad bajtow, zegar Pauli i regulamin taktu wynikaja z publicznego opisu formatu, nie z kodu
  * ProTrackera, libxmp, OpenMPTa, MikModa ani FFmpeg.  Modul nie linkuje sie z zadna z tych bibliotek.
  *
  * Kawalek 1:
  *   - magiki M.K. i FLT4 (do 64 patternow) oraz M!K! i 4CHN (do 256);
- *   - odmiany pliku, nie wycinek: 31 instrumentow (M.K., M&K!, FLT4 do 64 patternow;
- *     M!K! do 256; xCHN 1..9; xxCH i xxCN 10..32; TDZ1..TDZ3; CD81, OCTA, OKTA),
- *     FLT8 (8 kanalow, para patternow 4-kanalowych) i 15 instrumentow bez sygnatury;
+ *   - odmiany pliku, nie wycinek: 31 instrumentow (M.K., M&K!, FLT4, EXO4, N.T. do 64 patternow;
+ *     M!K!, PATT, NSMS, LARD do 256; xCHN 1..9; xxCH i xxCN 10..32; TDZ1..TDZ9;
+ *     CD61 6 kanalow; CD81, OCTA, OKTA 8; FA04/FA06/FA08 to 4/6/8),
+ *     FLT8, EXO8 i EX08 (8 kanalow, para patternow 4-kanalowych) i 15 instrumentow bez sygnatury;
  *   - nieznana czteroznakowa sygnatura jest odrzucana i nie jest czytana jako 15 instrumentow;
  *   - uciety pattern, probka za koncem pliku, petla poza probka i zla dlugosc utworu: blad, nic nie gra;
- *   - komorka gra okresem, ktory jest w niej zapisany.  Finetune nie stroi tej nuty.
- *     Arpeggio i glissando biora poltony z kolumny finetune: okres finetune 0 razy 2^(-ft/96);
+ *   - komorka niesie okres z tabeli finetune 0.  Niezerowy finetune zamienia go na okres z kolumny
+ *     tego strojenia.  Arpeggio i glissando ida po opublikowanej tabeli, nie po wzorze 2^(-ft/96);
+ *   - numer instrumentu bez nuty zmienia glosnosc od razu.  Grajaca probka konczy przebieg,
+ *     potem wchodzi petla zatrzasku albo kanal milknie.  Petla na juz milczacym kanale startuje od razu.
+ *     Pozniejsza nuta gra zatrzasnieta probke od poczatku;
  *   - dzialaja: 0xy arpeggio (000 zostaje brakiem efektu), 1xx/2xx porta, 3xx tone porta,
  *     4xy vibrato, 5xy, 6xy, 7xy tremolo, 8xx panorama 0..255, 9xx offset, Axy,
- *     Cxx, Fxx oraz Exx poza E0x (filtr) i EFx (invert loop);
+ *     Cxx, Fxx oraz Exx.  E00 wlacza filtr LED 3275 Hz, kazdy inny E0x go gasi;
  *   - 1xx/2xx i E1x/E2x stoja na okresie 113..856.  Slizg, vibrato, tremolo i arpeggio ida od taktu 1.
  *     E1x, E2x, EAx, EBx i ECx wykonuja sie juz w takcie 0.  Parametr 0 powtarza ostatni niezerowy.
  *     Bxx po wierszu skacze na pozycje order.  Dxx jest dziesietny.
  *     E6x powtarza kawalek patternu ograniczona liczbe razy.  Skok Bxx/Dxx na wiersz, ktory juz gral, konczy utwor.
- *     E0x i EFx nic nie zmieniaja w miksie.  Fala vibrato 3 zostaje sinusem;
+ *     EFx co takt dodaje przyrost 0,5,6,7,8,10,11,13,16,19,22,26,32,43,64,128.
+ *     Licznik od 128 wraca do zera i odwraca jeden bajt petli (XOR 0xFF), potem indeks rosnie.
+ *     EF0 gasi efekt i zeruje licznik.  Bez petli nic sie nie zmienia.  Maska jest prywatna, plik zostaje.
+ *     Fala 3 jest kwadratem, tym samym co fala 2.  Dokumentacja mowi o losowej, ProTracker gra kwadrat;
  *   - po ostatniej pozycji order bajt restartu wznawia te pozycje, jesli jej wiersz 0 jeszcze nie gral.
  *     0x78 i 0x7F nie sa pozycja.  Wartosc spoza dlugosci utworu tez nie.  Powrot na wiersz, ktory juz gral, konczy utwor;
  *   - wyjscie to splot stereo S16.  Panorama powtarza pary Amigi: 4k i 4k+3 na lewo, 4k+1 i 4k+2 na prawo;
- *   - miks w int32, nasycenie do int16.  Zegar PAL Pauli 3546895 Hz.  NTSC nie jest w tym kawalku.
+ *   - miks w int32, nasycenie do int16.  Domyslny zegar PAL Pauli 3546895 Hz.
+ *     Opcja mod.clock ntsc wybiera NTSC 3579545 Hz.  Plik nie zapisuje zegara.
  *
  * Czas taktu: 2,5 / BPM sekundy (przy 125 BPM i 44100 Hz wychodzi 882 klatki).  Fxx z predkoscia 1..31
  * obowiazuje juz ten wiersz.  Fxx z tempem BPM odmierza biezacy takt starym tempem, a nastepne nowym.
- * Reszta z dzielenia przechodzi na kolejny takt, zeby srednia byla dokladnie 2,5/BPM.
+ * W module 15-instrumentowym kazde niezerowe Fxx jest predkoscia.  F00 zatrzymuje sekwencer: petla
+ * nie ma konca, jednorazowa probka konczy sie, gdy zamilknie.  Reszta z dzielenia przechodzi dalej.
  *
- * Faza probki: po klatce i (od zera) indeks = floor(i * 3546895 / (okres * czestotliwosc)).
- * Petla: poczatek probki gra raz, potem odcinek petli.  Dlugosc petli 0 albo 1 slowo = brak petli.
+ * Faza probki: po klatce i (od zera) indeks = floor(i * zegar / (okres * czestotliwosc)).
+ * Petla: poczatek probki gra raz, potem odcinek petli.  Petla od bajtu 0 i krotsza niz probka
+ * tez gra cala probke raz.  Dlugosc petli 0 albo 1 slowo = brak petli.
+ * 9xx dodaje offset do zagrania i drugi raz do poczatku nastepnej nuty.  Nowy instrument zeruje ten poczatek.
  * Nowy okres zeruje faze.  Sam numer instrumentu bez okresu nie zeruje fazy.
+ * Przy odczycie, domyslnie, dwa pierwsze bajty kazdej probki sa zerem (ProTracker 1.1).
+ * Opcja mod.tracker pt10 zeruje cztery i gra stary Funk Repeat zamiast XOR.
+ * Opcja ust remapuje efekty Ultimate Soundtrackera i nie zeruje prefiksu.
+ * st2 to SoundTracker II-VI: Dxy slajd, Exy slajd trwaly do parametru 00, F z dolnego nibble.
+ * st9 to SoundTracker IX i Master: Bxx, lamanie patternu zawsze na wiersz 0, E0x filtr.
+ * Plik nie zapisuje wersji, wiec domyslny dzwiek zostaje przy 1.1.  Plik zostaje.
+ * EFx odwraca bajt juz po tym zerze, wiec bajt 0 z zera staje sie 0xFF.
+ * Suma glosow jest w NASM.  RC i filtr LED zostaja w C.
  */
 #include "sauti_decoder_mod.h"
 #include <string.h>
+
+extern void maktabasauti_mod_voice_add(int32_t acc[2], const uint8_t *sample, const uint8_t *flip,
+                                       uint32_t idx, uint32_t length, uint32_t clear_n,
+                                       int32_t vol, uint32_t pan);
+
+#define TRACK_PT11 0u
+#define TRACK_PT10 1u
+#define TRACK_UST 2u
+#define TRACK_ST2 3u
+#define TRACK_ST9 4u
 
 #define MOD_INST 31u
 #define MOD_HEADER_31 1084u
 #define MOD_HEADER_15 600u
 #define MOD_CH_MAX 32u
 #define PAULA_PAL 3546895u
+#define PAULA_NTSC 3579545u
 
 typedef struct {
     const uint8_t *data;
+    uint8_t *flip; /* bit 1: bajt odwrocony przez EFx.  data zostaje zmapowanym plikiem. */
     uint32_t length;
     uint32_t loop_start;
     uint32_t loop_len;
@@ -57,6 +89,10 @@ typedef struct {
     uint32_t length;
     uint32_t loop_start;
     uint32_t loop_len;
+    const uint8_t *held; /* zatrzask: nastepny przebieg albo trigger, nie biezacy dzwiek */
+    uint32_t held_len;
+    uint32_t held_loop_start;
+    uint32_t held_loop_len;
     uint32_t idx;
     uint64_t frac;
     uint16_t period;
@@ -73,7 +109,11 @@ typedef struct {
     uint8_t trem_pos, trem_speed, trem_depth, trem_wave;
     int16_t tremolo;
     uint8_t vol_slide;
+    uint8_t auto_slide; /* Exy grup II-VI.  Parametr 00 gasi auto_on. */
+    uint8_t auto_on;
     uint8_t offset;
+    uint32_t start; /* kumulowany poczatek 9xx, w probkach.  Zatrzask instrumentu zeruje. */
+    uint8_t loop_once;
     uint8_t retrig;
     uint8_t pan;
     uint8_t gliss;
@@ -81,19 +121,145 @@ typedef struct {
     uint8_t delay_sample;
     uint16_t delay_period;
     int8_t tune;
+    uint8_t inv_speed;
+    uint16_t inv_acc;
+    uint32_t inv_pos;
+    uint32_t wave_pos; /* kursor Funk Repeat (pt10).  SetDMA go nie cofa. */
+    uint32_t real_loop;
 } voice_t;
 
-/* Okresy PAL, finetune 0, C-1..B-3.  Kolejne oktawy to polowa poprzedniej, zaokraglona. */
-static const uint16_t k_period[36] = {
-    856, 808, 762, 720, 678, 640, 604, 570, 538, 508, 480, 453,
-    428, 404, 381, 360, 339, 320, 302, 285, 269, 254, 240, 226,
-    214, 202, 190, 180, 170, 160, 151, 143, 135, 127, 120, 113
-};
-
-/* 2^(-ft/96) w Q16, ft od -8 do +7.  Kolumna 0 jest dokladnie 65536. */
-static const uint32_t k_ft_q16[16] = {
-    69433u, 68933u, 68438u, 67945u, 67456u, 66971u, 66489u, 66011u,
-    65536u, 65065u, 64596u, 64132u, 63670u, 63212u, 62757u, 62306u
+/* 16 strojen, po 60 okresow: oktawa pod C-1, C-1..B-3 i oktawa ponizej B-3.
+ * Indeks 0..7 to finetune +0..+7, 8..15 to -8..-1.  Zrodlo: opublikowana mt_PeriodTable. */
+#define MOD_NOTES 60
+static const uint16_t k_periods[16][MOD_NOTES] = {
+    /* +0 */
+    {
+        1712, 1616, 1524, 1440, 1356, 1280, 1208, 1140, 1076, 1016,  960,  906,
+         856,  808,  762,  720,  678,  640,  604,  570,  538,  508,  480,  453,
+         428,  404,  381,  360,  339,  320,  302,  285,  269,  254,  240,  226,
+         214,  202,  190,  180,  170,  160,  151,  143,  135,  127,  120,  113,
+         107,  101,   95,   90,   85,   80,   75,   71,   67,   63,   60,   56,
+    },
+    /* +1 */
+    {
+        1700, 1604, 1514, 1430, 1348, 1274, 1202, 1134, 1070, 1010,  954,  900,
+         850,  802,  757,  715,  674,  637,  601,  567,  535,  505,  477,  450,
+         425,  401,  379,  357,  337,  318,  300,  284,  268,  253,  239,  225,
+         213,  201,  189,  179,  169,  159,  150,  142,  134,  126,  119,  113,
+         106,  100,   94,   89,   84,   79,   75,   71,   67,   63,   59,   56,
+    },
+    /* +2 */
+    {
+        1688, 1592, 1504, 1418, 1340, 1264, 1194, 1126, 1064, 1004,  948,  894,
+         844,  796,  752,  709,  670,  632,  597,  563,  532,  502,  474,  447,
+         422,  398,  376,  355,  335,  316,  298,  282,  266,  251,  237,  224,
+         211,  199,  188,  177,  167,  158,  149,  141,  133,  125,  118,  112,
+         105,   99,   94,   88,   83,   79,   74,   70,   66,   62,   59,   56,
+    },
+    /* +3 */
+    {
+        1676, 1582, 1492, 1408, 1330, 1256, 1184, 1118, 1056,  996,  940,  888,
+         838,  791,  746,  704,  665,  628,  592,  559,  528,  498,  470,  444,
+         419,  395,  373,  352,  332,  314,  296,  280,  264,  249,  235,  222,
+         209,  198,  187,  176,  166,  157,  148,  140,  132,  125,  118,  111,
+         104,   99,   93,   88,   83,   78,   74,   70,   66,   62,   59,   55,
+    },
+    /* +4 */
+    {
+        1664, 1570, 1482, 1398, 1320, 1246, 1176, 1110, 1048,  990,  934,  882,
+         832,  785,  741,  699,  660,  623,  588,  555,  524,  495,  467,  441,
+         416,  392,  370,  350,  330,  312,  294,  278,  262,  247,  233,  220,
+         208,  196,  185,  175,  165,  156,  147,  139,  131,  124,  117,  110,
+         104,   98,   92,   87,   82,   78,   73,   69,   65,   62,   58,   55,
+    },
+    /* +5 */
+    {
+        1652, 1558, 1472, 1388, 1310, 1238, 1168, 1102, 1040,  982,  926,  874,
+         826,  779,  736,  694,  655,  619,  584,  551,  520,  491,  463,  437,
+         413,  390,  368,  347,  328,  309,  292,  276,  260,  245,  232,  219,
+         206,  195,  184,  174,  164,  155,  146,  138,  130,  123,  116,  109,
+         103,   97,   92,   87,   82,   77,   73,   69,   65,   61,   58,   54,
+    },
+    /* +6 */
+    {
+        1640, 1548, 1460, 1378, 1302, 1228, 1160, 1094, 1032,  974,  920,  868,
+         820,  774,  730,  689,  651,  614,  580,  547,  516,  487,  460,  434,
+         410,  387,  365,  345,  325,  307,  290,  274,  258,  244,  230,  217,
+         205,  193,  183,  172,  163,  154,  145,  137,  129,  122,  115,  109,
+         102,   96,   91,   86,   81,   77,   72,   68,   64,   61,   57,   54,
+    },
+    /* +7 */
+    {
+        1628, 1536, 1450, 1368, 1292, 1220, 1150, 1086, 1026,  968,  914,  862,
+         814,  768,  725,  684,  646,  610,  575,  543,  513,  484,  457,  431,
+         407,  384,  363,  342,  323,  305,  288,  272,  256,  242,  228,  216,
+         204,  192,  181,  171,  161,  152,  144,  136,  128,  121,  114,  108,
+         102,   96,   90,   85,   80,   76,   72,   68,   64,   60,   57,   54,
+    },
+    /* -8 */
+    {
+        1814, 1712, 1616, 1524, 1440, 1356, 1280, 1208, 1140, 1076, 1016,  960,
+         907,  856,  808,  762,  720,  678,  640,  604,  570,  538,  508,  480,
+         453,  428,  404,  381,  360,  339,  320,  302,  285,  269,  254,  240,
+         226,  214,  202,  190,  180,  170,  160,  151,  143,  135,  127,  120,
+         113,  107,  101,   95,   90,   85,   80,   75,   71,   67,   63,   60,
+    },
+    /* -7 */
+    {
+        1800, 1700, 1604, 1514, 1430, 1350, 1272, 1202, 1134, 1070, 1010,  954,
+         900,  850,  802,  757,  715,  675,  636,  601,  567,  535,  505,  477,
+         450,  425,  401,  379,  357,  337,  318,  300,  284,  268,  253,  238,
+         225,  212,  200,  189,  179,  169,  159,  150,  142,  134,  126,  119,
+         112,  106,  100,   94,   89,   84,   79,   75,   71,   67,   63,   59,
+    },
+    /* -6 */
+    {
+        1788, 1688, 1592, 1504, 1418, 1340, 1264, 1194, 1126, 1064, 1004,  948,
+         894,  844,  796,  752,  709,  670,  632,  597,  563,  532,  502,  474,
+         447,  422,  398,  376,  355,  335,  316,  298,  282,  266,  251,  237,
+         223,  211,  199,  188,  177,  167,  158,  149,  141,  133,  125,  118,
+         111,  105,   99,   94,   88,   83,   79,   74,   70,   66,   62,   59,
+    },
+    /* -5 */
+    {
+        1774, 1676, 1582, 1492, 1408, 1330, 1256, 1184, 1118, 1056,  996,  940,
+         887,  838,  791,  746,  704,  665,  628,  592,  559,  528,  498,  470,
+         444,  419,  395,  373,  352,  332,  314,  296,  280,  264,  249,  235,
+         222,  209,  198,  187,  176,  166,  157,  148,  140,  132,  125,  118,
+         111,  104,   99,   93,   88,   83,   78,   74,   70,   66,   62,   59,
+    },
+    /* -4 */
+    {
+        1762, 1664, 1570, 1482, 1398, 1320, 1246, 1176, 1110, 1048,  988,  934,
+         881,  832,  785,  741,  699,  660,  623,  588,  555,  524,  494,  467,
+         441,  416,  392,  370,  350,  330,  312,  294,  278,  262,  247,  233,
+         220,  208,  196,  185,  175,  165,  156,  147,  139,  131,  123,  117,
+         110,  104,   98,   92,   87,   82,   78,   73,   69,   65,   61,   58,
+    },
+    /* -3 */
+    {
+        1750, 1652, 1558, 1472, 1388, 1310, 1238, 1168, 1102, 1040,  982,  926,
+         875,  826,  779,  736,  694,  655,  619,  584,  551,  520,  491,  463,
+         437,  413,  390,  368,  347,  328,  309,  292,  276,  260,  245,  232,
+         219,  206,  195,  184,  174,  164,  155,  146,  138,  130,  123,  116,
+         109,  103,   97,   92,   87,   82,   77,   73,   69,   65,   61,   58,
+    },
+    /* -2 */
+    {
+        1736, 1640, 1548, 1460, 1378, 1302, 1228, 1160, 1094, 1032,  974,  920,
+         868,  820,  774,  730,  689,  651,  614,  580,  547,  516,  487,  460,
+         434,  410,  387,  365,  345,  325,  307,  290,  274,  258,  244,  230,
+         217,  205,  193,  183,  172,  163,  154,  145,  137,  129,  122,  115,
+         108,  102,   96,   91,   86,   81,   77,   72,   68,   64,   61,   57,
+    },
+    /* -1 */
+    {
+        1724, 1628, 1536, 1450, 1368, 1292, 1220, 1150, 1086, 1026,  968,  914,
+         862,  814,  768,  725,  684,  646,  610,  575,  543,  513,  484,  457,
+         431,  407,  384,  363,  342,  323,  305,  288,  272,  256,  242,  228,
+         216,  203,  192,  181,  171,  161,  152,  144,  136,  128,  121,  114,
+         108,  101,   96,   90,   85,   80,   76,   72,   68,   64,   60,   57,
+    },
 };
 
 /* sin(i * 2π / 64) * 255, zaokraglone.  Delta vibrato = wartosc * glebokosc / 128. */
@@ -102,6 +268,11 @@ static const int16_t k_vibrato[64] = {
     255, 254, 250, 244, 236, 225, 212, 197, 180, 162, 142, 120, 98, 74, 50, 25,
     0, -25, -50, -74, -98, -120, -142, -162, -180, -197, -212, -225, -236, -244, -250, -254,
     -255, -254, -250, -244, -236, -225, -212, -197, -180, -162, -142, -120, -98, -74, -50, -25
+};
+
+/* Przyrost licznika EFx na takt, nibble 0..15.  Prog to 128, reszta ponad prog przepada. */
+static const uint8_t k_invert[16] = {
+    0, 5, 6, 7, 8, 10, 11, 13, 16, 19, 22, 26, 32, 43, 64, 128
 };
 
 typedef struct {
@@ -119,6 +290,7 @@ typedef struct {
     uint8_t instruments;
     uint8_t flt8;
     uint32_t rate;
+    uint32_t clock;
     uint32_t order_pos;
     uint32_t row;
     uint32_t row_tick;
@@ -140,6 +312,17 @@ typedef struct {
     uint32_t loop_row;
     uint32_t row_delay;
     uint8_t filter;
+    uint8_t filter_on;
+    uint8_t hold;
+    uint8_t amiga_rc; /* 1: staly RC okolo 4,9 kHz, opcja mod.model a500 */
+    uint8_t tracker; /* TRACK_PT11 domyslnie.  pt10, ust, st2 albo st9 z opcji mod.tracker */
+    uint8_t clear_n; /* 2, 4 albo 0 bajtow prefiksu czytanych jako zero */
+    uint32_t ust_tempo; /* BPM z bajtu 0x1D7, tylko 15-instrumentowy ust.  0: tempo 125. */
+    double b0, b1, b2, a1, a2;
+    double rc_a;
+    double lx1, lx2, ly1, ly2;
+    double rx1, rx2, ry1, ry2;
+    double rca_x, rca_y, rcb_x, rcb_y;
     const char *err;
     uint8_t been[1024];
     voice_t voice[MOD_CH_MAX];
@@ -168,7 +351,11 @@ static int tag_bytes(const uint8_t *m) {
     return 1;
 }
 
-/* Sygnatury z publicznego opisu MOD.  xxCH/xxCN stoja na 10..32, bo tyle kanalow ma ta rodzina. */
+/* Sygnatury z publicznego opisu MOD.  xxCH/xxCN stoja na 10..32.  FLT6 nie istnieje. */
+static int same4(const uint8_t *m, const char *s) {
+    return memcmp(m, s, 4) == 0;
+}
+
 static int ident_magic(const uint8_t *m, ident_t *id) {
     unsigned ch;
     memset(id, 0, sizeof *id);
@@ -177,26 +364,36 @@ static int ident_magic(const uint8_t *m, ident_t *id) {
     id->pattern_limit = 256;
     memcpy(id->magic, m, 4u);
     id->magic[4] = 0;
-    if (memcmp(m, "M.K.", 4) == 0 || memcmp(m, "M&K!", 4) == 0 || memcmp(m, "FLT4", 4) == 0) {
+    /* NoiseTracker i Startrekker 4-kanalowy zostaja przy limicie 64 patternow, jak M.K. */
+    if (same4(m, "M.K.") || same4(m, "M&K!") || same4(m, "FLT4") || same4(m, "EXO4") || same4(m, "N.T.")) {
         id->channels = 4;
         id->pattern_limit = 64;
         return 1;
     }
-    if (memcmp(m, "M!K!", 4) == 0) {
+    if (same4(m, "M!K!") || same4(m, "PATT") || same4(m, "NSMS") || same4(m, "LARD")) {
         id->channels = 4;
         return 1;
     }
-    if (memcmp(m, "FLT8", 4) == 0) {
+    /* EXO8 i EX08 to ta sama para patternow co FLT8. */
+    if (same4(m, "FLT8") || same4(m, "EXO8") || same4(m, "EX08")) {
         id->channels = 8;
         id->flt8 = 1;
         id->pattern_limit = 128;
         return 1;
     }
-    if (memcmp(m, "CD81", 4) == 0 || memcmp(m, "OCTA", 4) == 0 || memcmp(m, "OKTA", 4) == 0) {
+    if (same4(m, "CD81") || same4(m, "OCTA") || same4(m, "OKTA")) {
         id->channels = 8;
         return 1;
     }
-    if (m[0] == 'T' && m[1] == 'D' && m[2] == 'Z' && m[3] >= '1' && m[3] <= '3') {
+    if (same4(m, "CD61")) {
+        id->channels = 6;
+        return 1;
+    }
+    if (same4(m, "FA04") || same4(m, "FA06") || same4(m, "FA08")) {
+        id->channels = (uint8_t)(m[3] - '0');
+        return 1;
+    }
+    if (m[0] == 'T' && m[1] == 'D' && m[2] == 'Z' && m[3] >= '1' && m[3] <= '9') {
         id->channels = (uint8_t)(m[3] - '0');
         return 1;
     }
@@ -244,10 +441,6 @@ static int16_t sat16(int32_t x) {
     return (int16_t)x;
 }
 
-static int32_t s8(uint8_t b) {
-    return b < 128u ? (int32_t)b : (int32_t)b - 256;
-}
-
 static void playback_reset(mod_t *m) {
     uint32_t i;
     for (i = 0; i < MOD_CH_MAX; i++) {
@@ -258,7 +451,7 @@ static void playback_reset(mod_t *m) {
     m->row = 0;
     m->row_tick = 0;
     m->speed = 6u;
-    m->tempo = 125u;
+    m->tempo = m->ust_tempo ? m->ust_tempo : 125u;
     m->tick_rem = 0;
     m->tick_left = 0;
     m->ticks_done = 0;
@@ -273,8 +466,18 @@ static void playback_reset(mod_t *m) {
     m->loop_row = 0;
     m->row_delay = 0;
     m->filter = 0;
+    m->filter_on = 0;
+    m->hold = 0;
+    m->lx1 = m->lx2 = m->ly1 = m->ly2 = 0;
+    m->rx1 = m->rx2 = m->ry1 = m->ry2 = 0;
+    m->rca_x = m->rca_y = m->rcb_x = m->rcb_y = 0;
     m->err = NULL;
     memset(m->been, 0, sizeof m->been);
+    /* count_frames przechodzi caly utwor i ustawia bity, zanim zacznie sie prawdziwe granie. */
+    for (i = 0; i < m->instruments; i++) {
+        inst_t *in = &m->inst[i];
+        if (in->flip && in->length) memset(in->flip, 0, ((size_t)in->length + 7u) / 8u);
+    }
 }
 
 static int been_row(const mod_t *m, unsigned order, unsigned row) {
@@ -294,12 +497,54 @@ static uint32_t tick_frames(mod_t *m) {
     return (uint32_t)(acc / den);
 }
 
-static void voice_wrap(voice_t *v) {
+static int held_waiting(const voice_t *v) {
+    return v->held != v->sample || v->held_len != v->length
+        || v->held_loop_start != v->loop_start || v->held_loop_len != v->loop_len;
+}
+
+/* Koniec przebiegu bierze petle zatrzasku.  Bez petli kanal milknie i nie startuje jednorazowej probki. */
+static void adopt_held(voice_t *v, uint32_t overshoot) {
+    v->sample = v->held;
+    v->length = v->held_len;
+    v->loop_start = v->held_loop_start;
+    v->loop_len = v->held_loop_len;
+    v->loop_once = 0;
+    if (v->loop_len) {
+        v->idx = v->loop_start + overshoot % v->loop_len;
+        return;
+    }
+    v->idx = v->length;
+    v->frac = 0;
+}
+
+static void settle(voice_t *v) {
     uint32_t end;
-    if (!v->loop_len) return;
-    end = v->loop_start + v->loop_len;
-    if (v->idx < end) return;
-    v->idx = v->loop_start + (v->idx - v->loop_start) % v->loop_len;
+    /* Petla od zera: ProTracker gra cala probke raz, dopiero potem wchodzi w petle. */
+    if (v->loop_len && v->loop_once) {
+        if (v->idx < v->length) return;
+        v->loop_once = 0;
+        if (held_waiting(v)) adopt_held(v, v->idx - v->length);
+        else v->idx = (v->idx - v->length) % v->loop_len;
+        return;
+    }
+    if (v->loop_len) {
+        end = v->loop_start + v->loop_len;
+        if (v->idx < end) return;
+        if (held_waiting(v)) adopt_held(v, v->idx - end);
+        else v->idx = v->loop_start + (v->idx - v->loop_start) % v->loop_len;
+        return;
+    }
+    if (!v->sample) {
+        v->idx = 0;
+        v->frac = 0;
+        return;
+    }
+    if (v->idx < v->length) return;
+    if (held_waiting(v)) adopt_held(v, v->idx - v->length);
+    else {
+        v->idx = v->length;
+        v->frac = 0;
+    }
 }
 
 static void use_period(voice_t *v, uint16_t period) {
@@ -308,60 +553,69 @@ static void use_period(voice_t *v, uint16_t period) {
     v->play_period = period;
 }
 
-static uint16_t column_period(int note, int ft) {
-    uint32_t q, p;
-    if (note < 0) note = 0;
-    if (note > 35) note = 35;
+static int tune_index(int ft) {
     if (ft < -8) ft = -8;
     if (ft > 7) ft = 7;
-    q = k_ft_q16[ft + 8];
-    p = ((uint32_t)k_period[note] * q + 32768u) >> 16;
-    return p ? (uint16_t)p : 1u;
+    return ft < 0 ? ft + 16 : ft;
+}
+
+static uint16_t column_period(int note, int ft) {
+    if (note < 0) note = 0;
+    if (note >= MOD_NOTES) note = MOD_NOTES - 1;
+    return k_periods[tune_index(ft)][note];
 }
 
 static int nearest_note(unsigned period, int ft) {
     unsigned i, best = 0, gap = 65535u;
-    for (i = 0; i < 36u; i++) {
-        unsigned tp = column_period((int)i, ft);
+    int col = tune_index(ft);
+    for (i = 0; i < MOD_NOTES; i++) {
+        unsigned tp = k_periods[col][i];
         unsigned d = period > tp ? period - tp : tp - period;
         if (d < gap) { gap = d; best = i; }
     }
     return (int)best;
 }
 
+/* Zapisany okres jest z tabeli finetune 0.  Niezerowe strojenie bierze ten sam numer nuty ze swojej kolumny. */
+static uint16_t tuned_period(unsigned period, int ft) {
+    if (!period) return 0;
+    if (!ft) return (uint16_t)period;
+    return column_period(nearest_note(period, 0), ft);
+}
+
 static uint16_t arpeggio_period(unsigned base, unsigned semis, int ft) {
     int note = nearest_note(base, ft) + (int)semis;
     if (note < 0) note = 0;
-    if (note > 35) note = 35;
+    if (note >= MOD_NOTES) note = MOD_NOTES - 1;
     return column_period(note, ft);
+}
+
+/* Rampa tremolo w ProTrackerze patrzy na bit polowy pozycji vibrato.  Delta = (mag * glebokosc) >> 3. */
+static int32_t tremolo_ramp(const voice_t *v) {
+    int t = (int)v->trem_pos;
+    int mag = (((int)v->vib_pos < 32 ? t : -t) & 31);
+    int delta = (mag * (int)v->trem_depth) >> 3;
+    if (t >= 32) delta = -delta;
+    return delta;
 }
 
 static int16_t wave_sample(unsigned wave, unsigned pos) {
     pos &= 63u;
     if ((wave & 3u) == 1u) return (int16_t)(255 - (int)pos * 8);
-    if ((wave & 3u) == 2u) return pos < 32u ? 255 : -255;
+    /* Fala 3 to ten sam kwadrat.  ProTracker nie losuje, wiec generatora nie ma. */
+    if ((wave & 3u) >= 2u) return pos < 32u ? 255 : -255;
     return k_vibrato[pos];
 }
 
-static void voice_advance(voice_t *v, uint32_t rate) {
+static void voice_advance(voice_t *v, uint32_t rate, uint32_t clock) {
     uint64_t den, idx;
-    if (!v->play_period || !rate) return;
+    if (!v->play_period || !rate || !clock) return;
     den = (uint64_t)v->play_period * rate;
-    v->frac += PAULA_PAL;
+    v->frac += clock;
     idx = (uint64_t)v->idx + v->frac / den;
     v->frac %= den;
-    if (v->loop_len) {
-        uint64_t end = (uint64_t)v->loop_start + v->loop_len;
-        if (idx >= end) idx = (uint64_t)v->loop_start + (idx - v->loop_start) % v->loop_len;
-        v->idx = (uint32_t)idx;
-        return;
-    }
-    if (!v->sample || idx >= v->length) {
-        v->idx = v->length;
-        v->frac = 0;
-        return;
-    }
-    v->idx = (uint32_t)idx;
+    v->idx = idx > 0xffffffffu ? 0xffffffffu : (uint32_t)idx;
+    settle(v);
 }
 
 static int8_t nibble_tune(unsigned nib) {
@@ -369,36 +623,142 @@ static int8_t nibble_tune(unsigned nib) {
     return nib < 8u ? (int8_t)nib : (int8_t)((int)nib - 16);
 }
 
+static int st_family(uint8_t tracker);
+
 static void latch_instrument(mod_t *m, voice_t *v, unsigned sample) {
     const inst_t *in;
     if (sample < 1u || sample > m->instruments) return;
+    /* Inna probka ma inna petle.  Licznik EFx zostaje, zeruje sie tylko pozycja.
+     * Dzwiek zostaje przy starej probce, az skonczy sie jej przebieg albo nuta ja wymieni.
+     * Nowy numer w pt10 ustawia kursor Funk Repeat i prawdziwy poczatek petli w to samo miejsce. */
     in = &m->inst[sample - 1u];
-    v->sample = in->data;
-    v->length = in->length;
-    v->loop_start = in->loop_start;
-    v->loop_len = in->loop_len;
+    if (v->inst != (uint8_t)sample) {
+        v->inv_pos = 0;
+        if (m->tracker == TRACK_PT10) {
+            v->wave_pos = in->loop_start;
+            v->real_loop = in->loop_start;
+        }
+    }
+    v->held = in->data;
+    v->held_len = in->length;
+    v->held_loop_start = in->loop_start;
+    v->held_loop_len = in->loop_len;
     v->volume = in->volume;
     v->inst = (uint8_t)sample;
-    v->tune = in->finetune;
+    /* Ultimate Soundtracker nie uzywa bajtu finetune.  Tag i tak czyta bajt z pliku. */
+    v->tune = st_family(m->tracker) ? 0 : in->finetune;
+    v->start = 0;
+}
+
+/* Grupa 1 Ultimate Soundtrackera.  1xy to arpeggio.  2xy to porta w gore o y albo w dol o x.
+ * Oba nibble naraz albo oba zera nie sa opisane: efekt znika.  Reszta numerow tez. */
+static void ust_remap(unsigned *effect, unsigned *param) {
+    unsigned hi, lo;
+    if (*effect == 1u) {
+        *effect = 0u;
+        return;
+    }
+    if (*effect == 2u) {
+        hi = *param >> 4;
+        lo = *param & 0x0Fu;
+        if (hi == 0u && lo != 0u) { *effect = 1u; *param = lo; return; }
+        if (lo == 0u && hi != 0u) { *effect = 2u; *param = hi; return; }
+    }
+    *effect = 0u;
+    *param = 0u;
+}
+
+static int st_family(uint8_t tracker) {
+    return tracker == TRACK_UST || tracker == TRACK_ST2 || tracker == TRACK_ST9;
+}
+
+/* II-VI.  0xy, 1xx i 2xx jak w ProTrackerze.  Dxy slajduje jak Axy.  Exy zapamietuje ten slajd
+ * i doklada go do kolejnych komend, az parametr wyniesie 00.  F bierze tylko dolny nibble.
+ * Parametr 00 gasi slajd.  Poza C00 taka komenda nic wiecej nie robi. */
+static void st2_row(voice_t *v, unsigned *effect, unsigned *param) {
+    unsigned e = *effect, p = *param;
+    if (p == 0u) {
+        v->auto_on = 0;
+        if (e != 0x0Cu) {
+            *effect = 0u;
+            *param = 0u;
+        }
+        return;
+    }
+    if (e == 0x0Eu) {
+        v->auto_slide = (uint8_t)p;
+        v->auto_on = 1u;
+        v->vol_slide = (uint8_t)p;
+        *effect = 0x0Au;
+        return;
+    }
+    if (e == 0x0Du) {
+        *effect = 0x0Au;
+        return;
+    }
+    if (e == 0x00u || e == 0x01u || e == 0x02u || e == 0x0Cu || e == 0x0Fu) {
+        if (v->auto_on) v->vol_slide = v->auto_slide;
+        return;
+    }
+    *effect = 0u;
+    *param = 0u;
+    if (v->auto_on) v->vol_slide = v->auto_slide;
+}
+
+/* IX i Master.  Dxy znika: kazde D lamanie patternu na wiersz 0, parametr jest ignorowany.
+ * Zostaja 0xy, 1xx, 2xx, Bxx, Cxx, E0x i F z dolnego nibble. */
+static void st9_row(unsigned *effect, unsigned *param) {
+    unsigned e = *effect;
+    if (e == 0x0Du) {
+        *param = 0u;
+        return;
+    }
+    if (e == 0x0Eu) {
+        if ((*param >> 4) != 0u) {
+            *effect = 0u;
+            *param = 0u;
+        }
+        return;
+    }
+    if (e == 0x00u || e == 0x01u || e == 0x02u || e == 0x0Bu || e == 0x0Cu || e == 0x0Fu) return;
+    *effect = 0u;
+    *param = 0u;
+}
+
+static void arm_held(voice_t *v) {
+    v->sample = v->held;
+    v->length = v->held_len;
+    v->loop_start = v->held_loop_start;
+    v->loop_len = v->held_loop_len;
+    /* Petla od bajtu 0 i krotsza niz probka: cala probka gra raz.  Adopt wchodzi od razu w petle. */
+    v->loop_once = v->loop_start == 0u && v->loop_len != 0u && v->loop_len < v->length;
 }
 
 /* Prawdziwy trigger zeruje faze i pozycje fal, chyba ze bit +4 fali tego zabrania.
  * 3xx/5xx przy juz grajacym glosie tylko zapamietuje cel.  9xx skacze wylacznie wtedy. */
 static void trigger_note(voice_t *v, unsigned period, unsigned effect) {
     uint32_t at;
+    uint16_t tp;
     if (!period) return;
+    tp = tuned_period(period, v->tune);
     if ((effect == 0x3u || effect == 0x5u) && v->period) {
-        v->target = (uint16_t)period;
+        v->target = tp;
         return;
     }
-    at = 0;
-    v->period = (uint16_t)period;
-    v->target = (uint16_t)period;
+    arm_held(v);
+    at = v->start;
+    /* 9xx dodaje offset do zagrania i drugi raz do zatrzasku.  Nastepna nuta bez instrumentu startuje z 2*offset. */
+    if (effect == 0x9u && v->offset) {
+        uint32_t add = (uint32_t)v->offset * 256u;
+        at += add;
+        v->start = at + add;
+    }
+    v->period = tp;
+    v->target = tp;
     v->frac = 0;
     v->play_period = 0;
     if ((v->vib_wave & 4u) == 0u) v->vib_pos = 0;
     if ((v->trem_wave & 4u) == 0u) v->trem_pos = 0;
-    if (effect == 0x9u) at = (uint32_t)v->offset * 256u;
     if (!v->loop_len && at >= v->length) v->idx = v->length;
     else v->idx = at;
 }
@@ -411,13 +771,18 @@ static void apply_row(mod_t *m, uint32_t *tempo_after) {
         unsigned period = ((unsigned)(c[0] & 0x0Fu) << 8) | c[1];
         unsigned effect = c[2] & 0x0Fu;
         unsigned param = c[3];
-        unsigned ex = param >> 4;
-        unsigned xn = param & 0x0Fu;
+        unsigned ex, xn;
         voice_t *v = &m->voice[ch];
+        if (m->tracker == TRACK_UST) ust_remap(&effect, &param);
+        else if (m->tracker == TRACK_ST2) st2_row(v, &effect, &param);
+        else if (m->tracker == TRACK_ST9) st9_row(&effect, &param);
+        ex = param >> 4;
+        xn = param & 0x0Fu;
         v->effect = (uint8_t)effect;
         v->param = (uint8_t)param;
-        /* EDx z niezerowym x odklada nute i pomija reszte komorki, takze 9xx. */
+        /* EDx z niezerowym x zatrzaskuje instrument od razu, a nute odpala pozniej.  9xx tej komorki nie gra. */
         if (effect == 0x0Eu && ex == 0xDu && xn) {
+            latch_instrument(m, v, sample);
             v->delay_tick = (uint8_t)xn;
             v->delay_sample = (uint8_t)sample;
             v->delay_period = (uint16_t)period;
@@ -442,14 +807,23 @@ static void apply_row(mod_t *m, uint32_t *tempo_after) {
         if (effect == 0x0Eu && ex == 0x9u && xn) v->retrig = (uint8_t)xn;
         if (effect == 0x0Eu && ex == 0xAu && xn) v->fine_vol_up = (uint8_t)xn;
         if (effect == 0x0Eu && ex == 0xBu && xn) v->fine_vol_down = (uint8_t)xn;
-        if (effect == 0x0Eu && ex == 0x0u) m->filter = (uint8_t)xn;
+        if (effect == 0x0Eu && ex == 0x0u) {
+            int on = xn == 0u;
+            if (on && !m->filter_on) {
+                m->lx1 = m->lx2 = m->ly1 = m->ly2 = 0;
+                m->rx1 = m->rx2 = m->ry1 = m->ry2 = 0;
+            }
+            m->filter_on = (uint8_t)on;
+            m->filter = (uint8_t)xn;
+        }
         /* Fala musi byc ustawiona przed triggerem, zeby bit +4 zdazyl zatrzymac reset fazy. */
         if (effect == 0x0Eu && ex == 0x3u) v->gliss = xn ? 1u : 0u;
         if (effect == 0x0Eu && ex == 0x4u) v->vib_wave = (uint8_t)xn;
         if (effect == 0x0Eu && ex == 0x7u) v->trem_wave = (uint8_t)xn;
         latch_instrument(m, v, sample);
-        trigger_note(v, period, effect);
+        /* E5x tej samej komorki stroi nute, zanim okres zostanie przepisany z tabeli. */
         if (effect == 0x0Eu && ex == 0x5u) v->tune = nibble_tune(xn);
+        trigger_note(v, period, effect);
         if (effect == 0x0Eu && ex == 0x6u) {
             if (!xn) m->loop_row = m->row;
             else {
@@ -463,6 +837,14 @@ static void apply_row(mod_t *m, uint32_t *tempo_after) {
             }
         }
         if (effect == 0x0Eu && ex == 0x8u) v->pan = (uint8_t)(xn * 17u);
+        /* pt10 ustawia predkosc dopiero po pierwszym kroku Funk Repeat, ze stara wartoscia. */
+        if (effect == 0x0Eu && ex == 0x0Fu && m->tracker != TRACK_PT10) {
+            if (!xn) {
+                v->inv_speed = 0;
+                v->inv_acc = 0;
+                v->inv_pos = 0;
+            } else v->inv_speed = k_invert[xn];
+        }
         if (effect == 0x0Eu && ex == 0xEu) m->delay_notes = (int8_t)xn;
         if (effect == 0x8u) v->pan = (uint8_t)param;
         if (effect == 0x0Bu) {
@@ -476,8 +858,12 @@ static void apply_row(mod_t *m, uint32_t *tempo_after) {
             m->revisit = 0;
         }
         if (effect == 0x0Cu) v->volume = param > 64u ? 64u : (uint8_t)param;
-        if (effect == 0x0Fu && param) {
-            if (param < 32u) m->speed = param;
+        if (effect == 0x0Fu) {
+            if (m->tracker == TRACK_ST2 || m->tracker == TRACK_ST9) {
+                unsigned sp = param & 0x0Fu;
+                if (sp >= 1u && sp <= 15u) m->speed = sp;
+            } else if (!param) m->hold = 1;
+            else if (m->instruments == 15u || param < 32u) m->speed = param;
             else *tempo_after = param;
         }
     }
@@ -554,14 +940,13 @@ static void shape_tick(mod_t *m) {
                 gliss_snap(v);
             }
             if (fx == 0x5u || fx == 0x6u || fx == 0xAu) slide_volume(v);
+            else if (v->auto_on) slide_volume(v);
         }
         if (fx == 0x0Eu && ex == 0xCu && m->row_tick == xn) v->volume = 0;
-        if (fx == 0x0Eu && ex == 0x9u && m->row_tick > 0u) {
-            unsigned n = xn ? xn : v->retrig;
-            if (n && m->row_tick % n == 0u) {
-                v->idx = 0;
-                v->frac = 0;
-            }
+        /* E9x x=0 nic nie robi.  x>0 wraca na zatrzasniety poczatek, takze w takcie 0 i bez nuty. */
+        if (fx == 0x0Eu && ex == 0x9u && xn && m->row_tick % xn == 0u) {
+            v->idx = v->start;
+            v->frac = 0;
         }
         if ((fx == 0x4u || fx == 0x6u) && m->row_tick > 0u && v->period) {
             int32_t waved = (int32_t)wave_sample(v->vib_wave, v->vib_pos) * (int32_t)v->vib_depth / 128;
@@ -570,7 +955,9 @@ static void shape_tick(mod_t *m) {
             use_period(v, (uint16_t)sounded);
             v->vib_pos = (uint8_t)((v->vib_pos + v->vib_speed) & 63u);
         } else if (fx == 0x7u && m->row_tick > 0u) {
-            int32_t delta = (int32_t)wave_sample(v->trem_wave, v->trem_pos) * (int32_t)v->trem_depth / 64;
+            int32_t delta = (v->trem_wave & 3u) == 1u
+                ? tremolo_ramp(v)
+                : (int32_t)wave_sample(v->trem_wave, v->trem_pos) * (int32_t)v->trem_depth / 64;
             v->tremolo = (int16_t)delta;
             v->trem_pos = (uint8_t)((v->trem_pos + v->trem_speed) & 63u);
             use_period(v, v->period);
@@ -594,9 +981,132 @@ static void fire_delay(mod_t *m) {
     }
 }
 
+static void flip_xor(inst_t *in, uint32_t idx) {
+    if (!in->flip || idx >= in->length) return;
+    in->flip[idx >> 3] ^= (uint8_t)(1u << (idx & 7u));
+}
+
+/* Po apply_row, takze w takcie, ktory wlasnie wlaczyl EFx, i dalej az predkosc spadnie do zera.
+ * Najpierw odwraca bajt, potem przesuwa pozycje.  43 skacze 86, potem 129: reszta przepada. */
+static void invert_step(mod_t *m, voice_t *v) {
+    inst_t *in;
+    uint32_t at;
+    if (!v->inv_speed || v->inst < 1u || v->inst > m->instruments) return;
+    in = &m->inst[v->inst - 1u];
+    if (in->loop_len < 2u) return;
+    v->inv_acc = (uint16_t)(v->inv_acc + v->inv_speed);
+    if (v->inv_acc < 128u) return;
+    v->inv_acc = 0;
+    if (v->inv_pos >= in->loop_len) v->inv_pos = 0;
+    at = in->loop_start + v->inv_pos;
+    if (at < in->length) flip_xor(in, at);
+    v->inv_pos++;
+    if (v->inv_pos >= in->loop_len) v->inv_pos = 0;
+}
+
+/* Okno slyszane przez petle.  first_pass przywraca przejscie calej probki, gdy petla zaczyna sie od zera. */
+static void funk_hear(voice_t *v, uint32_t at, int first_pass) {
+    v->loop_start = at;
+    v->held_loop_start = at;
+    v->loop_once = (first_pass && at == 0u && v->loop_len != 0u && v->loop_len < v->length) ? 1u : 0u;
+}
+
+/* Jeden krok Funk Repeat.  Licznik od 128 wraca do zera (reszta przepada) i okno petli skacze o jej dlugosc.
+ * Za koncem probki kursor wraca na prawdziwy poczatek petli.  Probka nie jest zmieniana. */
+static void funk_step(voice_t *v) {
+    uint32_t loop_len, limit, candidate;
+    if (!v->inv_speed || !v->sample) return;
+    loop_len = v->loop_len;
+    if (loop_len < 2u || v->length < loop_len) return;
+    v->inv_acc = (uint16_t)(v->inv_acc + v->inv_speed);
+    if (v->inv_acc < 128u) return;
+    v->inv_acc = 0;
+    limit = v->length - loop_len;
+    candidate = v->wave_pos > 0xffffffffu - loop_len ? 0xffffffffu : v->wave_pos + loop_len;
+    v->wave_pos = candidate <= limit ? candidate : v->real_loop;
+    funk_hear(v, v->wave_pos, 0);
+}
+
+/* Kazdy takt: krok stara predkoscia.  W takcie 0 EFx zmienia predkosc i, gdy jest niezerowa, robi drugi krok.
+ * EF0 gasi predkosc i nie zeruje licznika.  9xx doklada jeszcze jeden krok.  SetDMA cofa slyszane okno
+ * na prawdziwy poczatek petli, ale tylko w takcie 0 wiersza bez opoznienia patternu.  Kursor zostaje. */
+static void pt10_tick(mod_t *m, int pattern_delay) {
+    unsigned ch;
+    int snap = m->row_tick == 0u && !pattern_delay;
+    for (ch = 0; ch < m->channels; ch++) {
+        voice_t *v = &m->voice[ch];
+        unsigned fx, pa, ex, xn;
+        funk_step(v);
+        if (m->row_tick != 0u) continue;
+        fx = v->effect;
+        pa = v->param;
+        ex = pa >> 4;
+        xn = pa & 0x0Fu;
+        if (fx == 0x0Eu && ex == 0x0Fu) {
+            if (!xn) v->inv_speed = 0;
+            else {
+                v->inv_speed = k_invert[xn];
+                funk_step(v);
+            }
+        }
+        if (fx == 0x09u) funk_step(v);
+        if (snap && v->loop_len >= 2u) funk_hear(v, v->real_loop, 1);
+    }
+}
+
+static int channel_loops(const mod_t *m) {
+    unsigned ch;
+    for (ch = 0; ch < m->channels; ch++) {
+        const voice_t *v = &m->voice[ch];
+        if (v->sample && v->loop_len) return 1;
+        if (v->held && v->held_loop_len && held_waiting(v)) return 1;
+    }
+    return 0;
+}
+
+static int channel_audible(const mod_t *m) {
+    unsigned ch;
+    for (ch = 0; ch < m->channels; ch++) {
+        const voice_t *v = &m->voice[ch];
+        if (!v->play_period || !v->sample) continue;
+        if (v->loop_len) return 1;
+        if (v->idx < v->length) return 1;
+        if (held_waiting(v) && v->held && v->held_loop_len) return 1;
+    }
+    return 0;
+}
+
+static void advance_samples(mod_t *m, uint32_t frames) {
+    unsigned ch;
+    for (ch = 0; ch < m->channels; ch++) {
+        voice_t *v = &m->voice[ch];
+        uint64_t den, add;
+        if (!frames || !v->play_period || !m->rate || !m->clock) continue;
+        den = (uint64_t)v->play_period * m->rate;
+        v->frac += (uint64_t)m->clock * frames;
+        add = v->frac / den;
+        v->frac %= den;
+        if (add > 0xffffffffu - v->idx) v->idx = 0xffffffffu;
+        else v->idx += (uint32_t)add;
+        settle(v);
+    }
+}
+
 static int begin_tick(mod_t *m) {
     uint32_t tempo_after;
+    unsigned ch;
+    int pattern_delay = 0;
     if (m->ended) return 0;
+    /* F00 zatrzymuje sekwencer po pierwszym takcie.  Petla gra dalej, jednorazowa konczy sie sama. */
+    if (m->hold) {
+        if (!channel_audible(m)) {
+            m->ended = 1;
+            return 0;
+        }
+        m->tick_left = tick_frames(m);
+        m->have_tick = 1;
+        return 1;
+    }
     if (m->ticks_done >= m->tick_cap) {
         m->ended = 1;
         m->err = "przekroczony limit taktow";
@@ -608,40 +1118,59 @@ static int begin_tick(mod_t *m) {
         mark_row(m, m->order_pos, m->row);
         m->delay_notes = -1;
         apply_row(m, &tempo_after);
-        if (m->delay_notes >= 0) m->row_delay = (uint32_t)m->delay_notes * m->speed;
+        pattern_delay = m->delay_notes >= 0;
+        if (pattern_delay) m->row_delay = (uint32_t)m->delay_notes * m->speed;
         m->delay_notes = -1;
     }
     fire_delay(m);
     shape_tick(m);
+    if (m->tracker == TRACK_PT10) pt10_tick(m, pattern_delay);
+    else for (ch = 0; ch < m->channels; ch++) invert_step(m, &m->voice[ch]);
     m->tick_left = tick_frames(m);
     m->tempo = tempo_after;
     m->have_tick = 1;
     return 1;
 }
 
-/* 0x78 i 0x7F to wartosci, ktore trackery wpisuja zamiast pozycji.  Inna wartosc ponizej dlugosci jest pozycja. */
+/* 0x78 i 0x7F oraz wartosc spoza listy nie sa pozycja.  Wtedy NoiseTracker wraca na poczatek, a been[] ucina powrot. */
 static int restart_order(const mod_t *m, unsigned *dest) {
     unsigned r = m->restart;
-    if (r == 0x78u || r == 0x7Fu || r >= m->song_length) return 0;
+    if (r == 0x78u || r == 0x7Fu || r >= m->song_length) {
+        *dest = 0;
+        return 1;
+    }
     *dest = r;
     return 1;
 }
 
 static void end_tick(mod_t *m) {
     int revisit;
+    int from_b;
+    unsigned ch;
     m->have_tick = 0;
     m->tick_left = 0;
+    if (m->hold) return;
     m->row_tick++;
     if (m->row_tick < m->speed + m->row_delay) return;
+    /* Opznienie dluzsze niz wiersz nie odpala nuty, ale zostawia jej okres na nastepny wiersz. */
+    for (ch = 0; ch < m->channels; ch++) {
+        voice_t *v = &m->voice[ch];
+        if (!v->delay_tick) continue;
+        if (v->delay_period) v->period = v->delay_period;
+        v->delay_tick = 0;
+    }
     m->row_tick = 0;
     m->row_delay = 0;
     revisit = m->revisit;
     m->revisit = 0;
-    if (m->next_order >= 0 || m->next_row >= 0) {
-        unsigned dest_order = m->next_order >= 0 ? (unsigned)m->next_order : m->order_pos + 1u;
+    from_b = m->next_order >= 0;
+    if (from_b || m->next_row >= 0) {
+        unsigned dest_order = from_b ? (unsigned)m->next_order : m->order_pos + 1u;
         unsigned dest_row = m->next_row >= 0 ? (unsigned)m->next_row : 0u;
         m->next_order = -1;
         m->next_row = -1;
+        /* Bxx za koniec listy wraca na pozycje 0.  Samo spadniecie z konca listy idzie w restart. */
+        if (from_b && dest_order >= m->song_length) dest_order = 0;
         if (dest_order >= m->song_length || (!revisit && been_row(m, dest_order, dest_row))) {
             m->ended = 1;
             return;
@@ -677,6 +1206,15 @@ static int count_frames(mod_t *m, uint64_t *out) {
     for (;;) {
         if (!begin_tick(m)) break;
         n += m->tick_left;
+        advance_samples(m, m->tick_left);
+        if (m->hold) {
+            if (channel_loops(m)) {
+                playback_reset(m);
+                *out = MAKTABASAUTI_UNKNOWN_LENGTH;
+                return 1;
+            }
+            if (!channel_audible(m)) break;
+        }
         end_tick(m);
         if (m->err) return 0;
     }
@@ -687,19 +1225,41 @@ static int count_frames(mod_t *m, uint64_t *out) {
 }
 
 static void mix_one(mod_t *m, int16_t *dst) {
-    int32_t left = 0, right = 0;
+    int32_t acc[2];
+    int32_t left, right;
     unsigned ch;
+    acc[0] = 0;
+    acc[1] = 0;
     for (ch = 0; ch < m->channels; ch++) {
         voice_t *v = &m->voice[ch];
         int vol = (int)v->volume + (int)v->tremolo;
-        int32_t s = 0;
         if (vol < 0) vol = 0;
         if (vol > 64) vol = 64;
-        voice_wrap(v);
-        if (v->play_period && v->sample && v->idx < v->length) s = s8(v->sample[v->idx]) * vol;
-        left += s * (255 - (int)v->pan) / 255;
-        right += s * (int)v->pan / 255;
-        voice_advance(v, m->rate);
+        settle(v);
+        if (v->play_period && v->sample && v->idx < v->length) {
+            const uint8_t *flip = NULL;
+            if (v->inst >= 1u && v->inst <= m->instruments) flip = m->inst[v->inst - 1u].flip;
+            maktabasauti_mod_voice_add(acc, v->sample, flip, v->idx, v->length, m->clear_n, vol, v->pan);
+        }
+        voice_advance(v, m->rate, m->clock);
+    }
+    left = acc[0];
+    right = acc[1];
+    if (m->amiga_rc) {
+        double l = (double)left, r = (double)right;
+        m->rca_y += m->rc_a * (l - m->rca_y);
+        m->rcb_y += m->rc_a * (r - m->rcb_y);
+        left = (int32_t)(m->rca_y >= 0 ? m->rca_y + 0.5 : m->rca_y - 0.5);
+        right = (int32_t)(m->rcb_y >= 0 ? m->rcb_y + 0.5 : m->rcb_y - 0.5);
+    }
+    if (m->filter_on) {
+        double l = (double)left, r = (double)right;
+        double ly = m->b0 * l + m->b1 * m->lx1 + m->b2 * m->lx2 - m->a1 * m->ly1 - m->a2 * m->ly2;
+        double ry = m->b0 * r + m->b1 * m->rx1 + m->b2 * m->rx2 - m->a1 * m->ry1 - m->a2 * m->ry2;
+        m->lx2 = m->lx1; m->lx1 = l; m->ly2 = m->ly1; m->ly1 = ly;
+        m->rx2 = m->rx1; m->rx1 = r; m->ry2 = m->ry1; m->ry1 = ry;
+        left = (int32_t)(ly >= 0 ? ly + 0.5 : ly - 0.5);
+        right = (int32_t)(ry >= 0 ? ry + 0.5 : ry - 0.5);
     }
     dst[0] = sat16(left);
     dst[1] = sat16(right);
@@ -750,11 +1310,185 @@ static int parse_rate(const maktabasauti_host_t *h, uint32_t *rate) {
     return 1;
 }
 
+static int same_word(const char *s, const char *w) {
+    for (; *w; s++, w++) {
+        unsigned c = (unsigned char)*s;
+        if (c >= 'A' && c <= 'Z') c = c - 'A' + 'a';
+        if (c != (unsigned char)*w) return 0;
+    }
+    return *s == 0;
+}
+
+/* Plik nie niesie zegara.  Brak opcji i "pal" zostaja przy PAL.  "ntsc" jest jedynym drugim zegarem. */
+static int parse_clock(const maktabasauti_host_t *h, uint32_t *clock) {
+    const char *s = NULL;
+    if (h->option) s = h->option(h->user, "mod.clock");
+    if (!s || !s[0] || same_word(s, "pal")) { *clock = PAULA_PAL; return 1; }
+    if (same_word(s, "ntsc")) { *clock = PAULA_NTSC; return 1; }
+    return 0;
+}
+
+/* Brak opcji: bez stalego RC.  a500 wlacza jednobiegunowy dolnoprzepust okolo 4,9 kHz. */
+static int parse_model(const maktabasauti_host_t *h, mod_t *m) {
+    const char *s = NULL;
+    if (h->option) s = h->option(h->user, "mod.model");
+    if (!s || !s[0] || same_word(s, "a1200") || same_word(s, "pc")) {
+        m->amiga_rc = 0;
+        return 1;
+    }
+    if (same_word(s, "a500")) {
+        m->amiga_rc = 1;
+        return 1;
+    }
+    return 0;
+}
+
+/* Plik nie niesie wersji trackera.  Brak opcji i pt/protracker/pt11 zostaja przy ProTrackerze 1.1.
+ * pt10 wlacza czterobajtowe czyszczenie i Funk Repeat.  ust wlacza grupe 1 Ultimate Soundtrackera.
+ * st2 wlacza SoundTracker II-VI, st9 SoundTracker IX i Master Soundtracker. */
+static int classify_tracker(const maktabasauti_host_t *h, uint8_t *kind, uint8_t *clear_n) {
+    const char *s = NULL;
+    *kind = TRACK_PT11;
+    *clear_n = 2;
+    if (h->option) s = h->option(h->user, "mod.tracker");
+    if (!s || !s[0] || same_word(s, "pt") || same_word(s, "protracker") || same_word(s, "pt11")) return 1;
+    if (same_word(s, "pt10") || same_word(s, "protracker10")) {
+        *kind = TRACK_PT10;
+        *clear_n = 4;
+        return 1;
+    }
+    if (same_word(s, "ust") || same_word(s, "ultimate")) {
+        *kind = TRACK_UST;
+        *clear_n = 0;
+        return 1;
+    }
+    if (same_word(s, "st2") || same_word(s, "soundtracker2")) {
+        *kind = TRACK_ST2;
+        *clear_n = 0;
+        return 1;
+    }
+    if (same_word(s, "st9") || same_word(s, "master")) {
+        *kind = TRACK_ST9;
+        *clear_n = 0;
+        return 1;
+    }
+    return 0;
+}
+
+static double reduce_rad(double x) {
+    const double pi = 3.14159265358979323846;
+    const double twopi = 6.28318530717958647692;
+    double k = x / twopi;
+    int n = (int)(k >= 0.0 ? k + 0.5 : k - 0.5);
+    x -= twopi * (double)n;
+    if (x > pi) x -= twopi;
+    if (x < -pi) x += twopi;
+    return x;
+}
+
+static double tsin(double x) {
+    double x2, term, s;
+    int i;
+    x = reduce_rad(x);
+    x2 = x * x;
+    term = x;
+    s = x;
+    for (i = 1; i <= 9; i++) {
+        term *= -x2 / (double)((2 * i) * (2 * i + 1));
+        s += term;
+    }
+    return s;
+}
+
+static double tcos(double x) {
+    double x2, term, s;
+    int i;
+    x = reduce_rad(x);
+    x2 = x * x;
+    term = 1.0;
+    s = 1.0;
+    for (i = 1; i <= 9; i++) {
+        term *= -x2 / (double)((2 * i - 1) * (2 * i));
+        s += term;
+    }
+    return s;
+}
+
+static double texp(double x) {
+    double term = 1.0, s = 1.0;
+    int i;
+    for (i = 1; i <= 20; i++) {
+        term *= x / (double)i;
+        s += term;
+    }
+    return s;
+}
+
+/* E0x: Butterworth 2. rzedu, 3275 Hz, wzmocnienie DC = 1.  Bez libm.  RC A500 jest osobna opcja. */
+static void design_filters(mod_t *m) {
+    const double pi = 3.14159265358979323846;
+    const double sqrt2 = 1.4142135623730950488;
+    double fs = (double)m->rate;
+    double fc = 3275.0;
+    double w0, alpha, cosw, b0, b1, a0;
+    if (fc * 2.0 >= fs) fc = fs * 0.45;
+    w0 = 2.0 * pi * fc / fs;
+    cosw = tcos(w0);
+    alpha = tsin(w0) / sqrt2;
+    b0 = (1.0 - cosw) * 0.5;
+    b1 = 1.0 - cosw;
+    a0 = 1.0 + alpha;
+    m->b0 = b0 / a0;
+    m->b1 = b1 / a0;
+    m->b2 = b0 / a0;
+    m->a1 = -2.0 * cosw / a0;
+    m->a2 = (1.0 - alpha) / a0;
+    m->rc_a = 0;
+    if (m->amiga_rc) {
+        double cut = 4900.0;
+        double k;
+        if (cut * 2.0 >= fs) cut = fs * 0.45;
+        k = -2.0 * pi * cut / fs;
+        m->rc_a = 1.0 - texp(k);
+        if (m->rc_a < 0.0) m->rc_a = 0.0;
+        if (m->rc_a > 1.0) m->rc_a = 1.0;
+    }
+}
+
 static void copy_name(char *dst, size_t cap, const uint8_t *src, size_t n) {
     size_t i;
     if (n >= cap) n = cap - 1u;
     for (i = 0; i < n; i++) dst[i] = (char)src[i];
     dst[n] = 0;
+}
+
+static void release_flips(mod_t *m) {
+    unsigned i;
+    const maktabasauti_host_t *h = m->host;
+    if (!h || !h->free) return;
+    for (i = 0; i < MOD_INST; i++) {
+        if (!m->inst[i].flip) continue;
+        h->free(h->user, m->inst[i].flip);
+        m->inst[i].flip = NULL;
+    }
+}
+
+static int alloc_flips(mod_t *m) {
+    unsigned i;
+    for (i = 0; i < m->instruments; i++) {
+        inst_t *in = &m->inst[i];
+        size_t bytes;
+        if (!in->length) continue;
+        bytes = ((size_t)in->length + 7u) / 8u;
+        in->flip = (uint8_t *)m->host->alloc(m->host->user, bytes);
+        if (!in->flip) {
+            release_flips(m);
+            m->err = "brak pamieci na maske invert loop";
+            return 0;
+        }
+        memset(in->flip, 0, bytes);
+    }
+    return 1;
 }
 
 static maktabasauti_result_t parse_module(mod_t *m, const uint8_t *p, size_t n, const ident_t *id) {
@@ -812,7 +1546,30 @@ static maktabasauti_result_t parse_module(mod_t *m, const uint8_t *p, size_t n, 
             in->data = p + off;
             off += bytes;
         }
-        if (loop_l > 1u) {
+        /* SoundTracker trzyma poczatek petli w bajtach i gra tylko petle.
+         * Grupa 1 i II-VI koncza sie na 9998 bajtach.  IX i Master siegaja 32 KB.
+         * Prefiks ProTrackera tu nie dziala. */
+        if (st_family(m->tracker)) {
+            uint32_t cap = m->tracker == TRACK_ST9 ? 32768u : 9998u;
+            if (bytes > cap) {
+                m->err = m->tracker == TRACK_UST
+                    ? "probka Ultimate Soundtrackera dluzsza niz 9998 bajtow"
+                    : "probka SoundTrackera przekracza limit tej grupy";
+                return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+            }
+            if (loop_l > 1u) {
+                uint32_t ls = loop_w;
+                uint32_t ll = (uint32_t)loop_l * 2u;
+                if (ls > bytes || ll > bytes - ls) {
+                    m->err = "petla probki wychodzi poza jej koniec";
+                    return MAKTABASAUTI_E_CORRUPT_DATA;
+                }
+                if (in->data) in->data += ls;
+                in->length = ll;
+                in->loop_start = 0;
+                in->loop_len = ll;
+            }
+        } else if (loop_l > 1u) {
             uint32_t ls = (uint32_t)loop_w * 2u;
             uint32_t ll = (uint32_t)loop_l * 2u;
             if (ls > bytes || ll > bytes - ls) {
@@ -823,6 +1580,16 @@ static maktabasauti_result_t parse_module(mod_t *m, const uint8_t *p, size_t n, 
             in->loop_len = ll;
         }
     }
+    /* Bajty 0x1D7 to tempo, nie pozycja restartu.  120 daje BPM 121.  Od 240 mianownik by zniknal. */
+    if (st_family(m->tracker) && m->instruments == 15u) {
+        unsigned t = m->restart;
+        double bpm;
+        if (t >= 240u) t = 239u;
+        bpm = (709378.92 * 125.0) / (50.0 * (double)(240u - t) * 122.0);
+        m->ust_tempo = (uint32_t)(bpm + 0.5);
+        if (!m->ust_tempo) m->ust_tempo = 1u;
+        m->restart = 0;
+    }
     for (cell = 0; cell < (size_t)m->pattern_count * 64u * span; cell++) {
         const uint8_t *c = m->patterns + cell * 4u;
         unsigned sample = (c[0] & 0xF0u) | (c[2] >> 4);
@@ -831,8 +1598,10 @@ static maktabasauti_result_t parse_module(mod_t *m, const uint8_t *p, size_t n, 
             return MAKTABASAUTI_E_CORRUPT_DATA;
         }
     }
-    m->tick_cap = (uint32_t)m->song_length * 64u * 31u;
+    /* Zapas na EEx (x16) i jeden przebieg E6x.  Modul 15-instrumentowy liczy Fxx jako predkosc do 255. */
+    m->tick_cap = (uint32_t)m->song_length * 64u * (m->instruments == 15u ? 255u : 31u) * 20u;
     m->file = p;
+    if (!alloc_flips(m)) return MAKTABASAUTI_E_NO_MEMORY;
     return MAKTABASAUTI_OK;
 }
 
@@ -861,14 +1630,42 @@ static maktabasauti_result_t MAKTABASAUTI_CALL mod_open(const maktabasauti_codec
     if (!m) return MAKTABASAUTI_E_NO_MEMORY;
     memset(m, 0, sizeof *m);
     m->host = h;
-    r = parse_module(m, data, n, &id);
-    if (r != MAKTABASAUTI_OK) { h->free(h->user, m); return r; }
+    {
+        uint8_t kind = TRACK_PT11, clear_n = 2;
+        int tracker_ok = classify_tracker(h, &kind, &clear_n);
+        m->tracker = kind;
+        m->clear_n = clear_n;
+        r = parse_module(m, data, n, &id);
+        if (r != MAKTABASAUTI_OK) {
+            release_flips(m);
+            h->free(h->user, m);
+            return r;
+        }
+        if (!tracker_ok) {
+            release_flips(m);
+            h->free(h->user, m);
+            return MAKTABASAUTI_E_INVALID_ARGUMENT;
+        }
+    }
     if (!parse_rate(h, &m->rate)) {
+        release_flips(m);
         h->free(h->user, m);
         return MAKTABASAUTI_E_INVALID_ARGUMENT;
     }
+    if (!parse_clock(h, &m->clock)) {
+        release_flips(m);
+        h->free(h->user, m);
+        return MAKTABASAUTI_E_INVALID_ARGUMENT;
+    }
+    if (!parse_model(h, m)) {
+        release_flips(m);
+        h->free(h->user, m);
+        return MAKTABASAUTI_E_INVALID_ARGUMENT;
+    }
+    design_filters(m);
     if (!count_frames(m, &m->total_frames)) {
         r = m->err ? MAKTABASAUTI_E_CORRUPT_DATA : MAKTABASAUTI_E_INTERNAL;
+        release_flips(m);
         h->free(h->user, m);
         return r;
     }
@@ -898,9 +1695,17 @@ static maktabasauti_result_t MAKTABASAUTI_CALL mod_seek(void *state, uint64_t fr
     int16_t junk[128 * 2];
     (void)flags;
     if (!m || !actual) return MAKTABASAUTI_E_INVALID_ARGUMENT;
-    if (frame > m->total_frames) {
-        m->err = "pozycja poza koncem utworu";
-        return MAKTABASAUTI_E_OUT_OF_RANGE;
+    if (m->total_frames != MAKTABASAUTI_UNKNOWN_LENGTH) {
+        if (frame > m->total_frames) {
+            m->err = "pozycja poza koncem utworu";
+            return MAKTABASAUTI_E_OUT_OF_RANGE;
+        }
+    } else {
+        uint64_t room = (uint64_t)m->tick_cap * ((uint64_t)m->rate * 5u / 2u + 1u);
+        if (frame > m->frame_pos && frame - m->frame_pos > room) {
+            m->err = "pozycja poza koncem utworu";
+            return MAKTABASAUTI_E_OUT_OF_RANGE;
+        }
     }
     if (frame < m->frame_pos) playback_reset(m);
     while (m->frame_pos < frame) {
@@ -963,14 +1768,18 @@ static maktabasauti_result_t MAKTABASAUTI_CALL mod_get_tag(const void *state, co
         put_i32(num, (int)m->restart);
         return write_tag(buf, cap, needed, num);
     }
-    if (strncmp(key, "finetune.", 9) != 0) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+    if (strncmp(key, "finetune.", 9) == 0) p = key + 9;
+    else if (strncmp(key, "name.", 5) == 0) p = key + 5;
+    else return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
     idx = 0;
-    for (p = key + 9; *p; p++) {
+    if (!*p) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+    for (; *p; p++) {
         if (*p < '0' || *p > '9') return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
         idx = idx * 10u + (unsigned)(*p - '0');
         if (idx > MOD_INST) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
     }
     if (idx < 1u || idx > m->instruments) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+    if (strncmp(key, "name.", 5) == 0) return write_tag(buf, cap, needed, m->inst[idx - 1u].name);
     put_i32(num, m->inst[idx - 1u].finetune);
     return write_tag(buf, cap, needed, num);
 }
@@ -984,6 +1793,7 @@ static void MAKTABASAUTI_CALL mod_close(void *state) {
     const maktabasauti_host_t *h;
     if (!m) return;
     h = m->host;
+    release_flips(m);
     h->free(h->user, m);
 }
 

@@ -27,6 +27,7 @@
 #define sauti_ym_env_init_asm sauti_ym_env_init_asm_c
 #define sauti_ym_env_step_asm sauti_ym_env_step_asm_c
 #define sauti_ym_drum_sample_asm sauti_ym_drum_sample_asm_c
+#define maktabasauti_mod_voice_add maktabasauti_mod_voice_add_c
 #endif
 #include <stddef.h>
 #include <stdint.h>

@@ -25,7 +25,7 @@ static void MAKTABASAUTI_CALL h_free(void *u, void *p) {
     h = (Hdr *)p - 1; m->live -= h->n; free(h);
 }
 
-typedef struct { const uint8_t *data; size_t n; const char *rate; const char *mod_rate; } Mem;
+typedef struct { const uint8_t *data; size_t n; const char *rate; const char *mod_rate; const char *clock; const char *model; const char *tracker; } Mem;
 static maktabasauti_result_t MAKTABASAUTI_CALL mem_map(void *u, maktabasauti_reader_t *rd, const uint8_t **data, size_t *size) {
     Mem *m = (Mem *)u; (void)rd; *data = m->data; *size = m->n; return MAKTABASAUTI_OK;
 }
@@ -33,6 +33,9 @@ static const char *MAKTABASAUTI_CALL mem_option(void *u, const char *key) {
     Mem *m = (Mem *)u;
     if (strcmp(key, "sample_rate") == 0) return m->rate;
     if (strcmp(key, "mod.sample_rate") == 0) return m->mod_rate;
+    if (strcmp(key, "mod.clock") == 0) return m->clock;
+    if (strcmp(key, "mod.model") == 0) return m->model;
+    if (strcmp(key, "mod.tracker") == 0) return m->tracker;
     return NULL;
 }
 static int64_t MAKTABASAUTI_CALL mem_unused(void *u, maktabasauti_reader_t *rd, void *b, size_t n) {
@@ -62,9 +65,11 @@ typedef struct {
     maktabasauti_result_t rc;
 } Dec;
 
-static void dec_open(Dec *d, const uint8_t *data, size_t n, const char *rate, const char *mod_rate) {
+static void dec_open_ex(Dec *d, const uint8_t *data, size_t n, const char *rate, const char *mod_rate,
+                        const char *clock, const char *model, const char *tracker) {
     memset(d, 0, sizeof *d);
     d->bag.mem.data = data; d->bag.mem.n = n; d->bag.mem.rate = rate; d->bag.mem.mod_rate = mod_rate;
+    d->bag.mem.clock = clock; d->bag.mem.model = model; d->bag.mem.tracker = tracker;
     d->host.struct_size = sizeof d->host;
     d->host.user = &d->bag;
     d->host.alloc = b_alloc; d->host.realloc = h_realloc; d->host.free = b_free;
@@ -74,12 +79,17 @@ static void dec_open(Dec *d, const uint8_t *data, size_t n, const char *rate, co
     d->rc = maktabasauti_mod_desc.open(&maktabasauti_mod_desc, &d->host, NULL, &d->info, &d->state);
 }
 
+static void dec_open(Dec *d, const uint8_t *data, size_t n, const char *rate, const char *mod_rate) {
+    dec_open_ex(d, data, n, rate, mod_rate, NULL, NULL, NULL);
+}
+
 static void dec_close(Dec *d) {
     if (d->state) maktabasauti_mod_desc.close(d->state);
     d->state = NULL;
 }
 
-enum { RATE = 44100, TICK = 882, PAULA_PAL = 3546895u }; /* 44100 * 5 / (125 * 2) = 882 */
+enum { RATE = 44100, TICK = 882, PAULA_PAL = 3546895u, CLEAR_AT = 11 };
+/* 44100 * 5 / (125 * 2) = 882.  Przy okresie 428 klatki 0..10 czytaja wyzerowane bajty, od 11 bajt 2. */
 
 typedef struct { unsigned index, words, finetune, volume, loop_w, loop_l; const uint8_t *data; } Inst;
 typedef struct { unsigned pat, row, ch, sample, period, effect, param; } Cell;
@@ -94,8 +104,12 @@ static void put_cell(uint8_t *p, unsigned sample, unsigned period, unsigned effe
 static unsigned layout_channels(const char *m) {
     unsigned ch;
     if (!m) return 4u;
-    if (memcmp(m, "FLT8", 4) == 0 || memcmp(m, "CD81", 4) == 0 || memcmp(m, "OCTA", 4) == 0 || memcmp(m, "OKTA", 4) == 0) return 8u;
-    if (m[0] == 'T' && m[1] == 'D' && m[2] == 'Z' && m[3] >= '1' && m[3] <= '3') return (unsigned)(m[3] - '0');
+    if (memcmp(m, "FLT8", 4) == 0 || memcmp(m, "EXO8", 4) == 0 || memcmp(m, "EX08", 4) == 0
+        || memcmp(m, "CD81", 4) == 0 || memcmp(m, "OCTA", 4) == 0 || memcmp(m, "OKTA", 4) == 0) return 8u;
+    if (memcmp(m, "CD61", 4) == 0) return 6u;
+    if (memcmp(m, "FA04", 4) == 0 || memcmp(m, "FA06", 4) == 0 || memcmp(m, "FA08", 4) == 0)
+        return (unsigned)(m[3] - '0');
+    if (m[0] == 'T' && m[1] == 'D' && m[2] == 'Z' && m[3] >= '1' && m[3] <= '9') return (unsigned)(m[3] - '0');
     if (m[0] >= '1' && m[0] <= '9' && m[1] == 'C' && m[2] == 'H' && m[3] == 'N') return (unsigned)(m[0] - '0');
     if (m[0] >= '0' && m[0] <= '9' && m[1] >= '0' && m[1] <= '9' && m[2] == 'C' && (m[3] == 'H' || m[3] == 'N')) {
         ch = (unsigned)(m[0] - '0') * 10u + (unsigned)(m[1] - '0');
@@ -115,8 +129,8 @@ static uint8_t *build(size_t *out_n, const char *magic, unsigned song_len, unsig
     if (orders) memcpy(ord, orders, 128u);
     for (i = 0; i < 128u; i++) if (ord[i] > maxp) maxp = ord[i];
     pc = maxp + 1u;
-    flt8 = magic && memcmp(magic, "FLT8", 4) == 0;
-    /* FLT8 trzyma pary patternow 4-kanalowych: pozycja P potrzebuje tez P+1. */
+    flt8 = magic && (memcmp(magic, "FLT8", 4) == 0 || memcmp(magic, "EXO8", 4) == 0 || memcmp(magic, "EX08", 4) == 0);
+    /* FLT8, EXO8 i EX08 trzymaja pary patternow 4-kanalowych: pozycja P potrzebuje tez P+1. */
     stored = flt8 ? pc + 1u : pc;
     span = flt8 ? 4u : layout_channels(magic);
     for (i = 0; i < ninst; i++) samples += (size_t)insts[i].words * 2u;
@@ -189,6 +203,8 @@ static int32_t spec_voice(uint64_t i, unsigned period, const uint8_t *sample, un
         return 0;
     }
     idx = (unsigned)pos;
+    /* Dwa pierwsze bajty sa zerem przy odczycie.  Plik w tescie zostaje. */
+    if (idx < 2u) return 0;
     s = sample[idx] < 128u ? (int32_t)sample[idx] : (int32_t)sample[idx] - 256;
     return s * (int32_t)volume;
 }
@@ -251,6 +267,32 @@ static void test_probe(void) {
     CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
     memcpy(hdr + 1080, "OKTA", 4u);
     CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "N.T.", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "EXO4", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "PATT", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "NSMS", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "LARD", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "EXO8", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "EX08", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "CD61", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "FA04", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "FA06", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "FA08", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "TDZ4", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "TDZ9", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
     memcpy(hdr + 1080, "1CHN", 4u);
     CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
     memcpy(hdr + 1080, "XXXX", 4u);
@@ -258,8 +300,6 @@ static void test_probe(void) {
     memcpy(hdr + 1080, "33CH", 4u);
     CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 0);
     memcpy(hdr + 1080, "FLT6", 4u);
-    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 0);
-    memcpy(hdr + 1080, "TDZ4", 4u);
     CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 0);
     memset(hdr, 0, sizeof hdr);
     hdr[470] = 1;
@@ -291,7 +331,8 @@ static void test_reject(void) {
     dec_close(&d); free(b);
     b = build(&n, "TDZ4", 1, 0, NULL, &inst, 1, &cell, 1);
     dec_open(&d, b, n, NULL, NULL);
-    CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FORMAT);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(strcmp(d.info.codec_profile, "TDZ4") == 0);
     dec_close(&d); free(b);
     b = build(&n, "M.K.", 0, 0, NULL, &inst, 1, &cell, 1);
     dec_open(&d, b, n, NULL, NULL);
@@ -374,12 +415,12 @@ static void test_play(void) {
     CHECK(need == 15u);
     CHECK(maktabasauti_mod_desc.get_tag(d.state, "artist", tag, sizeof tag, NULL) == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
     dec_close(&d);
-    expect_channel(b, n, 0, 428, square, 4, 0, 4, 64, 4000);
+    expect_channel(b, n, 0, 431, square, 4, 0, 4, 64, 4000);
     free(b);
 
-    /* Finetune +7 nie stroi zapisanego okresu.  E00 nic nie zmienia w miksie. */
+    /* Finetune +7, zapisane 428 (C-2): kolumna daje 407.  Efekt 000, bo E00 wlacza filtr. */
     inst.finetune = 0x07; inst.loop_w = 0; inst.loop_l = 2; inst.words = 2;
-    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x00};
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0, 0};
     b = build(&n, "FLT4", 1, 0, NULL, &inst, 1, cells, 1);
     dec_open(&d, b, n, "44100", NULL);
     CHECK(d.rc == MAKTABASAUTI_OK);
@@ -387,18 +428,18 @@ static void test_play(void) {
     CHECK(strcmp(tag, "7") == 0);
     CHECK(strcmp(d.info.codec_profile, "FLT4") == 0);
     dec_close(&d);
-    expect_channel(b, n, 0, 428, square, 4, 0, 4, 64, 8000);
+    expect_channel(b, n, 0, 407, square, 4, 0, 4, 64, 8000);
     free(b);
 
     inst.finetune = 0x08;
-    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x00}; /* E00, nie tremolo: okres zostaje 428 */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0, 0};
     b = build(&n, "4CHN", 1, 0, NULL, &inst, 1, cells, 1);
     dec_open(&d, b, n, "44100", NULL);
     CHECK(d.rc == MAKTABASAUTI_OK);
     CHECK(maktabasauti_mod_desc.get_tag(d.state, "finetune.1", tag, sizeof tag, NULL) == MAKTABASAUTI_OK);
     CHECK(strcmp(tag, "-8") == 0);
     dec_close(&d);
-    expect_channel(b, n, 0, 428, square, 4, 0, 4, 64, 2000);
+    expect_channel(b, n, 0, 453, square, 4, 0, 4, 64, 2000);
     free(b);
 
     for (ch = 0; ch < 4u; ch++) {
@@ -442,8 +483,8 @@ static void test_play(void) {
 }
 
 static void test_timing(void) {
-    uint8_t flat[4] = {127, 127, 127, 127};
-    Inst inst = {1, 2, 0, 64, 0, 2, flat};
+    uint8_t flat[6] = {127, 127, 127, 127, 127, 127};
+    Inst inst = {1, 3, 0, 64, 1, 2, flat};
     Cell cells[2];
     uint8_t *b;
     size_t n = 0, got = 0, i;
@@ -455,7 +496,20 @@ static void test_timing(void) {
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
     dec_open(&d, b, n, NULL, NULL);
     CHECK(d.rc == MAKTABASAUTI_OK);
-    CHECK(d.info.total_frames == (uint64_t)64u * 6u * TICK);
+    /* F00 na petli nie ma konca.  Seek w poblizu nadal slyszy probke, a daleki skok jest odrzucony. */
+    CHECK(d.info.total_frames == MAKTABASAUTI_UNKNOWN_LENGTH);
+    CHECK((d.info.flags & MAKTABASAUTI_STREAM_SEEKABLE) != 0u);
+    CHECK((d.info.flags & MAKTABASAUTI_STREAM_LIVE) == 0u);
+    {
+        uint64_t actual = 0;
+        int16_t one[2] = {0, 0};
+        CHECK(maktabasauti_mod_desc.seek(d.state, 1000u, 0, &actual) == MAKTABASAUTI_OK);
+        CHECK(actual == 1000u);
+        CHECK(maktabasauti_mod_desc.read(d.state, one, 1u, &got) == MAKTABASAUTI_OK);
+        CHECK(got == 1u);
+        CHECK(one[0] == 127 * 64);
+        CHECK(maktabasauti_mod_desc.seek(d.state, 5000000000ull, 0, &actual) == MAKTABASAUTI_E_OUT_OF_RANGE);
+    }
     dec_close(&d); free(b);
 
     cells[0].param = 0x01;
@@ -474,7 +528,8 @@ static void test_timing(void) {
     pcm = (int16_t *)malloc((size_t)(loud + 10u) * 2u * sizeof *pcm);
     CHECK(maktabasauti_mod_desc.read(d.state, pcm, (size_t)loud + 10u, &got) == MAKTABASAUTI_OK);
     CHECK(got == loud + 10u);
-    CHECK(pcm[0] == 127 * 64);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[(size_t)CLEAR_AT * 2u] == 127 * 64);
     CHECK(pcm[(size_t)(loud - 1u) * 2u] == 127 * 64);
     CHECK(pcm[(size_t)loud * 2u] == 0);
     free(pcm);
@@ -512,7 +567,8 @@ static void test_timing(void) {
     loud = TICK + 5ull * 441u;
     pcm = (int16_t *)malloc((size_t)(loud + 4u) * 2u * sizeof *pcm);
     CHECK(maktabasauti_mod_desc.read(d.state, pcm, (size_t)loud + 4u, &got) == MAKTABASAUTI_OK);
-    for (i = 0; i < (size_t)loud; i++) CHECK(pcm[i * 2u] == 127 * 64);
+    CHECK(pcm[0] == 0);
+    for (i = CLEAR_AT; i < (size_t)loud; i++) CHECK(pcm[i * 2u] == 127 * 64);
     CHECK(pcm[(size_t)loud * 2u] == 0);
     free(pcm);
     dec_close(&d); free(b);
@@ -546,8 +602,8 @@ static void test_timing(void) {
 }
 
 static void test_seek_and_sum(void) {
-    uint8_t flat[4] = {127, 127, 127, 127};
-    uint8_t neg[4] = {0x80, 0x80, 0x80, 0x80};
+    uint8_t flat[6] = {127, 127, 127, 127, 127, 127};
+    uint8_t neg[6] = {0x80, 0x80, 0x80, 0x80, 0x80, 0x80};
     Inst insts[2];
     Cell cells[2];
     uint8_t orders[128];
@@ -559,17 +615,17 @@ static void test_seek_and_sum(void) {
     size_t i;
 
     memset(insts, 0, sizeof insts);
-    insts[0] = (Inst){1, 2, 0, 64, 0, 2, flat};
-    insts[1] = (Inst){2, 2, 0, 64, 0, 2, neg};
+    insts[0] = (Inst){1, 3, 0, 64, 1, 2, flat};
+    insts[1] = (Inst){2, 3, 0, 64, 1, 2, neg};
     cells[0] = (Cell){0, 0, 0, 1, 428, 0, 0};
     cells[1] = (Cell){0, 0, 3, 2, 428, 0, 0};
     b = build(&n, "M.K.", 1, 0, NULL, insts, 2, cells, 2);
     dec_open(&a, b, n, "44100", NULL);
     CHECK(a.rc == MAKTABASAUTI_OK);
     CHECK(maktabasauti_mod_desc.read(a.state, x, 32, &got) == MAKTABASAUTI_OK);
-    /* 127*64 + (-128)*64 = -64 na lewym; prawy milczy. */
+    /* Po wyzerowanych bajtach: 127*64 + (-128)*64 = -64 na lewym.  Prawy milczy. */
     for (i = 0; i < 32u; i++) {
-        CHECK(x[i * 2u] == -64);
+        CHECK(x[i * 2u] == (i < CLEAR_AT ? 0 : -64));
         CHECK(x[i * 2u + 1u] == 0);
     }
     CHECK(maktabasauti_mod_desc.seek(a.state, a.info.total_frames + 1u, 0, &actual) == MAKTABASAUTI_E_OUT_OF_RANGE);
@@ -583,7 +639,7 @@ static void test_seek_and_sum(void) {
     CHECK(memcmp(y, x, 8u * 2u * sizeof(int16_t)) == 0);
     CHECK(maktabasauti_mod_desc.reset(a.state) == MAKTABASAUTI_OK);
     CHECK(maktabasauti_mod_desc.read(a.state, y, 4, &got) == MAKTABASAUTI_OK);
-    CHECK(y[0] == -64);
+    CHECK(y[0] == 0);
     CHECK(maktabasauti_mod_desc.seek(a.state, a.info.total_frames, 0, &actual) == MAKTABASAUTI_OK);
     CHECK(maktabasauti_mod_desc.read(a.state, y, 4, &got) == MAKTABASAUTI_EOF);
     CHECK(got == 0u);
@@ -632,10 +688,16 @@ static unsigned flips(const int16_t *pcm, size_t begin, size_t end) {
 
 static void expect_period(const int16_t *pcm, size_t tick, unsigned period) {
     unsigned got, ratio;
+    size_t begin, end, frames;
     if (!pcm) { g_failures++; return; }
-    got = flips(pcm, tick * TICK, (tick + 1u) * TICK);
-    ratio = (unsigned)((882ull * 3546895ull) / ((unsigned long long)period * 44100ull));
-    if (got + 2u < ratio || got > ratio + 2u) {
+    begin = tick * TICK;
+    end = begin + TICK;
+    /* Poczatek nuty milczy, bo dwa pierwsze bajty sa zerem.  Kwadrat liczymy od pierwszej klatki z dzwiekiem. */
+    while (begin < end && pcm[begin * 2u] == 0) begin++;
+    frames = end - begin;
+    got = frames ? flips(pcm, begin, end) : 0u;
+    ratio = (unsigned)(((unsigned long long)frames * 3546895ull) / ((unsigned long long)period * 44100ull));
+    if (!frames || got + 2u < ratio || got > ratio + 2u) {
         fprintf(stderr, "FAIL takt %zu okres %u: zmian znaku %u, wzorzec %u\n", tick, period, got, ratio);
         g_failures++;
     }
@@ -653,8 +715,8 @@ static int16_t *render_n(Dec *d, const uint8_t *mod, size_t n, size_t frames) {
 }
 
 static void test_effects(void) {
-    uint8_t square[4] = {127, 0x80, 127, 0x80};
-    uint8_t flat[4] = {127, 127, 127, 127};
+    uint8_t square[6] = {0, 0, 127, 0x80, 127, 0x80};
+    uint8_t flat[6] = {127, 127, 127, 127, 127, 127};
     uint8_t lead[64];
     uint8_t *ramp;
     Inst inst;
@@ -666,7 +728,7 @@ static void test_effects(void) {
     memset(lead, 127, sizeof lead);
     lead[0] = 0;
     memset(&inst, 0, sizeof inst);
-    inst.index = 1; inst.words = 2; inst.volume = 64; inst.loop_l = 2; inst.data = square;
+    inst.index = 1; inst.words = 3; inst.volume = 64; inst.loop_w = 1; inst.loop_l = 2; inst.data = square;
 
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x00, 0x30};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
@@ -714,7 +776,7 @@ static void test_effects(void) {
     expect_period(pcm, 7, 368); /* 428 - 5*10 w wierszu 0, takt 0 wiersza 1 bez slizgu, takt 1 slizga o 10 */
     dec_close(&d); free(pcm); free(b);
 
-    inst.words = 32; inst.loop_l = 32; inst.data = lead;
+    inst.words = 32; inst.loop_w = 0; inst.loop_l = 32; inst.data = lead;
     cells[0] = (Cell){0, 0, 0, 1, 428, 0, 0};
     cells[1] = (Cell){0, 1, 0, 0, 214, 0x03, 32};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
@@ -722,7 +784,7 @@ static void test_effects(void) {
     CHECK(pcm[6u * TICK * 2u] == 127 * 64); /* faza nie wraca na bajt 0 */
     dec_close(&d); free(pcm); free(b);
 
-    inst.words = 2; inst.loop_l = 2; inst.data = square; inst.volume = 64;
+    inst.words = 3; inst.loop_w = 1; inst.loop_l = 2; inst.data = square; inst.volume = 64;
     cells[0] = (Cell){0, 0, 0, 1, 428, 0, 0};
     cells[1] = (Cell){0, 1, 0, 0, 214, 0x03, 32};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
@@ -731,7 +793,7 @@ static void test_effects(void) {
     expect_period(pcm, 7, 396);
     dec_close(&d); free(pcm); free(b);
 
-    inst.words = 2; inst.loop_l = 2; inst.data = square; inst.volume = 64;
+    inst.words = 3; inst.loop_w = 1; inst.loop_l = 2; inst.data = square; inst.volume = 64;
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x04, 0xF8};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
     pcm = render_n(&d, b, n, 3u * TICK);
@@ -739,11 +801,12 @@ static void test_effects(void) {
     expect_period(pcm, 2, 443); /* 254 * 8 / 128 = 15, okres 428 + 15 */
     dec_close(&d); free(pcm); free(b);
 
-    inst.volume = 40; inst.data = flat;
+    inst.volume = 40; inst.words = 3; inst.loop_w = 1; inst.loop_l = 2; inst.data = flat;
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x0A, 0x18}; /* w gore o 1, nie w dol o 8 */
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
     pcm = render_n(&d, b, n, 2u * TICK);
-    CHECK(pcm[0] == 127 * 40);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[CLEAR_AT * 2u] == 127 * 40);
     CHECK(pcm[TICK * 2u] == 127 * 41);
     dec_close(&d); free(pcm); free(b);
 
@@ -751,7 +814,8 @@ static void test_effects(void) {
     cells[0].param = 0xF0;
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
     pcm = render_n(&d, b, n, 3u * TICK);
-    CHECK(pcm[0] == 127 * 60);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[CLEAR_AT * 2u] == 127 * 60);
     CHECK(pcm[TICK * 2u] == 127 * 64);
     CHECK(pcm[2u * TICK * 2u] == 127 * 64);
     dec_close(&d); free(pcm); free(b);
@@ -760,11 +824,12 @@ static void test_effects(void) {
     cells[0].param = 0x0F;
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
     pcm = render_n(&d, b, n, 2u * TICK);
-    CHECK(pcm[0] == 127 * 10);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[CLEAR_AT * 2u] == 127 * 10);
     CHECK(pcm[TICK * 2u] == 0);
     dec_close(&d); free(pcm); free(b);
 
-    inst.volume = 32; inst.words = 2; inst.loop_l = 2; inst.data = square;
+    inst.volume = 32; inst.words = 3; inst.loop_w = 1; inst.loop_l = 2; inst.data = square;
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x03, 32};
     cells[1] = (Cell){0, 1, 0, 0, 300, 0x05, 0x04};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
@@ -781,7 +846,7 @@ static void test_effects(void) {
 
     ramp = (uint8_t *)calloc(258, 1);
     ramp[256] = 127;
-    inst.volume = 64; inst.words = 129; inst.loop_l = 1; inst.data = ramp;
+    inst.volume = 64; inst.words = 129; inst.loop_w = 0; inst.loop_l = 1; inst.data = ramp;
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x09, 1};
     cells[1] = (Cell){0, 1, 0, 1, 428, 0x09, 0};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
@@ -954,8 +1019,8 @@ static void test_variants(void) {
 }
 
 static void test_position(void) {
-    uint8_t flat[4] = {127, 127, 127, 127};
-    Inst inst = {1, 2, 0, 64, 0, 2, flat};
+    uint8_t flat[6] = {127, 127, 127, 127, 127, 127};
+    Inst inst = {1, 3, 0, 64, 1, 2, flat};
     Cell cells[3];
     uint8_t orders[128];
     uint8_t *b;
@@ -979,7 +1044,8 @@ static void test_position(void) {
     CHECK(maktabasauti_mod_desc.read(d.state, pcm, at + 1u, &got) == MAKTABASAUTI_OK);
     CHECK(got == at + 1u);
     if (pcm) {
-        CHECK(pcm[0] == 127 * 64);
+        CHECK(pcm[0] == 0);
+        CHECK(pcm[CLEAR_AT * 2u] == 127 * 64);
         CHECK(pcm[(at - 1u) * 2u] == 127 * 64);
         CHECK(pcm[at * 2u] == 0);
     }
@@ -996,7 +1062,8 @@ static void test_position(void) {
     pcm = (int16_t *)malloc((at + 1u) * 2u * sizeof *pcm);
     CHECK(maktabasauti_mod_desc.read(d.state, pcm, at + 1u, &got) == MAKTABASAUTI_OK);
     if (pcm) {
-        CHECK(pcm[0] == 127 * 64);
+        CHECK(pcm[0] == 0);
+        CHECK(pcm[CLEAR_AT * 2u] == 127 * 64);
         CHECK(pcm[at * 2u] == 0);
     }
     free(pcm);
@@ -1005,9 +1072,9 @@ static void test_position(void) {
 }
 
 static void test_extended(void) {
-    uint8_t square[4] = {127, 0x80, 127, 0x80};
-    uint8_t flat[4] = {127, 127, 127, 127};
-    uint8_t shot[2] = {127, 0};
+    uint8_t square[6] = {0, 0, 127, 0x80, 127, 0x80};
+    uint8_t flat[6] = {127, 127, 127, 127, 127, 127};
+    uint8_t shot[8] = {127, 127, 127, 0, 0, 0, 0, 0};
     Inst inst;
     Cell cells[6];
     uint8_t *b;
@@ -1016,7 +1083,7 @@ static void test_extended(void) {
     int16_t *pcm;
     char tag[32];
     memset(&inst, 0, sizeof inst);
-    inst.index = 1; inst.words = 2; inst.volume = 64; inst.loop_l = 2; inst.data = square;
+    inst.index = 1; inst.words = 3; inst.volume = 64; inst.loop_w = 1; inst.loop_l = 2; inst.data = square;
 
     /* E1F schodzi o 15 juz w takcie 0.  E10 w nastepnym wierszu powtarza ten krok. */
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x1F};
@@ -1044,18 +1111,18 @@ static void test_extended(void) {
     CHECK(strcmp(tag, "0") == 0);
     dec_close(&d);
     pcm = render_n(&d, b, n, 2u * TICK);
-    expect_period(pcm, 0, 428);
-    expect_period(pcm, 1, 428);
+    expect_period(pcm, 0, 407);
+    expect_period(pcm, 1, 407);
     dec_close(&d); free(pcm); free(b);
 
-    /* Finetune +7, C-1 i arpeggio +12: kolumna daje 407, a nie 428 z kolumny 0. */
+    /* Finetune +7, zapisane 856 (C-1): takt 0 gra 814.  Arpeggio +12 schodzi na 407, takt bez poltonu wraca na 814. */
     inst.finetune = 0x07;
     cells[0] = (Cell){0, 0, 0, 1, 856, 0x00, 0xC0};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
     pcm = render_n(&d, b, n, 3u * TICK);
-    expect_period(pcm, 0, 856);
+    expect_period(pcm, 0, 814);
     expect_period(pcm, 1, 407);
-    expect_period(pcm, 2, 856);
+    expect_period(pcm, 2, 814);
     dec_close(&d); free(pcm); free(b);
 
     /* E42 wybiera kwadrat i zeruje faze.  Nastepny wiersz vibrato 4 18 gra +255. */
@@ -1068,12 +1135,14 @@ static void test_extended(void) {
     expect_period(pcm, 7, 443);
     dec_close(&d); free(pcm); free(b);
 
-    /* Fala 3 zostaje sinusem: pozycja 0 daje zero, nie +255. */
+    /* E43 jest kwadratem: +255*8/128 daje 443, a pozycja 32 daje 413.  Sinus na starcie zostalby 428. */
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x43};
-    cells[1] = (Cell){0, 1, 0, 0, 0, 0x04, 0x18};
+    cells[1] = (Cell){0, 1, 0, 0, 0, 0x04, 0x88};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
-    pcm = render_n(&d, b, n, 8u * TICK);
-    expect_period(pcm, 7, 428);
+    pcm = render_n(&d, b, n, 12u * TICK);
+    expect_period(pcm, 6, 428);
+    expect_period(pcm, 7, 443);
+    expect_period(pcm, 11, 413);
     dec_close(&d); free(pcm); free(b);
 
     /* Rampa E41 trwa kilka wierszy: pozycja 0 to +255 (okres 457), pozycja 16 to +127 (okres 442). */
@@ -1097,29 +1166,42 @@ static void test_extended(void) {
     expect_period(pcm, 7, 113);
     dec_close(&d); free(pcm); free(b);
 
-    inst.data = flat; inst.volume = 40;
+    inst.data = flat; inst.volume = 40; inst.words = 3; inst.loop_w = 1; inst.loop_l = 2;
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xA1};
     cells[1] = (Cell){0, 1, 0, 0, 0, 0x0E, 0xA0};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
     pcm = render_n(&d, b, n, 6u * TICK + 1u);
-    CHECK(pcm[0] == 127 * 41);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[CLEAR_AT * 2u] == 127 * 41);
     CHECK(pcm[6u * TICK * 2u] == 127 * 42);
     dec_close(&d); free(pcm); free(b);
 
     inst.volume = 10;
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xB1};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
-    pcm = render_n(&d, b, n, 1u);
-    CHECK(pcm[0] == 127 * 9);
+    pcm = render_n(&d, b, n, CLEAR_AT + 1u);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[CLEAR_AT * 2u] == 127 * 9);
     dec_close(&d); free(pcm); free(b);
 
     inst.volume = 32;
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x07, 0x18};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
     pcm = render_n(&d, b, n, 2u * TICK + 1u);
-    CHECK(pcm[0] == 127 * 32);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[CLEAR_AT * 2u] == 127 * 32);
     CHECK(pcm[TICK * 2u] == 127 * 32);
     CHECK(pcm[2u * TICK * 2u] == 127 * 35);
+    dec_close(&d); free(pcm); free(b);
+
+    /* E73: ten sam kwadrat w tremolo.  255*8/64 = 31, wiec 32 rosnie do 63 i spada do 1. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x73};
+    cells[1] = (Cell){0, 1, 0, 0, 0, 0x07, 0x88};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    pcm = render_n(&d, b, n, 12u * TICK);
+    CHECK(pcm[6u * TICK * 2u] == 127 * 32);
+    CHECK(pcm[7u * TICK * 2u] == 127 * 63);
+    CHECK(pcm[11u * TICK * 2u] == 127 * 1);
     dec_close(&d); free(pcm); free(b);
 
     inst.volume = 64;
@@ -1132,27 +1214,34 @@ static void test_extended(void) {
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xC1};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
     pcm = render_n(&d, b, n, TICK + 1u);
-    CHECK(pcm[0] == 127 * 64);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[CLEAR_AT * 2u] == 127 * 64);
     CHECK(pcm[(TICK - 1u) * 2u] == 127 * 64);
     CHECK(pcm[TICK * 2u] == 0);
     dec_close(&d); free(pcm); free(b);
 
-    inst.words = 1; inst.loop_l = 0; inst.data = shot;
+    /* Jednorazowy poczatek ma 127 na bajcie 2, petla od bajtu 4 jest cicha.
+     * E93 wraca na poczatek probki, nie na petle, wiec impuls wraca po takcie 3. */
+    inst.words = 4; inst.loop_w = 2; inst.loop_l = 2; inst.data = shot;
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x93};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
-    pcm = render_n(&d, b, n, 3u * TICK + 1u);
-    CHECK(pcm[0] == 127 * 64);
-    CHECK(pcm[6u * 2u] == 0);
-    CHECK(pcm[3u * TICK * 2u] == 127 * 64);
+    pcm = render_n(&d, b, n, 3u * TICK + CLEAR_AT + 1u);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[CLEAR_AT * 2u] == 127 * 64);
+    CHECK(pcm[(CLEAR_AT + 20u) * 2u] == 0);
+    CHECK(pcm[3u * TICK * 2u] == 0);
+    CHECK(pcm[(3u * TICK + CLEAR_AT) * 2u] == 127 * 64);
     dec_close(&d); free(pcm); free(b);
 
-    inst.words = 2; inst.loop_l = 2; inst.data = flat; inst.volume = 64;
+    inst.words = 3; inst.loop_w = 1; inst.loop_l = 2; inst.data = flat; inst.volume = 64;
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xD3};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
-    pcm = render_n(&d, b, n, 3u * TICK + 1u);
+    pcm = render_n(&d, b, n, 3u * TICK + CLEAR_AT + 1u);
     CHECK(pcm[0] == 0);
+    CHECK(pcm[CLEAR_AT * 2u] == 0);
     CHECK(pcm[(3u * TICK - 1u) * 2u] == 0);
-    CHECK(pcm[3u * TICK * 2u] == 127 * 64);
+    CHECK(pcm[3u * TICK * 2u] == 0);
+    CHECK(pcm[(3u * TICK + CLEAR_AT) * 2u] == 127 * 64);
     dec_close(&d); free(pcm); free(b);
 
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xE1};
@@ -1163,7 +1252,8 @@ static void test_extended(void) {
     CHECK(d.info.total_frames == (uint64_t)(64u * 6u + 6u) * TICK);
     dec_close(&d);
     pcm = render_n(&d, b, n, 12u * TICK + 1u);
-    CHECK(pcm[0] == 127 * 64);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[CLEAR_AT * 2u] == 127 * 64);
     CHECK(pcm[6u * TICK * 2u] == 127 * 64);
     CHECK(pcm[12u * TICK * 2u] == 0);
     dec_close(&d); free(pcm); free(b);
@@ -1187,33 +1277,36 @@ static void test_extended(void) {
     CHECK(d.rc == MAKTABASAUTI_OK);
     CHECK(d.info.total_frames == (uint64_t)(64u + 4u) * 6u * TICK);
     dec_close(&d);
-    pcm = render_n(&d, b, n, 12u * TICK + 1u);
-    CHECK(pcm[0] == 127 * 64);
+    pcm = render_n(&d, b, n, 12u * TICK + CLEAR_AT + 1u);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[CLEAR_AT * 2u] == 127 * 64);
     CHECK(pcm[6u * TICK * 2u] == 0);
-    CHECK(pcm[12u * TICK * 2u] == 127 * 64);
+    CHECK(pcm[12u * TICK * 2u] == 0);
+    CHECK(pcm[(12u * TICK + CLEAR_AT) * 2u] == 127 * 64);
     dec_close(&d); free(pcm); free(b);
 
     /* Kanal 1 domyslnie jest po prawej.  800 przenosi go na lewo. */
     cells[0] = (Cell){0, 0, 1, 1, 428, 0x08, 0x00};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
-    pcm = render_n(&d, b, n, 1u);
-    CHECK(pcm[0] == 127 * 64);
-    CHECK(pcm[1] == 0);
+    pcm = render_n(&d, b, n, CLEAR_AT + 1u);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[CLEAR_AT * 2u] == 127 * 64);
+    CHECK(pcm[CLEAR_AT * 2u + 1u] == 0);
     dec_close(&d); free(pcm); free(b);
 
     /* E8F to nibble 15 * 17 = 255, czyli prawa strona na kanale 0. */
     cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x8F};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
-    pcm = render_n(&d, b, n, 1u);
-    CHECK(pcm[0] == 0);
-    CHECK(pcm[1] == 127 * 64);
+    pcm = render_n(&d, b, n, CLEAR_AT + 1u);
+    CHECK(pcm[CLEAR_AT * 2u] == 0);
+    CHECK(pcm[CLEAR_AT * 2u + 1u] == 127 * 64);
     dec_close(&d); free(pcm); free(b);
     CHECK(d.bag.heap.live == 0);
 }
 
 static void test_restart(void) {
-    uint8_t flat[4] = {127, 127, 127, 127};
-    Inst inst = {1, 2, 0, 64, 0, 2, flat};
+    uint8_t flat[6] = {127, 127, 127, 127, 127, 127};
+    Inst inst = {1, 3, 0, 64, 1, 2, flat};
     Cell cells[3];
     uint8_t orders[128];
     uint8_t *b;
@@ -1244,14 +1337,16 @@ static void test_restart(void) {
     CHECK(d.info.total_frames == (uint64_t)(1u + 5u * 64u) * 6u * TICK);
     at_silence = 6u * TICK;
     at_back = (uint64_t)(1u + 2u * 64u) * 6u * TICK;
-    pcm = (int16_t *)malloc((at_back + 1u) * 2u * sizeof *pcm);
-    CHECK(maktabasauti_mod_desc.read(d.state, pcm, at_back + 1u, &got) == MAKTABASAUTI_OK);
-    CHECK(got == at_back + 1u);
+    pcm = (int16_t *)malloc((at_back + CLEAR_AT + 1u) * 2u * sizeof *pcm);
+    CHECK(maktabasauti_mod_desc.read(d.state, pcm, at_back + CLEAR_AT + 1u, &got) == MAKTABASAUTI_OK);
+    CHECK(got == at_back + CLEAR_AT + 1u);
     if (pcm) {
-        CHECK(pcm[0] == 127 * 64);
+        CHECK(pcm[0] == 0);
+        CHECK(pcm[CLEAR_AT * 2u] == 127 * 64);
         CHECK(pcm[at_silence * 2u] == 0);
         CHECK(pcm[(at_back - 1u) * 2u] == 0);
-        CHECK(pcm[at_back * 2u] == 127 * 64);
+        CHECK(pcm[at_back * 2u] == 0);
+        CHECK(pcm[(at_back + CLEAR_AT) * 2u] == 127 * 64);
     }
     free(pcm);
     dec_close(&d); free(b);
@@ -1283,6 +1378,842 @@ static void test_restart(void) {
     CHECK(d.bag.heap.live == 0);
 }
 
+static void test_invert(void) {
+    uint8_t looped[4] = {127, 127, 127, 127};
+    uint8_t once[4] = {127, 127, 127, 127};
+    Inst inst = {1, 2, 0, 64, 0, 2, looped};
+    Inst noloop = {1, 2, 0, 64, 0, 1, once};
+    Cell cells[8];
+    uint8_t *b;
+    size_t n = 0, sample_at;
+    Dec d;
+    int16_t *pcm;
+
+    /* EFf odpala co takt.  Bajty 0 i 1 sa zerem, 0 ^ 0xFF = -1.  Obie strony slysza -64. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xFF};
+    cells[1] = (Cell){0, 0, 1, 1, 428, 0, 0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    sample_at = 1084u + 64u * 4u * 4u;
+    pcm = render_n(&d, b, n, 1u);
+    CHECK(pcm && pcm[0] == -1 * 64 && pcm[1] == -1 * 64);
+    CHECK(b[sample_at] == 127 && b[sample_at + 1u] == 127);
+    CHECK(b[sample_at + 2u] == 127 && b[sample_at + 3u] == 127);
+    dec_close(&d); free(pcm); free(b);
+
+    /* EF1 dodaje 5.  Takt 0 jeszcze nie siega 128, wiec zostaje zero z poczatku probki. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xF1};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    pcm = render_n(&d, b, n, 1u);
+    CHECK(pcm && pcm[0] == 0 && pcm[1] == 0);
+    dec_close(&d); free(pcm); free(b);
+
+    /* EF0 gasi efekt. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xF0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    pcm = render_n(&d, b, n, 1u);
+    CHECK(pcm && pcm[0] == 0 && pcm[1] == 0);
+    dec_close(&d); free(pcm); free(b);
+
+    /* Jedno slowo petli to brak petli.  EFf nic nie rusza, a bajt 2 gra. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xFF};
+    b = build(&n, "M.K.", 1, 0, NULL, &noloop, 1, cells, 1);
+    pcm = render_n(&d, b, n, CLEAR_AT + 1u);
+    CHECK(pcm && pcm[0] == 0 && pcm[1] == 0);
+    CHECK(pcm && pcm[CLEAR_AT * 2u] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+
+    /* F01: wiersz to jeden takt.  EF1 dochodzi do 130 w wierszu 25, wiec dopiero wtedy odwraca bajt 0.
+     * Retrigger tej samej probki slyszy wlasnie odwrocony bajt, a wiersz 24 jeszcze oryginal. */
+    cells[0] = (Cell){0, 0, 2, 0, 0, 0x0F, 0x01};
+    cells[1] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xF1};
+    cells[2] = (Cell){0, 0, 1, 1, 428, 0, 0};
+    cells[3] = (Cell){0, 24, 0, 1, 428, 0, 0};
+    cells[4] = (Cell){0, 24, 1, 1, 428, 0, 0};
+    cells[5] = (Cell){0, 25, 0, 1, 428, 0, 0};
+    cells[6] = (Cell){0, 25, 1, 1, 428, 0, 0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 7);
+    pcm = render_n(&d, b, n, 25u * TICK + 1u);
+    CHECK(pcm != NULL);
+    if (pcm) {
+        CHECK(pcm[0] == 0);
+        CHECK(pcm[1] == 0);
+        CHECK(pcm[24u * TICK * 2u] == 0);
+        CHECK(pcm[24u * TICK * 2u + 1u] == 0);
+        CHECK(pcm[25u * TICK * 2u] == -1 * 64);
+        CHECK(pcm[25u * TICK * 2u + 1u] == -1 * 64);
+    }
+    dec_close(&d); free(pcm); free(b);
+    CHECK(d.bag.heap.live == 0);
+}
+
+static void test_sample_clear(void) {
+    uint8_t looped[4] = {127, 127, 127, 127};
+    uint8_t once4[4] = {127, 127, 127, 127};
+    uint8_t once2[2] = {127, 127};
+    Inst loop = {1, 2, 0, 64, 0, 2, looped};
+    Inst shot4 = {1, 2, 0, 64, 0, 1, once4};
+    Inst shot2 = {1, 1, 0, 64, 0, 0, once2};
+    Cell cell = {0, 0, 0, 1, 428, 0, 0};
+    uint8_t *b;
+    size_t n = 0, sample_at, i;
+    Dec d;
+    int16_t *pcm;
+
+    /* Petla wraca na bajt 0, wiec zero jest w probce, nie tylko na pierwszej klatce.  Plik zostaje 127. */
+    b = build(&n, "M.K.", 1, 0, NULL, &loop, 1, &cell, 1);
+    sample_at = 1084u + 64u * 4u * 4u;
+    pcm = render_n(&d, b, n, 12u * TICK + 1u);
+    CHECK(pcm != NULL);
+    if (pcm) {
+        CHECK(pcm[0] == 0);
+        CHECK(pcm[CLEAR_AT * 2u] == 127 * 64);
+        CHECK(pcm[12u * TICK * 2u] == 0);
+    }
+    CHECK(b[sample_at] == 127 && b[sample_at + 1u] == 127);
+    CHECK(b[sample_at + 2u] == 127 && b[sample_at + 3u] == 127);
+    dec_close(&d); free(pcm); free(b);
+
+    /* Cztery bajty jednorazowo: zerowane sa dwa, nie cztery. */
+    b = build(&n, "M.K.", 1, 0, NULL, &shot4, 1, &cell, 1);
+    pcm = render_n(&d, b, n, CLEAR_AT + 1u);
+    CHECK(pcm && pcm[0] == 0);
+    CHECK(pcm && pcm[CLEAR_AT * 2u] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+
+    /* Dwa bajty jednorazowo znikaja w calosci. */
+    b = build(&n, "M.K.", 1, 0, NULL, &shot2, 1, &cell, 1);
+    pcm = render_n(&d, b, n, CLEAR_AT + 1u);
+    if (pcm) for (i = 0; i < CLEAR_AT + 1u; i++) CHECK(pcm[i * 2u] == 0);
+    dec_close(&d); free(pcm); free(b);
+    CHECK(d.bag.heap.live == 0);
+}
+
+static void test_clock(void) {
+    uint8_t *sample = (uint8_t *)calloc(202, 1);
+    Inst inst = {1, 101, 0, 64, 0, 0, sample};
+    Cell cell = {0, 0, 0, 1, 428, 0, 0};
+    uint8_t *b;
+    size_t n = 0, got = 0;
+    Dec d;
+    int16_t *pcm;
+    uint64_t frames;
+    /* Indeks 200 przy okresie 428: PAL klatki 1065..1069, NTSC 1055..1059. */
+    sample[200] = 127;
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, &cell, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    frames = d.info.total_frames;
+    dec_close(&d);
+    pcm = render_n(&d, b, n, 1071u);
+    CHECK(pcm != NULL);
+    if (pcm) {
+        CHECK(pcm[1055u * 2u] == 0);
+        CHECK(pcm[1065u * 2u] == 127 * 64);
+        CHECK(pcm[1069u * 2u] == 127 * 64);
+        CHECK(pcm[1070u * 2u] == 0);
+    }
+    dec_close(&d); free(pcm);
+
+    dec_open_ex(&d, b, n, "44100", NULL, "PAL", NULL, NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == frames);
+    dec_close(&d);
+
+    dec_open_ex(&d, b, n, "44100", NULL, "ntsc", NULL, NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == frames);
+    pcm = (int16_t *)calloc(1071u * 2u, sizeof *pcm);
+    CHECK(maktabasauti_mod_desc.read(d.state, pcm, 1071u, &got) == MAKTABASAUTI_OK);
+    if (pcm) {
+        CHECK(pcm[1054u * 2u] == 0);
+        CHECK(pcm[1055u * 2u] == 127 * 64);
+        CHECK(pcm[1059u * 2u] == 127 * 64);
+        CHECK(pcm[1060u * 2u] == 0);
+        CHECK(pcm[1065u * 2u] == 0);
+    }
+    dec_close(&d); free(pcm);
+
+    dec_open_ex(&d, b, n, "44100", NULL, "3579545", NULL, NULL);
+    CHECK(d.rc == MAKTABASAUTI_E_INVALID_ARGUMENT);
+    dec_close(&d);
+    free(b); free(sample);
+    CHECK(d.bag.heap.live == 0);
+}
+
+static void test_latch(void) {
+    uint8_t *keep = (uint8_t *)malloc(500);
+    uint8_t next[6];
+    uint8_t shot[8];
+    uint8_t late[4];
+    Inst insts[2];
+    Cell cells[3];
+    uint8_t *b;
+    size_t n = 0;
+    Dec d;
+    int16_t *pcm;
+    memset(keep, 90, 500);
+    memset(next, 127, sizeof next);
+    memset(shot, 0, sizeof shot);
+    shot[2] = 127;
+    memset(late, 127, sizeof late);
+    memset(insts, 0, sizeof insts);
+    memset(cells, 0, sizeof cells);
+
+    /* Petla 90 gra dalej po numerze, glosnosc spada od razu.  Koniec przebiegu bierze petle 127. */
+    insts[0] = (Inst){1, 250, 0, 64, 1, 249, keep};
+    insts[1] = (Inst){2, 3, 0, 32, 1, 2, next};
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0F, 1};
+    cells[1] = (Cell){0, 1, 0, 2, 0, 0, 0};
+    b = build(&n, "M.K.", 1, 0, NULL, insts, 2, cells, 2);
+    pcm = render_n(&d, b, n, 2662u);
+    CHECK(pcm[11u * 2u] == 90 * 64);
+    CHECK(pcm[881u * 2u] == 90 * 64);
+    CHECK(pcm[882u * 2u] == 90 * 32);
+    CHECK(pcm[2660u * 2u] == 90 * 32);
+    CHECK(pcm[2661u * 2u] == 127 * 32);
+    dec_close(&d); free(pcm); free(b);
+
+    /* Jednorazowa probka juz milczy.  Petla startuje od swojego poczatku, nie od bajtu 0. */
+    memset(next, 50, sizeof next);
+    insts[0] = (Inst){1, 4, 0, 64, 0, 0, shot};
+    insts[1] = (Inst){2, 3, 0, 64, 1, 2, next};
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0, 0};
+    cells[1] = (Cell){0, 1, 0, 2, 0, 0, 0};
+    b = build(&n, "M.K.", 1, 0, NULL, insts, 2, cells, 2);
+    pcm = render_n(&d, b, n, 5293u);
+    CHECK(pcm[CLEAR_AT * 2u] == 127 * 64);
+    CHECK(pcm[100u * 2u] == 0);
+    CHECK(pcm[5292u * 2u] == 50 * 64);
+    dec_close(&d); free(pcm); free(b);
+
+    /* Nuta po zatrzasku gra nowa probke od poczatku.  Dwa pierwsze bajty nadal milcza. */
+    insts[0] = (Inst){1, 250, 0, 64, 0, 0, keep};
+    insts[1] = (Inst){2, 2, 0, 64, 0, 0, late};
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0F, 1};
+    cells[1] = (Cell){0, 1, 0, 2, 0, 0, 0};
+    cells[2] = (Cell){0, 2, 0, 0, 428, 0, 0};
+    b = build(&n, "M.K.", 1, 0, NULL, insts, 2, cells, 3);
+    pcm = render_n(&d, b, n, 1776u);
+    CHECK(pcm[882u * 2u] == 90 * 64);
+    CHECK(pcm[1764u * 2u] == 0);
+    CHECK(pcm[1775u * 2u] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+    free(keep);
+    CHECK(d.bag.heap.live == 0);
+}
+
+static uint64_t mean_abs(const int16_t *pcm, size_t begin, size_t end) {
+    uint64_t s = 0;
+    size_t i, n = end > begin ? end - begin : 0;
+    if (!pcm || !n) return 0;
+    for (i = begin; i < end; i++) {
+        int v = pcm[i * 2u];
+        if (v < 0) v = -v;
+        s += (uint64_t)v;
+    }
+    return s / n;
+}
+
+/* Zachowania, ktorych stare oczekiwania nie rozrozniaja: kumulowany 9xx, petla od zera,
+ * F00 na jednorazowej probce, Bxx za lista, Fxx 15-instrumentowego, rampa tremolo,
+ * filtr E0x, opcja a500, nazwa instrumentu i egzotyczne magiki. */
+static void test_coverage(void) {
+    uint8_t square[4] = {127, 0x80, 127, 0x80};
+    uint8_t flat4[4] = {127, 127, 127, 127};
+    uint8_t flat6[6] = {127, 127, 127, 127, 127, 127};
+    uint8_t once[8] = {9, 9, 0, 0, 0, 0, 127, 127};
+    uint8_t *far = (uint8_t *)calloc(514, 1);
+    uint8_t orders[128];
+    Inst inst;
+    Cell cells[5];
+    uint8_t *b;
+    size_t n = 0, i;
+    Dec d;
+    int16_t *dry, *led, *off, *rc;
+    uint64_t dry_mean, led_mean, rc_mean;
+    char tag[32];
+    memset(&inst, 0, sizeof inst);
+    memset(cells, 0, sizeof cells);
+    memset(orders, 0, sizeof orders);
+    CHECK(far != NULL);
+    far[256] = 50;
+    far[512] = 127;
+
+    /* 9xx param 1 gra bajt 256, a nastepna nuta bez instrumentu startuje z 512. */
+    inst.index = 1; inst.words = 257; inst.volume = 64; inst.loop_w = 0; inst.loop_l = 1; inst.data = far;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x09, 1};
+    cells[1] = (Cell){0, 1, 0, 0, 428, 0, 0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    dry = render_n(&d, b, n, 6u * TICK + 1u);
+    CHECK(dry[0] == 50 * 64);
+    CHECK(dry[6u * TICK * 2u] == 127 * 64);
+    dec_close(&d); free(dry); free(b);
+
+    /* Petla od bajtu 0: cala probka gra raz, wiec bajt 6 jest slyszalny. */
+    inst.words = 4; inst.loop_w = 0; inst.loop_l = 2; inst.data = once; inst.volume = 64;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0, 0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    dry = render_n(&d, b, n, 40u);
+    CHECK(dry[31u * 2u] == 0);
+    CHECK(dry[32u * 2u] == 127 * 64);
+    dec_close(&d); free(dry); free(b);
+
+    /* F00 na jednorazowej probce konczy sie po pierwszym takcie. */
+    inst.words = 2; inst.loop_l = 1; inst.data = flat4;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0F, 0x00};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == (uint64_t)TICK);
+    dec_close(&d); free(b);
+
+    /* Bxx za koniec listy wraca na pozycje 0, a D16 zostawia wiersz 16. */
+    inst.words = 2; inst.loop_l = 2; inst.data = square;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0B, 5};
+    cells[1] = (Cell){0, 0, 1, 0, 0, 0x0D, 0x16};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == (uint64_t)(1u + 48u) * 6u * TICK);
+    dec_close(&d); free(b);
+
+    /* 15 instrumentow: kazde niezerowe Fxx jest predkoscia, takze 32. */
+    inst.words = 2; inst.loop_l = 1; inst.data = flat4;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0F, 32};
+    b = build15(&n, 1, NULL, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(strcmp(d.info.codec_profile, "15ST") == 0);
+    CHECK(d.info.total_frames == (uint64_t)64u * 32u * TICK);
+    dec_close(&d); free(b);
+
+    /* Rampa tremolo patrzy na polowke pozycji vibrato.  Po 225 krokach pozycja to 33, delta 31. */
+    inst.words = 3; inst.volume = 32; inst.loop_w = 1; inst.loop_l = 2; inst.data = flat6;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x04, 0xF0};
+    cells[1] = (Cell){0, 1, 0, 0, 0, 0x04, 0xF0};
+    cells[2] = (Cell){0, 2, 0, 0, 0, 0x04, 0xF0};
+    cells[3] = (Cell){0, 3, 0, 0, 0, 0x0E, 0x71};
+    cells[4] = (Cell){0, 4, 0, 0, 0, 0x07, 0x18};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 5);
+    dry = render_n(&d, b, n, 26u * TICK + 1u);
+    CHECK(dry[25u * TICK * 2u] == 127 * 32);
+    CHECK(dry[26u * TICK * 2u] == 127 * 63);
+    dec_close(&d); free(dry); free(b);
+
+    /* E00 tlumi kwadrat okresu 113.  E01 jest suchym miksem.  Stala po E00 wraca do 127*64. */
+    inst.volume = 64; inst.words = 3; inst.loop_w = 1; inst.loop_l = 2; inst.data = flat6;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x00};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    dry = render_n(&d, b, n, (size_t)TICK + 1u);
+    CHECK(dry[(size_t)TICK * 2u] >= 127 * 64 - 1);
+    CHECK(dry[(size_t)TICK * 2u] <= 127 * 64 + 1);
+    dec_close(&d); free(dry); free(b);
+
+    inst.data = (const uint8_t *)"\x00\x00\x7f\x80\x7f\x80";
+    cells[0] = (Cell){0, 0, 0, 1, 113, 0, 0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    dry = render_n(&d, b, n, 2u * TICK);
+    dec_close(&d);
+    cells[0].effect = 0x0E; cells[0].param = 0x00;
+    free(b);
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    led = render_n(&d, b, n, 2u * TICK);
+    dec_close(&d); free(b);
+    cells[0].param = 0x01;
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    off = render_n(&d, b, n, 2u * TICK);
+    dec_close(&d); free(b);
+    dry_mean = mean_abs(dry, TICK, 2u * TICK);
+    led_mean = mean_abs(led, TICK, 2u * TICK);
+    if (!(dry_mean > 1000u && led_mean * 2u < dry_mean)) {
+        fprintf(stderr, "FAIL filtr E00: suchy %llu led %llu\n",
+                (unsigned long long)dry_mean, (unsigned long long)led_mean);
+        g_failures++;
+    }
+    for (i = 0; i < 2u * TICK && dry && off; i++) {
+        if (dry[i * 2u] != off[i * 2u] || dry[i * 2u + 1u] != off[i * 2u + 1u]) {
+            fprintf(stderr, "FAIL E01 ramka %zu: %d %d, suchy %d %d\n",
+                    i, off[i * 2u], off[i * 2u + 1u], dry[i * 2u], dry[i * 2u + 1u]);
+            g_failures++;
+            break;
+        }
+    }
+    free(dry); free(led); free(off);
+
+    /* a500 tlumi ten sam kwadrat i nie zmienia skali stalej.  Zly model oddaje maske. */
+    cells[0] = (Cell){0, 0, 0, 1, 113, 0, 0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    memset(&d, 0, sizeof d);
+    dec_open_ex(&d, b, n, "44100", NULL, NULL, "a500", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    rc = (int16_t *)calloc(2u * TICK * 2u, sizeof *rc);
+    if (d.rc == MAKTABASAUTI_OK && rc) {
+        size_t got = 0;
+        CHECK(maktabasauti_mod_desc.read(d.state, rc, 2u * TICK, &got) == MAKTABASAUTI_OK);
+    }
+    dec_close(&d);
+    rc_mean = mean_abs(rc, TICK, 2u * TICK);
+    if (!(rc_mean + rc_mean / 5u < dry_mean)) {
+        fprintf(stderr, "FAIL a500: suchy %llu rc %llu\n",
+                (unsigned long long)dry_mean, (unsigned long long)rc_mean);
+        g_failures++;
+    }
+    free(rc); free(b);
+
+    inst.data = flat6; inst.words = 3; inst.loop_w = 1; inst.loop_l = 2;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0, 0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    dec_open_ex(&d, b, n, "44100", NULL, NULL, "A500", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    rc = (int16_t *)calloc(((size_t)TICK + 1u) * 2u, sizeof *rc);
+    if (d.rc == MAKTABASAUTI_OK && rc) {
+        size_t got = 0;
+        CHECK(maktabasauti_mod_desc.read(d.state, rc, (size_t)TICK + 1u, &got) == MAKTABASAUTI_OK);
+        CHECK(rc[(size_t)TICK * 2u] >= 127 * 64 - 1);
+        CHECK(rc[(size_t)TICK * 2u] <= 127 * 64 + 1);
+    }
+    dec_close(&d); free(rc); free(b);
+
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    memcpy(b + 20, "Bass", 4u);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(maktabasauti_mod_desc.get_tag(d.state, "name.1", tag, sizeof tag, NULL) == MAKTABASAUTI_OK);
+    CHECK(strcmp(tag, "Bass") == 0);
+    CHECK(maktabasauti_mod_desc.get_tag(d.state, "name.0", tag, sizeof tag, NULL) == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
+    CHECK(maktabasauti_mod_desc.get_tag(d.state, "name.32", tag, sizeof tag, NULL) == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
+    dec_close(&d); free(b);
+
+    orders[0] = 64;
+    inst.words = 2; inst.loop_w = 0; inst.loop_l = 1; inst.data = flat4;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0, 0};
+    b = build(&n, "PATT", 1, 0, orders, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(strcmp(d.info.codec_profile, "PATT") == 0);
+    dec_close(&d); free(b);
+    b = build(&n, "N.T.", 1, 0, orders, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
+    dec_close(&d); free(b);
+    b = build(&n, "M!K!", 1, 0, orders, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    dec_close(&d); free(b);
+
+    orders[0] = 126;
+    b = build(&n, "EXO8", 1, 0, orders, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(strcmp(d.info.codec_profile, "EXO8") == 0);
+    dec_close(&d); free(b);
+    orders[0] = 127;
+    b = build(&n, "EX08", 1, 0, orders, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
+    dec_close(&d); free(b);
+
+    inst.words = 2; inst.loop_w = 0; inst.loop_l = 2; inst.volume = 64; inst.data = square;
+    cells[0] = (Cell){0, 0, 4, 1, 428, 0, 0};
+    b = build(&n, "EXO8", 1, 0, NULL, &inst, 1, cells, 1);
+    expect_channel(b, n, 4, 428, square, 4, 0, 4, 64, 200);
+    free(b);
+    b = build(&n, "EX08", 1, 0, NULL, &inst, 1, cells, 1);
+    expect_channel(b, n, 4, 428, square, 4, 0, 4, 64, 200);
+    free(b);
+    cells[0].ch = 5;
+    b = build(&n, "CD61", 1, 0, NULL, &inst, 1, cells, 1);
+    expect_channel(b, n, 5, 428, square, 4, 0, 4, 64, 200);
+    free(b);
+    b = build(&n, "FA06", 1, 0, NULL, &inst, 1, cells, 1);
+    expect_channel(b, n, 5, 428, square, 4, 0, 4, 64, 200);
+    free(b);
+    cells[0].ch = 7;
+    b = build(&n, "FA08", 1, 0, NULL, &inst, 1, cells, 1);
+    expect_channel(b, n, 7, 428, square, 4, 0, 4, 64, 200);
+    free(b);
+    cells[0].ch = 8;
+    b = build(&n, "TDZ9", 1, 0, NULL, &inst, 1, cells, 1);
+    expect_channel(b, n, 8, 428, square, 4, 0, 4, 64, 200);
+    free(b);
+    cells[0].ch = 0;
+    b = build(&n, "FA04", 1, 0, NULL, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(strcmp(d.info.codec_profile, "FA04") == 0);
+    dec_close(&d); free(b);
+    b = build(&n, "NSMS", 1, 0, NULL, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    dec_close(&d); free(b);
+    b = build(&n, "LARD", 1, 0, NULL, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    dec_close(&d); free(b);
+    b = build(&n, "EXO4", 1, 0, NULL, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    dec_close(&d); free(b);
+    memset(orders, 0, sizeof orders);
+    b = build(&n, "N.T.", 1, 0, orders, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    dec_close(&d); free(b);
+
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    dec_open_ex(&d, b, n, "44100", NULL, NULL, "amiga", NULL);
+    CHECK(d.rc == MAKTABASAUTI_E_INVALID_ARGUMENT);
+    dec_close(&d);
+    free(b); free(far);
+    CHECK(d.bag.heap.live == 0);
+}
+
+extern void maktabasauti_mod_voice_add(int32_t acc[2], const uint8_t *sample, const uint8_t *flip,
+                                       uint32_t idx, uint32_t length, uint32_t clear_n,
+                                       int32_t vol, uint32_t pan);
+
+static void voice_add_c(int32_t acc[2], const uint8_t *sample, const uint8_t *flip, uint32_t idx,
+                        uint32_t length, uint32_t clear_n, int32_t vol, uint32_t pan) {
+    uint8_t b;
+    int32_t s;
+    if (!sample || idx >= length) return;
+    b = idx < clear_n ? 0u : sample[idx];
+    if (flip && ((flip[idx >> 3] >> (idx & 7u)) & 1u)) b ^= 0xFFu;
+    s = (b < 128u ? (int32_t)b : (int32_t)b - 256) * vol;
+    acc[0] += s * (255 - (int32_t)pan) / 255;
+    acc[1] += s * (int32_t)pan / 255;
+}
+
+static void check_add(const uint8_t *sample, const uint8_t *flip, uint32_t idx, uint32_t length,
+                      uint32_t clear_n, int32_t vol, uint32_t pan) {
+    int32_t a[2], b[2];
+    a[0] = b[0] = 7;
+    a[1] = b[1] = 9;
+    voice_add_c(a, sample, flip, idx, length, clear_n, vol, pan);
+    maktabasauti_mod_voice_add(b, sample, flip, idx, length, clear_n, vol, pan);
+    CHECK(a[0] == b[0] && a[1] == b[1]);
+}
+
+static void test_mixer(void) {
+    uint8_t sample[6] = {127, 80, 10, 200, 0x80, 10};
+    uint8_t flip[1] = {0};
+    unsigned idx;
+    for (idx = 0; idx < 4u; idx++) {
+        check_add(sample, NULL, idx, 6u, 2u, 64, 0);
+        check_add(sample, NULL, idx, 6u, 4u, 64, 255);
+        check_add(sample, NULL, idx, 6u, 0u, 64, 128);
+    }
+    check_add(sample, NULL, 2u, 6u, 2u, 64, 255);
+    check_add(sample, NULL, 4u, 6u, 2u, 64, 128);
+    check_add(sample, NULL, 4u, 6u, 0u, -3, 0);
+    flip[0] = (uint8_t)(1u << 5);
+    check_add(sample, flip, 5u, 6u, 2u, 64, 0);
+    check_add(NULL, NULL, 0u, 0u, 2u, 64, 0);
+    check_add(sample, NULL, 6u, 6u, 2u, 64, 0);
+    check_add(sample, NULL, 0u, 0u, 4u, 64, 128);
+}
+
+static int16_t *render_opt(Dec *d, const uint8_t *mod, size_t n, size_t frames, const char *tracker) {
+    int16_t *pcm = (int16_t *)calloc(frames * 2u, sizeof *pcm);
+    size_t got = 0;
+    dec_open_ex(d, mod, n, "44100", NULL, NULL, NULL, tracker);
+    CHECK(d->rc == MAKTABASAUTI_OK);
+    if (d->rc != MAKTABASAUTI_OK || !pcm) return pcm;
+    CHECK(maktabasauti_mod_desc.read(d->state, pcm, frames, &got) == MAKTABASAUTI_OK);
+    CHECK(got == frames);
+    return pcm;
+}
+
+static void test_tracker(void) {
+    Dec d;
+    uint8_t ones[8];
+    uint8_t square[4] = {127, 0x80, 127, 0x80};
+    uint8_t lead[8] = {0, 0, 0, 0, 127, 127, 127, 127};
+    uint8_t head[8] = {127, 0, 0, 0, 50, 0, 0, 0};
+    uint8_t only[20];
+    uint8_t *funk, *b, *raw;
+    int16_t *pcm;
+    size_t n;
+    Inst inst;
+    Cell cell;
+    char tag[8];
+    memset(ones, 127, sizeof ones);
+    memset(&inst, 0, sizeof inst);
+    memset(&cell, 0, sizeof cell);
+
+    inst = (Inst){1, 4, 0, 64, 0, 0, ones};
+    cell = (Cell){0, 0, 0, 1, 428, 0, 0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, &cell, 1);
+    pcm = render_opt(&d, b, n, 23u, "pt");
+    CHECK(pcm && pcm[11u * 2u] == 127 * 64 && pcm[16u * 2u] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, &cell, 1);
+    pcm = render_opt(&d, b, n, 23u, "protracker");
+    CHECK(pcm && pcm[11u * 2u] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, &cell, 1);
+    pcm = render_opt(&d, b, n, 23u, "PT10");
+    CHECK(pcm && pcm[11u * 2u] == 0 && pcm[16u * 2u] == 0 && pcm[22u * 2u] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, &cell, 1);
+    pcm = render_opt(&d, b, n, 23u, "protracker10");
+    CHECK(pcm && pcm[16u * 2u] == 0 && pcm[22u * 2u] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+
+    /* EF $F, petla 16 B od bajtu 16.  Takt 0 slyszy 40, takt 1 slyszy 60, nie 50. */
+    funk = (uint8_t *)calloc(96u, 1u);
+    memset(funk + 16, 40, 16u);
+    memset(funk + 32, 50, 16u);
+    memset(funk + 48, 60, 16u);
+    inst = (Inst){1, 48, 0, 64, 8, 8, funk};
+    cell = (Cell){0, 0, 0, 1, 428, 0x0E, 0xFF};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, &cell, 1);
+    pcm = render_opt(&d, b, n, (size_t)TICK + 201u, "pt10");
+    CHECK(pcm && pcm[200u * 2u] == 40 * 64);
+    CHECK(pcm && pcm[((size_t)TICK + 200u) * 2u] == 60 * 64);
+    dec_close(&d); free(pcm); free(b); free(funk);
+
+    raw = (uint8_t *)(ones);
+    inst = (Inst){1, 1, 0, 64, 0, 0, raw};
+    cell = (Cell){0, 0, 0, 1, 428, 0, 0};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 124;
+    pcm = render_opt(&d, b, n, 1u, "ultimate");
+    CHECK(pcm && pcm[0] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+
+    inst = (Inst){1, 4, 0, 64, 4, 2, lead};
+    cell = (Cell){0, 0, 0, 1, 428, 0, 0};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 124;
+    pcm = render_opt(&d, b, n, 1u, "ust");
+    CHECK(pcm && pcm[0] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+
+    memset(only, 50, sizeof only);
+    memset(only + 10, 127, 4u);
+    inst = (Inst){1, 10, 0, 64, 10, 2, only};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 124;
+    pcm = render_opt(&d, b, n, 1u, "ust");
+    CHECK(pcm && pcm[0] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+
+    inst = (Inst){1, 4, 0, 64, 4, 0, head};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 124;
+    pcm = render_opt(&d, b, n, 1u, "ust");
+    CHECK(pcm && pcm[0] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+
+    inst = (Inst){1, 2, 7, 64, 0, 2, square};
+    cell = (Cell){0, 0, 0, 1, 428, 0, 0};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 124;
+    dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "ust");
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(maktabasauti_mod_desc.get_tag(d.state, "finetune.1", tag, sizeof tag, NULL) == MAKTABASAUTI_OK);
+    CHECK(strcmp(tag, "7") == 0);
+    dec_close(&d);
+    pcm = render_opt(&d, b, n, TICK, "ust");
+    expect_period(pcm, 0, 428);
+    dec_close(&d); free(pcm); free(b);
+
+    cell = (Cell){0, 0, 0, 1, 856, 1, 0xC0};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 124;
+    pcm = render_opt(&d, b, n, 3u * TICK, "ust");
+    expect_period(pcm, 0, 856);
+    expect_period(pcm, 1, 428);
+    expect_period(pcm, 2, 856);
+    dec_close(&d); free(pcm); free(b);
+
+    cell = (Cell){0, 0, 0, 1, 428, 0, 0x0C};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 124;
+    pcm = render_opt(&d, b, n, 2u * TICK, "ust");
+    expect_period(pcm, 1, 428);
+    dec_close(&d); free(pcm); free(b);
+
+    cell = (Cell){0, 0, 0, 1, 428, 2, 0x03};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 124;
+    pcm = render_opt(&d, b, n, 6u * TICK, "ust");
+    expect_period(pcm, 0, 428);
+    expect_period(pcm, 5, 413);
+    dec_close(&d); free(pcm); free(b);
+
+    cell = (Cell){0, 0, 0, 1, 428, 2, 0x20};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 124;
+    pcm = render_opt(&d, b, n, 6u * TICK, "ust");
+    expect_period(pcm, 5, 438);
+    dec_close(&d); free(pcm); free(b);
+
+    cell = (Cell){0, 0, 0, 1, 428, 2, 0x12};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 124;
+    pcm = render_opt(&d, b, n, 6u * TICK, "ust");
+    expect_period(pcm, 5, 428);
+    dec_close(&d); free(pcm); free(b);
+
+    cell = (Cell){0, 0, 0, 1, 428, 0x0C, 10};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 124;
+    pcm = render_opt(&d, b, n, 1u, "ust");
+    CHECK(pcm && pcm[0] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+
+    cell = (Cell){0, 0, 0, 1, 428, 0x0F, 32};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 124;
+    dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "ust");
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == 338688u);
+    dec_close(&d); free(b);
+
+    cell = (Cell){0, 0, 0, 1, 428, 0, 0};
+    b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+    b[471] = 120;
+    dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "ust");
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == 349884u);
+    dec_close(&d); free(b);
+
+    inst = (Inst){1, 2, 0, 64, 0, 2, square};
+    cell = (Cell){0, 0, 0, 1, 428, 0, 0};
+    b = build(&n, "M.K.", 1, 120, NULL, &inst, 1, &cell, 1);
+    dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "ust");
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == 338688u);
+    dec_close(&d); free(b);
+
+    inst = (Inst){1, 5000, 0, 64, 0, 0, NULL};
+    b = build15(&n, 1, NULL, &inst, 1, NULL, 0);
+    dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "ust");
+    CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
+    dec_close(&d); free(b);
+
+    {
+        uint8_t flat[4];
+        Cell rows[2];
+        memset(flat, 127, sizeof flat);
+        inst = (Inst){1, 2, 0, 64, 0, 2, square};
+        cell = (Cell){0, 0, 0, 1, 428, 1, 0x0F};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 124;
+        pcm = render_opt(&d, b, n, 12u * TICK, "st2");
+        expect_period(pcm, 5, 353);
+        dec_close(&d); free(pcm); free(b);
+
+        rows[0] = (Cell){0, 0, 0, 1, 428, 1, 0x0F};
+        rows[1] = (Cell){0, 1, 0, 0, 0, 1, 0x00};
+        b = build15(&n, 1, NULL, &inst, 1, rows, 2);
+        b[471] = 124;
+        pcm = render_opt(&d, b, n, 12u * TICK, "soundtracker2");
+        expect_period(pcm, 11, 353);
+        dec_close(&d); free(pcm); free(b);
+
+        inst.volume = 32;
+        inst.data = flat;
+        cell = (Cell){0, 0, 0, 1, 428, 0x0D, 0x10};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 124;
+        pcm = render_opt(&d, b, n, (size_t)TICK + 1u, "st2");
+        CHECK(pcm && pcm[0] == 127 * 32 && pcm[(size_t)TICK * 2u] == 127 * 33);
+        dec_close(&d); free(pcm); free(b);
+
+        inst.volume = 40;
+        rows[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x01};
+        rows[1] = (Cell){0, 1, 0, 0, 0, 0, 0x01};
+        b = build15(&n, 1, NULL, &inst, 1, rows, 2);
+        b[471] = 124;
+        pcm = render_opt(&d, b, n, 8u * TICK, "st2");
+        CHECK(pcm && pcm[5u * TICK * 2u] == 127 * 35);
+        CHECK(pcm && pcm[7u * TICK * 2u] == 127 * 34);
+        dec_close(&d); free(pcm); free(b);
+
+        rows[1] = (Cell){0, 1, 0, 0, 0, 1, 0x00};
+        b = build15(&n, 1, NULL, &inst, 1, rows, 2);
+        b[471] = 124;
+        pcm = render_opt(&d, b, n, 8u * TICK, "st2");
+        CHECK(pcm && pcm[7u * TICK * 2u] == 127 * 35);
+        dec_close(&d); free(pcm); free(b);
+
+        inst.volume = 32;
+        cell = (Cell){0, 0, 0, 1, 428, 0x0A, 0x10};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 124;
+        pcm = render_opt(&d, b, n, (size_t)TICK + 1u, "st2");
+        CHECK(pcm && pcm[(size_t)TICK * 2u] == 127 * 32);
+        dec_close(&d); free(pcm); free(b);
+
+        inst = (Inst){1, 2, 0, 64, 0, 2, square};
+        cell = (Cell){0, 0, 0, 1, 428, 0x0F, 0x14};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 124;
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st2");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 225792u);
+        dec_close(&d); free(b);
+
+        cell.param = 0x20;
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 124;
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st2");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 338688u);
+        dec_close(&d); free(b);
+
+        cell = (Cell){0, 0, 0, 0, 0, 0x0D, 0x16};
+        b = build15(&n, 2, NULL, &inst, 1, &cell, 1);
+        b[471] = 124;
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "master");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 10584u);
+        dec_close(&d); free(b);
+
+        cell = (Cell){0, 0, 0, 1, 428, 0x0E, 0x1F};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 124;
+        pcm = render_opt(&d, b, n, 2u * TICK, "st9");
+        expect_period(pcm, 0, 428);
+        expect_period(pcm, 1, 428);
+        dec_close(&d); free(pcm); free(b);
+
+        b = build(&n, "M.K.", 1, 120, NULL, &inst, 1, &cell, 1);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st2");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 338688u);
+        dec_close(&d); free(b);
+
+        inst = (Inst){1, 5000, 0, 64, 0, 0, NULL};
+        b = build15(&n, 1, NULL, &inst, 1, NULL, 0);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st2");
+        CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
+        dec_close(&d); free(b);
+
+        b = build15(&n, 1, NULL, &inst, 1, NULL, 0);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st9");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        dec_close(&d); free(b);
+
+        inst.words = 16385;
+        b = build15(&n, 1, NULL, &inst, 1, NULL, 0);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st9");
+        CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
+        dec_close(&d); free(b);
+    }
+
+    inst = (Inst){1, 2, 0, 64, 0, 2, square};
+    cell = (Cell){0, 0, 0, 1, 428, 0, 0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, &cell, 1);
+    dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "soundtracker");
+    CHECK(d.rc == MAKTABASAUTI_E_INVALID_ARGUMENT);
+    dec_close(&d); free(b);
+    CHECK(d.bag.heap.live == 0);
+}
+
 int main(void) {
     test_probe();
     test_reject();
@@ -1294,6 +2225,13 @@ int main(void) {
     test_position();
     test_extended();
     test_restart();
+    test_invert();
+    test_sample_clear();
+    test_clock();
+    test_latch();
+    test_coverage();
+    test_mixer();
+    test_tracker();
     if (g_failures) {
         fprintf(stderr, "%d niepowodzen\n", g_failures);
         return 1;
