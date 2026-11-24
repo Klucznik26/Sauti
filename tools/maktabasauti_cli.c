@@ -1,5 +1,5 @@
 /* Test tool (not a product): decodes a file with the MaktabaSauti default registry to interleaved float32 LE and prints the stream description.
- * usage: maktabasauti_cli IN OUT.f32 [--nongapless] [--nonseekable]   ->  `STREAM <codec>/<profile> in <container> rate=.. channels=.. total=.. frames=..` */
+ * usage: maktabasauti_cli IN OUT.f32 [--nongapless] [--nonseekable] [--opt KEY=VALUE]...   ->  `STREAM <codec>/<profile> in <container> rate=.. channels=.. total=.. frames=..` */
 #include "maktabasauti/maktabasauti.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +10,14 @@ int main(int argc, char **argv) {
     if (argc < 3) return 2;
     memset(&p, 0, sizeof p); p.struct_size = sizeof p; p.abi_version = MAKTABASAUTI_ABI_VERSION;
     for (i = 3; i < argc; i++) if (!strcmp(argv[i], "--nongapless")) p.flags |= MAKTABASAUTI_OPEN_NO_GAPLESS;
+    {   /* --opt KEY=VALUE: codec options (e.g. aac.drc=on) */
+        static maktabasauti_option_t opts[16]; static char kv[16][128]; size_t n = 0;
+        for (i = 3; i + 1 < argc && n < 16; i++) if (!strcmp(argv[i], "--opt")) {
+            char *eq; strncpy(kv[n], argv[++i], 127); kv[n][127] = 0; eq = strchr(kv[n], '=');
+            if (eq) { *eq = 0; opts[n].key = kv[n]; opts[n].value = eq + 1; n++; }
+        }
+        p.options = n ? opts : NULL; p.option_count = n;
+    }
     r = maktabasauti_io_from_file(argv[1], NULL, &p.io);
     if (r != MAKTABASAUTI_OK) { fprintf(stderr, "cannot open input: %d\n", (int)r); return 2; }
     r = maktabasauti_decoder_open(&p, &d);

@@ -222,7 +222,7 @@ static maktabasauti_result_t live_fetch(dec_t *d, mp4_priv_t *p) {
 /* USAC: the engine needs the UsacConfig of the stream (the access units carry no parameters); parsed again from the copy of the esds bytes that sauti_aac_mp4_index_new validated */
 static void usac_setup(dec_t *d, const mp4_priv_t *p) {
     d->usac_ready = 0;
-    if (p->mi.aot == 42u && p->mi.asc_len && sauti_usac_asc_parse(p->mi.asc, p->mi.asc_len, &d->usac) == 1) d->usac_ready = 1;
+    if (p->mi.aot == 42u && p->mi.asc_len && sauti_usac_asc_parse(p->mi.asc, p->mi.asc_len, &d->usac) == 1) { d->usac_ready = 1; d->usac_asc_len = p->mi.asc_len < sizeof d->usac_asc ? p->mi.asc_len : sizeof d->usac_asc; memcpy(d->usac_asc, p->mi.asc, d->usac_asc_len); }
 }
 static void eld_setup(dec_t *d, const mp4_priv_t *p) {
     d->eld_ready = 0;

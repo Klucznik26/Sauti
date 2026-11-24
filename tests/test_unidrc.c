@@ -1,6 +1,7 @@
 /* MPEG-D DRC (uniDRC) bitstream parsers (stage U1 of docs/UNIDRC_PLAN.md) on a REAL stream: tests/data/usac_d1.{asc,aus}, made by libxaac's encoder (-drc:1, impd_drc_config_params.txt) from a synthetic signal
  * (tests/data/make_usac_xaac_fixtures.sh).  Checks: the configuration (3 gain sets, 2 instructions, 2 channels), the LoudnessInfoSet (-16 LUFS, the value of the encoder's configuration file), and that UniDrcGain() of every
  * access unit is consumed up to its padding byte; plus hand-made rejections.  usage: build/test_unidrc (from the repository root). */
+#include "maktabasauti/maktabasauti.h"
 #include "sauti_unidrc.h"
 #include "sauti_usac.h"
 #include <math.h>
@@ -17,6 +18,25 @@ static uint8_t *slurp(const char *path, size_t *n) {
     if (!b || fread(b, 1, (size_t)len, f) != (size_t)len) { fclose(f); free(b); return NULL; }
     fclose(f); *n = (size_t)len; return b;
 }
+
+
+/* decode a whole file through the engine with the given options; returns the interleaved float PCM (malloc) */
+static float *decode_file(const char *path, const maktabasauti_option_t *opts, size_t nopts, size_t *frames, unsigned *channels) {
+    size_t n; uint8_t *data = slurp(path, &n); maktabasauti_open_params_t p; maktabasauti_decoder_t *d = NULL; maktabasauti_stream_info_t info; float *pcm = NULL, *buf; size_t total = 0, got, cap = 0;
+    if (!data) return NULL;
+    memset(&p, 0, sizeof p); p.struct_size = sizeof p; p.abi_version = MAKTABASAUTI_ABI_VERSION; p.options = opts; p.option_count = nopts;
+    if (maktabasauti_io_from_memory(data, n, NULL, &p.io) != MAKTABASAUTI_OK) { free(data); return NULL; }
+    if (maktabasauti_decoder_open(&p, &d) != MAKTABASAUTI_OK) { p.io.close(p.io.user); free(data); return NULL; }
+    info.struct_size = sizeof info; (void)maktabasauti_decoder_get_info(d, &info);
+    *channels = info.channels; buf = (float *)malloc(4096u * info.channels * sizeof(float));
+    for (;;) {
+        const maktabasauti_result_t r = maktabasauti_decoder_read(d, buf, 4096, MAKTABASAUTI_FORMAT_F32, &got);
+        if (got) { if (total + got > cap) { cap = (total + got) * 2u; pcm = (float *)realloc(pcm, cap * info.channels * sizeof(float)); } memcpy(pcm + total * info.channels, buf, got * info.channels * sizeof(float)); total += got; }
+        if (r != MAKTABASAUTI_OK) break;
+    }
+    free(buf); maktabasauti_decoder_close(d); free(data); *frames = total; return pcm;
+}
+static double rms(const float *p, size_t n) { double s = 0; size_t i; for (i = 0; i < n; i++) s += (double)p[i] * p[i]; return sqrt(s / (double)n) * 32768.0; }
 
 int main(void) {
     size_t na, nu, pos = 0, bit0 = 5; uint8_t *asc = slurp("tests/data/usac_d1.asc", &na), *aus = slurp("tests/data/usac_d1.aus", &nu);
@@ -85,6 +105,22 @@ int main(void) {
         CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1, "scaling frame 1");
         CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1 && fabsf(lin[2047] - (float)pow(2.0, -3.0 / 6.0)) < 1e-6f, "gain scaling");
         nd.time[0] = 5000; CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 0, "a node far beyond the frame accepted");
+    }
+    {   /* the engine option: loudness normalisation reproduces FDK's constant gain exactly (target - the measured loudness: usac_x3 -16.25 LUFS -> -7.75 dB), DRC reproduces libxaac (see docs/UNIDRC_PLAN.md) */
+        static const maktabasauti_option_t o_loud[] = { { "aac.loudness_target", "-24" } }, o_drc[] = { { "aac.drc", "on" } }, o_eff[] = { { "aac.drc", "on" }, { "aac.drc_effect", "1" } };
+        size_t f0, f1, i; unsigned c0, c1; float *off = decode_file("tests/data/usac_x3.m4a", NULL, 0, &f0, &c0), *norm = decode_file("tests/data/usac_x3.m4a", o_loud, 1, &f1, &c1); double worst = 0;
+        CHECK(off && norm && f0 == f1 && c0 == c1, "x3 decodes");
+        if (off && norm && f0 == f1) {
+            const float g = (float)pow(10.0, -7.75 / 20.0);
+            for (i = 0; i < f0 * c0; i++) { const double e = fabs((double)norm[i] - (double)off[i] * (double)g); if (e > worst) worst = e; }
+            CHECK(worst < 1e-6, "loudness normalisation: worst deviation from a gain of -7.75 dB is %g", worst);
+        }
+        free(off); free(norm);
+        off = decode_file("tests/data/usac_d1.m4a", NULL, 0, &f0, &c0); norm = decode_file("tests/data/usac_d1.m4a", o_drc, 1, &f1, &c1);
+        CHECK(off && norm && f0 == f1 && fabs(rms(off, f0 * c0) - 6201.369) < 0.01 && fabs(rms(norm, f1 * c1) - 2612.328) < 0.01, "DRC on usac_d1: rms %.3f -> %.3f (6201.369 -> 2612.328)", off ? rms(off, f0 * c0) : 0.0, norm ? rms(norm, f1 * c1) : 0.0);
+        free(norm); norm = decode_file("tests/data/usac_d1.m4a", o_eff, 2, &f1, &c1);
+        CHECK(norm && fabs(rms(norm, f1 * c1) - 1039.027) < 0.01, "DRC with the night effect: rms %.3f (1039.027)", norm ? rms(norm, f1 * c1) : 0.0);
+        free(off); free(norm);
     }
     free(st); free(pcm); free(asc); free(aus);
     if (g_failures) { printf("test_unidrc: %d FAILURES\n", g_failures); return 1; }

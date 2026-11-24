@@ -1,4 +1,5 @@
 #include "maktabasauti_aac_engine.h"
+#include <stdlib.h>
 
 /* 1 = naglowek poprawny (profil LC, indeks czestotliwosci 0..12, konfiguracja kanalow 0..7, dlugosc >= naglowek), 0 = nie.  Naglowek wewnetrzny AAC-LD / ELD (layer = 01, patrz aac_er_wrap) tez jest
  * przyjmowany i oznaczony hd->er. */
@@ -73,6 +74,7 @@ static SautiAacLcmState *lcm_dup(dec_t *d, const SautiAacLcmState *src) {
     if (n) memcpy(n, src, sizeof *n);
     return n;
 }
+static int host_opt_is(const maktabasauti_host_t *h, const char *key, const char *val) { const char *v = h->option ? h->option(h->user, key) : NULL; return v && strcmp(v, val) == 0; }
 static void core_reset(dec_t *d) {
     lcm_free(d, &d->core);
     memset(&d->core, 0, sizeof d->core);
@@ -165,6 +167,7 @@ static prod_t decode_usac(dec_t *d) {
     SautiAacReason reason = SAUTI_AAC_REASON_OK; int r;
     if (!d->usac_ready || d->frame_len < 7u || !d->core.usac_hs) return P_FAIL;
     r = sauti_usac_decode(&d->usac, d->core.usac_hs, d->frame + 7u, d->frame_len - 7u, d->cache, &reason);
+    if (r == 1 && d->drc_plan && d->drc_plan->ok) (void)sauti_unidrc_process(d->drc_plan, &d->core.usac_hs->drc, &d->usac, d->frame + 7u, d->frame_len - 7u, d->core.usac_hs->drc_pos, d->core.usac_hs->drc_len, d->cache);
     if (r == 1 && !all_finite(d->cache, (size_t)d->frame_pcm * d->out_channels)) r = 0;
     return r == 1 ? P_OK : (r < 0 ? P_UNSUPPORTED : P_FAIL);
 }
@@ -582,6 +585,7 @@ void MAKTABASAUTI_CALL aac_eng_close(void *state) {
     if (d->cont->release) d->cont->release(d);
     drop_checkpoints(d);
     lcm_free(d, &d->core); lcm_free(d, &d->cp0);
+    if (d->drc_plan) h->free(h->user, d->drc_plan);
     if (d->cps) h->free(h->user, d->cps);
     h->free(h->user, d);
 }
@@ -607,6 +611,16 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
         d->variant = V_ER; d->er_aot = 42u; d->er_480 = 0u; d->core_channels = d->out_channels = d->usac.out_channels; d->ps_mode = 0;
         if ((size_t)d->usac.out_frame_len * d->usac.out_channels > CACHE_FLOATS) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;     /* the block of one frame must fit the cache */
         d->frame_pcm = d->usac.out_frame_len; d->out_rate = d->usac.sample_rate;
+        if (host_opt_is(d->host, "aac.drc", "on") || (d->host->option && d->host->option(d->host->user, "aac.loudness_target"))) {      /* uniDRC: opcja wyjsciowa, domyslnie wylaczona */
+            SautiUniDrcOptions o; const char *v;
+            memset(&o, 0, sizeof o); o.enable = 1u; o.drc = host_opt_is(d->host, "aac.drc", "on"); o.boost = o.compress = 1.0f; o.loudness_target = -24.0f;
+            if ((v = d->host->option ? d->host->option(d->host->user, "aac.drc_effect") : NULL) != NULL) o.effect = (unsigned)atoi(v);
+            if ((v = d->host->option ? d->host->option(d->host->user, "aac.loudness_target") : NULL) != NULL) { o.loudness_normalise = 1; o.loudness_target = (float)atof(v); }
+            if ((v = d->host->option ? d->host->option(d->host->user, "aac.drc_boost") : NULL) != NULL) o.boost = (float)atof(v);
+            if ((v = d->host->option ? d->host->option(d->host->user, "aac.drc_compress") : NULL) != NULL) o.compress = (float)atof(v);
+            d->drc_plan = (SautiUniDrcPlan *)d->host->alloc(d->host->user, sizeof *d->drc_plan);
+            if (d->drc_plan && !sauti_unidrc_plan(d->drc_plan, d->usac_asc, d->usac_asc_len, &d->usac, &o)) { d->host->free(d->host->user, d->drc_plan); d->drc_plan = NULL; }
+        }
         core_reset(d);
         up = decode_usac(d);
         core_reset(d);

@@ -9,6 +9,7 @@
 #include "sauti_usac_lpd_dec.h"
 #include "sauti_aac_sbr_channel.h"
 #include "sauti_usac_mps.h"
+#include "sauti_unidrc.h"
 #include "sauti_usac_mps_dec.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -89,6 +90,7 @@ typedef struct {
     SautiAacSbrChannel sbr_ch[SAUTI_USAC_MAX_CHANNELS];   /* eSBR: QMF, HF generation and adjustment state of every channel */
     unsigned channels;
     unsigned primed;                                      /* a frame has been decoded: an AudioPreRoll payload is only decoded while this is 0 (start of decoding, after a seek to the start) */
+    SautiUniDrcRun drc;                                 /* uniDRC: the curves of the selected sets (used only when the option is on; zero otherwise) */
     size_t drc_pos; unsigned drc_len;                   /* the UniDrcGain() payload (extension element of type 4) of the last decoded access unit: bit position and byte length, 0 = none */
 } SautiUsacState;
 

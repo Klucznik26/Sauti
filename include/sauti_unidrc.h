@@ -90,6 +90,11 @@ typedef struct {
     unsigned ducking_flag; float ducking_scaling;
     int limiter_present; float limiter_peak, norm_gain_db;   /* limiter peak target and the loudness normalisation gain (clipping prevention) */
 } SautiUniDrcCurveParams;
+#define SAUTI_UNIDRC_RUN_SETS 2u
+#define SAUTI_UNIDRC_RUN_GROUPS 2u
+/* the running state of the DRC of a stream: one curve state per selected set and channel group */
+typedef struct { SautiUniDrcSeqState seq[SAUTI_UNIDRC_RUN_SETS][SAUTI_UNIDRC_RUN_GROUPS]; } SautiUniDrcRun;
+
 /* lin[0 .. frame_size - 1] = the LINEAR gain of every sample of the previous frame (1.0 in the first call); the state is advanced.  1 = ok, 0 = malformed */
 int sauti_unidrc_curve(const SautiUniDrcGainSet *gs, const SautiUniDrcNodes *n, unsigned frame_size, unsigned rate, const SautiUniDrcCurveParams *p, SautiUniDrcSeqState *st, float *lin);
 #endif

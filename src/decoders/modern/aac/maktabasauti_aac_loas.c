@@ -43,7 +43,7 @@ static int pop_frame(dec_t *d, loas_priv_t *p) {
 static void usac_setup_from_latm(dec_t *d, const loas_priv_t *p) {
     const uint8_t *asc; size_t n;
     if (d->usac_ready || !sauti_aac_latm_usac_asc(&p->st, &asc, &n)) return;
-    if (sauti_usac_asc_parse(asc, n, &d->usac) == 1) d->usac_ready = 1;
+    if (sauti_usac_asc_parse(asc, n, &d->usac) == 1) { d->usac_ready = 1; d->usac_asc_len = n < sizeof d->usac_asc ? n : sizeof d->usac_asc; memcpy(d->usac_asc, asc, d->usac_asc_len); }
 }
 
 /* ELD with the low-delay SBR: the same for the ASC of the first StreamMuxConfig (ld_sbr_header, CRC flag) */

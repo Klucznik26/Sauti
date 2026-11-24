@@ -7,6 +7,7 @@
 #include "sauti_aac_cpe.h"
 #include "sauti_aac_er.h"
 #include "sauti_aac_eld_sac_dec.h"
+#include "sauti_unidrc_run.h"
 #include "sauti_aac_lcn.h"
 #include "sauti_aac_lcm.h"
 #include "sauti_aac_headers.h"
@@ -101,6 +102,8 @@ typedef struct {
     unsigned usac_ready;
     unsigned er_aot, er_480;                             /* V_ER: typ obiektu (23 / 39; 2 = AAC-LC z ramka 960 bez narzedzi ER) i dlugosc ramki 480 zamiast 512 */
     unsigned out_channels, out_rate, frame_pcm, ps_mode, he960, eldsbr;
+    uint8_t usac_asc[256]; size_t usac_asc_len;           /* USAC: kopia ASC (do planu uniDRC), ustawiana przez kontener */
+    SautiUniDrcPlan *drc_plan;                           /* uniDRC (opcja aac.drc): plan wyboru zestawow, NULL = wylaczone */
     SautiAacErAsc eld_asc;                               /* AAC-ELD z SBR: ASC (ld_sbr_header, CRC), ustawiany przez kontener */
     unsigned eld_ready;
     SautiAacLcLayout layout;                             /* tylko config 0 (PCE) */
