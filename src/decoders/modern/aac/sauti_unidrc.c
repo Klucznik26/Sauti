@@ -494,3 +494,87 @@ int sauti_unidrc_gain_parse(const SautiUniDrcConfig *cfg, unsigned frame_size, u
     }
     return !OVER(b);
 }
+
+/* ---- gain curve (stage U3) ------------------------------------------------------------------------------------------------------------------------------------- */
+#define SLOPE_FACTOR 0.1151f
+
+static void to_linear(const SautiUniDrcCurveParams *p, float db, float slope_db, float *lin, float *lin_slope) {
+    float ratio = 1.0f;
+    if (db < 0.0f) ratio *= p->compress; else ratio *= p->boost;
+    if (p->scaling_flag) ratio *= db < 0.0f ? p->attn : p->ampl;
+    if (p->ducking_flag) ratio *= p->ducking_scaling;
+    *lin = (float)pow(2.0, (double)(ratio * db / 6.0f));
+    *lin_slope = SLOPE_FACTOR * ratio * *lin * slope_db;
+    if (p->offset_flag) *lin *= (float)pow(2.0, (double)(p->offset_db / 6.0f));
+    if (p->limiter_present) {
+        const double extra = -(double)p->limiter_peak - (double)p->norm_gain_db;
+        *lin *= (float)pow(2.0, (extra > 0.0 ? extra : 0.0) / 6.0);
+        if (*lin >= 1.0f) { *lin = 1.0f; *lin_slope = 0.0f; }
+    }
+}
+
+/* the values at the samples 0 .. steps of one segment (r[0] = g1, r[steps] = g2) */
+static void interpolate(unsigned spline, unsigned steps, float g1, float g2, float s1, float s2, float *r) {
+    unsigned n;
+    r[0] = g1; r[steps] = g2;
+    if (!spline) {
+        const float a = (g2 - g1) / (float)steps;
+        for (n = 1; n < steps; n++) r[n] = a * (float)n + g1;
+        return;
+    }
+    {
+        int cubic = 1;
+        if (fabsf(s1) > fabsf(s2)) {
+            const float ins_f = 2.0f * (g2 - g1 - s2 * (float)steps) / (s1 - s2);
+            const int ins = (int)(0.5f + ins_f);
+            if (ins >= 0 && ins < (int)steps) {
+                const float a = 0.5f * (s2 - s1) / ins_f;
+                cubic = 0;
+                for (n = 1; (int)n < ins; n++) { const float t = (float)n; r[n] = (a * t + s1) * t + g1; if (r[n] < 0.0f) r[n] = 0.0f; }
+                for (; n < steps; n++) { const float t = (float)((int)n - (int)steps); r[n] = s2 * t + g2; }
+            }
+        } else if (fabsf(s1) < fabsf(s2)) {
+            float ins_f = 2.0f * (g1 - g2 + s1 * (float)steps) / (s1 - s2);
+            int ins;
+            ins_f = (float)steps - ins_f;
+            ins = (int)(0.5f + ins_f);
+            if (ins >= 0 && ins < (int)steps) {
+                const float a = (s2 - s1) / (2.0f * ((float)steps - ins_f));
+                cubic = 0;
+                for (n = 1; (int)n < ins; n++) r[n] = s1 * (float)n + g1;
+                for (; n < steps; n++) { const float t = (float)((int)steps - (int)n); r[n] = (a * t - s2) * t + g2; if (r[n] < 0.0f) r[n] = 0.0f; }
+            }
+        }
+        if (cubic) {
+            const float inv = 1.0f / (float)steps, inv2 = inv * inv, k1 = (g2 - g1) * inv2, k2 = s2 + s1;
+            const float a = inv * (inv * k2 - 2.0f * k1), b = 3.0f * k1 - inv * (k2 + s1);
+            for (n = 1; n < steps; n++) { const float t = (float)n; r[n] = ((a * t + b) * t + s1) * t + g1; if (r[n] < 0.0f) r[n] = 0.0f; }
+        }
+    }
+}
+
+int sauti_unidrc_curve(const SautiUniDrcGainSet *gs, const SautiUniDrcNodes *nd, unsigned frame_size, unsigned rate, const SautiUniDrcCurveParams *p, SautiUniDrcSeqState *st, float *lin) {
+    static float seg[8192 + 8];
+    unsigned k, delta_tmin;
+    int time_prev, i;
+    float g_prev, s_prev;
+    if (!gs || !nd || !p || !st || !lin || frame_size == 0 || frame_size > 4096u || nd->count == 0) return 0;
+    delta_tmin = gs->time_delta_min ? gs->time_delta_min : sauti_unidrc_delta_tmin(rate);
+    if (!st->have) { st->have = 1; st->time = -1; st->gain_db = 0.0f; st->slope = 0.0f; }
+    time_prev = st->time; g_prev = st->gain_db; s_prev = st->slope;
+    for (i = 0; i < (int)frame_size; i++) lin[i] = 1.0f;
+    for (k = 0; k < nd->count; k++) {
+        const int t = nd->time[k];
+        float l1, l2, sl1, sl2;
+        int steps = t - time_prev, s;
+        if (steps <= 0 || t >= (int)frame_size + 8 || time_prev < -(int)frame_size) return 0;
+        to_linear(p, g_prev, s_prev, &l1, &sl1);
+        to_linear(p, nd->gain_db[k], nd->slope[k], &l2, &sl2);
+        if (gs->interpolation == 0u) { sl1 /= (float)delta_tmin; sl2 /= (float)delta_tmin; }
+        interpolate(gs->interpolation == 0u, (unsigned)steps, l1, l2, sl1, sl2, seg);
+        for (s = 1; s <= steps; s++) { const int at = time_prev + s; if (at >= 0 && at < (int)frame_size) lin[at] = seg[s]; }
+        time_prev = t; g_prev = nd->gain_db[k]; s_prev = nd->slope[k];
+    }
+    st->time = time_prev - (int)frame_size; st->gain_db = g_prev; st->slope = s_prev;
+    return 1;
+}

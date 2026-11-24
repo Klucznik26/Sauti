@@ -66,6 +66,20 @@ int main(void) {
             jb.pos = i; (void)sauti_unidrc_loudness_parse(&jb, &ls);
         }
     }
+    {   /* gain curve (U3): linear interpolation in the LINEAR domain between nodes, the state carries the last node into the next frame */
+        SautiUniDrcGainSet gs; SautiUniDrcNodes nd; SautiUniDrcSeqState ss; SautiUniDrcCurveParams cp; static float lin[2048];
+        memset(&gs, 0, sizeof gs); gs.interpolation = 1; gs.profile = 0; gs.band_count = 1;
+        memset(&nd, 0, sizeof nd); memset(&ss, 0, sizeof ss); memset(&cp, 0, sizeof cp); cp.boost = cp.compress = 1.0f;
+        nd.count = 2; nd.time[0] = 1023; nd.gain_db[0] = -6.0f; nd.time[1] = 2047; nd.gain_db[1] = -6.0f;
+        CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1, "curve");
+        CHECK(fabsf(lin[1023] - 0.5f) < 1e-6f && fabsf(lin[2047] - 0.5f) < 1e-6f && fabsf(lin[511] - 0.75f) < 1e-3f && fabsf(lin[0] - (1.0f - 0.5f / 1024.0f)) < 1e-3f, "curve values %f %f %f", (double)lin[0], (double)lin[511], (double)lin[1023]);
+        nd.count = 1; nd.time[0] = 2047; nd.gain_db[0] = 0.0f;
+        CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1 && fabsf(lin[0] - (0.5f + 0.5f / 2048.0f)) < 1e-3f && fabsf(lin[2047] - 1.0f) < 1e-6f, "second frame starts at the previous node: %f", (double)lin[0]);
+        cp.scaling_flag = 1; cp.attn = 0.5f; cp.ampl = 1.0f;                                                   /* attenuation scaled by one half: -6 dB -> -3 dB */
+        memset(&ss, 0, sizeof ss); nd.count = 1; nd.time[0] = 2047; nd.gain_db[0] = -6.0f;
+        CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1 && fabsf(lin[2047] - (float)pow(2.0, -3.0 / 6.0)) < 1e-6f, "gain scaling");
+        nd.time[0] = 5000; CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 0, "a node far beyond the frame accepted");
+    }
     free(st); free(pcm); free(asc); free(aus);
     if (g_failures) { printf("test_unidrc: %d FAILURES\n", g_failures); return 1; }
     printf("test_unidrc: all passed\n");
