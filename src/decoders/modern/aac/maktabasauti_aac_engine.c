@@ -98,14 +98,10 @@ static void core_reset(dec_t *d) {
             sauti_aac_er_state_init(&e->er);
             e->pl.time_slots = slots; e->pl.crc = d->eld_asc.ld_sbr_crc; e->pl.have_header = 1u; e->pl.header = d->eld_asc.ld_header;
             (void)sauti_aac_sbr_channel_init(&e->channel[0]); (void)sauti_aac_sbr_channel_init(&e->channel[1]);
-#ifdef SAUTI_ELD_V2_EXPERIMENTAL                                               /* ELD v2: sciezka MPS jest jeszcze niedokonczona (SBR ELD v2 uzywa innego banku QMF), domyslnie wylaczona */
-            e->sac_on = d->eld_asc.ld_sac_len != 0u;
-#else
-            e->sac_on = 0u;
-#endif
+            e->sac_on = d->eld_asc.ld_sac_len != 0u;                                      /* ELD v2: MPS 212 niskiego opoznienia + SBR na banku QMF MPS-LD */
             if (e->sac_on && sauti_aac_eld_sac_config_parse(d->eld_asc.ld_sac, d->eld_asc.ld_sac_len, &e->sacc) != 1) e->sac_on = 0u;
             memset(&e->ms, 0, sizeof e->ms); memset(&e->sac, 0, sizeof e->sac);
-            e->channel[0].ld = e->channel[1].ld = d->eldsbr; e->channel[0].frame_slots = e->channel[1].frame_slots = slots;
+            e->channel[0].ld = e->channel[1].ld = d->eldsbr; e->channel[0].ld_mps = e->channel[1].ld_mps = e->sac_on; e->channel[0].frame_slots = e->channel[1].frame_slots = slots;
         } else if (aot_is_lcn(d->er_aot) && d->he960) {
             he960_t *h = &d->core.u.h9;
             sauti_aac_lcn_state_init(&h->lcn);
@@ -628,13 +624,11 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
         if (hd.er_aot == 39u && d->eld_ready && d->eld_asc.ld_sbr) {                          /* ELD z SBR niskoopoznieniowym: jednokrotny (wyjscie w czestotliwosci rdzenia) albo dwukrotny (wyjscie 2x) */
             if (hd.config < 1u || hd.config > 2u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
             d->eldsbr = d->eld_asc.ld_sbr_downsampled ? 2u : 1u;
-#ifdef SAUTI_ELD_V2_EXPERIMENTAL
             if (d->eld_asc.ld_sac_len) {                                                   /* ELD v2: mono rdzen + MPS 212 niskiego opoznienia = wyjscie stereo; tylko dwukrotny SBR (64 pasma QMF) */
                 SautiAacEldSacConfig sc;
                 if (hd.config != 1u || d->eldsbr != 2u || sauti_aac_eld_sac_config_parse(d->eld_asc.ld_sac, d->eld_asc.ld_sac_len, &sc) != 1 || sc.time_slots != (hd.er_480 ? 15u : 16u) || sc.mps.temp_shape != 0u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
                 d->out_channels = 2u;
             }
-#endif
             d->frame_pcm = n * d->eldsbr; d->out_rate = d->core_rate * d->eldsbr;
         }
         core_reset(d);

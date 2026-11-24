@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
     if (!f || !o || !c || ch < 1 || ch > 2) return 2;
     if (aacEncOpen(&h, 0, (UINT)ch) != AACENC_OK) return 2;
     if (aacEncoder_SetParam(h, AACENC_AOT, (UINT)aot) != AACENC_OK) { fprintf(stderr, "aot\n"); return 3; }
-    aacEncoder_SetParam(h, AACENC_SAMPLERATE, (UINT)rate); aacEncoder_SetParam(h, AACENC_CHANNELMODE, ch == 1 ? MODE_1 : MODE_2);
+    aacEncoder_SetParam(h, AACENC_SAMPLERATE, (UINT)rate); aacEncoder_SetParam(h, AACENC_CHANNELMODE, getenv("CHMODE") ? (CHANNEL_MODE)atoi(getenv("CHMODE")) : (ch == 1 ? MODE_1 : MODE_2));
     aacEncoder_SetParam(h, AACENC_BITRATE, (UINT)br);
     if (aacEncoder_SetParam(h, AACENC_GRANULE_LENGTH, (UINT)gran) != AACENC_OK) { fprintf(stderr, "granule\n"); return 4; }
     if (getenv("SBRMODE")) aacEncoder_SetParam(h, AACENC_SBR_MODE, (UINT)atoi(getenv("SBRMODE")));

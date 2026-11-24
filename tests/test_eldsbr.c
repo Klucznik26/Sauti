@@ -114,15 +114,16 @@ static void test_loas(const char *loas, const char *m4a, unsigned per_au) {
 }
 
 int main(int argc, char **argv) {
-    static const Fx fx[] = { { "eldsbr_single", "tests/data/eldsbr_single.m4a", 2, 4096, 70, 48000, eldsbr_single_fp }, { "eldsbr_dual", "tests/data/eldsbr_dual.m4a", 2, 4096, 70, 48000, eldsbr_dual_fp } };
+    static const Fx fx[] = { { "eldsbr_single", "tests/data/eldsbr_single.m4a", 2, 4096, 70, 48000, eldsbr_single_fp }, { "eldsbr_dual", "tests/data/eldsbr_dual.m4a", 2, 4096, 70, 48000, eldsbr_dual_fp },
+                              { "eldsbr_v2", "tests/data/eldsbr_v2.m4a", 2, 4096, 70, 48000, eldsbr_v2_fp } };
     unsigned k;
     if (argc > 1 && !strcmp(argv[1], "--dump")) {
         g_dump = 1;
         printf("/* Per-block fingerprints of the ELD-SBR fixtures, written by `build/test_eldsbr --dump` after the decode agreed with the FDK decoder. Only the first MAXB blocks. */\n#define MAXB 70\n");
-        for (k = 0; k < 2; k++) test_fixture(&fx[k]);
+        for (k = 0; k < 3; k++) test_fixture(&fx[k]);
         return 0;
     }
-    for (k = 0; k < 2; k++) test_fixture(&fx[k]);
+    for (k = 0; k < 3; k++) test_fixture(&fx[k]);
     test_loas("tests/data/eldsbr_single.loas", "tests/data/eldsbr_single.m4a", 512);
     test_loas("tests/data/eldsbr_dual.loas", "tests/data/eldsbr_dual.m4a", 1024);
     if (g_failures) { printf("test_eldsbr: %d FAILURES\n", g_failures); return 1; }

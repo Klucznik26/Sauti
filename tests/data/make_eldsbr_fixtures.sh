@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates tests/data/eldsbr_single.m4a and eldsbr_dual.m4a: AAC-ELD with the LOW-DELAY SBR (CLDFB), single rate (core and output 48 kHz) and dual rate (core 24 kHz, output 48 kHz), made by the Fraunhofer FDK AAC encoder
+# Regenerates tests/data/eldsbr_single.m4a, eldsbr_dual.m4a and eldsbr_v2.m4a (ELD v2: mono core + low delay MPEG Surround): AAC-ELD with the LOW-DELAY SBR (CLDFB), single rate (core and output 48 kHz) and dual rate (core 24 kHz, output 48 kHz), made by the Fraunhofer FDK AAC encoder
 # (built OUTSIDE the repository: FDK=<install dir with include/fdk-aac and lib>) from a SYNTHETIC stereo signal generated below (harmonic stack, noise bursts = transients, a rising tone = harmonic
 # flags, left/right differences = coupled and uncoupled frames), wrapped into M4A by tools/mux_raw_aus_mp4.py.  usage: tests/data/make_eldsbr_fixtures.sh
 set -euo pipefail
@@ -36,3 +36,6 @@ PY
 }
 mk single 1 48
 mk dual 2 53
+# ELD v2: the stereo input is coded as a MONO core plus the low delay MPEG Surround 212 (CHMODE 128 = MODE_212), dual rate; 32 kbit/s
+CHMODE=128 SBRMODE=1 SBRRATIO=2 "$W/enc" "$W/in.raw" 48000 2 39 32000 512 "$W/v2.aus" "$W/v2.asc" >/dev/null
+python3 -I ../../tools/mux_raw_aus_mp4.py "$W/v2" "eldsbr_v2.m4a" 512

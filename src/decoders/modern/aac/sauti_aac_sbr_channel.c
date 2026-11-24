@@ -225,7 +225,7 @@ static int channel_frame_impl(SautiAacSbrChannel *ch,const float *core,const Sau
     SautiAacSbrComplex low[SLOTS_MAX*32u];
     if(low_in)memcpy(low,low_in,(size_t)SLOTS*32u*sizeof(SautiAacSbrComplex));
     else if(ch->ld){
-        if(!sauti_aac_sbr_qmf_analyze_ld(core,SLOTS,low,&next->analysis))return 0;
+        if(!(ch->ld_mps?sauti_aac_sbr_qmf_analyze_mpsld(core,SLOTS,low,&next->analysis):sauti_aac_sbr_qmf_analyze_ld(core,SLOTS,low,&next->analysis)))return 0;
     }else if(ch->analysis_bands==24u){
         if(!sauti_aac_sbr_qmf_analyze_24(core,768u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;
     }else if(ch->analysis_bands==16u){
@@ -584,6 +584,13 @@ int sauti_aac_sbr_channel_synthesize(SautiAacSbrChannel *ch,
                                      const SautiAacSbrComplex grid[],
                                      float pcm[]){
     if(!ch || !grid || !pcm || ch->ready!=1u)return 0;
+    if(ch->ld && ch->ld_mps){
+        SautiAacSbrMpsldSynthState ms=ch->mps_synth;
+        const unsigned N=ch->ld==2u?64u:32u;
+        if(!ch->frame_slots || !sauti_aac_sbr_qmf_synth_mpsld(N,grid,64u,ch->frame_slots,pcm,&ms))return 0;
+        ch->mps_synth=ms;
+        return 1;
+    }
     if(ch->ld){
         SautiAacSbrLdSynthState ls=ch->ld_synth;
         const unsigned N=ch->ld==2u?64u:32u;              /* ld 2: the dual rate, the output has twice the rate of the core: 64-band synthesis */
