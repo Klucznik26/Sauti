@@ -30,8 +30,8 @@ Wymaganie użytkownika: kodek AAC w bibliotece ma obsługiwać WSZYSTKIE wersje,
 | USAC (AOT 42, xHE-AAC): FD, LPD (ACELP, TCX, FAC), eSBR 2:1 / 8:3 / 4:1, PVC, inter-TES, HBE 2:1 i 4:1, MPS212 (idx 1 / 2 / 3, IPD, TSD, STP, GES), predykcja zespolona, AudioPreRoll | OK | Fraunhofer: 82 – 93 dB wobec libxaac i FDK; HBE 4:1 stereo wobec FDK 86,7 dB | |
 | USAC: MPS212 z niezerową resztą w parze mieszanej FD+LPD | BRAK | generator + libxaac dec | rzadkie |
 | USAC: LFE z eSBR | BRAK | FDK dec | rzadkie |
-| USAC: time-warped MDCT (`tw_mdct`) | BRAK | libxaac dec (jest `tw`); ŻADEN enkoder go nie emituje; FDK nie ma | strumienie z generatora `sauti_usac_gen` |
-| USAC / MPEG-D: uniDRC, normalizacja głośności (loudnessInfoSet, DRC) | BRAK | FDK stosuje domyślnie; libxaac | opcja wyjściowa, nie domyślna |
+| USAC: time-warped MDCT (`tw_mdct`) | BRAK, BLOK (2026-11-24: sprawdzone) | ŻADNEGO wzorca: FDK nie ma `tw_mdct`, libxaac dekoder ODRZUCA strumień z `tw_mdct = 1` (`ixheaacd_create.c`: `return -1`, chyba że włączone ec_flag, wtedy wyłącza tw), koder libxaac go nie emituje (pole `tw_mdct` tylko w konfiguracji) | tylko strumienie z generatora `sauti_usac_gen` bez wzorca; bez tekstu normy i wzorca nie do zweryfikowania |
+| USAC / MPEG-D: uniDRC, normalizacja głośności (loudnessInfoSet, DRC) | BRAK (zmierzone 2026-11-24) | libxaac enc `-drc:1` (wymaga `impd_drc_config_params.txt` w katalogu roboczym, 3 zestawy wzmocnień) daje strumienie z uniDRC; libxaac dec stosuje DRC dopiero gdy podano opcję (`-target_loudness`, `-effect`): domyślnie PCM identyczny z dekodowaniem bez DRC (RMS 5912), z `-target_loudness:-24` -7,95 dB, z `-effect:1` -11,7 dB | opcja wyjściowa, nie domyślna; duży moduł (uniDrcConfig, loudnessInfoSet, uniDrcGain, splajny, wybór instrukcji, zastosowanie w QMF / czasie) |
 | USAC rdzeń LPD wobec FDK | ~51 dB (pasmo 0 – 800 Hz; arytmetyka FDK) | | nie naprawiane |
 
 ## Kontenery i transport
