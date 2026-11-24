@@ -44,6 +44,8 @@ typedef struct {
     unsigned ld_sbr_downsampled; /* ELD only: ldSbrSamplingRate (1 = the SBR output has twice the core rate) */
     unsigned ld_sbr_crc;
     SautiAacSbrHeader ld_header; /* ELD with SBR: the (first) ld_sbr_header() of the configuration (valid when ld_sbr) */
+    unsigned ld_sac_len;       /* ELD only: ELDEXT_LDSAC (ELD v2, MPEG Surround 212): the bytes of its SpatialSpecificConfig, 0 = none */
+    uint8_t ld_sac[64];
     unsigned bits;             /* number of bits the configuration occupies (a LATM StreamMuxConfig continues right after it) */
 } SautiAacErAsc;
 int sauti_aac_er_asc_parse(const uint8_t *asc,size_t length,SautiAacErAsc *out);

@@ -10,7 +10,8 @@
 #define SAUTI_USAC_MPS_SETS 9u                           /* numParamSets (at most 8) plus the set that closes a frame whose last set is not in its last slot */
 
 /* the fields of Mps212Config() the frame parser needs */
-typedef struct { unsigned freq_res, high_rate, phase_coding, bands_phase, temp_shape, env_quant, decorr, fixed_gain, residual, residual_bands; } SautiUsacMpsConfig;   /* residual: stereoConfigIndex >= 2 */
+typedef struct { unsigned freq_res, high_rate, phase_coding, bands_phase, temp_shape, env_quant, decorr, fixed_gain, residual, residual_bands;
+    unsigned ld, arbitrary_downmix; } SautiUsacMpsConfig;   /* residual: stereoConfigIndex >= 2; ld: the low delay syntax of ELD v2 (SpatialFrame() of ISO/IEC 23003-1 with the LD options: 23 .. 4 parameter bands, one bit for the number of sets, no frame length field, smoothing data always present, time_slots any 1 .. 64) */
 
 typedef struct {
     unsigned num_sets;                                   /* including the closing set when ext_frame */
@@ -38,6 +39,8 @@ typedef struct {
     int cld_pre[SAUTI_USAC_MPS_BANDS], icc_pre[SAUTI_USAC_MPS_BANDS], ipd_pre[SAUTI_USAC_MPS_BANDS];                    /* last mapped indices, "keep / interpolate" history */
     unsigned quant_coarse_prev[3];                       /* CLD, ICC, IPD */
     unsigned ipd_coarse_hist[SAUTI_USAC_MPS_SETS];       /* the IPD quantiser flags of the coded sets as the reference holds them: a set without coded IPD data (keep / default) keeps the flag of the last frame that coded that set index (it smooths the phases with it) */
+    int cmp_arb_prev[SAUTI_USAC_MPS_BANDS];              /* LD: arbitrary downmix gain, last coded indices, quantiser of the previous set */
+    unsigned arb_coarse_prev;
     unsigned smooth_time_prev;
     uint8_t smooth_data_prev[SAUTI_USAC_MPS_BANDS];
 } SautiUsacMpsState;

@@ -11,6 +11,7 @@ enum { CLD = 0, ICC = 1, IPD = 2 };
 #define MAXB SAUTI_USAC_MPS_BANDS
 
 static const unsigned freq_res_bands[8] = { 0, 28, 20, 14, 10, 7, 5, 4 };
+static const unsigned freq_res_bands_ld[8] = { 0, 23, 15, 12, 9, 7, 5, 4 };
 static const unsigned stride_table[4] = { 1, 2, 5, 28 };
 static const uint16_t smooth_time_table[4] = { 64, 128, 256, 512 };
 
@@ -135,7 +136,7 @@ static int huff_2d(SautiUsacBits *b, int type, int diff, int pair, int out[][2],
 }
 
 /* one coded value or pair of sets (EcData pair): histories, differential decoding in time or frequency.  data_bands values per set are written to out1 (and out2 for a pair). */
-static int ec_pair(SautiUsacBits *b, int type, int *history, unsigned data_bands, int pair_flag, int coarse, int diff_time_back, int *out1, int *out2) {
+static int ec_pair(SautiUsacBits *b, int type, int *history, unsigned data_bands, int pair_flag, int coarse, int diff_time_back, int ld, int *out1, int *out2) {
     int attach_lsb = 0, offset, levels, pcm_coding;
     int data1[MAXB], data2[MAXB], diff1[MAXB], diff2[MAXB];
     int diff_type[2] = { DIFF_FREQ, DIFF_FREQ };
@@ -156,7 +157,7 @@ static int ec_pair(SautiUsacBits *b, int type, int *history, unsigned data_bands
         if (pair_flag || diff_time_back) diff_type[0] = (int)sauti_usac_get(b, 1);
         if (pair_flag && (diff_type[0] == DIFF_FREQ || diff_time_back)) diff_type[1] = (int)sauti_usac_get(b, 1);
         scheme_2d = (int)sauti_usac_get(b, 1);                                                      /* cdg_scheme: 0 = Huffman 1-D, 1 = 2-D */
-        if (scheme_2d && pair_flag) freq_pair = sauti_usac_get(b, 1) == 0u;                           /* 0 = frequency pair, 1 = time pair */
+        if (scheme_2d && pair_flag && !ld) freq_pair = sauti_usac_get(b, 1) == 0u;                           /* 0 = frequency pair, 1 = time pair */
         if (!scheme_2d) {
             if (!huff_1d(b, type, diff_type[0], diff1, data_bands, diff_type[0] == DIFF_FREQ)) return 0;
             if (pair_flag && !huff_1d(b, type, diff_type[1], diff2, data_bands, diff_type[1] == DIFF_FREQ)) return 0;
@@ -180,7 +181,7 @@ static int ec_pair(SautiUsacBits *b, int type, int *history, unsigned data_bands
             for (k = 0; k < num; k++) { diff1[off + k] = pairs[k][0]; diff2[off + k] = pairs[k][1]; }
         }
         if (diff_type[0] == DIFF_TIME || diff_type[1] == DIFF_TIME) {
-            if (pair_flag) {
+            if (pair_flag && !ld) {                                                                  /* LD: always backwards */
                 if (diff_type[0] == DIFF_TIME && !diff_time_back) direction = 1;                      /* FORWARDS */
                 else if (diff_type[1] == DIFF_TIME) direction = 0;
                 else direction = (int)sauti_usac_get(b, 1);
@@ -261,7 +262,7 @@ typedef struct {
     int cmp[SAUTI_USAC_MPS_SETS][MAXB];                  /* the coded (grouped) indices of the sets that carry data */
 } EcSets;
 
-static int ec_data(SautiUsacBits *b, int type, unsigned num_sets, unsigned band_stop, int indep, int *last, unsigned *coarse_prev, EcSets *d) {
+static int ec_data(SautiUsacBits *b, int type, int ld, unsigned num_sets, unsigned band_stop, int indep, int *last, unsigned *coarse_prev, EcSets *d) {
     unsigned i, set_index = 0, pair = 0, old_coarse = *coarse_prev;
     for (i = 0; i < num_sets; i++) d->mode[i] = sauti_usac_get(b, 2);
     for (i = 0; i < num_sets; i++) {
@@ -277,7 +278,7 @@ static int ec_data(SautiUsacBits *b, int type, unsigned num_sets, unsigned band_
                 bands = stride_map(d->stride[set_index], band_stop, strides);
                 for (pb = 0; pb < bands; pb++) last[pb] = last[strides[pb]];
                 if (set_index + pair >= SAUTI_USAC_MPS_SETS) return 0;
-                if (!ec_pair(b, type, last, bands, (int)pair, (int)d->coarse[set_index], !(indep && i == 0) || set_index > 0, d->cmp[set_index], d->cmp[set_index + pair])) return 0;
+                if (!ec_pair(b, type, last, bands, (int)pair, (int)d->coarse[set_index], !(indep && i == 0) || set_index > 0, ld, d->cmp[set_index], d->cmp[set_index + pair])) return 0;
                 for (pb = 0; pb < bands; pb++)
                     for (j = strides[pb]; j < strides[pb + 1]; j++) last[j] = type == IPD ? (d->coarse[set_index] ? d->cmp[set_index + pair][pb] & 7 : d->cmp[set_index + pair][pb] & 15) : d->cmp[set_index + pair][pb];
                 old_coarse = d->coarse[set_index];
@@ -355,17 +356,28 @@ int sauti_usac_mps212_parse(const SautiUsacMpsConfig *e, unsigned time_slots, Sa
     SautiUsacMpsFrame nf_local, *nf = &nf_local;
     EcSets cld, icc, ipd;
     unsigned i, sets, bands, num_bands_ipd, ext;
-    if (!e || !b || !st || !f || (time_slots != 32u && time_slots != 64u) || e->freq_res == 0u || e->freq_res > 7u) return 0;
-    bands = freq_res_bands[e->freq_res];
+    const size_t start_pos = b ? b->pos : 0;
+    if (!e || !b || !st || !f || (e->ld ? (time_slots < 1u || time_slots > 64u) : (time_slots != 32u && time_slots != 64u)) || e->freq_res == 0u || e->freq_res > 7u) return 0;
+    if (e->ld && (e->temp_shape > 2u || e->high_rate || e->phase_coding)) return 0;
+    bands = e->ld ? freq_res_bands_ld[e->freq_res] : freq_res_bands[e->freq_res];
     num_bands_ipd = e->bands_phase;
     memset(nf, 0, sizeof *nf);
     memset(&cld, 0, sizeof cld); memset(&icc, 0, sizeof icc); memset(&ipd, 0, sizeof ipd);
     memcpy(ipd.coarse, ns.ipd_coarse_hist, sizeof ipd.coarse);
     nf->param_bands = bands;
-    if (e->high_rate) {
+    if (e->high_rate || e->ld) {
         const unsigned framing = sauti_usac_get(b, 1);
-        sets = sauti_usac_get(b, 3) + 1u;
-        if (framing) {
+        sets = e->ld ? sauti_usac_get(b, 1) + 1u : sauti_usac_get(b, 3) + 1u;
+        if (framing && e->ld) {
+            unsigned nb = 0; int prev = -1;
+            while ((1u << nb) < time_slots) nb++;
+            for (i = 0; i < sets; i++) {
+                nf->param_slot[i] = sauti_usac_get(b, nb);
+                if (prev >= (int)nf->param_slot[i] || nf->param_slot[i] >= time_slots) return 0;
+                prev = (int)nf->param_slot[i];
+            }
+        } else if (e->ld) for (i = 0; i < sets; i++) nf->param_slot[i] = time_slots * (i + 1u) / sets - 1u;
+        else if (framing) {
             int prev = -1;
             for (i = 0; i < sets; i++) {
                 nf->param_slot[i] = sauti_usac_get(b, time_slots == 32u ? 5u : 6u);
@@ -377,17 +389,17 @@ int sauti_usac_mps212_parse(const SautiUsacMpsConfig *e, unsigned time_slots, Sa
         sets = 1;
         nf->param_slot[0] = time_slots - 1u;
     }
-    nf->independency = indep ? 1u : sauti_usac_get(b, 1);
-    if (!ec_data(b, CLD, sets, bands, (int)nf->independency, ns.cmp_cld_prev, &ns.quant_coarse_prev[0], &cld)) return 0;
-    if (!ec_data(b, ICC, sets, bands, (int)nf->independency, ns.cmp_icc_prev, &ns.quant_coarse_prev[1], &icc)) return 0;
+    nf->independency = indep && !e->ld ? 1u : sauti_usac_get(b, 1);
+    if (!ec_data(b, CLD, (int)e->ld, sets, bands, (int)nf->independency, ns.cmp_cld_prev, &ns.quant_coarse_prev[0], &cld)) return 0;
+    if (!ec_data(b, ICC, (int)e->ld, sets, bands, (int)nf->independency, ns.cmp_icc_prev, &ns.quant_coarse_prev[1], &icc)) return 0;
     if (e->phase_coding) {
         nf->phase_mode = sauti_usac_get(b, 1);
         if (nf->phase_mode) {
             nf->opd_smoothing = sauti_usac_get(b, 1);
-            if (num_bands_ipd > MAXB || !ec_data(b, IPD, sets, num_bands_ipd, (int)nf->independency, ns.cmp_ipd_prev, &ns.quant_coarse_prev[2], &ipd)) return 0;
+            if (num_bands_ipd > MAXB || !ec_data(b, IPD, (int)e->ld, sets, num_bands_ipd, (int)nf->independency, ns.cmp_ipd_prev, &ns.quant_coarse_prev[2], &ipd)) return 0;
         } else { memset(ns.cmp_ipd_prev, 0, sizeof ns.cmp_ipd_prev); memset(ns.ipd_pre, 0, sizeof ns.ipd_pre); }
     }
-    if (e->high_rate) {
+    if (e->high_rate || e->ld) {
         unsigned ps;
         for (ps = 0; ps < sets; ps++) {
             const unsigned mode = sauti_usac_get(b, 2);
@@ -463,6 +475,12 @@ int sauti_usac_mps212_parse(const SautiUsacMpsConfig *e, unsigned time_slots, Sa
         break;
     default: return 0;
     }
+    if (e->ld && e->arbitrary_downmix) {                                                              /* arbitrary downmix gain: one more CLD set per input channel (1 for 212), parsed and kept only */
+        EcSets arb;
+        memset(&arb, 0, sizeof arb);
+        if (!ec_data(b, CLD, 1, sets, bands, (int)nf->independency, ns.cmp_arb_prev, &ns.arb_coarse_prev, &arb)) return 0;
+    }
+    if (e->ld) b->pos = start_pos + ((b->pos - start_pos + 7u) & ~(size_t)7u);                            /* ByteAlign() relative to the start of the frame */
     if (b->pos > b->nbits) return 0;
     /* parameters: mapping, interpolation, dequantisation */
     ext = nf->param_slot[sets - 1u] != time_slots - 1u;

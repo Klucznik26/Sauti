@@ -17,7 +17,7 @@ static int g_failures;
 typedef struct { uint8_t b[512]; unsigned n; } Bw;
 static void put(Bw *w, uint32_t v, unsigned bits) { while (bits--) { if (w->n >= sizeof w->b * 8u) return; if ((v >> bits) & 1u) w->b[w->n >> 3] |= (uint8_t)(0x80u >> (w->n & 7u)); w->n++; } }
 
-static const SautiUsacMpsConfig cfg1 = { 1, 0, 0, 10, 0, 0, 0, 0, 1, 0 };          /* 28 bands, one parameter set per frame */
+static const SautiUsacMpsConfig cfg1 = { 1, 0, 0, 10, 0, 0, 0, 0, 1, 0, 0, 0 };          /* 28 bands, one parameter set per frame */
 
 /* an EcData block of one parameter set coded with PCM: data mode 3, no pair, quantiser, stride, PCM flag, the values */
 static void put_pcm_set(Bw *w, unsigned coarse, unsigned stride, unsigned bands, const unsigned *val, unsigned bits) {

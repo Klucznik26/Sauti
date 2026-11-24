@@ -81,7 +81,11 @@ int sauti_aac_er_asc_parse(const uint8_t *asc,size_t length,SautiAacErAsc *out){
             if(type==0u)break;
             if(!get(asc,length,&pos,4,&len))return 0;
             if(len==15u){if(!get(asc,length,&pos,8,&add))return 0;len+=add;if(add==255u){if(!get(asc,length,&pos,16,&add))return 0;len+=add-15u;}}
-            for(uint32_t i=0;i<len;i++)if(!get(asc,length,&pos,8,&v))return 0;
+            if(type==2u){                                                 /* ELDEXT_LDSAC: keep the SpatialSpecificConfig */
+                if(len==0u || len>sizeof a.ld_sac)return -1;
+                for(uint32_t i=0;i<len;i++){if(!get(asc,length,&pos,8,&v))return 0;a.ld_sac[i]=(uint8_t)v;}
+                a.ld_sac_len=len;
+            }else for(uint32_t i=0;i<len;i++)if(!get(asc,length,&pos,8,&v))return 0;
         }
     }
     {
