@@ -32,5 +32,7 @@ typedef struct { uint64_t opaque[48]; } SautiAacLatmState;
 void sauti_aac_latm_state_init(SautiAacLatmState *st);
 /* USAC (xHE-AAC, AOT 42): the AudioSpecificConfig of the stream (bit-aligned copy, `*len` bytes, valid while `st` lives), or 0 when the stream is something else / has no configuration yet. */
 int sauti_aac_latm_usac_asc(const SautiAacLatmState *st,const uint8_t **asc,size_t *len);
+/* AAC-ELD with the low-delay SBR tool (AOT 39, ldSbrPresentFlag): the AudioSpecificConfig (bit-aligned copy), or 0 for other streams. */
+int sauti_aac_latm_eld_asc(const SautiAacLatmState *st,const uint8_t **asc,size_t *len);
 int sauti_aac_latm_convert_element(SautiAacLatmState *st,const uint8_t *payload,size_t len,uint8_t *out,size_t cap,uint16_t *lens,unsigned max_frames,unsigned *n);
 #endif

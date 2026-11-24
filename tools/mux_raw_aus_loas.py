@@ -2,7 +2,7 @@
 """Test tool (not a product): wraps the raw access units of tools/sauti_aac_gen.c or tools/sauti_usac_gen.c (PREFIX.asc / PREFIX.aus, USAC also PREFIX.ascbits) in a LOAS / LATM stream (AudioSyncStream): every frame carries its StreamMuxConfig
 (audioMuxVersion 0, one program, one layer, frameLengthType 0) with the AudioSpecificConfig, then the payload length and the payload.  For the object types FFmpeg's LATM muxer cannot write
 (ER AAC LC / LTP, Main with 960 lines, ...).  usage: mux_raw_aus_loas.py PREFIX OUT.loas"""
-import struct, sys
+import os, struct, sys
 
 def main():
     prefix, out = sys.argv[1], sys.argv[2]
@@ -14,7 +14,8 @@ def main():
     n = 5 + 4 + 4 + 3                                           # aot, rate, config, GASpecificConfig's three flags
     if aot == 31: aot = 32 + int(asc_bits[5:11], 2)
     if aot == 42: n = int(open(prefix + '.ascbits').read())    # USAC: the generator (tools/sauti_usac_gen.c) writes the exact length of its AudioSpecificConfig
-    if aot in (17, 19, 23): n += 3 + 1 + 2                      # ER (the generator sets extensionFlag = 1): resilience flags (3), extensionFlag3, epConfig (2)
+    if aot == 39 and os.path.exists(prefix + '.ascbits'): n = int(open(prefix + '.ascbits').read())   # ELD with the low-delay SBR: the exact ASC length (the ELDSpecificConfig is longer than the plain ER one)
+    elif aot in (17, 19, 23): n += 3 + 1 + 2                      # ER (the generator sets extensionFlag = 1): resilience flags (3), extensionFlag3, epConfig (2)
     asc_bits = asc_bits[:n]
     p = 0; res = b''; first = True
     while p + 4 <= len(raw):

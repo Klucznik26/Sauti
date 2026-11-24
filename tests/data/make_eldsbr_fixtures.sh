@@ -20,9 +20,19 @@ right = 0.7 * h + 0.6 * b[::-1] + 0.6 * sw[::-1] + tone * (np.sin(2 * np.pi * 0.
 x = np.stack([left, right], axis=1); x = x / max(1e-9, np.abs(x).max()) * 0.5      # peak 0.5: no clipping in either decoder
 open(W + '/in.raw', 'wb').write((x * 32767).astype('<i2').tobytes())
 PY
-mk() {  # mk NAME RATIO
+mk() {  # mk NAME RATIO ASCBITS   (ASCBITS: the exact length of the ELD AudioSpecificConfig in bits as our parser reads it: 48 single rate, 53 dual rate; needed for the LATM StreamMuxConfig)
   SBRMODE=1 SBRRATIO="$2" "$W/enc" "$W/in.raw" 48000 2 39 48000 512 "$W/$1.aus" "$W/$1.asc" >/dev/null
   python3 -I ../../tools/mux_raw_aus_mp4.py "$W/$1" "eldsbr_$1.m4a" 512
+  # the first 120 access units again as a LOAS / LATM stream (AAC-ELD with the low-delay SBR in LATM)
+  python3 -I - "$W/$1" "$W/$1c" <<'PY'
+import struct, sys
+a, c = sys.argv[1:3]; raw = open(a + '.aus', 'rb').read(); p = 0; out = b''
+for _ in range(120):
+    n = struct.unpack('>I', raw[p:p + 4])[0]; out += raw[p:p + 4 + n]; p += 4 + n
+open(c + '.aus', 'wb').write(out); open(c + '.asc', 'wb').write(open(a + '.asc', 'rb').read())
+PY
+  echo "$3" > "$W/$1c.ascbits"
+  python3 -I ../../tools/mux_raw_aus_loas.py "$W/$1c" "eldsbr_$1.loas"
 }
-mk single 1
-mk dual 2
+mk single 1 48
+mk dual 2 53

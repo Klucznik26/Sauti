@@ -23,7 +23,8 @@ Wymaganie użytkownika: kodek AAC w bibliotece ma obsługiwać WSZYSTKIE wersje,
 | ER BSAC (AOT 22) | BRAK, BLOK | żaden dostępny dekoder (faad2 bez BSAC) | tablice arytmetyczne tylko w normie |
 | AAC-LD (AOT 23) 480 / 512 | OK-syn | FDK enc + dec | |
 | AAC-ELD (AOT 39) + SBR niskoopóźnieniowe (CLDFB), JEDNOKROTNE i PODWÓJNE, 512 | OK (2026-11-23, SBR-131) | FDK dec: 77 – 83 dB na muzyce (fixtury syntetyczne: mediana 70 / 74 dB), libxaac dec 59 – 72 dB | fixtury `eldsbr_single/dual.m4a`, `test_eldsbr`; ramka 480 bez strumienia testowego |
-| **AAC-LD + zwykły SBR; ELD + SBR w LATM/LOAS** | **BRAK** | FDK enc + dec | |
+| ELD + SBR niskoopóźnieniowe w LATM/LOAS | OK (2026-11-24) | identyczne PCM jak z MP4 (fixtury `eldsbr_*.loas`) | |
+| **AAC-LD + zwykły SBR** | **BRAK**, brak enkodera do strumienia testowego (FDK i libxaac kodują LD bez SBR) | | |
 | **AAC-ELD v2 (ELD + SBR + MPEG Surround 212 niskoopóźnieniowy, LD-SAC)** | **BRAK** (rdzeń mono + SBR dekodowane, dane SAC i stereo pomijane: wyjście mono) | FDK enc (`CHMODE=128` = `MODE_212`, `SBRRATIO=2`) + dec | ELD v2 NIE używa PS: ASC ma rozszerzenie `ELDEXT_LDSAC` (SpatialSpecificConfig), a ładunek SAC leży ZA ładunkiem SBR w jednostce dostępu (po `bs_extended_data = 0` zostaje ~100 bitów). Wymaga dekodera MPS212 w trybie LD (czas, CLDFB), częściowo do wykorzystania z `sauti_usac_mps*` |
 | ER Parametric Stereo, ER CELP, HVXC, HILN, TTSI, SLS, SLS-nonCore | BRAK, poza AAC | | patrz „Spoza AAC" |
 | USAC (AOT 42, xHE-AAC): FD, LPD (ACELP, TCX, FAC), eSBR 2:1 / 8:3 / 4:1, PVC, inter-TES, HBE 2:1 i 4:1, MPS212 (idx 1 / 2 / 3, IPD, TSD, STP, GES), predykcja zespolona, AudioPreRoll | OK | Fraunhofer: 82 – 93 dB wobec libxaac i FDK; HBE 4:1 stereo wobec FDK 86,7 dB | |

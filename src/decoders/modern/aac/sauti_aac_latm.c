@@ -37,6 +37,8 @@ typedef struct {
     unsigned sub_frames;
     unsigned usac_asc_bits;                              /* USAC (aot 42): dlugosc ASC w bitach i jego kopia wyrownana do bajtu (dla silnika) */
     uint8_t usac_asc[96];
+    unsigned eld_asc_bits;                               /* AAC-ELD z SBR niskoopoznieniowym (aot 39, ld_sbr): dlugosc ASC w bitach i jego kopia (dla silnika) */
+    uint8_t eld_asc[64];
     unsigned other_data;
     uint64_t other_bits;
     int have;
@@ -44,7 +46,8 @@ typedef struct {
 static int config_equal(const Config *a,const Config *b){
     return a->version==b->version&&a->aot==b->aot&&a->rate_index==b->rate_index&&a->channel_config==b->channel_config&&
            a->sbr==b->sbr&&a->ps==b->ps&&a->frame480==b->frame480&&a->sub_frames==b->sub_frames&&a->other_data==b->other_data&&a->other_bits==b->other_bits&&
-           a->usac_asc_bits==b->usac_asc_bits&&memcmp(a->usac_asc,b->usac_asc,sizeof(a->usac_asc))==0;
+           a->usac_asc_bits==b->usac_asc_bits&&memcmp(a->usac_asc,b->usac_asc,sizeof(a->usac_asc))==0&&
+           a->eld_asc_bits==b->eld_asc_bits&&memcmp(a->eld_asc,b->eld_asc,sizeof(a->eld_asc))==0;
 }
 static int get_aot(Br *b,unsigned *aot){
     uint32_t v=0,e=0;
@@ -68,7 +71,8 @@ static int parse_asc_er(Br *b,Config *c,unsigned aot){
     const size_t bits=avail<sizeof(buf)*8u?avail:sizeof(buf)*8u;
     memset(buf,0,sizeof(buf));
     { Br t=*b;for(i=0;i<bits;i++){uint32_t v=0;if(!get(&t,1,&v))return 0;if(v)buf[i>>3]|=(uint8_t)(0x80u>>(i&7u));} }
-    if(sauti_aac_er_asc_parse(buf,(bits+7u)/8u,&er)!=1||er.ld_sbr||(aot==19u&&er.frame480)||er.bits>bits||er.channel_config<1u||(er.channel_config>2u&&aot!=17u&&aot!=19u))return 0;
+    if(sauti_aac_er_asc_parse(buf,(bits+7u)/8u,&er)!=1||(er.ld_sbr&&(aot!=39u||er.bits>sizeof(c->eld_asc)*8u))||(aot==19u&&er.frame480)||er.bits>bits||er.channel_config<1u||(er.channel_config>2u&&aot!=17u&&aot!=19u))return 0;
+    if(er.ld_sbr){memset(c->eld_asc,0,sizeof(c->eld_asc));for(i=0;i<er.bits;i++)if(buf[i>>3]&(0x80u>>(i&7u)))c->eld_asc[i>>3]|=(uint8_t)(0x80u>>(i&7u));c->eld_asc_bits=er.bits;}
     if(!skip(b,er.bits))return 0;
     c->aot=aot;c->rate_index=er.rate_index;c->sample_rate=rates[er.rate_index];c->channel_config=er.channel_config;c->frame480=er.frame480;c->sbr=c->ps=0;
     return 1;
@@ -89,7 +93,7 @@ static int parse_asc_usac(Br *b,Config *c){
 }
 static int parse_asc(Br *b,Config *c){
     unsigned aot=0,ext_index=0,ext_rate=0;
-    c->frame480=0;c->usac_asc_bits=0;
+    c->frame480=0;c->usac_asc_bits=0;c->eld_asc_bits=0;
     { Br peek=*b;unsigned a=0;if(get_aot(&peek,&a)&&a==42u)return parse_asc_usac(b,c); }
     { Br peek=*b;unsigned a=0;if(get_aot(&peek,&a)&&(a==17u||a==19u||a==23u||a==39u))return parse_asc_er(b,c,a); }
     if(!get_aot(b,&aot)||!get_rate(b,&c->rate_index,&c->sample_rate))return 0;
@@ -234,6 +238,11 @@ int sauti_aac_latm_usac_asc(const SautiAacLatmState *st,const uint8_t **asc,size
     const Config *cfg=(const Config *)st;
     if(!st||!asc||!len||!cfg->have||cfg->aot!=42u)return 0;
     *asc=cfg->usac_asc;*len=((size_t)cfg->usac_asc_bits+7u)/8u;return 1;
+}
+int sauti_aac_latm_eld_asc(const SautiAacLatmState *st,const uint8_t **asc,size_t *len){
+    const Config *cfg=(const Config *)st;
+    if(!st||!asc||!len||!cfg->have||cfg->aot!=39u||!cfg->eld_asc_bits)return 0;
+    *asc=cfg->eld_asc;*len=((size_t)cfg->eld_asc_bits+7u)/8u;return 1;
 }
 int sauti_aac_latm_convert_element(SautiAacLatmState *st,const uint8_t *payload,size_t len,uint8_t *out,size_t cap,uint16_t *lens,unsigned max_frames,unsigned *n){
     Config *cfg=(Config *)st;

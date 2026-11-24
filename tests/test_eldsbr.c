@@ -100,6 +100,19 @@ static void test_fixture(const Fx *x) {
     free(data);
 }
 
+/* the same access units in a LOAS / LATM stream (the first 120 of the fixture) must decode to exactly the PCM of the MP4 */
+static void test_loas(const char *loas, const char *m4a, unsigned per_au) {
+    size_t nl, nm, fl, fm; uint8_t *dl = slurp(loas, &nl), *dm = slurp(m4a, &nm); maktabasauti_decoder_t *d; maktabasauti_stream_info_t info; float *pl = NULL, *pm = NULL;
+    if (!dl || !dm) { CHECK(0, "cannot read %s / %s", loas, m4a); free(dl); free(dm); return; }
+    d = open_mem(dl, nl, &info);
+    CHECK(d && info.channels == 2 && info.sample_rate == 48000 && strcmp(info.codec_profile, "ELD") == 0, "%s: open (%u ch %u Hz)", loas, d ? (unsigned)info.channels : 0u, d ? (unsigned)info.sample_rate : 0u);
+    if (d) { pl = read_all(d, 2, 4096, &fl); maktabasauti_decoder_close(d); }
+    d = open_mem(dm, nm, &info);
+    if (d) { pm = read_all(d, 2, 4096, &fm); maktabasauti_decoder_close(d); }
+    CHECK(pl && pm && fl == (size_t)120 * per_au && fm >= fl && memcmp(pl, pm, fl * (size_t)info.channels * sizeof(float)) == 0, "%s: %zu frames, differs from the MP4 decode", loas, fl);
+    free(pl); free(pm); free(dl); free(dm);
+}
+
 int main(int argc, char **argv) {
     static const Fx fx[] = { { "eldsbr_single", "tests/data/eldsbr_single.m4a", 2, 4096, 70, 48000, eldsbr_single_fp }, { "eldsbr_dual", "tests/data/eldsbr_dual.m4a", 2, 4096, 70, 48000, eldsbr_dual_fp } };
     unsigned k;
@@ -110,6 +123,8 @@ int main(int argc, char **argv) {
         return 0;
     }
     for (k = 0; k < 2; k++) test_fixture(&fx[k]);
+    test_loas("tests/data/eldsbr_single.loas", "tests/data/eldsbr_single.m4a", 512);
+    test_loas("tests/data/eldsbr_dual.loas", "tests/data/eldsbr_dual.m4a", 1024);
     if (g_failures) { printf("test_eldsbr: %d FAILURES\n", g_failures); return 1; }
     printf("test_eldsbr: all passed\n");
     return 0;
