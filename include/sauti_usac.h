@@ -42,6 +42,7 @@ typedef struct {
     unsigned num_elements;
     SautiUsacElement e[SAUTI_USAC_MAX_ELEMENTS];
     size_t bits_used;
+    size_t drc_cfg_pos, loud_pos; unsigned drc_cfg_len, loud_len;   /* uniDRC: bit position and byte length of the UniDrcConfig() (UsacExtElementConfig of type 4) and of the LoudnessInfoSet() (UsacConfigExtension of type 2) in the AudioSpecificConfig; 0 length = absent */
 } SautiUsacConfig;
 
 /* Parses UsacConfig() starting at bit `bit_offset`.  1 = ok, 0 = malformed / not representable, -1 = valid but beyond what this decoder supports (e.g. explicit channel positions). */
@@ -88,6 +89,7 @@ typedef struct {
     SautiAacSbrChannel sbr_ch[SAUTI_USAC_MAX_CHANNELS];   /* eSBR: QMF, HF generation and adjustment state of every channel */
     unsigned channels;
     unsigned primed;                                      /* a frame has been decoded: an AudioPreRoll payload is only decoded while this is 0 (start of decoding, after a seek to the start) */
+    size_t drc_pos; unsigned drc_len;                   /* the UniDrcGain() payload (extension element of type 4) of the last decoded access unit: bit position and byte length, 0 = none */
 } SautiUsacState;
 
 void sauti_usac_state_init(SautiUsacState *state, const SautiUsacConfig *cfg);

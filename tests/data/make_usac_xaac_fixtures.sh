@@ -13,6 +13,7 @@ cd "$(dirname "$0")"
 ENC="${XAAC:-$HOME/Sauti-tools/libxaac/build}/xaacenc"
 [ -x "$ENC" ] || { echo "no libxaac encoder at $ENC"; exit 1; }
 W="$(mktemp -d "${TMPDIR:-/tmp}/sauti-xaac.XXXXXX")"; trap 'rm -rf -- "${W:?}"' EXIT
+cp "${XAAC_SRC:-$HOME/Sauti-tools/libxaac}/test/encoder/impd_drc_config_params.txt" "$W/"      # the DRC configuration the encoder reads from its working directory (-drc:1)
 python3 -I - "$W" <<'PY'
 import numpy as np, struct, sys
 W = sys.argv[1]; fs = 48000; n = fs * 3 // 2; t = np.arange(n) / fs; rng = np.random.default_rng(20261121)
@@ -25,6 +26,9 @@ harm = sum(0.15 / h * np.sin(2 * np.pi * 220 * h * t) for h in range(1, 40)) * 0
 burst = 0.15 * rng.standard_normal(n) * (np.sin(2 * np.pi * 3 * t) > 0.6)
 st = np.stack([harm + burst, 0.8 * harm + 0.5 * burst[::-1]], axis=1).reshape(-1)
 wav('x3', st, 2); wav('x4', st, 2)
+am = 0.3 * np.sin(2 * np.pi * 440 * t) * (1 + 0.8 * np.sin(2 * np.pi * 0.7 * t)) + 0.05 * np.random.default_rng(20261124).standard_normal(n)     # d1: an amplitude modulated tone with noise (stereo), for the uniDRC stream
+d1 = np.stack([am, 0.8 * am[::-1]], axis=1); d1 = (d1 / np.abs(d1).max() * 0.6).reshape(-1)
+wav('d1', d1, 2)
 def stereo8k(fs2):                                                          # the 8:3 signals are kept well below full scale: libxaac's 16-bit output wraps around instead of saturating
     n2 = fs2 * 3 // 2; t2 = np.arange(n2) / fs2
     h = sum(0.1 / k * np.sin(2 * np.pi * 220 * k * t2) for k in range(1, 40)) * 0.5
@@ -37,7 +41,7 @@ wav('x10', st41, 2, 48000); wav('x11', st41, 2, 48000)                       # t
 PY
 mk() {  # mk NAME FRAME_SAMPLES ENCODER_OPTIONS...
   local n="$1" fl="$2"; shift 2
-  "$ENC" -ifile:"$W/$n.wav" -ofile:"$W/$n.es" -aot:42 -usac:1 "$@" >/dev/null
+  ( cd "$W" && "$ENC" -ifile:"$W/$n.wav" -ofile:"$W/$n.es" -aot:42 -usac:1 "$@" >/dev/null )
   python3 -I - "$W" "$n" <<'PY'
 import re, struct, sys
 W, n = sys.argv[1], sys.argv[2]
@@ -48,6 +52,7 @@ for s in sizes: out += struct.pack('>I', s) + es[p:p + s]; p += s
 assert p == len(es); open("%s/%s.aus" % (W, n), 'wb').write(out)
 PY
   python3 -I ../../tools/mux_raw_aus_mp4.py "$W/$n" "usac_$n.m4a" "$fl"
+  if [ "$n" = d1 ]; then cp "$W/$n.asc" usac_d1.asc; cp "$W/$n.aus" usac_d1.aus; fi        # the raw pair for tests/test_unidrc.c (it reads the access units without a container)
 }
 mk x1 2048 -br:32000 -esbr:1
 mk x2 2048 -br:32000 -esbr:1
@@ -60,3 +65,4 @@ mk x8 4096 -br:48000 -esbr:1 -ccfl_idx:4
 mk x9 4096 -br:48000 -esbr:1 -ccfl_idx:4
 mk x10 4096 -br:48000 -esbr:1 -ccfl_idx:4 -harmonic_sbr:1
 mk x11 2048 -br:48000 -esbr:1 -ccfl_idx:3 -harmonic_sbr:1
+mk d1 2048 -br:64000 -esbr:1 -drc:1          # stereo with uniDRC: UniDrcConfig (3 gain sets, 2 instructions) in the config, UniDrcGain() in every access unit, LoudnessInfoSet -16 LUFS

@@ -1,0 +1,73 @@
+/* MPEG-D DRC (uniDRC) bitstream parsers (stage U1 of docs/UNIDRC_PLAN.md) on a REAL stream: tests/data/usac_d1.{asc,aus}, made by libxaac's encoder (-drc:1, impd_drc_config_params.txt) from a synthetic signal
+ * (tests/data/make_usac_xaac_fixtures.sh).  Checks: the configuration (3 gain sets, 2 instructions, 2 channels), the LoudnessInfoSet (-16 LUFS, the value of the encoder's configuration file), and that UniDrcGain() of every
+ * access unit is consumed up to its padding byte; plus hand-made rejections.  usage: build/test_unidrc (from the repository root). */
+#include "sauti_unidrc.h"
+#include "sauti_usac.h"
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static int g_failures;
+#define CHECK(cond, ...) do { if (!(cond)) { g_failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
+static uint8_t *slurp(const char *path, size_t *n) {
+    FILE *f = fopen(path, "rb"); uint8_t *b; long len;
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END); len = ftell(f); fseek(f, 0, SEEK_SET); b = (uint8_t *)malloc((size_t)len + 1u);
+    if (!b || fread(b, 1, (size_t)len, f) != (size_t)len) { fclose(f); free(b); return NULL; }
+    fclose(f); *n = (size_t)len; return b;
+}
+
+int main(void) {
+    size_t na, nu, pos = 0, bit0 = 5; uint8_t *asc = slurp("tests/data/usac_d1.asc", &na), *aus = slurp("tests/data/usac_d1.aus", &nu);
+    static SautiUsacConfig cfg; static SautiUniDrcConfig dc; static SautiUniDrcLoudnessSet ls; static SautiUniDrcGain g; SautiUsacState *st; float *pcm;
+    unsigned n = 0, ok = 0, seq1_min_ok = 0;
+    if (!asc || !aus) { printf("cannot read tests/data/usac_d1.* (run from the repository root)\n"); return 1; }
+    if ((asc[0] >> 3) == 31) bit0 = 11;
+    bit0 += 8;
+    CHECK(sauti_usac_config_parse(asc, na, bit0, &cfg) == 1, "USAC config");
+    CHECK(cfg.drc_cfg_len > 0 && cfg.loud_len > 0, "uniDRC config / loudness not located in the USAC config (%u / %u bytes)", cfg.drc_cfg_len, cfg.loud_len);
+    {
+        SautiUsacBits b; b.data = asc; b.nbits = na * 8u; b.pos = cfg.drc_cfg_pos;
+        CHECK(sauti_unidrc_config_parse(&b, &dc) == 1 && b.pos - cfg.drc_cfg_pos <= (size_t)cfg.drc_cfg_len * 8u && (size_t)cfg.drc_cfg_len * 8u - (b.pos - cfg.drc_cfg_pos) < 8u, "UniDrcConfig parse / length");
+        CHECK(dc.sample_rate == 48000u && dc.base_channels == 2u && dc.dmx_count == 1u && dc.coeff_count == 1u && dc.instr_count == 2u, "config: rate %u ch %u dmx %u coeffs %u instr %u", dc.sample_rate, dc.base_channels, dc.dmx_count, dc.coeff_count, dc.instr_count);
+        CHECK(dc.coeff[0].version == 1u && dc.coeff[0].location == 1u && dc.coeff[0].gain_set_count == 3u && dc.coeff[0].gain_seq_count == 3u, "coefficients");
+        CHECK(dc.instr[0].set_id == 1u && dc.instr[0].effect == 0x1u && dc.instr[0].gain_set_index[0] == 0 && dc.instr[1].set_id == 2u && dc.instr[1].effect == 0x800u && dc.instr[1].gain_set_index[0] == 1, "instructions");
+    }
+    {
+        SautiUsacBits b; b.data = asc; b.nbits = na * 8u; b.pos = cfg.loud_pos;
+        CHECK(sauti_unidrc_loudness_parse(&b, &ls) == 1 && b.pos - cfg.loud_pos == (size_t)cfg.loud_len * 8u, "LoudnessInfoSet parse / length");
+        CHECK(ls.count == 1u && ls.info[0].set_id == 1u && ls.info[0].measures == 1u && ls.info[0].measure[0].method == 1u && fabsf(ls.info[0].measure[0].value + 16.0f) < 1e-6f, "loudness: %.2f LUFS", (double)ls.info[0].measure[0].value);
+    }
+    st = (SautiUsacState *)malloc(sizeof *st); pcm = (float *)malloc(sizeof(float) * 4096u * 8u);
+    sauti_usac_state_init(st, &cfg);
+    while (pos + 4 <= nu) {
+        const uint32_t len = ((uint32_t)aus[pos] << 24) | ((uint32_t)aus[pos + 1] << 16) | ((uint32_t)aus[pos + 2] << 8) | aus[pos + 3]; const uint8_t *au = aus + pos + 4; SautiAacReason why; SautiUsacBits b; size_t used, avail;
+        pos += 4u + len; n++;
+        CHECK(sauti_usac_decode(&cfg, st, au, len, pcm, &why) == 1, "AU %u decode", n);
+        if (!st->drc_len) { CHECK(0, "AU %u: no UniDrcGain payload", n); continue; }
+        b.data = au; b.nbits = (size_t)len * 8u; b.pos = st->drc_pos;
+        if (sauti_unidrc_gain_parse(&dc, cfg.out_frame_len, cfg.sample_rate, &b, &g) != 1) { CHECK(0, "AU %u: UniDrcGain parse", n); continue; }
+        used = b.pos - st->drc_pos; avail = (size_t)st->drc_len * 8u;
+        CHECK(used <= avail && avail - used < 8u, "AU %u: used %zu of %zu bits", n, used, avail);
+        CHECK(g.seq_count == 3u && g.seq[0].count > 0 && g.seq[1].count > 0 && g.seq[2].count > 0, "AU %u: sequences", n);
+        ok++;
+        if (g.seq[1].count && g.seq[1].gain_db[0] > -9.5f && g.seq[1].gain_db[0] < -6.5f) seq1_min_ok++;      /* the gain of the set 2 hovers around the -8 dB of the configuration */
+    }
+    CHECK(n == 34u && ok == 34u && seq1_min_ok >= 28u, "access units %u parsed %u, set 2 gain near -8 dB in %u", n, ok, seq1_min_ok);
+    {   /* rejections: truncated and garbage data never crash and are refused */
+        SautiUsacBits b; uint8_t junk[64]; unsigned i;
+        b.data = asc; b.nbits = (cfg.drc_cfg_pos + 100u); b.pos = cfg.drc_cfg_pos;
+        CHECK(sauti_unidrc_config_parse(&b, &dc) != 1, "truncated config accepted");
+        for (i = 0; i < sizeof junk; i++) junk[i] = (uint8_t)(i * 37u + 11u);
+        for (i = 0; i < 40; i++) {
+            SautiUsacBits jb; jb.data = junk + (i & 7u); jb.nbits = 8u * (sizeof junk - 8u); jb.pos = i;
+            (void)sauti_unidrc_config_parse(&jb, &dc);
+            jb.pos = i; (void)sauti_unidrc_loudness_parse(&jb, &ls);
+        }
+    }
+    free(st); free(pcm); free(asc); free(aus);
+    if (g_failures) { printf("test_unidrc: %d FAILURES\n", g_failures); return 1; }
+    printf("test_unidrc: all passed\n");
+    return 0;
+}

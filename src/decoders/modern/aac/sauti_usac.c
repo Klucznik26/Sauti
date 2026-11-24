@@ -116,6 +116,7 @@ int sauti_usac_config_parse(const uint8_t *data, size_t size, size_t bit_offset,
             if (sauti_usac_get(&b, 1)) e->ext_default_len = sauti_usac_escaped(&b, 8, 16, 0) + 1u;
             e->ext_payload_frag = sauti_usac_get(&b, 1);
             if (cfg_len > (b.nbits - (b.pos < b.nbits ? b.pos : b.nbits)) / 8u) return 0;
+            if (e->ext_type == 4u && cfg_len > 0u && !c.drc_cfg_len) { c.drc_cfg_pos = b.pos; c.drc_cfg_len = cfg_len; }
             b.pos += (size_t)cfg_len * 8u;
             break; }
         }
@@ -127,9 +128,10 @@ int sauti_usac_config_parse(const uint8_t *data, size_t size, size_t bit_offset,
         const unsigned n = sauti_usac_escaped(&b, 2, 4, 8) + 1u;
         for (i = 0; i < n; i++) {
             unsigned len;
-            (void)sauti_usac_escaped(&b, 4, 8, 16);
+            const unsigned ext_type = sauti_usac_escaped(&b, 4, 8, 16);
             len = sauti_usac_escaped(&b, 4, 8, 16);
             if (b.pos > b.nbits || len > (b.nbits - b.pos) / 8u) return 0;
+            if (ext_type == 2u && len > 0u && !c.loud_len) { c.loud_pos = b.pos; c.loud_len = len; }
             b.pos += (size_t)len * 8u;
         }
     }
@@ -851,6 +853,7 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
 
 /* The access unit decoded INTO `next` (a scratch copy of the state: the caller commits or drops it).  preroll_ok = 0 for the access units carried inside a pre-roll payload. */
 static int decode_core(const SautiUsacConfig *cfg, SautiUsacState *next, const uint8_t *au, size_t length, float *pcm, SautiAacReason *reason, int preroll_ok) {
+    next->drc_pos = 0; next->drc_len = 0;
     unsigned why = 0, ch = 0, el, n, c, i;
     int indep, r;
     SautiUsacBits b;
@@ -896,6 +899,7 @@ preroll_end:
                 free(buf); free(scratch);
                 if (!ok) { *reason = inner == -1 ? pwhy : SAUTI_AAC_REASON_INVALID_SCE; r = inner == -1 ? -1 : 0; goto fail; }   /* a pre-roll frame the decoder cannot decode (LPD ...) makes the access unit unsupported, not malformed */
             }
+            if (e->ext_type == 4u) { next->drc_pos = b.pos; next->drc_len = len; }
             b.pos += (size_t)len * 8u;                                      /* fill, DRC gain, ...: not decoded */
             continue;
         }

@@ -1,6 +1,6 @@
 # uniDRC (MPEG-D DRC, ISO/IEC 23003-4) for USAC: plan and measurements
 
-Status (2026-11-24): NOT implemented.  The decision of the owner (2026-11-24): do it as an OPTIONAL OUTPUT FEATURE; the default PCM stays untouched (the reference decoders do not apply it by default either, see below).
+Status (2026-11-24): stage U1 (parsers) DONE: `sauti_unidrc.{c,h}` parse UniDrcConfig (v0 and the V1 extension), LoudnessInfoSet and UniDrcGain; `make test-unidrc` on the real stream `tests/data/usac_d1.{asc,aus,m4a}` (libxaac `-drc:1`): config (3 gain sets, 2 instructions), loudness -16 LUFS, all 34 gain payloads consumed to their padding byte, set 2 around -8 dB.  The loudness values of the libxaac-made fixtures (`nodrc` -11.75 LUFS, `usac_x3` -16.25 LUFS) give EXACTLY the constant gains FDK applies (-24 - L = -12.25 / -7.75 dB; measured -12.2 / -7.7).  Selection, gain interpolation / application and the options are NOT implemented (U2 .. U5).  The decision of the owner (2026-11-24): do it as an OPTIONAL OUTPUT FEATURE; the default PCM stays untouched (the reference decoders do not apply it by default either, see below).
 
 ## What the references do (measured)
 
