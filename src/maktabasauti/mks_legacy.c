@@ -150,9 +150,10 @@ extern const maktabasauti_codec_t maktabasauti_flac_desc;        /* FLAC: modul 
 extern const maktabasauti_codec_t maktabasauti_voc_desc;         /* VOC: modul strumieniowy (src/decoders/retro/pc/maktabasauti_voc.c) */
 extern const maktabasauti_codec_t maktabasauti_dvs_avr_desc;    /* AVR i DVSM: moduly strumieniowe (src/decoders/retro/atari/maktabasauti_dvs.c); DTM zostaje adapterem z calym buforem (format modulowy) */
 extern const maktabasauti_codec_t maktabasauti_dvs_dvsm_desc;
+extern const maktabasauti_codec_t maktabasauti_svx_desc;          /* Amiga IFF 8SVX: modul strumieniowy (src/decoders/retro/amiga/maktabasauti_svx.c) */
 static const maktabasauti_codec_t *const legacy_ptrs[] = {
     &maktabasauti_pcm_wav_desc, &maktabasauti_voc_desc, &maktabasauti_pcm_aiff_desc, &maktabasauti_pcm_au_desc, &maktabasauti_aac_adts_desc /* ADTS: modul strumieniowy (src/decoders/modern/aac/maktabasauti_aac_adts.c) */, &maktabasauti_aac_mp4_desc /* MP4: modul indeksowany */, &maktabasauti_aac_loas_desc /* LOAS: modul strumieniowy */, &maktabasauti_aac_adif_desc /* ADIF: modul strumieniowy */,
-    &codec_vorbis, &codec_midi, &maktabasauti_flac_desc, &maktabasauti_dvs_avr_desc, &maktabasauti_dvs_dvsm_desc, &codec_dtm, &codec_ym, &codec_mp3
+    &codec_vorbis, &codec_midi, &maktabasauti_flac_desc, &maktabasauti_dvs_avr_desc, &maktabasauti_dvs_dvsm_desc, &maktabasauti_svx_desc, &codec_dtm, &codec_ym, &codec_mp3
 };
 
 const maktabasauti_codec_t *const *mks_legacy_codecs(size_t *count) {

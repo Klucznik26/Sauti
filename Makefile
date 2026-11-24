@@ -2169,7 +2169,7 @@ test-maktabasauti-headers:
 
 # ---- MaktabaSauti: rdzen (src/maktabasauti) + opakowania starszych dekoderow; docs/MAKTABASAUTI_API.md ----
 MKS_CORE_SRC := $(filter-out src/maktabasauti/mks_nolegacy.c,$(wildcard src/maktabasauti/*.c))
-MKS_LEGACY_SRC := src/decoders/retro/atari/maktabasauti_dvs.c src/decoders/modern/aac/maktabasauti_aac_engine.c src/decoders/modern/aac/maktabasauti_aac_adts.c src/decoders/modern/aac/maktabasauti_aac_loas.c src/decoders/modern/aac/maktabasauti_aac_adif.c src/decoders/modern/aac/maktabasauti_aac_mp4.c src/decoders/modern/maktabasauti_pcm.c src/decoders/modern/maktabasauti_flac.c src/decoders/retro/pc/maktabasauti_voc.c src/decoders/modern/sauti_decoder_wav.c src/decoders/retro/pc/sauti_decoder_voc.c src/decoders/modern/sauti_decoder_aiff.c src/decoders/modern/sauti_decoder_vorbis.c \
+MKS_LEGACY_SRC := src/decoders/retro/atari/maktabasauti_dvs.c src/decoders/retro/amiga/maktabasauti_svx.c src/decoders/modern/aac/maktabasauti_aac_engine.c src/decoders/modern/aac/maktabasauti_aac_adts.c src/decoders/modern/aac/maktabasauti_aac_loas.c src/decoders/modern/aac/maktabasauti_aac_adif.c src/decoders/modern/aac/maktabasauti_aac_mp4.c src/decoders/modern/maktabasauti_pcm.c src/decoders/modern/maktabasauti_flac.c src/decoders/retro/pc/maktabasauti_voc.c src/decoders/modern/sauti_decoder_wav.c src/decoders/retro/pc/sauti_decoder_voc.c src/decoders/modern/sauti_decoder_aiff.c src/decoders/modern/sauti_decoder_vorbis.c \
                   src/decoders/modern/sauti_decoder_midi.c src/decoders/modern/sauti_decoder_flac.c src/decoders/modern/sauti_decoder_mp3.c src/decoders/retro/atari/sauti_decoder_avr.c \
                   src/decoders/retro/atari/sauti_decoder_dvsm.c src/decoders/retro/atari/sauti_decoder_dtm.c src/decoders/retro/atari/sauti_decoder_ym.c src/sauti_decoder.c
 MKS_DEPS = $(sort $(MKS_CORE_SRC) $(MKS_LEGACY_SRC) $(AAC_PLAYER_SRC) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_ASM))
@@ -2428,6 +2428,11 @@ $(OBJDIR)/test_dvsm_winrec: tests/test_dvsm_winrec.c $(MKS_DEPS) $(MKS_THIRD) | 
 .PHONY: test-dvsm-winrec
 test-dvsm-winrec: $(OBJDIR)/test_dvsm_winrec
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_dvsm_winrec
+$(OBJDIR)/test_svx: tests/test_svx.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_svx.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-svx
+test-svx: $(OBJDIR)/test_svx
+	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_svx
 $(OBJDIR)/test_usac_xaac: tests/test_usac_xaac.c tests/test_usac_xaac_fingerprints.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_usac_xaac.c $(MKS_DEPS) -lm -lpthread -no-pie
 .PHONY: test-usac-xaac
