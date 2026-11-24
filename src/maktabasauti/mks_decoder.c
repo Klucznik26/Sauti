@@ -130,6 +130,7 @@ static int name_matches(const char *forced, const char *name) {
 
 static int error_rank(maktabasauti_result_t r) {
     switch (r) {
+    case MAKTABASAUTI_E_INVALID_ARGUMENT: return 5;      /* zla opcja: najdokladniejsza odpowiedz, kiedy zaden kandydat nie pasuje */
     case MAKTABASAUTI_E_UNSUPPORTED_FEATURE: return 4;
     case MAKTABASAUTI_E_CORRUPT_DATA: case MAKTABASAUTI_E_TRUNCATED: return 3;
     case MAKTABASAUTI_E_NOT_SEEKABLE: return 2;

@@ -18,6 +18,7 @@
  * Przewijanie: dokladne z arytmetyki pozycji (wejscie przewijalne).  Bledy sa lepkie (E_TRUNCATED), czyszczone przez seek/reset/flush. */
 #include "maktabasauti/maktabasauti_codec.h"
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define STAGE_BYTES 4096u
@@ -381,6 +382,60 @@ static maktabasauti_result_t MAKTABASAUTI_CALL au_open(const maktabasauti_codec_
     return pcm_finish(&s, h, rd, &proto, rate, "au", info, state);
 }
 
+
+/* ================================================ G.711 BEZ NAGLOWKA (.ul / .al) ================================================
+ * Surowy strumien bajtow mu-law / A-law nie niesie czestotliwosci ani liczby kanalow: opcje `raw.rate` (domyslnie 8000) i `raw.channels` (domyslnie 1, najwyzej 8; kanaly przeplatane).
+ * Rozpoznanie tylko po rozszerzeniu z `name_hint` (ul, ulaw, mulaw, pcmu / al, alaw, pcma) z NISKA pewnoscia (10), wiec kazdy kontener z naglowkiem wygrywa; bez podpowiedzi kodek trzeba
+ * wymusic nazwa (`g711-ulaw-raw`, `g711-alaw-raw`). */
+static int hint_ext_is(const char *hint, const char *const *list) {
+    const char *dot; size_t i, j;
+    if (!hint) return 0;
+    dot = strrchr(hint, '.'); dot = dot ? dot + 1 : hint;
+    for (i = 0; list[i]; i++) {
+        for (j = 0; list[i][j] && dot[j]; j++) { char c = dot[j]; if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a'); if (c != list[i][j]) break; }
+        if (!list[i][j] && !dot[j]) return 1;
+    }
+    return 0;
+}
+static int32_t MAKTABASAUTI_CALL raw_ulaw_probe(const maktabasauti_codec_t *self, const uint8_t *p, size_t n, const char *hint) {
+    static const char *const ext[] = { "ul", "ulaw", "mulaw", "pcmu", NULL };
+    (void)self; (void)p; (void)n;
+    return hint_ext_is(hint, ext) ? 10 : 0;
+}
+static int32_t MAKTABASAUTI_CALL raw_alaw_probe(const maktabasauti_codec_t *self, const uint8_t *p, size_t n, const char *hint) {
+    static const char *const ext[] = { "al", "alaw", "pcma", NULL };
+    (void)self; (void)p; (void)n;
+    return hint_ext_is(hint, ext) ? 10 : 0;
+}
+static maktabasauti_result_t raw_option(const maktabasauti_host_t *h, const char *key, uint32_t def, uint32_t lo, uint32_t hi, uint32_t *out) {
+    const char *v = h->option ? h->option(h->user, key) : NULL; char *end; unsigned long x;
+    *out = def;
+    if (!v || !v[0]) return MAKTABASAUTI_OK;
+    x = strtoul(v, &end, 10);
+    if (*end || x < lo || x > hi) return MAKTABASAUTI_E_INVALID_ARGUMENT;
+    *out = (uint32_t)x;
+    return MAKTABASAUTI_OK;
+}
+static maktabasauti_result_t raw_law_open(const maktabasauti_host_t *h, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state, int kind) {
+    scan_t s; pcm_t proto; maktabasauti_result_t r; uint32_t rate, channels; int64_t size;
+    *state = NULL;
+    r = raw_option(h, "raw.rate", 8000u, 1u, 768000u, &rate); if (r != MAKTABASAUTI_OK) return r;
+    r = raw_option(h, "raw.channels", 1u, 1u, 8u, &channels); if (r != MAKTABASAUTI_OK) return r;
+    r = sc_begin(&s, h, rd);
+    if (r != MAKTABASAUTI_OK) return r;
+    memset(&proto, 0, sizeof proto);
+    proto.kind = kind; proto.bits = 8u; proto.width = 1u; proto.channels = channels; proto.data_off = 0;
+    size = h->size ? h->size(h->user, rd) : -1;
+    if (size >= 0) { proto.total = (uint64_t)size / channels; proto.total_known = 1; }
+    return pcm_finish(&s, h, rd, &proto, rate, "raw", info, state);
+}
+static maktabasauti_result_t MAKTABASAUTI_CALL raw_ulaw_open(const maktabasauti_codec_t *self, const maktabasauti_host_t *h, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
+    (void)self; return raw_law_open(h, rd, info, state, 4);
+}
+static maktabasauti_result_t MAKTABASAUTI_CALL raw_alaw_open(const maktabasauti_codec_t *self, const maktabasauti_host_t *h, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
+    (void)self; return raw_law_open(h, rd, info, state, 5);
+}
+
 const maktabasauti_codec_t maktabasauti_pcm_wav_desc = {
     sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "wav-pcm", "RIFF/WAVE PCM (streaming)", "maktabasauti_pcm",
     MAKTABASAUTI_CODEC_FLAG_STREAMING | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
@@ -395,4 +450,14 @@ const maktabasauti_codec_t maktabasauti_pcm_au_desc = {
     sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "au-pcm", "Sun/NeXT AU: PCM, G.711 mu-law / A-law (streaming)", "maktabasauti_pcm",
     MAKTABASAUTI_CODEC_FLAG_STREAMING | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
     au_probe, au_open, pcm_read, pcm_seek, pcm_reset, pcm_flush, NULL, pcm_last_error, NULL, pcm_close, { NULL }, { NULL }
+};
+const maktabasauti_codec_t maktabasauti_pcm_rawulaw_desc = {
+    sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "g711-ulaw-raw", "G.711 mu-law without a header (options raw.rate, raw.channels)", "maktabasauti_pcm",
+    MAKTABASAUTI_CODEC_FLAG_STREAMING | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
+    raw_ulaw_probe, raw_ulaw_open, pcm_read, pcm_seek, pcm_reset, pcm_flush, NULL, pcm_last_error, NULL, pcm_close, { NULL }, { NULL }
+};
+const maktabasauti_codec_t maktabasauti_pcm_rawalaw_desc = {
+    sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "g711-alaw-raw", "G.711 A-law without a header (options raw.rate, raw.channels)", "maktabasauti_pcm",
+    MAKTABASAUTI_CODEC_FLAG_STREAMING | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
+    raw_alaw_probe, raw_alaw_open, pcm_read, pcm_seek, pcm_reset, pcm_flush, NULL, pcm_last_error, NULL, pcm_close, { NULL }, { NULL }
 };

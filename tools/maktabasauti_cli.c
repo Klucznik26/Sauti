@@ -1,5 +1,5 @@
 /* Test tool (not a product): decodes a file with the MaktabaSauti default registry to interleaved float32 LE and prints the stream description.
- * usage: maktabasauti_cli IN OUT.f32 [--nongapless] [--nonseekable] [--opt KEY=VALUE]...   ->  `STREAM <codec>/<profile> in <container> rate=.. channels=.. total=.. frames=..` */
+ * usage: maktabasauti_cli IN OUT.f32 [--nongapless] [--nonseekable] [--opt KEY=VALUE]... [--codec NAME] [--hint FILENAME]   ->  `STREAM <codec>/<profile> in <container> rate=.. channels=.. total=.. frames=..` */
 #include "maktabasauti/maktabasauti.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,7 +9,12 @@ int main(int argc, char **argv) {
     maktabasauti_open_params_t p; maktabasauti_decoder_t *d = NULL; maktabasauti_stream_info_t info; maktabasauti_result_t r; FILE *out; float *buf; size_t got, total = 0; int i;
     if (argc < 3) return 2;
     memset(&p, 0, sizeof p); p.struct_size = sizeof p; p.abi_version = MAKTABASAUTI_ABI_VERSION;
-    for (i = 3; i < argc; i++) if (!strcmp(argv[i], "--nongapless")) p.flags |= MAKTABASAUTI_OPEN_NO_GAPLESS;
+    for (i = 3; i < argc; i++) {
+        if (!strcmp(argv[i], "--nongapless")) p.flags |= MAKTABASAUTI_OPEN_NO_GAPLESS;
+        else if (!strcmp(argv[i], "--codec") && i + 1 < argc) p.codec = argv[++i];        /* force a codec by name (needed for header-less data) */
+        else if (!strcmp(argv[i], "--hint") && i + 1 < argc) p.name_hint = argv[++i];    /* name or extension hint for the autodetection */
+        else if (!strcmp(argv[i], "--opt") && i + 1 < argc) i++;
+    }
     {   /* --opt KEY=VALUE: codec options (e.g. aac.drc=on) */
         static maktabasauti_option_t opts[16]; static char kv[16][128]; size_t n = 0;
         for (i = 3; i + 1 < argc && n < 16; i++) if (!strcmp(argv[i], "--opt")) {

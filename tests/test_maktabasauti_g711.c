@@ -17,7 +17,7 @@
 static int g_failures;
 #define CHECK(c, ...) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s -- ", __FILE__, __LINE__, #c); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); g_failures++; } } while (0)
 
-typedef struct { const uint8_t *data; size_t n, pos, max_chunk; int seekable, size_known; } Src;
+typedef struct { const uint8_t *data; size_t n, pos, max_chunk; int seekable, size_known; const char *codec, *hint; const maktabasauti_option_t *opts; size_t nopts; } Src;
 static int64_t MAKTABASAUTI_CALL s_read(void *u, void *buf, size_t size) {
     Src *s = (Src *)u; size_t give = s->n - s->pos;
     if (s->max_chunk && size > s->max_chunk) size = s->max_chunk;
@@ -37,6 +37,7 @@ static maktabasauti_result_t open_src(Src *s, maktabasauti_decoder_t **d) {
     maktabasauti_open_params_t p;
     memset(&p, 0, sizeof p); p.struct_size = sizeof p; p.abi_version = MAKTABASAUTI_ABI_VERSION;
     p.io.struct_size = sizeof p.io; p.io.user = s; p.io.read = s_read; p.io.close = s_close; p.io.seek = s->seekable ? s_seek : NULL; p.io.size = s->size_known ? s_size : NULL;
+    p.codec = s->codec; p.name_hint = s->hint; p.options = s->opts; p.option_count = s->nopts;
     return maktabasauti_decoder_open(&p, d);
 }
 
@@ -107,6 +108,26 @@ static void check_law(const char *what, const Buf *file, const int16_t *tab, uns
     free(out); (void)codec_hint;
 }
 
+/* raw G.711 (no header): forced by codec name or recognised by the extension of the name hint; rate / channels from the options */
+static void check_raw(const char *what, const Buf *file, const int16_t *tab, unsigned ch, unsigned rate, size_t max_chunk, int seekable, int size_known, const char *codec, const char *hint, int give_opts) {
+    char rs[16], cs[16]; maktabasauti_option_t o[2]; Src s; unsigned c; uint32_t r_rate = 0; uint64_t total = 0; float *out = NULL; size_t n = 0, f, frames = file->n / ch; maktabasauti_result_t last; unsigned got_ch = 0;
+    snprintf(rs, sizeof rs, "%u", rate); snprintf(cs, sizeof cs, "%u", ch);
+    o[0].key = "raw.rate"; o[0].value = rs; o[1].key = "raw.channels"; o[1].value = cs;
+    memset(&s, 0, sizeof s); s.data = file->b; s.n = file->n; s.max_chunk = max_chunk; s.seekable = seekable; s.size_known = size_known; s.codec = codec; s.hint = hint; s.opts = give_opts ? o : NULL; s.nopts = give_opts ? 2u : 0u;
+    if (!read_all(&s, &got_ch, &r_rate, &total, &out, &n, &last)) { CHECK(0, "%s: open failed (%d)", what, (int)last); return; }
+    CHECK(got_ch == ch && r_rate == rate, "%s: %u ch %u Hz, expected %u ch %u Hz", what, got_ch, r_rate, ch, rate);
+    CHECK(n == frames && last == MAKTABASAUTI_EOF, "%s: %zu frames (%zu expected), end %d", what, n, frames, (int)last);
+    if (size_known) CHECK(total == frames, "%s: length %llu", what, (unsigned long long)total);
+    for (f = 0; f < n && f < frames; f++) for (c = 0; c < ch; c++) if (out[f * ch + c] != expect_law(tab, pay((unsigned)f, c))) { CHECK(0, "%s: frame %zu ch %u: %g, expected %g", what, f, c, out[f * ch + c], expect_law(tab, pay((unsigned)f, c))); free(out); return; }
+    free(out);
+}
+static maktabasauti_result_t raw_open_status(const Buf *file, const char *codec, const char *hint, const char *rate, const char *chans) {
+    maktabasauti_option_t o[2]; Src s; maktabasauti_decoder_t *d = NULL; maktabasauti_result_t r;
+    o[0].key = "raw.rate"; o[0].value = rate; o[1].key = "raw.channels"; o[1].value = chans;
+    memset(&s, 0, sizeof s); s.data = file->b; s.n = file->n; s.seekable = 1; s.size_known = 1; s.codec = codec; s.hint = hint; s.opts = o; s.nopts = 2u;
+    r = open_src(&s, &d); if (d) maktabasauti_decoder_close(d); return r;
+}
+
 int main(void) {
     Buf b; unsigned law, ch, fr; static const unsigned chs[2] = { 1, 2 };
     /* 0. the golden tables themselves: spot checks of the definition (mu-law 0xff = 0, A-law 0xd5 = +8 ..) */
@@ -136,6 +157,30 @@ int main(void) {
                   snprintf(what, sizeof what, "au-unsized %s %uch %uf", nm, c, frames); check_law(what, &b, tab, c, 8000, frames, 0, 1, 1, NULL); check_law(what, &b, tab, c, 8000, frames, 5, 0, 0, NULL); free(b.b);
               } }
         }
+    }
+    /* 6. raw G.711 without a header */
+    for (law = 0; law < 2; law++) {
+        const int16_t *tab = law ? g711_alaw_golden : g711_ulaw_golden; const char *name = law ? "g711-alaw-raw" : "g711-ulaw-raw", *ext = law ? "voice.al" : "VOICE.UL", *ext2 = law ? "x.pcma" : "x.mulaw"; char what[96];
+        for (ch = 0; ch < 2; ch++) {
+            const unsigned c = chs[ch], frames = 700u;
+            memset(&b, 0, sizeof b); payload(&b, frames, c);
+            snprintf(what, sizeof what, "raw forced %s %uch", name, c); check_raw(what, &b, tab, c, 11025, 0, 1, 1, name, NULL, 1); check_raw(what, &b, tab, c, 11025, 1, 0, 0, name, NULL, 1); check_raw(what, &b, tab, c, 11025, 7, 1, 1, name, NULL, 1);
+            snprintf(what, sizeof what, "raw by extension %s %uch", ext, c); check_raw(what, &b, tab, c, 16000, 0, 1, 1, NULL, ext, 1); check_raw(what, &b, tab, c, 16000, 0, 1, 1, NULL, ext2, 1);
+            snprintf(what, sizeof what, "raw defaults %s %uch", name, c); if (c == 1) check_raw(what, &b, tab, 1, 8000, 0, 1, 1, name, ext, 0);
+            free(b.b);
+        }
+        memset(&b, 0, sizeof b); payload(&b, 256, 1);
+        CHECK(raw_open_status(&b, name, NULL, "abc", "1") == MAKTABASAUTI_E_INVALID_ARGUMENT && raw_open_status(&b, name, NULL, "8000", "9") == MAKTABASAUTI_E_INVALID_ARGUMENT && raw_open_status(&b, name, NULL, "0", "1") == MAKTABASAUTI_E_INVALID_ARGUMENT, "%s: bad options accepted", name);
+        CHECK(raw_open_status(&b, NULL, ext, "8000", "1") == MAKTABASAUTI_OK, "%s: extension %s not recognised", name, ext);
+        CHECK(raw_open_status(&b, NULL, "voice.dat", "8000", "1") != MAKTABASAUTI_OK, "an unknown extension must not open raw data");
+        free(b.b);
+    }
+    {   /* a container wins over the extension: a WAV named .ul is a WAV (50 against 10) */
+        Src s; unsigned got_ch = 0; uint32_t r_rate = 0; uint64_t total = 0; float *out = NULL; size_t n = 0; maktabasauti_result_t last;
+        memset(&b, 0, sizeof b); wav(&b, 7u, 0, 1, 8000, 256);
+        memset(&s, 0, sizeof s); s.data = b.b; s.n = b.n; s.seekable = 1; s.size_known = 1; s.hint = "wrapped.ul";
+        CHECK(read_all(&s, &got_ch, &r_rate, &total, &out, &n, &last) && n == 256 && out[0] == expect_law(g711_ulaw_golden, pay(0, 0)), "a WAV with the extension .ul");
+        free(out); free(b.b);
     }
     /* 2. AU PCM 8 / 16 / 24 / 32 bit big-endian signed */
     { static const unsigned enc[4] = { 2, 3, 4, 5 }; unsigned k;
@@ -178,7 +223,7 @@ int main(void) {
     /* 4. rejections */
     { Src s; maktabasauti_decoder_t *d = NULL; unsigned k;
       struct { const char *what; unsigned off; uint32_t enc, rate, ch; } bad[] = {
-          { "au float32 (6)", 24, 6, 8000, 1 }, { "au double (7)", 24, 7, 8000, 1 }, { "au G.721 ADPCM (23)", 24, 23, 8000, 1 }, { "au zero channels", 24, 1, 8000, 0 }, { "au zero rate", 24, 1, 0, 1 },
+          { "au float32 (6)", 24, 6, 8000, 1 }, { "au double (7)", 24, 7, 8000, 1 }, { "au G.722 (24, not G.726)", 24, 24, 8000, 1 }, { "au zero channels", 24, 1, 8000, 0 }, { "au zero rate", 24, 1, 0, 1 },
           { "au offset below 24", 20, 1, 8000, 1 }, { "au absurd offset", 0x7fffffffu, 1, 8000, 1 }, { "au 33 channels", 24, 1, 8000, 33 } };
       for (k = 0; k < sizeof bad / sizeof bad[0]; k++) {
           memset(&b, 0, sizeof b); au(&b, bad[k].off < 24 ? 24 : bad[k].off > 4096 ? 24 : bad[k].off, 64, bad[k].enc, bad[k].rate, bad[k].ch, 32, 1);
