@@ -8105,7 +8105,7 @@ Test: `test_24_band_bank` w `tests/test_aac_sbr_qmf_analysis.c` (niezależny wzo
 
 **Weryfikacja.** FDK (dekoder 32-bitowy, `AAC_QMF_LOWPOWER = 0`): pojedynczy 77 – 80 dB, podwójny 74 – 83 dB na 15 s muzyki (poza przesterowaniami i początkiem o poziomie -90 dB); libxaac (dekoder): podwójny 59 – 72 dB. Fixtury `tests/data/eldsbr_single.m4a`, `eldsbr_dual.m4a` (`make_eldsbr_fixtures.sh`, sygnał syntetyczny, enkoder FDK przez `tools/sauti_fdk_aac_encoder.c`), odciski `test_eldsbr` (`make test-eldsbr`). Strumienie z muzyki (`eldr1`, `eldr2`) nie są w repozytorium (prawa autorskie). Mutacje: 8 z 8 zabitych (`transient_env` FIXFIX, `attack[0]` LD_TRAN, wzmocnienie syntezy 64, liczba odczepów syntezy, częstotliwość tablic SBR; kontrole trybu sprzężenia obwiedni i szumu: początkowo PRZEŻYŁY, bo fixtury nie mają ramki czasowo-różnicowej po zmianie trybu, zabite testem jednostkowym `test_ld_time_delta_across_modes` w `test_aac_sbr_quant.c`).
 
-**Otwarte.** PS dla ELD v2 (ładunek PS w `bs_extended_data` jest odrzucany); AAC-LD + zwykły SBR (rozszerzenie ASC `0x2b7`); ELD + SBR w LATM/LOAS; ramka 480 bez strumienia testowego; sprzężona para po niesprzężonej bez strumienia w fixturach (kontrola pominięta dla LD zbadana tylko na muzyce).
+**Otwarte.** ELD v2 (UWAGA 2026-11-24: to NIE jest PS, tylko niskoopóźnieniowy MPEG Surround 212, `ELDEXT_LDSAC` w ASC, ładunek SAC za ładunkiem SBR; dziś dekodowany jest mono bez SAC); AAC-LD + zwykły SBR (rozszerzenie ASC `0x2b7`); ELD + SBR w LATM/LOAS; ramka 480 bez strumienia testowego; sprzężona para po niesprzężonej bez strumienia w fixturach (kontrola pominięta dla LD zbadana tylko na muzyce).
 
 ### SBR-132 — HE-AAC v2 (PS) z ramką 960 (DAB+) (2026-11-23)
 
