@@ -316,7 +316,7 @@ static maktabasauti_result_t dvsm_frame(dvsm_t *d, float *out) {
 }
 
 static maktabasauti_result_t MAKTABASAUTI_CALL dvsm_open(const maktabasauti_codec_t *self, const maktabasauti_host_t *h, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
-    static const uint32_t rates[] = { 8195, 9834, 12293, 16390, 19668, 24585, 32780, 49170 };
+    static const uint32_t rates[] = { 8195, 9834, 12292, 16390, 19668, 24585, 32780, 49170 };
     uint8_t hd[16]; int64_t n, size; uint32_t hz, pack, mode, channels, bits, flags; uint64_t offset, block, bytes = 0, total = 0, tail = 0; dvsm_t *d; maktabasauti_result_t r; unsigned i;
     (void)self; *state = NULL;
     n = h->peek(h->user, rd, hd, sizeof hd);

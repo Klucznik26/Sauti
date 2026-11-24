@@ -24,7 +24,7 @@ static int probe(const uint8_t *p,size_t n){
     return p&&n>=6&&!memcmp(p,"DVSM\0\0",6);
 }
 static void *open_dvsm(const uint8_t *p,size_t n,SautiPcmInfo *info){
-    static const uint32_t rates[]={8195,9834,12293,16390,19668,24585,32780,49170};
+    static const uint32_t rates[]={8195,9834,12292,16390,19668,24585,32780,49170};
     if(!info||!probe(p,n)||n<16)return NULL;
     size_t offset=be16(p+6);
     uint32_t hz=be16(p+8);
