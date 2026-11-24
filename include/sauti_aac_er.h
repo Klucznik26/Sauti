@@ -23,6 +23,7 @@ typedef struct {
 } SautiAacErConfig;
 
 typedef struct {
+    unsigned prev_shape;       /* AAC-LD: the window shape of the previous frame (the left half of a window comes from it, the right half from the current frame) */
     float overlap[1536];       /* AAC-LD: n floats; AAC-ELD: 3n floats (the window spans four frames) */
     unsigned initialized;
 } SautiAacErChannel;

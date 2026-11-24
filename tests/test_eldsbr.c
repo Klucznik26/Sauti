@@ -113,17 +113,61 @@ static void test_loas(const char *loas, const char *m4a, unsigned per_au) {
     free(pl); free(pm); free(dl); free(dm);
 }
 
+/* PNS noise: the generator seed is not normative.  Default = FFmpeg's 0x1f2e3d4c, option aac.pns_seed=fdk = FDK's 0 (checked: the fixture, a mono ELD stream at 48 kbit/s with PNS bands, decodes
+ * to 88 - 90 dB against FDK with the option and to 10 - 15 dB without it, while the default agrees with FFmpeg to 138 dB). */
+static float *decode_opts(const char *path, const maktabasauti_option_t *opts, size_t nopts, unsigned channels, size_t *frames) {
+    size_t n, total = 0, got, cap = 0; uint8_t *data = slurp(path, &n); maktabasauti_open_params_t p; maktabasauti_decoder_t *d = NULL; float *pcm = NULL, buf[2 * 4096];
+    if (!data) return NULL;
+    memset(&p, 0, sizeof p); p.struct_size = sizeof p; p.abi_version = MAKTABASAUTI_ABI_VERSION; p.options = opts; p.option_count = nopts;
+    if (maktabasauti_io_from_memory(data, n, NULL, &p.io) != MAKTABASAUTI_OK) { free(data); return NULL; }
+    if (maktabasauti_decoder_open(&p, &d) != MAKTABASAUTI_OK) { p.io.close(p.io.user); free(data); return NULL; }
+    for (;;) {
+        const maktabasauti_result_t r = maktabasauti_decoder_read(d, buf, 4096, MAKTABASAUTI_FORMAT_F32, &got);
+        if (got) { if (total + got > cap) { cap = (total + got) * 2u; pcm = (float *)realloc(pcm, cap * channels * sizeof(float)); } memcpy(pcm + total * channels, buf, got * channels * sizeof(float)); total += got; }
+        if (r != MAKTABASAUTI_OK) break;
+    }
+    maktabasauti_decoder_close(d); free(data); *frames = total; return pcm;
+}
+static double rms_of(const float *p, size_t n) { double s = 0; size_t i; for (i = 0; i < n; i++) s += (double)p[i] * p[i]; return sqrt(s / (double)n) * 32768.0; }
+static void test_pns_seed(void) {
+    static const maktabasauti_option_t o_fdk[] = { { "aac.pns_seed", "fdk" } };
+    size_t f0 = 0, f1 = 0, i; float *a = decode_opts("tests/data/eld_pns_mono_480.m4a", NULL, 0, 1, &f0), *b = decode_opts("tests/data/eld_pns_mono_480.m4a", o_fdk, 1, 1, &f1);
+    double sig = 0, err = 0;
+    CHECK(a && b && f0 == f1 && f0 == 288480, "pns seed: %zu / %zu frames", f0, f1);
+    if (a && b && f0 == f1) {
+        for (i = 0; i < f0; i++) { sig += (double)a[i] * a[i]; err += ((double)a[i] - b[i]) * ((double)a[i] - b[i]); }
+        CHECK(fabs(rms_of(a, f0) - 1633.905) < 0.01 && fabs(rms_of(b, f1) - 1633.860) < 0.01, "pns seed rms %.3f / %.3f (1633.905 / 1633.860; FDK 1633.846)", rms_of(a, f0), rms_of(b, f1));
+        CHECK(err > 0 && fabs(10.0 * log10(sig / err) - 15.33) < 0.2, "the two seeds differ only in the noise bands: %.2f dB (15.33)", 10.0 * log10(sig / err));
+    }
+    free(a); free(b);
+}
+
+/* AAC-LD at 480 lines (FDK encoder, granule 480): the low-overlap window has a 120 sample slope at 480 (FDK: LowOverlapWindow480 = SineWindow120) and the LEFT half of a window comes from the
+ * previous frame's shape (the stream switches the shape in its second frame).  Against FDK: 90 dB from block 1 on (median), the whole stream 72 dB only because FDK outputs exact zeros in block 0. */
+static void test_ld480(void) {
+    size_t f = 0; float *p = decode_opts("tests/data/ld_480_st.m4a", NULL, 0, 2, &f);
+    CHECK(p && f == 288480, "ld 480: %zu frames", f);
+    if (p && f == 288480) {
+        CHECK(fabs(rms_of(p, f * 2) - 829.827) < 0.01, "ld 480 rms %.3f (829.827; FDK 829.819)", rms_of(p, f * 2));
+        CHECK(fabs(rms_of(p + 960, 960) - 999.853) < 0.01, "ld 480 block 1 (the shape change) rms %.3f (999.853; FDK 999.851)", rms_of(p + 960, 960));
+    }
+    free(p);
+}
+
 int main(int argc, char **argv) {
     static const Fx fx[] = { { "eldsbr_single", "tests/data/eldsbr_single.m4a", 2, 4096, 70, 48000, eldsbr_single_fp }, { "eldsbr_dual", "tests/data/eldsbr_dual.m4a", 2, 4096, 70, 48000, eldsbr_dual_fp },
-                              { "eldsbr_v2", "tests/data/eldsbr_v2.m4a", 2, 4096, 70, 48000, eldsbr_v2_fp } };
+                              { "eldsbr_v2", "tests/data/eldsbr_v2.m4a", 2, 4096, 70, 48000, eldsbr_v2_fp },
+                              { "eldsbr_v2_480", "tests/data/eldsbr_v2_480.m4a", 2, 4096, 70, 48000, eldsbr_v2_480_fp } };
     unsigned k;
     if (argc > 1 && !strcmp(argv[1], "--dump")) {
         g_dump = 1;
         printf("/* Per-block fingerprints of the ELD-SBR fixtures, written by `build/test_eldsbr --dump` after the decode agreed with the FDK decoder. Only the first MAXB blocks. */\n#define MAXB 70\n");
-        for (k = 0; k < 3; k++) test_fixture(&fx[k]);
+        for (k = 0; k < 4; k++) test_fixture(&fx[k]);
         return 0;
     }
-    for (k = 0; k < 3; k++) test_fixture(&fx[k]);
+    for (k = 0; k < 4; k++) test_fixture(&fx[k]);
+    test_pns_seed();
+    test_ld480();
     test_loas("tests/data/eldsbr_single.loas", "tests/data/eldsbr_single.m4a", 512);
     test_loas("tests/data/eldsbr_dual.loas", "tests/data/eldsbr_dual.m4a", 1024);
     if (g_failures) { printf("test_eldsbr: %d FAILURES\n", g_failures); return 1; }

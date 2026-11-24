@@ -120,6 +120,14 @@ static void core_reset(dec_t *d) {
         (void)sauti_aac_sbr_channel_init(&s->channel[0]); (void)sauti_aac_sbr_channel_init(&s->channel[1]);
         break; }
     }
+    if (host_opt_is(d->host, "aac.pns_seed", "fdk")) {      /* PNS noise: the seed is not normative; FDK starts every channel at 0, FFmpeg (our default) at 0x1f2e3d4c */
+        switch (d->variant) {
+        case V_LC_STEREO: d->core.u.lc[0].pns_seed = 0u; d->core.u.lc[1].pns_seed = 0u; break;
+        case V_LC_MONO: d->core.u.lc[0].pns_seed = 0u; break;
+        case V_ER: if (d->er_aot == 39u && d->eldsbr) d->core.u.eld.er.pns_seed = 0u; else if (d->er_aot != 42u && !aot_is_lcn(d->er_aot)) d->core.u.er.pns_seed = 0u; break;
+        default: break;
+        }
+    }
 }
 
 static int all_finite(const float *p, size_t n) { size_t i; for (i = 0; i < n; i++) if (!isfinite(p[i])) return 0; return 1; }

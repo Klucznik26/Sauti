@@ -20,7 +20,8 @@ a = np.fromfile(sys.argv[1], dtype='<f4'); b = np.fromfile(sys.argv[2], dtype='<
 n = min(len(a), len(b)) // ch * ch; a = a[:n].reshape(-1, ch); b = b[:n].reshape(-1, ch)
 x = a[4000:n // ch - 4000]; y = b[4000:n // ch - 4000]
 e = float(np.sum((x - y) ** 2)); s = float(np.sum(y ** 2)); snr = 999.0 if e == 0 else 10 * np.log10(s / e)
-print("%s %.2f dB over %d frames (lengths %d / %d)" % ("OK" if snr >= mn and len(a) == len(b) else "FAIL", snr, len(x), len(a), len(b)))
+xh = a[:4000]; yh = b[:4000]; eh = float(np.sum((xh - yh) ** 2)); sh = float(np.sum(yh ** 2)); head = 999.0 if eh == 0 else 10 * np.log10(sh / eh)   # the start too: the window shape of the first frames (a wrong left half gave 12 - 17 dB here for months)
+print("%s %.2f dB over %d frames (lengths %d / %d), first 4000 frames %.2f dB" % ("OK" if snr >= mn and head >= 60 and len(a) == len(b) else "FAIL", snr, len(x), len(a), len(b), head))
 PY
 )"
   echo "$f: $r"; case "$r" in OK*) ;; *) fail=1;; esac

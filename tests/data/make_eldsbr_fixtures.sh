@@ -39,3 +39,16 @@ mk dual 2 53
 # ELD v2: the stereo input is coded as a MONO core plus the low delay MPEG Surround 212 (CHMODE 128 = MODE_212), dual rate; 32 kbit/s
 CHMODE=128 SBRMODE=1 SBRRATIO=2 "$W/enc" "$W/in.raw" 48000 2 39 32000 512 "$W/v2.aus" "$W/v2.asc" >/dev/null
 python3 -I ../../tools/mux_raw_aus_mp4.py "$W/v2" "eldsbr_v2.m4a" 512
+# the same at the 480 sample frame (granule 480, core 960 samples of 48 kHz output per access unit with the dual rate SBR): eldsbr_v2_480.m4a
+CHMODE=128 SBRMODE=1 SBRRATIO=2 "$W/enc" "$W/in.raw" 48000 2 39 32000 480 "$W/v2_480.aus" "$W/v2_480.asc" >/dev/null
+python3 -I ../../tools/mux_raw_aus_mp4.py "$W/v2_480" "eldsbr_v2_480.m4a" 480
+# mono ELD 480 without SBR at 48 kbit/s: the encoder uses PNS bands (the noise seed is not normative: FDK 0, FFmpeg 0x1f2e3d4c; see test_eldsbr.c test_pns_seed): eld_pns_mono_480.m4a
+python3 -I - "$W" <<'PY'
+import numpy as np, sys
+a = np.fromfile(sys.argv[1] + '/in.raw', '<i2').reshape(-1, 2); open(sys.argv[1] + '/mono.raw', 'wb').write(a[:, 0].astype('<i2').tobytes())
+PY
+SBRMODE=0 "$W/enc" "$W/mono.raw" 48000 1 39 48000 480 "$W/pns.aus" "$W/pns.asc" >/dev/null
+python3 -I ../../tools/mux_raw_aus_mp4.py "$W/pns" "eld_pns_mono_480.m4a" 480
+# AAC-LD stereo at 480 lines (the low-overlap window of 120 samples, a window shape change in the second frame): ld_480_st.m4a
+SBRMODE=0 "$W/enc" "$W/in.raw" 48000 2 23 48000 480 "$W/ld480.aus" "$W/ld480.asc" >/dev/null
+python3 -I ../../tools/mux_raw_aus_mp4.py "$W/ld480" "ld_480_st.m4a" 480

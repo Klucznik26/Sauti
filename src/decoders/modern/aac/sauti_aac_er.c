@@ -98,8 +98,8 @@ int sauti_aac_er_asc_parse(const uint8_t *asc,size_t length,SautiAacErAsc *out){
 }
 
 /* ---- windows ---------------------------------------------------------------------------------------------------------------------------------------------------- */
-/* AAC-LD window of length 2n: shape 0 = sine, full overlap: w[i] = sin(pi (i + 1/2) / (2n)); shape 1 = low overlap (n = 512 only): zeros, a 128-sample sine slope, ones,
- * mirrored in the second half: w = 0 (i < 192), sin(pi (i - 192 + 1/2) / 256) (192 <= i < 320), 1 (320 <= i < 512). */
+/* AAC-LD window of length 2n: shape 0 = sine, full overlap: w[i] = sin(pi (i + 1/2) / (2n)); shape 1 = low overlap: zeros, a sine slope of 128 samples (n = 512) or 120 (n = 480), ones,
+ * mirrored in the second half: w = 0 (i < (n - L) / 2), sin(pi (i - (n - L) / 2 + 1/2) / (2 L)) (the next L samples), 1 (up to n). */
 typedef struct { float w[1024]; } LdWindow;
 static LdWindow ld_windows[2][2];                /* [n == 480][shape] */
 static atomic_int ld_window_state[2][2];         /* 0 = not built, 1 = being built, 2 = ready */
@@ -109,11 +109,12 @@ static const float *ld_window(unsigned n,unsigned shape){
     int expected=0;
     if(atomic_compare_exchange_strong(&ld_window_state[a][b],&expected,1)){
         const double pi=3.14159265358979323846264338327950288;
+        const unsigned slope=n==480u?120u:128u;                  /* the sine slope of the low-overlap window: 128 samples at n = 512, 120 at n = 480 (FDK: LowOverlapWindow512 / 480 = SineWindow128 / 120) */
         for(unsigned i=0;i<n;i++){
             double v;
             if(shape==0u)v=sin(pi*((double)i+0.5)/(2.0*(double)n));
-            else if(i<192u)v=0.0;
-            else if(i<320u)v=sin(pi*((double)(i-192u)+0.5)/256.0);
+            else if(i<(n-slope)/2u)v=0.0;
+            else if(i<(n+slope)/2u)v=sin(pi*((double)(i-(n-slope)/2u)+0.5)/(2.0*(double)slope));
             else v=1.0;
             lw->w[i]=(float)v;
             lw->w[2u*n-1u-i]=(float)v;
@@ -126,16 +127,17 @@ static const float *ld_window(unsigned n,unsigned shape){
 /* AAC-LD synthesis of one channel from its dequantised spectrum (TNS already inverted by the caller): IMDCT of n lines, window, overlap-add with the previous frame's second half. */
 static int ld_synthesis(SautiAacErChannel *ch,unsigned n,unsigned shape,const float spectral[1024],float *pcm){
     float time[2048];
-    if(shape>1u || (shape==1u && n!=512u))return 0;               /* the low-overlap window is defined for 512-line frames only */
+    if(shape>1u)return 0;
     if(!sauti_aac_imdct(spectral,n,time))return 0;
-    const float *w=ld_window(n,shape);
+    const float *w=ld_window(n,shape),*wl=ld_window(n,ch->prev_shape);              /* left half: the previous frame's shape */
     float next[512];
     for(unsigned i=0;i<n;i++){
-        pcm[i]=ch->overlap[i]+time[i]*w[i];
+        pcm[i]=ch->overlap[i]+time[i]*wl[i];
         next[i]=time[n+i]*w[n+i];
         if(!isfinite(pcm[i]))return 0;
     }
     memcpy(ch->overlap,next,n*sizeof(float));
+    ch->prev_shape=shape;
     return 1;
 }
 
