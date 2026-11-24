@@ -377,9 +377,9 @@ static void test_play(void) {
     expect_channel(b, n, 0, 428, square, 4, 0, 4, 64, 4000);
     free(b);
 
-    /* Finetune +7 nie stroi okresu.  E11 nie jest jeszcze efektem. */
+    /* Finetune +7 nie stroi zapisanego okresu.  E00 nic nie zmienia w miksie. */
     inst.finetune = 0x07; inst.loop_w = 0; inst.loop_l = 2; inst.words = 2;
-    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x11};
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x00};
     b = build(&n, "FLT4", 1, 0, NULL, &inst, 1, cells, 1);
     dec_open(&d, b, n, "44100", NULL);
     CHECK(d.rc == MAKTABASAUTI_OK);
@@ -391,7 +391,7 @@ static void test_play(void) {
     free(b);
 
     inst.finetune = 0x08;
-    cells[0] = (Cell){0, 0, 0, 1, 428, 0x07, 0x37}; /* tremolo jeszcze nie dziala */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x00}; /* E00, nie tremolo: okres zostaje 428 */
     b = build(&n, "4CHN", 1, 0, NULL, &inst, 1, cells, 1);
     dec_open(&d, b, n, "44100", NULL);
     CHECK(d.rc == MAKTABASAUTI_OK);
@@ -486,18 +486,20 @@ static void test_timing(void) {
     CHECK(d.info.total_frames == (uint64_t)64u * 31u * TICK);
     dec_close(&d); free(b);
 
-    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0B, 0x00}; /* B00 nie zapetla */
+    /* B00 wraca na ten sam wiersz, wiec utwor konczy sie po tym wierszu. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0B, 0x00};
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
     dec_open(&d, b, n, NULL, NULL);
     CHECK(d.rc == MAKTABASAUTI_OK);
-    CHECK(d.info.total_frames == (uint64_t)64u * 6u * TICK);
+    CHECK(d.info.total_frames == (uint64_t)6u * TICK);
     dec_close(&d); free(b);
 
+    /* D00 idzie na nastepny order, ktorego nie ma. */
     cells[0].effect = 0x0D; cells[0].param = 0x00;
     b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
     dec_open(&d, b, n, NULL, NULL);
     CHECK(d.rc == MAKTABASAUTI_OK);
-    CHECK(d.info.total_frames == (uint64_t)64u * 6u * TICK);
+    CHECK(d.info.total_frames == (uint64_t)6u * TICK);
     dec_close(&d); free(b);
 
     /* Tempo 250 od nastepnego taktu.  Wiersz 1 gasi glosnosc. */
@@ -951,6 +953,336 @@ static void test_variants(void) {
     CHECK(d.bag.heap.live == 0);
 }
 
+static void test_position(void) {
+    uint8_t flat[4] = {127, 127, 127, 127};
+    Inst inst = {1, 2, 0, 64, 0, 2, flat};
+    Cell cells[3];
+    uint8_t orders[128];
+    uint8_t *b;
+    size_t n = 0, got = 0;
+    Dec d;
+    int16_t *pcm;
+    size_t at;
+    memset(orders, 0, sizeof orders);
+    orders[1] = 1;
+    orders[2] = 2;
+
+    /* B02 omija pattern 1. Cisza jest na celu, wiec dalsze granie byloby nadal glosne. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0B, 0x02};
+    cells[1] = (Cell){2, 0, 0, 0, 0, 0x0C, 0x00};
+    b = build(&n, "M.K.", 3, 0, orders, &inst, 1, cells, 2);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == (uint64_t)(1u + 64u) * 6u * TICK);
+    at = 6u * TICK;
+    pcm = (int16_t *)malloc((at + 1u) * 2u * sizeof *pcm);
+    CHECK(maktabasauti_mod_desc.read(d.state, pcm, at + 1u, &got) == MAKTABASAUTI_OK);
+    CHECK(got == at + 1u);
+    if (pcm) {
+        CHECK(pcm[0] == 127 * 64);
+        CHECK(pcm[(at - 1u) * 2u] == 127 * 64);
+        CHECK(pcm[at * 2u] == 0);
+    }
+    free(pcm);
+    dec_close(&d); free(b);
+
+    /* D16 to wiersz 16, nie 22. Cisza lezy na wierszu 16 nastepnego patternu. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0D, 0x16};
+    cells[1] = (Cell){1, 16, 0, 0, 0, 0x0C, 0x00};
+    b = build(&n, "M.K.", 2, 0, orders, &inst, 1, cells, 2);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == (uint64_t)(1u + 48u) * 6u * TICK);
+    pcm = (int16_t *)malloc((at + 1u) * 2u * sizeof *pcm);
+    CHECK(maktabasauti_mod_desc.read(d.state, pcm, at + 1u, &got) == MAKTABASAUTI_OK);
+    if (pcm) {
+        CHECK(pcm[0] == 127 * 64);
+        CHECK(pcm[at * 2u] == 0);
+    }
+    free(pcm);
+    dec_close(&d); free(b);
+    CHECK(d.bag.heap.live == 0);
+}
+
+static void test_extended(void) {
+    uint8_t square[4] = {127, 0x80, 127, 0x80};
+    uint8_t flat[4] = {127, 127, 127, 127};
+    uint8_t shot[2] = {127, 0};
+    Inst inst;
+    Cell cells[6];
+    uint8_t *b;
+    size_t n = 0;
+    Dec d;
+    int16_t *pcm;
+    char tag[32];
+    memset(&inst, 0, sizeof inst);
+    inst.index = 1; inst.words = 2; inst.volume = 64; inst.loop_l = 2; inst.data = square;
+
+    /* E1F schodzi o 15 juz w takcie 0.  E10 w nastepnym wierszu powtarza ten krok. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x1F};
+    cells[1] = (Cell){0, 1, 0, 0, 0, 0x0E, 0x10};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    pcm = render_n(&d, b, n, 7u * TICK);
+    expect_period(pcm, 0, 413);
+    expect_period(pcm, 5, 413);
+    expect_period(pcm, 6, 398);
+    dec_close(&d); free(pcm); free(b);
+
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x2F};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    pcm = render_n(&d, b, n, TICK);
+    expect_period(pcm, 0, 443);
+    dec_close(&d); free(pcm); free(b);
+
+    /* E5x stroi kolumne, nie zapisany okres.  Tag czyta bajt instrumentu. */
+    inst.finetune = 0;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x57};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(maktabasauti_mod_desc.get_tag(d.state, "finetune.1", tag, sizeof tag, NULL) == MAKTABASAUTI_OK);
+    CHECK(strcmp(tag, "0") == 0);
+    dec_close(&d);
+    pcm = render_n(&d, b, n, 2u * TICK);
+    expect_period(pcm, 0, 428);
+    expect_period(pcm, 1, 428);
+    dec_close(&d); free(pcm); free(b);
+
+    /* Finetune +7, C-1 i arpeggio +12: kolumna daje 407, a nie 428 z kolumny 0. */
+    inst.finetune = 0x07;
+    cells[0] = (Cell){0, 0, 0, 1, 856, 0x00, 0xC0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    pcm = render_n(&d, b, n, 3u * TICK);
+    expect_period(pcm, 0, 856);
+    expect_period(pcm, 1, 407);
+    expect_period(pcm, 2, 856);
+    dec_close(&d); free(pcm); free(b);
+
+    /* E42 wybiera kwadrat i zeruje faze.  Nastepny wiersz vibrato 4 18 gra +255. */
+    inst.finetune = 0;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x42};
+    cells[1] = (Cell){0, 1, 0, 0, 0, 0x04, 0x18};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    pcm = render_n(&d, b, n, 8u * TICK);
+    expect_period(pcm, 6, 428);
+    expect_period(pcm, 7, 443);
+    dec_close(&d); free(pcm); free(b);
+
+    /* Fala 3 zostaje sinusem: pozycja 0 daje zero, nie +255. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x43};
+    cells[1] = (Cell){0, 1, 0, 0, 0, 0x04, 0x18};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    pcm = render_n(&d, b, n, 8u * TICK);
+    expect_period(pcm, 7, 428);
+    dec_close(&d); free(pcm); free(b);
+
+    /* Rampa E41 trwa kilka wierszy: pozycja 0 to +255 (okres 457), pozycja 16 to +127 (okres 442). */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x41};
+    cells[1] = (Cell){0, 1, 0, 0, 0, 0x04, 0x1F};
+    cells[2] = (Cell){0, 2, 0, 0, 0, 0x04, 0x1F};
+    cells[3] = (Cell){0, 3, 0, 0, 0, 0x04, 0x1F};
+    cells[4] = (Cell){0, 4, 0, 0, 0, 0x04, 0x1F};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 5);
+    pcm = render_n(&d, b, n, 27u * TICK);
+    expect_period(pcm, 7, 457);
+    expect_period(pcm, 26, 442);
+    dec_close(&d); free(pcm); free(b);
+
+    /* Glissando po slizgu 120-5 lapie 113, blizej niz 120.  Takt 0 wiersza zostaje na 120. */
+    cells[0] = (Cell){0, 0, 0, 1, 120, 0x0E, 0x31};
+    cells[1] = (Cell){0, 1, 0, 0, 100, 0x03, 5};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    pcm = render_n(&d, b, n, 8u * TICK);
+    expect_period(pcm, 6, 120);
+    expect_period(pcm, 7, 113);
+    dec_close(&d); free(pcm); free(b);
+
+    inst.data = flat; inst.volume = 40;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xA1};
+    cells[1] = (Cell){0, 1, 0, 0, 0, 0x0E, 0xA0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    pcm = render_n(&d, b, n, 6u * TICK + 1u);
+    CHECK(pcm[0] == 127 * 41);
+    CHECK(pcm[6u * TICK * 2u] == 127 * 42);
+    dec_close(&d); free(pcm); free(b);
+
+    inst.volume = 10;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xB1};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    pcm = render_n(&d, b, n, 1u);
+    CHECK(pcm[0] == 127 * 9);
+    dec_close(&d); free(pcm); free(b);
+
+    inst.volume = 32;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x07, 0x18};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    pcm = render_n(&d, b, n, 2u * TICK + 1u);
+    CHECK(pcm[0] == 127 * 32);
+    CHECK(pcm[TICK * 2u] == 127 * 32);
+    CHECK(pcm[2u * TICK * 2u] == 127 * 35);
+    dec_close(&d); free(pcm); free(b);
+
+    inst.volume = 64;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xC0};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    pcm = render_n(&d, b, n, 1u);
+    CHECK(pcm[0] == 0);
+    dec_close(&d); free(pcm); free(b);
+
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xC1};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    pcm = render_n(&d, b, n, TICK + 1u);
+    CHECK(pcm[0] == 127 * 64);
+    CHECK(pcm[(TICK - 1u) * 2u] == 127 * 64);
+    CHECK(pcm[TICK * 2u] == 0);
+    dec_close(&d); free(pcm); free(b);
+
+    inst.words = 1; inst.loop_l = 0; inst.data = shot;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x93};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    pcm = render_n(&d, b, n, 3u * TICK + 1u);
+    CHECK(pcm[0] == 127 * 64);
+    CHECK(pcm[6u * 2u] == 0);
+    CHECK(pcm[3u * TICK * 2u] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+
+    inst.words = 2; inst.loop_l = 2; inst.data = flat; inst.volume = 64;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xD3};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    pcm = render_n(&d, b, n, 3u * TICK + 1u);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[(3u * TICK - 1u) * 2u] == 0);
+    CHECK(pcm[3u * TICK * 2u] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xE1};
+    cells[1] = (Cell){0, 1, 0, 0, 0, 0x0C, 0x00};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == (uint64_t)(64u * 6u + 6u) * TICK);
+    dec_close(&d);
+    pcm = render_n(&d, b, n, 12u * TICK + 1u);
+    CHECK(pcm[0] == 127 * 64);
+    CHECK(pcm[6u * TICK * 2u] == 127 * 64);
+    CHECK(pcm[12u * TICK * 2u] == 0);
+    dec_close(&d); free(pcm); free(b);
+
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0xE0};
+    cells[1] = (Cell){0, 1, 0, 0, 0, 0x0C, 0x00};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 2);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.info.total_frames == (uint64_t)64u * 6u * TICK);
+    dec_close(&d);
+    pcm = render_n(&d, b, n, 6u * TICK + 1u);
+    CHECK(pcm[6u * TICK * 2u] == 0);
+    dec_close(&d); free(pcm); free(b);
+
+    /* E60 zapamietuje wiersz, E62 na drugim kanale wraca dwa razy.  C00 robi dziure ciszy. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x60};
+    cells[1] = (Cell){0, 1, 0, 0, 0, 0x0C, 0x00};
+    cells[2] = (Cell){0, 1, 1, 0, 0, 0x0E, 0x62};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 3);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == (uint64_t)(64u + 4u) * 6u * TICK);
+    dec_close(&d);
+    pcm = render_n(&d, b, n, 12u * TICK + 1u);
+    CHECK(pcm[0] == 127 * 64);
+    CHECK(pcm[6u * TICK * 2u] == 0);
+    CHECK(pcm[12u * TICK * 2u] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+
+    /* Kanal 1 domyslnie jest po prawej.  800 przenosi go na lewo. */
+    cells[0] = (Cell){0, 0, 1, 1, 428, 0x08, 0x00};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    pcm = render_n(&d, b, n, 1u);
+    CHECK(pcm[0] == 127 * 64);
+    CHECK(pcm[1] == 0);
+    dec_close(&d); free(pcm); free(b);
+
+    /* E8F to nibble 15 * 17 = 255, czyli prawa strona na kanale 0. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x8F};
+    b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, cells, 1);
+    pcm = render_n(&d, b, n, 1u);
+    CHECK(pcm[0] == 0);
+    CHECK(pcm[1] == 127 * 64);
+    dec_close(&d); free(pcm); free(b);
+    CHECK(d.bag.heap.live == 0);
+}
+
+static void test_restart(void) {
+    uint8_t flat[4] = {127, 127, 127, 127};
+    Inst inst = {1, 2, 0, 64, 0, 2, flat};
+    Cell cells[3];
+    uint8_t orders[128];
+    uint8_t *b;
+    size_t n = 0, got = 0;
+    Dec d;
+    int16_t *pcm;
+    size_t at_silence, at_back;
+    unsigned i;
+
+    /* Pozycja, ktora juz grala, nie wydluza utworu. */
+    memset(orders, 0, sizeof orders);
+    b = build(&n, "M.K.", 2, 1, NULL, &inst, 1, NULL, 0);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == (uint64_t)2u * 64u * 6u * TICK);
+    dec_close(&d); free(b);
+
+    /* B02 omija pozycje 1. Po koncu listy restart 1 gra ja, a drugi raz juz staje. */
+    orders[1] = 1;
+    orders[2] = 2;
+    orders[3] = 3;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0B, 2};
+    cells[1] = (Cell){2, 0, 0, 0, 0, 0x0C, 0x00};
+    cells[2] = (Cell){1, 0, 0, 1, 428, 0, 0};
+    b = build(&n, "M.K.", 4, 1, orders, &inst, 1, cells, 3);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == (uint64_t)(1u + 5u * 64u) * 6u * TICK);
+    at_silence = 6u * TICK;
+    at_back = (uint64_t)(1u + 2u * 64u) * 6u * TICK;
+    pcm = (int16_t *)malloc((at_back + 1u) * 2u * sizeof *pcm);
+    CHECK(maktabasauti_mod_desc.read(d.state, pcm, at_back + 1u, &got) == MAKTABASAUTI_OK);
+    CHECK(got == at_back + 1u);
+    if (pcm) {
+        CHECK(pcm[0] == 127 * 64);
+        CHECK(pcm[at_silence * 2u] == 0);
+        CHECK(pcm[(at_back - 1u) * 2u] == 0);
+        CHECK(pcm[at_back * 2u] == 127 * 64);
+    }
+    free(pcm);
+    dec_close(&d); free(b);
+
+    /* Bxx poza lista konczy utwor i nie uruchamia restartu. */
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0B, 5};
+    b = build(&n, "M.K.", 3, 1, NULL, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == (uint64_t)6u * TICK);
+    dec_close(&d); free(b);
+
+    /* 0x78 to nie pozycja 120, nawet gdy ta pozycja zostala pominieta. */
+    memset(orders, 0, sizeof orders);
+    for (i = 121u; i < 128u; i++) orders[i] = 1;
+    cells[0] = (Cell){0, 0, 0, 1, 428, 0x0B, 121};
+    b = build(&n, "M.K.", 128, 0x78, orders, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == (uint64_t)(1u + 7u * 64u) * 6u * TICK);
+    dec_close(&d); free(b);
+
+    /* 0x7F tez nie jest pozycja, przy dlugosci 128. */
+    b = build(&n, "M.K.", 128, 0x7F, orders, &inst, 1, cells, 1);
+    dec_open(&d, b, n, "44100", NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(d.info.total_frames == (uint64_t)(1u + 7u * 64u) * 6u * TICK);
+    dec_close(&d); free(b);
+    CHECK(d.bag.heap.live == 0);
+}
+
 int main(void) {
     test_probe();
     test_reject();
@@ -959,6 +1291,9 @@ int main(void) {
     test_seek_and_sum();
     test_effects();
     test_variants();
+    test_position();
+    test_extended();
+    test_restart();
     if (g_failures) {
         fprintf(stderr, "%d niepowodzen\n", g_failures);
         return 1;

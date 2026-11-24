@@ -10,15 +10,18 @@
  *     FLT8 (8 kanalow, para patternow 4-kanalowych) i 15 instrumentow bez sygnatury;
  *   - nieznana czteroznakowa sygnatura jest odrzucana i nie jest czytana jako 15 instrumentow;
  *   - uciety pattern, probka za koncem pliku, petla poza probka i zla dlugosc utworu: blad, nic nie gra;
- *   - komorka gra okresem, ktory jest w niej zapisany; finetune jest tylko zachowany
- *     (arpeggio szuka poltonow w tablicy finetune 0, nie stroi nuty bazowej);
+ *   - komorka gra okresem, ktory jest w niej zapisany.  Finetune nie stroi tej nuty.
+ *     Arpeggio i glissando biora poltony z kolumny finetune: okres finetune 0 razy 2^(-ft/96);
  *   - dzialaja: 0xy arpeggio (000 zostaje brakiem efektu), 1xx/2xx porta, 3xx tone porta,
- *     4xy vibrato (sinus wyliczony, nie tablica cudzego playera), 5xy tone porta ze slizgiem glosnosci,
- *     6xy vibrato ze slizgiem glosnosci, 9xx offset probki przy uderzeniu nuty, Axy slizg glosnosci,
- *     Cxx (0..64) i Fxx (1..31 taktow na wiersz, 32..255 BPM, F00 nic);
- *   - 1xx/2xx stoja na okresie 113..856.  Slizg, vibrato i arpeggio ida od taktu 1; takt 0 gra bazowy okres.
- *     Parametr 0 powtarza ostatni niezerowy parametr tego efektu.  Bxx, Dxx i Exx nadal nic nie zmieniaja;
- *   - utwor idzie raz przez liste order i staje; bajt restart nie zapetla;
+ *     4xy vibrato, 5xy, 6xy, 7xy tremolo, 8xx panorama 0..255, 9xx offset, Axy,
+ *     Cxx, Fxx oraz Exx poza E0x (filtr) i EFx (invert loop);
+ *   - 1xx/2xx i E1x/E2x stoja na okresie 113..856.  Slizg, vibrato, tremolo i arpeggio ida od taktu 1.
+ *     E1x, E2x, EAx, EBx i ECx wykonuja sie juz w takcie 0.  Parametr 0 powtarza ostatni niezerowy.
+ *     Bxx po wierszu skacze na pozycje order.  Dxx jest dziesietny.
+ *     E6x powtarza kawalek patternu ograniczona liczbe razy.  Skok Bxx/Dxx na wiersz, ktory juz gral, konczy utwor.
+ *     E0x i EFx nic nie zmieniaja w miksie.  Fala vibrato 3 zostaje sinusem;
+ *   - po ostatniej pozycji order bajt restartu wznawia te pozycje, jesli jej wiersz 0 jeszcze nie gral.
+ *     0x78 i 0x7F nie sa pozycja.  Wartosc spoza dlugosci utworu tez nie.  Powrot na wiersz, ktory juz gral, konczy utwor;
  *   - wyjscie to splot stereo S16.  Panorama powtarza pary Amigi: 4k i 4k+3 na lewo, 4k+1 i 4k+2 na prawo;
  *   - miks w int32, nasycenie do int16.  Zegar PAL Pauli 3546895 Hz.  NTSC nie jest w tym kawalku.
  *
@@ -64,9 +67,20 @@ typedef struct {
     uint8_t param;
     uint8_t inst;
     uint8_t porta_up, porta_down, tone_speed;
-    uint8_t vib_pos, vib_speed, vib_depth;
+    uint8_t fine_up, fine_down;
+    uint8_t fine_vol_up, fine_vol_down;
+    uint8_t vib_pos, vib_speed, vib_depth, vib_wave;
+    uint8_t trem_pos, trem_speed, trem_depth, trem_wave;
+    int16_t tremolo;
     uint8_t vol_slide;
     uint8_t offset;
+    uint8_t retrig;
+    uint8_t pan;
+    uint8_t gliss;
+    uint8_t delay_tick;
+    uint8_t delay_sample;
+    uint16_t delay_period;
+    int8_t tune;
 } voice_t;
 
 /* Okresy PAL, finetune 0, C-1..B-3.  Kolejne oktawy to polowa poprzedniej, zaokraglona. */
@@ -74,6 +88,12 @@ static const uint16_t k_period[36] = {
     856, 808, 762, 720, 678, 640, 604, 570, 538, 508, 480, 453,
     428, 404, 381, 360, 339, 320, 302, 285, 269, 254, 240, 226,
     214, 202, 190, 180, 170, 160, 151, 143, 135, 127, 120, 113
+};
+
+/* 2^(-ft/96) w Q16, ft od -8 do +7.  Kolumna 0 jest dokladnie 65536. */
+static const uint32_t k_ft_q16[16] = {
+    69433u, 68933u, 68438u, 67945u, 67456u, 66971u, 66489u, 66011u,
+    65536u, 65065u, 64596u, 64132u, 63670u, 63212u, 62757u, 62306u
 };
 
 /* sin(i * 2π / 64) * 255, zaokraglone.  Delta vibrato = wartosc * glebokosc / 128. */
@@ -112,7 +132,16 @@ typedef struct {
     uint64_t total_frames;
     int have_tick;
     int ended;
+    int16_t next_order;
+    int16_t next_row;
+    int8_t delay_notes;
+    uint8_t loop_left;
+    uint8_t revisit;
+    uint32_t loop_row;
+    uint32_t row_delay;
+    uint8_t filter;
     const char *err;
+    uint8_t been[1024];
     voice_t voice[MOD_CH_MAX];
 } mod_t;
 
@@ -221,7 +250,10 @@ static int32_t s8(uint8_t b) {
 
 static void playback_reset(mod_t *m) {
     uint32_t i;
-    for (i = 0; i < MOD_CH_MAX; i++) memset(&m->voice[i], 0, sizeof m->voice[i]);
+    for (i = 0; i < MOD_CH_MAX; i++) {
+        memset(&m->voice[i], 0, sizeof m->voice[i]);
+        m->voice[i].pan = ((i & 3u) == 0u || (i & 3u) == 3u) ? 0 : 255;
+    }
     m->order_pos = 0;
     m->row = 0;
     m->row_tick = 0;
@@ -233,7 +265,26 @@ static void playback_reset(mod_t *m) {
     m->frame_pos = 0;
     m->have_tick = 0;
     m->ended = 0;
+    m->next_order = -1;
+    m->next_row = -1;
+    m->delay_notes = -1;
+    m->loop_left = 0;
+    m->revisit = 0;
+    m->loop_row = 0;
+    m->row_delay = 0;
+    m->filter = 0;
     m->err = NULL;
+    memset(m->been, 0, sizeof m->been);
+}
+
+static int been_row(const mod_t *m, unsigned order, unsigned row) {
+    unsigned bit = order * 64u + row;
+    return (m->been[bit >> 3] >> (bit & 7u)) & 1;
+}
+
+static void mark_row(mod_t *m, unsigned order, unsigned row) {
+    unsigned bit = order * 64u + row;
+    m->been[bit >> 3] |= (uint8_t)(1u << (bit & 7u));
 }
 
 static uint32_t tick_frames(mod_t *m) {
@@ -257,20 +308,39 @@ static void use_period(voice_t *v, uint16_t period) {
     v->play_period = period;
 }
 
-static int nearest_note(unsigned period) {
+static uint16_t column_period(int note, int ft) {
+    uint32_t q, p;
+    if (note < 0) note = 0;
+    if (note > 35) note = 35;
+    if (ft < -8) ft = -8;
+    if (ft > 7) ft = 7;
+    q = k_ft_q16[ft + 8];
+    p = ((uint32_t)k_period[note] * q + 32768u) >> 16;
+    return p ? (uint16_t)p : 1u;
+}
+
+static int nearest_note(unsigned period, int ft) {
     unsigned i, best = 0, gap = 65535u;
     for (i = 0; i < 36u; i++) {
-        unsigned d = period > k_period[i] ? period - k_period[i] : k_period[i] - period;
+        unsigned tp = column_period((int)i, ft);
+        unsigned d = period > tp ? period - tp : tp - period;
         if (d < gap) { gap = d; best = i; }
     }
     return (int)best;
 }
 
-static uint16_t arpeggio_period(unsigned base, unsigned semis) {
-    int note = nearest_note(base) + (int)semis;
+static uint16_t arpeggio_period(unsigned base, unsigned semis, int ft) {
+    int note = nearest_note(base, ft) + (int)semis;
     if (note < 0) note = 0;
     if (note > 35) note = 35;
-    return k_period[note];
+    return column_period(note, ft);
+}
+
+static int16_t wave_sample(unsigned wave, unsigned pos) {
+    pos &= 63u;
+    if ((wave & 3u) == 1u) return (int16_t)(255 - (int)pos * 8);
+    if ((wave & 3u) == 2u) return pos < 32u ? 255 : -255;
+    return k_vibrato[pos];
 }
 
 static void voice_advance(voice_t *v, uint32_t rate) {
@@ -294,6 +364,45 @@ static void voice_advance(voice_t *v, uint32_t rate) {
     v->idx = (uint32_t)idx;
 }
 
+static int8_t nibble_tune(unsigned nib) {
+    nib &= 0x0Fu;
+    return nib < 8u ? (int8_t)nib : (int8_t)((int)nib - 16);
+}
+
+static void latch_instrument(mod_t *m, voice_t *v, unsigned sample) {
+    const inst_t *in;
+    if (sample < 1u || sample > m->instruments) return;
+    in = &m->inst[sample - 1u];
+    v->sample = in->data;
+    v->length = in->length;
+    v->loop_start = in->loop_start;
+    v->loop_len = in->loop_len;
+    v->volume = in->volume;
+    v->inst = (uint8_t)sample;
+    v->tune = in->finetune;
+}
+
+/* Prawdziwy trigger zeruje faze i pozycje fal, chyba ze bit +4 fali tego zabrania.
+ * 3xx/5xx przy juz grajacym glosie tylko zapamietuje cel.  9xx skacze wylacznie wtedy. */
+static void trigger_note(voice_t *v, unsigned period, unsigned effect) {
+    uint32_t at;
+    if (!period) return;
+    if ((effect == 0x3u || effect == 0x5u) && v->period) {
+        v->target = (uint16_t)period;
+        return;
+    }
+    at = 0;
+    v->period = (uint16_t)period;
+    v->target = (uint16_t)period;
+    v->frac = 0;
+    v->play_period = 0;
+    if ((v->vib_wave & 4u) == 0u) v->vib_pos = 0;
+    if ((v->trem_wave & 4u) == 0u) v->trem_pos = 0;
+    if (effect == 0x9u) at = (uint32_t)v->offset * 256u;
+    if (!v->loop_len && at >= v->length) v->idx = v->length;
+    else v->idx = at;
+}
+
 static void apply_row(mod_t *m, uint32_t *tempo_after) {
     unsigned ch;
     for (ch = 0; ch < m->channels; ch++) {
@@ -302,9 +411,19 @@ static void apply_row(mod_t *m, uint32_t *tempo_after) {
         unsigned period = ((unsigned)(c[0] & 0x0Fu) << 8) | c[1];
         unsigned effect = c[2] & 0x0Fu;
         unsigned param = c[3];
+        unsigned ex = param >> 4;
+        unsigned xn = param & 0x0Fu;
         voice_t *v = &m->voice[ch];
         v->effect = (uint8_t)effect;
         v->param = (uint8_t)param;
+        /* EDx z niezerowym x odklada nute i pomija reszte komorki, takze 9xx. */
+        if (effect == 0x0Eu && ex == 0xDu && xn) {
+            v->delay_tick = (uint8_t)xn;
+            v->delay_sample = (uint8_t)sample;
+            v->delay_period = (uint16_t)period;
+            continue;
+        }
+        v->delay_tick = 0;
         if (effect == 0x1u && param) v->porta_up = (uint8_t)param;
         if (effect == 0x2u && param) v->porta_down = (uint8_t)param;
         if (effect == 0x3u && param) v->tone_speed = (uint8_t)param;
@@ -312,30 +431,49 @@ static void apply_row(mod_t *m, uint32_t *tempo_after) {
             if (param >> 4) v->vib_speed = (uint8_t)(param >> 4);
             if (param & 0x0Fu) v->vib_depth = (uint8_t)(param & 0x0Fu);
         }
+        if (effect == 0x7u) {
+            if (param >> 4) v->trem_speed = (uint8_t)(param >> 4);
+            if (param & 0x0Fu) v->trem_depth = (uint8_t)(param & 0x0Fu);
+        }
         if ((effect == 0x5u || effect == 0x6u || effect == 0xAu) && param) v->vol_slide = (uint8_t)param;
         if (effect == 0x9u && param) v->offset = (uint8_t)param;
-        if (sample >= 1u && sample <= m->instruments) {
-            const inst_t *in = &m->inst[sample - 1u];
-            v->sample = in->data;
-            v->length = in->length;
-            v->loop_start = in->loop_start;
-            v->loop_len = in->loop_len;
-            v->volume = in->volume;
-            v->inst = (uint8_t)sample;
-        }
-        if (period) {
-            int porta = effect == 0x3u || effect == 0x5u;
-            if (porta && v->period) v->target = (uint16_t)period;
+        if (effect == 0x0Eu && ex == 0x1u && xn) v->fine_up = (uint8_t)xn;
+        if (effect == 0x0Eu && ex == 0x2u && xn) v->fine_down = (uint8_t)xn;
+        if (effect == 0x0Eu && ex == 0x9u && xn) v->retrig = (uint8_t)xn;
+        if (effect == 0x0Eu && ex == 0xAu && xn) v->fine_vol_up = (uint8_t)xn;
+        if (effect == 0x0Eu && ex == 0xBu && xn) v->fine_vol_down = (uint8_t)xn;
+        if (effect == 0x0Eu && ex == 0x0u) m->filter = (uint8_t)xn;
+        /* Fala musi byc ustawiona przed triggerem, zeby bit +4 zdazyl zatrzymac reset fazy. */
+        if (effect == 0x0Eu && ex == 0x3u) v->gliss = xn ? 1u : 0u;
+        if (effect == 0x0Eu && ex == 0x4u) v->vib_wave = (uint8_t)xn;
+        if (effect == 0x0Eu && ex == 0x7u) v->trem_wave = (uint8_t)xn;
+        latch_instrument(m, v, sample);
+        trigger_note(v, period, effect);
+        if (effect == 0x0Eu && ex == 0x5u) v->tune = nibble_tune(xn);
+        if (effect == 0x0Eu && ex == 0x6u) {
+            if (!xn) m->loop_row = m->row;
             else {
-                uint32_t at = 0;
-                v->period = (uint16_t)period;
-                v->target = (uint16_t)period;
-                v->frac = 0;
-                v->play_period = 0;
-                if (effect == 0x9u) at = (uint32_t)v->offset * 256u;
-                if (!v->loop_len && at >= v->length) v->idx = v->length;
-                else v->idx = at;
+                if (!m->loop_left) m->loop_left = (uint8_t)xn;
+                else m->loop_left--;
+                if (m->loop_left) {
+                    m->next_order = (int16_t)m->order_pos;
+                    m->next_row = (int16_t)m->loop_row;
+                    m->revisit = 1;
+                }
             }
+        }
+        if (effect == 0x0Eu && ex == 0x8u) v->pan = (uint8_t)(xn * 17u);
+        if (effect == 0x0Eu && ex == 0xEu) m->delay_notes = (int8_t)xn;
+        if (effect == 0x8u) v->pan = (uint8_t)param;
+        if (effect == 0x0Bu) {
+            m->next_order = (int16_t)param;
+            m->revisit = 0;
+        }
+        if (effect == 0x0Du) {
+            unsigned brow = (param >> 4) * 10u + (param & 0x0Fu);
+            if (brow > 63u) brow = 0u;
+            m->next_row = (int16_t)brow;
+            m->revisit = 0;
         }
         if (effect == 0x0Cu) v->volume = param > 64u ? 64u : (uint8_t)param;
         if (effect == 0x0Fu && param) {
@@ -371,6 +509,23 @@ static void porta_down(voice_t *v) {
     v->period = (uint16_t)(856u - p > step ? p + step : 856u);
 }
 
+static void fine_porta_up(voice_t *v) {
+    unsigned p = v->period, step = v->fine_up;
+    if (!step || p <= 113u) return;
+    v->period = (uint16_t)(p - 113u > step ? p - step : 113u);
+}
+
+static void fine_porta_down(voice_t *v) {
+    unsigned p = v->period, step = v->fine_down;
+    if (!step || !p || p >= 856u) return;
+    v->period = (uint16_t)(856u - p > step ? p + step : 856u);
+}
+
+static void gliss_snap(voice_t *v) {
+    if (!v->gliss || !v->period) return;
+    v->period = column_period(nearest_note(v->period, v->tune), v->tune);
+}
+
 static void tone_porta(voice_t *v) {
     unsigned p = v->period, goal = v->target, step = v->tone_speed;
     if (!step || !p || !goal || p == goal) return;
@@ -383,24 +538,59 @@ static void shape_tick(mod_t *m) {
     for (ch = 0; ch < m->channels; ch++) {
         voice_t *v = &m->voice[ch];
         unsigned fx = v->effect, pa = v->param;
+        unsigned ex = pa >> 4, xn = pa & 0x0Fu;
+        v->tremolo = 0;
+        if (m->row_tick == 0u && fx == 0x0Eu) {
+            if (ex == 0x1u) fine_porta_up(v);
+            else if (ex == 0x2u) fine_porta_down(v);
+            else if (ex == 0xAu) clamp_volume(v, (int)v->fine_vol_up);
+            else if (ex == 0xBu) clamp_volume(v, -(int)v->fine_vol_down);
+        }
         if (m->row_tick > 0u) {
             if (fx == 0x1u) porta_up(v);
             else if (fx == 0x2u) porta_down(v);
-            else if (fx == 0x3u || fx == 0x5u) tone_porta(v);
+            else if (fx == 0x3u || fx == 0x5u) {
+                tone_porta(v);
+                gliss_snap(v);
+            }
             if (fx == 0x5u || fx == 0x6u || fx == 0xAu) slide_volume(v);
         }
+        if (fx == 0x0Eu && ex == 0xCu && m->row_tick == xn) v->volume = 0;
+        if (fx == 0x0Eu && ex == 0x9u && m->row_tick > 0u) {
+            unsigned n = xn ? xn : v->retrig;
+            if (n && m->row_tick % n == 0u) {
+                v->idx = 0;
+                v->frac = 0;
+            }
+        }
         if ((fx == 0x4u || fx == 0x6u) && m->row_tick > 0u && v->period) {
-            int32_t waved = (int32_t)k_vibrato[v->vib_pos] * (int32_t)v->vib_depth / 128;
+            int32_t waved = (int32_t)wave_sample(v->vib_wave, v->vib_pos) * (int32_t)v->vib_depth / 128;
             int32_t sounded = (int32_t)v->period + waved;
             if (sounded < 1) sounded = 1;
             use_period(v, (uint16_t)sounded);
             v->vib_pos = (uint8_t)((v->vib_pos + v->vib_speed) & 63u);
+        } else if (fx == 0x7u && m->row_tick > 0u) {
+            int32_t delta = (int32_t)wave_sample(v->trem_wave, v->trem_pos) * (int32_t)v->trem_depth / 64;
+            v->tremolo = (int16_t)delta;
+            v->trem_pos = (uint8_t)((v->trem_pos + v->trem_speed) & 63u);
+            use_period(v, v->period);
         } else if (fx == 0u && pa && v->period) {
             unsigned semis = 0, part = m->row_tick % 3u;
             if (part == 1u) semis = pa >> 4;
             else if (part == 2u) semis = pa & 0x0Fu;
-            use_period(v, semis ? arpeggio_period(v->period, semis) : v->period);
+            use_period(v, semis ? arpeggio_period(v->period, semis, v->tune) : v->period);
         } else use_period(v, v->period);
+    }
+}
+
+static void fire_delay(mod_t *m) {
+    unsigned ch;
+    for (ch = 0; ch < m->channels; ch++) {
+        voice_t *v = &m->voice[ch];
+        if (!v->delay_tick || m->row_tick != v->delay_tick) continue;
+        latch_instrument(m, v, v->delay_sample);
+        trigger_note(v, v->delay_period, 0);
+        v->delay_tick = 0;
     }
 }
 
@@ -414,7 +604,14 @@ static int begin_tick(mod_t *m) {
     }
     m->ticks_done++;
     tempo_after = m->tempo;
-    if (m->row_tick == 0u) apply_row(m, &tempo_after);
+    if (m->row_tick == 0u) {
+        mark_row(m, m->order_pos, m->row);
+        m->delay_notes = -1;
+        apply_row(m, &tempo_after);
+        if (m->delay_notes >= 0) m->row_delay = (uint32_t)m->delay_notes * m->speed;
+        m->delay_notes = -1;
+    }
+    fire_delay(m);
     shape_tick(m);
     m->tick_left = tick_frames(m);
     m->tempo = tempo_after;
@@ -422,17 +619,56 @@ static int begin_tick(mod_t *m) {
     return 1;
 }
 
+/* 0x78 i 0x7F to wartosci, ktore trackery wpisuja zamiast pozycji.  Inna wartosc ponizej dlugosci jest pozycja. */
+static int restart_order(const mod_t *m, unsigned *dest) {
+    unsigned r = m->restart;
+    if (r == 0x78u || r == 0x7Fu || r >= m->song_length) return 0;
+    *dest = r;
+    return 1;
+}
+
 static void end_tick(mod_t *m) {
+    int revisit;
     m->have_tick = 0;
     m->tick_left = 0;
     m->row_tick++;
-    if (m->row_tick < m->speed) return;
+    if (m->row_tick < m->speed + m->row_delay) return;
     m->row_tick = 0;
+    m->row_delay = 0;
+    revisit = m->revisit;
+    m->revisit = 0;
+    if (m->next_order >= 0 || m->next_row >= 0) {
+        unsigned dest_order = m->next_order >= 0 ? (unsigned)m->next_order : m->order_pos + 1u;
+        unsigned dest_row = m->next_row >= 0 ? (unsigned)m->next_row : 0u;
+        m->next_order = -1;
+        m->next_row = -1;
+        if (dest_order >= m->song_length || (!revisit && been_row(m, dest_order, dest_row))) {
+            m->ended = 1;
+            return;
+        }
+        if (dest_order != m->order_pos) {
+            m->loop_row = 0;
+            m->loop_left = 0;
+        }
+        m->order_pos = dest_order;
+        m->row = dest_row;
+        return;
+    }
     m->row++;
     if (m->row < 64u) return;
     m->row = 0;
+    m->loop_row = 0;
+    m->loop_left = 0;
     m->order_pos++;
-    if (m->order_pos >= m->song_length) m->ended = 1;
+    if (m->order_pos >= m->song_length) {
+        unsigned dest;
+        if (restart_order(m, &dest) && !been_row(m, dest, 0)) {
+            m->order_pos = dest;
+            m->row = 0;
+            return;
+        }
+        m->ended = 1;
+    }
 }
 
 static int count_frames(mod_t *m, uint64_t *out) {
@@ -455,11 +691,14 @@ static void mix_one(mod_t *m, int16_t *dst) {
     unsigned ch;
     for (ch = 0; ch < m->channels; ch++) {
         voice_t *v = &m->voice[ch];
+        int vol = (int)v->volume + (int)v->tremolo;
         int32_t s = 0;
+        if (vol < 0) vol = 0;
+        if (vol > 64) vol = 64;
         voice_wrap(v);
-        if (v->play_period && v->sample && v->idx < v->length) s = s8(v->sample[v->idx]) * (int32_t)v->volume;
-        if ((ch & 3u) == 0u || (ch & 3u) == 3u) left += s;
-        else right += s;
+        if (v->play_period && v->sample && v->idx < v->length) s = s8(v->sample[v->idx]) * vol;
+        left += s * (255 - (int)v->pan) / 255;
+        right += s * (int)v->pan / 255;
         voice_advance(v, m->rate);
     }
     dst[0] = sat16(left);
