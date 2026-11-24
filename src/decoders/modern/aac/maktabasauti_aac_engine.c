@@ -98,6 +98,13 @@ static void core_reset(dec_t *d) {
             sauti_aac_er_state_init(&e->er);
             e->pl.time_slots = slots; e->pl.crc = d->eld_asc.ld_sbr_crc; e->pl.have_header = 1u; e->pl.header = d->eld_asc.ld_header;
             (void)sauti_aac_sbr_channel_init(&e->channel[0]); (void)sauti_aac_sbr_channel_init(&e->channel[1]);
+#ifdef SAUTI_ELD_V2_EXPERIMENTAL                                               /* ELD v2: sciezka MPS jest jeszcze niedokonczona (SBR ELD v2 uzywa innego banku QMF), domyslnie wylaczona */
+            e->sac_on = d->eld_asc.ld_sac_len != 0u;
+#else
+            e->sac_on = 0u;
+#endif
+            if (e->sac_on && sauti_aac_eld_sac_config_parse(d->eld_asc.ld_sac, d->eld_asc.ld_sac_len, &e->sacc) != 1) e->sac_on = 0u;
+            memset(&e->ms, 0, sizeof e->ms); memset(&e->sac, 0, sizeof e->sac);
             e->channel[0].ld = e->channel[1].ld = d->eldsbr; e->channel[0].frame_slots = e->channel[1].frame_slots = slots;
         } else if (aot_is_lcn(d->er_aot) && d->he960) {
             he960_t *h = &d->core.u.h9;
@@ -237,6 +244,21 @@ static prod_t decode_eldsbr(dec_t *d) {
     r = sauti_aac_er_decode_ex(&c, &s->er, raw, rawn, core, &why, &end);
     if (r != 1) return r < 0 ? P_UNSUPPORTED : P_FAIL;
     if (!sauti_aac_sbr_payload_ld_parse(raw, rawn, end, rawn * 8u, 2u * d->core_rate, ch, &ns, fr, &cpl)   /* the frequency tables are those of the SBR processing rate = twice the core rate, at the single rate and at the dual rate (FDK: sbrProcSmplRate) */) return P_FAIL;
+    if (s->sac_on) {                                                                  /* ELD v2: siatka QMF mono -> MPS 212 -> dwie siatki -> dwie syntezy */
+        SautiUsacMpsState ms = s->ms; SautiAacEldSacDec sd = s->sac; SautiUsacMpsFrame mf; static SautiAacSbrComplex g0[64u * 16u], g1[64u * 16u];
+        size_t fe = 0; const size_t sbr_end = end + fr[0].payload_data_bits;
+        if (ch != 1u || d->eldsbr != 2u) return P_UNSUPPORTED;
+        if (!sauti_aac_eld_sac_frame_parse(&s->sacc, raw, sbr_end, rawn * 8u, &ms, &mf, &fe)) return P_FAIL;
+        for (i = 0; i < n; i++) cc[i] = core[i];
+        if (!sauti_aac_sbr_channel_frame(&s->channel[0], cc, &fr[0], grid)) return P_FAIL;
+        if (!sauti_aac_eld_sac_apply(&sd, &s->sacc, &mf, s->sacc.time_slots, grid, g0, g1)) return P_FAIL;
+        for (k = 0; k < 2u; k++) {
+            if (!sauti_aac_sbr_channel_synthesize(&s->channel[k], k ? g1 : g0, pcm)) return P_FAIL;
+            for (i = 0; i < no; i++) d->cache[2u * i + k] = pcm[i];
+        }
+        s->pl = ns; s->ms = ms; s->sac = sd;
+        return all_finite(d->cache, (size_t)no * 2u) ? P_OK : P_FAIL;
+    }
     for (k = 0; k < ch; k++) {
         for (i = 0; i < n; i++) cc[i] = core[ch * i + k];
         if (!sauti_aac_sbr_channel_frame(&s->channel[k], cc, &fr[k], grid) || !sauti_aac_sbr_channel_synthesize(&s->channel[k], grid, pcm)) return P_FAIL;
@@ -606,6 +628,13 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
         if (hd.er_aot == 39u && d->eld_ready && d->eld_asc.ld_sbr) {                          /* ELD z SBR niskoopoznieniowym: jednokrotny (wyjscie w czestotliwosci rdzenia) albo dwukrotny (wyjscie 2x) */
             if (hd.config < 1u || hd.config > 2u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
             d->eldsbr = d->eld_asc.ld_sbr_downsampled ? 2u : 1u;
+#ifdef SAUTI_ELD_V2_EXPERIMENTAL
+            if (d->eld_asc.ld_sac_len) {                                                   /* ELD v2: mono rdzen + MPS 212 niskiego opoznienia = wyjscie stereo; tylko dwukrotny SBR (64 pasma QMF) */
+                SautiAacEldSacConfig sc;
+                if (hd.config != 1u || d->eldsbr != 2u || sauti_aac_eld_sac_config_parse(d->eld_asc.ld_sac, d->eld_asc.ld_sac_len, &sc) != 1 || sc.time_slots != (hd.er_480 ? 15u : 16u) || sc.mps.temp_shape != 0u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+                d->out_channels = 2u;
+            }
+#endif
             d->frame_pcm = n * d->eldsbr; d->out_rate = d->core_rate * d->eldsbr;
         }
         core_reset(d);

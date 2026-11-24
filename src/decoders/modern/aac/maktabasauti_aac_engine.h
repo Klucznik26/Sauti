@@ -6,6 +6,7 @@
 #include "maktabasauti/maktabasauti_codec.h"
 #include "sauti_aac_cpe.h"
 #include "sauti_aac_er.h"
+#include "sauti_aac_eld_sac_dec.h"
 #include "sauti_aac_lcn.h"
 #include "sauti_aac_lcm.h"
 #include "sauti_aac_headers.h"
@@ -59,6 +60,10 @@ typedef struct {
     SautiAacErState er;
     SautiAacSbrPayloadLdState pl;
     SautiAacSbrChannel channel[2];
+    SautiAacEldSacConfig sacc;                       /* ELD v2 (ELDEXT_LDSAC): konfiguracja MPS 212 niskiego opoznienia, stan parsera i sciezki sygnalowej */
+    SautiUsacMpsState ms;
+    SautiAacEldSacDec sac;
+    unsigned sac_on;
 } eldsbr_t;
 
 /* caly stan dekodowania: kopia = punkt kontrolny */

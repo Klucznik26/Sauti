@@ -93,7 +93,7 @@ static void hybrid_in(cxf lf_state[3][12], const SautiAacSbrComplex *in, unsigne
     for (k = 0; k < 3u; k++) memcpy(lf_state[k], lf_in[k] + slots, 12u * sizeof(cxf));
 }
 
-static void set_gains(unsigned prediction, int cld_idx, int icc_idx, int ipd_idx, int in_ipd, int in_res, float res[2], float dec[2], float rsd[2], float im[2]) {
+void sauti_usac_mps_set_gains(unsigned prediction, int cld_idx, int icc_idx, int ipd_idx, int in_ipd, int in_res, float res[2], float dec[2], float rsd[2], float im[2]) {
     const unsigned c = (unsigned)(cld_idx + 15), ic = (unsigned)icc_idx & 7u;
     im[0] = im[1] = 0.0f;
     if (!prediction) {
@@ -397,7 +397,7 @@ int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, c
             float rs[2], dc[2], rd[2], ii[2];
             const int in_res = pb < cfg->residual_bands;                        /* a band below bsResidualBands: the residual signal takes the place of the decorrelator output */
             const int in_ipd = cfg->phase_coding && f->phase_mode && pb < cfg->bands_phase;
-            set_gains(cfg->residual, f->cld_idx[ps][pb], f->icc_idx[ps][pb], in_ipd ? f->ipd_idx[ps][pb] : 0, in_ipd, in_res, rs, dc, rd, ii);
+            sauti_usac_mps_set_gains(cfg->residual, f->cld_idx[ps][pb], f->icc_idx[ps][pb], in_ipd ? f->ipd_idx[ps][pb] : 0, in_ipd, in_res, rs, dc, rd, ii);
             for (row = 0; row < 2u; row++) {
                 resg[ps][pb][row] = rs[row]; decg[ps][pb][row] = in_res ? 0.0f : dc[row]; rsdg[ps][pb][row] = in_res ? rd[row] : 0.0f; img[ps][pb][row] = ii[row];
             }

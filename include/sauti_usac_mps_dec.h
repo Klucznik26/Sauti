@@ -40,4 +40,6 @@ void sauti_usac_mps212_downmix_grid(SautiUsacMpsDec *d, const SautiAacSbrComplex
  * 1 = ok, 0 = refused (unsupported configuration or malformed). */
 int sauti_usac_mps212_apply(SautiUsacMpsDec *d, const SautiUsacMpsConfig *cfg, const SautiUsacMpsFrame *f, unsigned band_count, unsigned slots,
                             const SautiAacSbrComplex *in, const SautiAacSbrComplex *res_in, unsigned res_band_count, SautiAacSbrComplex *out0, SautiAacSbrComplex *out1);
+/* the upmix gains of one parameter band: the direct signal res[2], the decorrelated dec[2], the residual rsd[2] and the imaginary part im[2] of the two outputs (shared with the low delay MPS of ELD v2) */
+void sauti_usac_mps_set_gains(unsigned prediction, int cld_idx, int icc_idx, int ipd_idx, int in_ipd, int in_res, float res[2], float dec[2], float rsd[2], float im[2]);
 #endif
