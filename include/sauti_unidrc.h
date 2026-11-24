@@ -82,14 +82,14 @@ unsigned sauti_unidrc_delta_tmin(unsigned rate);
 /* Gain curve of one gain sequence (stage U3).  The gain of a frame is final only when the NEXT frame's nodes are known (a frame whose last node is before its end continues with the first segment of the next one,
  * which starts at that node), so the output of a call is the gain of the PREVIOUS frame: the PCM that the access unit N produces is multiplied by the gains of access unit N - 1 completed by access unit N (measured against
  * libxaac: the gain buffer of its DRC processing, 87 dB).  The state holds the gains of the frame still open. */
-typedef struct { int have; int time; float gain_db, slope; float open[4096]; } SautiUniDrcSeqState;
+typedef struct { int have; int time; float gain_db, slope; float open[4096]; float dly[512]; } SautiUniDrcSeqState;
 typedef struct {
     float boost, compress;                  /* user factors on the positive / negative gains (1.0 = off) */
     unsigned scaling_flag; float attn, ampl;/* gain modifiers of the instruction (band 0) */
     unsigned offset_flag; float offset_db;
     unsigned ducking_flag; float ducking_scaling;
     int limiter_present; float limiter_peak, norm_gain_db;   /* limiter peak target and the loudness normalisation gain (clipping prevention) */
-    unsigned lookahead;                     /* samples the gain curve is moved EARLIER (FDK: 257 after SBR / MPEG Surround, whose QMF synthesis delays the PCM against the gain timeline); 0 = libxaac */
+    unsigned delay;                         /* samples the gain curve is moved LATER (FDK: 257 after SBR / MPEG Surround, the QMF synthesis delay of the PCM); 0 = libxaac; at most 512 */
 } SautiUniDrcCurveParams;
 #define SAUTI_UNIDRC_RUN_SETS 2u
 #define SAUTI_UNIDRC_RUN_GROUPS 2u

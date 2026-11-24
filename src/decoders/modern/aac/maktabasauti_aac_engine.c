@@ -167,6 +167,11 @@ static prod_t decode_usac(dec_t *d) {
     SautiAacReason reason = SAUTI_AAC_REASON_OK; int r;
     if (!d->usac_ready || d->frame_len < 7u || !d->core.usac_hs) return P_FAIL;
     r = sauti_usac_decode(&d->usac, d->core.usac_hs, d->frame + 7u, d->frame_len - 7u, d->cache, &reason);
+    if (r == 1 && d->drc_plan && d->drc_plan->ok && d->drc_plan->opt.preroll) {      /* FDK runs the curve through the pre-roll access units too, their PCM dropped */
+        static float skip[SAUTI_USAC_MAX_CHANNELS * 4096u]; unsigned q;
+        for (q = 0; q < d->core.usac_hs->pre_count; q++)
+            if (d->core.usac_hs->pre_drc[q].bits) (void)sauti_unidrc_process(d->drc_plan, &d->core.usac_hs->drc, &d->usac, d->core.usac_hs->pre_drc[q].data, sizeof d->core.usac_hs->pre_drc[q].data, 0, d->core.usac_hs->pre_drc[q].bits / 8u, skip);
+    }
     if (r == 1 && d->drc_plan && d->drc_plan->ok) (void)sauti_unidrc_process(d->drc_plan, &d->core.usac_hs->drc, &d->usac, d->frame + 7u, d->frame_len - 7u, d->core.usac_hs->drc_pos, d->core.usac_hs->drc_len, d->cache);
     if (r == 1 && !all_finite(d->cache, (size_t)d->frame_pcm * d->out_channels)) r = 0;
     return r == 1 ? P_OK : (r < 0 ? P_UNSUPPORTED : P_FAIL);
@@ -618,10 +623,11 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
             if ((v = d->host->option ? d->host->option(d->host->user, "aac.loudness_target") : NULL) != NULL) { o.loudness_normalise = 1; o.loudness_target = (float)atof(v); }
             if ((v = d->host->option ? d->host->option(d->host->user, "aac.drc_boost") : NULL) != NULL) o.boost = (float)atof(v);
             if ((v = d->host->option ? d->host->option(d->host->user, "aac.drc_compress") : NULL) != NULL) o.compress = (float)atof(v);
-            if (host_opt_is(d->host, "aac.drc_align", "fdk")) {      /* FDK: the gain timeline runs 257 samples ahead of the PCM when SBR or MPEG Surround follows the core */
+            if (host_opt_is(d->host, "aac.drc_align", "fdk")) {      /* FDK: the gain timeline runs 257 samples behind the PCM when SBR or MPEG Surround follows the core */
                 unsigned e; int qmf = d->usac.sbr_mode != 0u;
                 for (e = 0; e < d->usac.num_elements && e < 16u; e++) if (d->usac.e[e].stereo_config_index) qmf = 1;
-                if (qmf) o.lookahead = 257u;
+                if (qmf) o.delay = 257u;
+                o.node_limit = 1u; o.preroll = 1u;
             }
             d->drc_plan = (SautiUniDrcPlan *)d->host->alloc(d->host->user, sizeof *d->drc_plan);
             if (d->drc_plan && !sauti_unidrc_plan(d->drc_plan, d->usac_asc, d->usac_asc_len, &d->usac, &o)) { d->host->free(d->host->user, d->drc_plan); d->drc_plan = NULL; }

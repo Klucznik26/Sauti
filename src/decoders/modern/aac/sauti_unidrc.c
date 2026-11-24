@@ -580,10 +580,14 @@ int sauti_unidrc_curve(const SautiUniDrcGainSet *gs, const SautiUniDrcNodes *nd,
         }
         time_prev = t; g_prev = nd->gain_db[k]; s_prev = nd->slope[k];
     }
-    {   /* the output is the open frame seen `lookahead` samples early: its last samples come from the frame just parsed */
-        const unsigned la = p->lookahead < frame_size ? p->lookahead : 0u;
-        memcpy(lin, st->open + la, sizeof(float) * (frame_size - la));
-        memcpy(lin + (frame_size - la), next, sizeof(float) * la);
+    memcpy(lin, st->open, sizeof(float) * frame_size);
+    if (p->delay && p->delay <= 512u && p->delay < frame_size) {                 /* the curve runs `delay` samples behind: the first samples are the tail of the previous output */
+        const unsigned d = p->delay; float t[512];
+        if (st->have == 1) { for (i = 0; i < (int)d; i++) st->dly[i] = 1.0f; st->have = 2; }
+        memcpy(t, lin + (frame_size - d), sizeof(float) * d);
+        memmove(lin + d, lin, sizeof(float) * (frame_size - d));
+        memcpy(lin, st->dly, sizeof(float) * d);
+        memcpy(st->dly, t, sizeof(float) * d);
     }
     memcpy(st->open, next, sizeof(float) * frame_size);
     st->time = time_prev - (int)frame_size; st->gain_db = g_prev; st->slope = s_prev;

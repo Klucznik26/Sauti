@@ -91,6 +91,7 @@ typedef struct {
     unsigned channels;
     unsigned primed;                                      /* a frame has been decoded: an AudioPreRoll payload is only decoded while this is 0 (start of decoding, after a seek to the start) */
     SautiUniDrcRun drc;                                 /* uniDRC: the curves of the selected sets (used only when the option is on; zero otherwise) */
+    struct { uint8_t data[640]; unsigned bits; } pre_drc[4]; unsigned pre_count; /* the UniDrcGain() payloads of the AudioPreRoll access units of the last decoded access unit (byte aligned copies, bits = 0: none or too long) */
     size_t drc_pos; unsigned drc_len;                   /* the UniDrcGain() payload (extension element of type 4) of the last decoded access unit: bit position and byte length, 0 = none */
 } SautiUsacState;
 

@@ -104,13 +104,21 @@ int sauti_unidrc_process(const SautiUniDrcPlan *plan, SautiUniDrcRun *run, const
             SautiUniDrcNodes hold;
             const SautiUniDrcNodes *nodes;
             memset(&cp, 0, sizeof cp);
-            cp.lookahead = plan->opt.lookahead;
+            cp.delay = plan->opt.delay;
             cp.boost = plan->opt.boost > 0.0f ? plan->opt.boost : 1.0f; cp.compress = plan->opt.compress > 0.0f ? plan->opt.compress : 1.0f;
             if (in->effect & (SAUTI_UNIDRC_EFFECT_DUCK_OTHER | SAUTI_UNIDRC_EFFECT_DUCK_SELF)) { cp.boost = cp.compress = 1.0f; if (in->ducking_scaling[grp] != 1.0f) { cp.ducking_flag = 1; cp.ducking_scaling = in->ducking_scaling[grp]; } }
             if (in->mod[grp][0].scaling) { cp.scaling_flag = 1; cp.attn = in->mod[grp][0].attn; cp.ampl = in->mod[grp][0].ampl; }
             if (in->mod[grp][0].offset_flag) { cp.offset_flag = 1; cp.offset_db = in->mod[grp][0].offset; }
             if (have_gain) nodes = &g.seq[gs->seq_idx[0]];
             else { memset(&hold, 0, sizeof hold); hold.count = 1; hold.time[0] = (int)frame - 1 + (gs->time_alignment ? 0 : 0); hold.gain_db[0] = run->seq[set][grp].have ? run->seq[set][grp].gain_db : 0.0f; nodes = &hold; }
+            if (have_gain && plan->opt.node_limit && nodes->count > 16u) {      /* FDK: node 15 takes the gain of the 16th node at the end of the frame, the others are read and dropped */
+                static SautiUniDrcNodes cut;
+                const unsigned dt = gs->time_delta_min ? gs->time_delta_min : sauti_unidrc_delta_tmin(usac->sample_rate);
+                const int end = (int)frame + (gs->time_alignment ? -(int)dt + ((int)dt - 1) / 2 : -1);
+                cut = *nodes; cut.count = 16u;
+                if (cut.time[14] < end) cut.time[15] = end;
+                nodes = &cut;
+            }
             if (nodes->count == 0 || !sauti_unidrc_curve(gs, nodes, frame, usac->sample_rate, &cp, &run->seq[set][grp], lin[set][grp])) return 0;
         }
     }

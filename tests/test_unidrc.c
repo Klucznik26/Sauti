@@ -105,6 +105,14 @@ int main(void) {
         CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1, "scaling frame 1");
         CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 1 && fabsf(lin[2047] - (float)pow(2.0, -3.0 / 6.0)) < 1e-6f, "gain scaling");
         nd.time[0] = 5000; CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &ss, lin) == 0, "a node far beyond the frame accepted");
+        {   /* delay: the curve runs `delay` samples behind; the first samples of a frame are the tail of the previous output */
+            SautiUniDrcSeqState sd, s0; float l0[2048], ld[2048]; SautiUniDrcCurveParams cd = cp;
+            memset(&sd, 0, sizeof sd); memset(&s0, 0, sizeof s0); cd.delay = 100; cd.scaling_flag = 0; cp.scaling_flag = 0;
+            nd.count = 1; nd.time[0] = 2047; nd.gain_db[0] = -6.0f; nd.slope[0] = 0.0f;
+            CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cd, &sd, ld) == 1 && sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &s0, l0) == 1, "delay frame 1");
+            CHECK(sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cd, &sd, ld) == 1 && sauti_unidrc_curve(&gs, &nd, 2048, 48000, &cp, &s0, l0) == 1, "delay frame 2");
+            CHECK(ld[0] == 1.0f && ld[99] == 1.0f && fabsf(ld[100] - l0[0]) < 1e-6f && fabsf(ld[2047] - l0[1947]) < 1e-6f, "delayed curve: ld[100] %f = l0[0] %f, ld[2047] %f = l0[1947] %f", (double)ld[100], (double)l0[0], (double)ld[2047], (double)l0[1947]);
+        }
     }
     {   /* the engine option: loudness normalisation reproduces FDK's constant gain exactly (target - the measured loudness: usac_x3 -16.25 LUFS -> -7.75 dB), DRC reproduces libxaac (see docs/UNIDRC_PLAN.md) */
         static const maktabasauti_option_t o_loud[] = { { "aac.loudness_target", "-24" } }, o_drc[] = { { "aac.drc", "on" } }, o_eff[] = { { "aac.drc", "on" }, { "aac.drc_effect", "1" } };
@@ -121,13 +129,14 @@ int main(void) {
         free(norm); norm = decode_file("tests/data/usac_d1.m4a", o_eff, 2, &f1, &c1);
         CHECK(norm && fabs(rms(norm, f1 * c1) - 1039.027) < 0.01, "DRC with the night effect: rms %.3f (1039.027)", norm ? rms(norm, f1 * c1) : 0.0);
         free(norm);
-        {   /* FDK timeline: with SBR the gain runs 257 samples ahead of the PCM, so the ramp of the first access unit lands before sample 2048 (FDK: 0.84 / 0.52 / 0.40 at 1792 / 1856 / 1920; libxaac timeline: unity until 2048) */
+        {   /* FDK timeline (SBR: gains 257 samples behind the PCM, the AudioPreRoll units run through the curve, 16 nodes per sequence): the ramp of the last pre-roll unit lands in the first access unit (FDK: 0.84 / 0.52 / 0.40 at 1792 / 1856 / 1920; libxaac timeline: unity until 2048); the result is 58 dB from FDK's output */
             static const maktabasauti_option_t o_fdk[] = { { "aac.drc", "on" }, { "aac.drc_align", "fdk" } };
             float *fdk = decode_file("tests/data/usac_d1.m4a", o_fdk, 2, &f1, &c1);
             double num = 0, den = 0, num0 = 0; size_t i;
             norm = decode_file("tests/data/usac_d1.m4a", o_drc, 1, &f1, &c1);
             if (off && fdk && norm) for (i = 1984; i < 2048; i++) { num += (double)fdk[i * c0] * off[i * c0]; num0 += (double)norm[i * c0] * off[i * c0]; den += (double)off[i * c0] * off[i * c0]; }
-            CHECK(off && fdk && norm && den > 0 && fabs(num / den - 0.40) < 0.02 && fabs(num0 / den - 1.0) < 1e-6, "lookahead 257: gain %.4f at 1984..2047 (FDK 0.40), libxaac timeline %.6f", den > 0 ? num / den : 0.0, den > 0 ? num0 / den : 0.0);
+            CHECK(off && fdk && norm && den > 0 && fabs(num / den - 0.40) < 0.02 && fabs(num0 / den - 1.0) < 1e-6, "FDK timeline: gain %.4f at 1984..2047 (FDK 0.40), libxaac timeline %.6f", den > 0 ? num / den : 0.0, den > 0 ? num0 / den : 0.0);
+            CHECK(fdk && fabs(rms(fdk, f1 * c1) - 2596.487) < 0.01, "FDK timeline rms %.3f (2596.487, 58 dB from FDK)", fdk ? rms(fdk, f1 * c1) : 0.0);
             free(fdk); free(norm);
         }
         free(off);

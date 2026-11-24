@@ -854,6 +854,7 @@ static int element(const SautiUsacConfig *cfg, const SautiUsacElement *e, SautiU
 /* The access unit decoded INTO `next` (a scratch copy of the state: the caller commits or drops it).  preroll_ok = 0 for the access units carried inside a pre-roll payload. */
 static int decode_core(const SautiUsacConfig *cfg, SautiUsacState *next, const uint8_t *au, size_t length, float *pcm, SautiAacReason *reason, int preroll_ok) {
     next->drc_pos = 0; next->drc_len = 0;
+    if (preroll_ok) next->pre_count = 0;
     unsigned why = 0, ch = 0, el, n, c, i;
     int indep, r;
     SautiUsacBits b;
@@ -892,6 +893,13 @@ static int decode_core(const SautiUsacConfig *cfg, SautiUsacState *next, const u
                     if (k == 0u && !(buf[0] & 0x80u)) goto preroll_end;                 /* the first pre-roll access unit must be independent */
                     inner = decode_core(cfg, next, buf, al, scratch, &pwhy, 0);
                     if (inner != 1) goto preroll_end;
+                    if (next->pre_count < 4u) {                                       /* keep the gain payload of this pre-roll unit for the uniDRC curve */
+                        const unsigned q = next->pre_count++; unsigned bits = next->drc_len * 8u;
+                        if (bits > sizeof next->pre_drc[q].data * 8u) bits = 0;
+                        memset(next->pre_drc[q].data, 0, sizeof next->pre_drc[q].data);
+                        for (j = 0; j < bits; j++) { const size_t at = next->drc_pos + j; if ((buf[at >> 3] >> (7u - (at & 7u))) & 1u) next->pre_drc[q].data[j >> 3] |= (uint8_t)(0x80u >> (j & 7u)); }
+                        next->pre_drc[q].bits = bits;
+                    }
                     p.pos += (size_t)al * 8u;
                 }
                 ok = 1;
