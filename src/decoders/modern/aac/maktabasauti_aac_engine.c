@@ -618,6 +618,11 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
             if ((v = d->host->option ? d->host->option(d->host->user, "aac.loudness_target") : NULL) != NULL) { o.loudness_normalise = 1; o.loudness_target = (float)atof(v); }
             if ((v = d->host->option ? d->host->option(d->host->user, "aac.drc_boost") : NULL) != NULL) o.boost = (float)atof(v);
             if ((v = d->host->option ? d->host->option(d->host->user, "aac.drc_compress") : NULL) != NULL) o.compress = (float)atof(v);
+            if (host_opt_is(d->host, "aac.drc_align", "fdk")) {      /* FDK: the gain timeline runs 257 samples ahead of the PCM when SBR or MPEG Surround follows the core */
+                unsigned e; int qmf = d->usac.sbr_mode != 0u;
+                for (e = 0; e < d->usac.num_elements && e < 16u; e++) if (d->usac.e[e].stereo_config_index) qmf = 1;
+                if (qmf) o.lookahead = 257u;
+            }
             d->drc_plan = (SautiUniDrcPlan *)d->host->alloc(d->host->user, sizeof *d->drc_plan);
             if (d->drc_plan && !sauti_unidrc_plan(d->drc_plan, d->usac_asc, d->usac_asc_len, &d->usac, &o)) { d->host->free(d->host->user, d->drc_plan); d->drc_plan = NULL; }
         }

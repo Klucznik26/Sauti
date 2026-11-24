@@ -120,7 +120,17 @@ int main(void) {
         CHECK(off && norm && f0 == f1 && fabs(rms(off, f0 * c0) - 6201.369) < 0.01 && fabs(rms(norm, f1 * c1) - 2612.328) < 0.01, "DRC on usac_d1: rms %.3f -> %.3f (6201.369 -> 2612.328)", off ? rms(off, f0 * c0) : 0.0, norm ? rms(norm, f1 * c1) : 0.0);
         free(norm); norm = decode_file("tests/data/usac_d1.m4a", o_eff, 2, &f1, &c1);
         CHECK(norm && fabs(rms(norm, f1 * c1) - 1039.027) < 0.01, "DRC with the night effect: rms %.3f (1039.027)", norm ? rms(norm, f1 * c1) : 0.0);
-        free(off); free(norm);
+        free(norm);
+        {   /* FDK timeline: with SBR the gain runs 257 samples ahead of the PCM, so the ramp of the first access unit lands before sample 2048 (FDK: 0.84 / 0.52 / 0.40 at 1792 / 1856 / 1920; libxaac timeline: unity until 2048) */
+            static const maktabasauti_option_t o_fdk[] = { { "aac.drc", "on" }, { "aac.drc_align", "fdk" } };
+            float *fdk = decode_file("tests/data/usac_d1.m4a", o_fdk, 2, &f1, &c1);
+            double num = 0, den = 0, num0 = 0; size_t i;
+            norm = decode_file("tests/data/usac_d1.m4a", o_drc, 1, &f1, &c1);
+            if (off && fdk && norm) for (i = 1984; i < 2048; i++) { num += (double)fdk[i * c0] * off[i * c0]; num0 += (double)norm[i * c0] * off[i * c0]; den += (double)off[i * c0] * off[i * c0]; }
+            CHECK(off && fdk && norm && den > 0 && fabs(num / den - 0.40) < 0.02 && fabs(num0 / den - 1.0) < 1e-6, "lookahead 257: gain %.4f at 1984..2047 (FDK 0.40), libxaac timeline %.6f", den > 0 ? num / den : 0.0, den > 0 ? num0 / den : 0.0);
+            free(fdk); free(norm);
+        }
+        free(off);
     }
     free(st); free(pcm); free(asc); free(aus);
     if (g_failures) { printf("test_unidrc: %d FAILURES\n", g_failures); return 1; }

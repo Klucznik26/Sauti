@@ -104,6 +104,7 @@ int sauti_unidrc_process(const SautiUniDrcPlan *plan, SautiUniDrcRun *run, const
             SautiUniDrcNodes hold;
             const SautiUniDrcNodes *nodes;
             memset(&cp, 0, sizeof cp);
+            cp.lookahead = plan->opt.lookahead;
             cp.boost = plan->opt.boost > 0.0f ? plan->opt.boost : 1.0f; cp.compress = plan->opt.compress > 0.0f ? plan->opt.compress : 1.0f;
             if (in->effect & (SAUTI_UNIDRC_EFFECT_DUCK_OTHER | SAUTI_UNIDRC_EFFECT_DUCK_SELF)) { cp.boost = cp.compress = 1.0f; if (in->ducking_scaling[grp] != 1.0f) { cp.ducking_flag = 1; cp.ducking_scaling = in->ducking_scaling[grp]; } }
             if (in->mod[grp][0].scaling) { cp.scaling_flag = 1; cp.attn = in->mod[grp][0].attn; cp.ampl = in->mod[grp][0].ampl; }

@@ -89,6 +89,7 @@ typedef struct {
     unsigned offset_flag; float offset_db;
     unsigned ducking_flag; float ducking_scaling;
     int limiter_present; float limiter_peak, norm_gain_db;   /* limiter peak target and the loudness normalisation gain (clipping prevention) */
+    unsigned lookahead;                     /* samples the gain curve is moved EARLIER (FDK: 257 after SBR / MPEG Surround, whose QMF synthesis delays the PCM against the gain timeline); 0 = libxaac */
 } SautiUniDrcCurveParams;
 #define SAUTI_UNIDRC_RUN_SETS 2u
 #define SAUTI_UNIDRC_RUN_GROUPS 2u

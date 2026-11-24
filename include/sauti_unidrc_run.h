@@ -12,6 +12,7 @@ typedef struct {
     int loudness_normalise;          /* 1 = apply (target - measured loudness) of the stream, the FDK behaviour */
     float loudness_target;           /* LUFS, default -24 */
     float boost, compress;           /* factors of the positive / negative gains, default 1 */
+    unsigned lookahead;              /* samples the gain timeline runs ahead of the PCM: 0 = libxaac, 257 = FDK with SBR / MPEG Surround (see sauti_unidrc_curve) */
 } SautiUniDrcOptions;
 
 typedef struct {
