@@ -319,7 +319,7 @@ static void test_windows(void) {
         CHECK(worst < 2e-5 * 10.0, "window sequence %u shapes %u/%u: worst deviation %.3e from the definition", seq, ps, cs, worst);
     }
     CHECK(sauti_aac_window_synth_n(1000, 0, 0, 0, x, prev, pcm, next) == 0, "length 1000 is refused");
-    CHECK(sauti_aac_window_synth_n(960, 4, 0, 0, x, prev, pcm, next) == 0, "sequence 4 is refused");
+    CHECK(sauti_aac_window_synth_n(960, 5, 0, 0, x, prev, pcm, next) == 0, "sequence 5 is refused");   /* 4 = STOP_START is valid since the USAC window work (09f8d96) */
     CHECK(sauti_aac_window_synth_n(960, 0, 2, 0, x, prev, pcm, next) == 0, "shape 2 is refused");
 }
 

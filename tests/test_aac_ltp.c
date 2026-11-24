@@ -99,7 +99,7 @@ static void test_transforms(void) {
             for (i = 576; i < 1024; i++) CHECK(w[i] == 1.0f, "stop window flat part at %u", i);
         }
     }
-    CHECK(sauti_aac_window_long_weights(1000, 0, 0, 0, (float *)in) == 0 && sauti_aac_window_long_weights(1024, 4, 0, 0, (float *)in) == 0 && sauti_aac_window_long_weights(1024, 0, 2, 0, (float *)in) == 0 && sauti_aac_window_long_weights(1024, 0, 0, 0, NULL) == 0, "weights: bad arguments");
+    CHECK(sauti_aac_window_long_weights(1000, 0, 0, 0, (float *)in) == 0 && sauti_aac_window_long_weights(1024, 5, 0, 0, (float *)in) == 0 && sauti_aac_window_long_weights(1024, 0, 2, 0, (float *)in) == 0 && sauti_aac_window_long_weights(1024, 0, 0, 0, NULL) == 0, "weights: bad arguments");
     /* analysis TNS is the inverse of the synthesis filter */
     { SautiAacTnsData tns; SautiAacIcsInfo ics; static float a[1024], b[1024]; const unsigned idx = SAUTI_AAC_IDX(3, SAUTI_AAC_LAYOUT_1024); unsigned dir;
       memset(&ics, 0, sizeof ics); ics.window_count = 1; ics.group_count = 1; ics.group_length[0] = 1; ics.max_sfb = 49;
