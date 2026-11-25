@@ -6,6 +6,7 @@
 #include <string.h>
 
 static int g_failures;
+static const maktabasauti_codec_t *g_codec;
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); g_failures++; } } while (0)
 
 typedef struct { size_t live, peak; int bad; } Heap;
@@ -76,7 +77,10 @@ static void dec_open_ex(Dec *d, const uint8_t *data, size_t n, const char *rate,
     d->host.read = mem_unused; d->host.peek = mem_unused; d->host.seek = mem_seek;
     d->host.tell = mem_tell; d->host.size = mem_size; d->host.map = b_map;
     d->host.option = b_option; d->host.log = mem_log;
-    d->rc = maktabasauti_mod_desc.open(&maktabasauti_mod_desc, &d->host, NULL, &d->info, &d->state);
+    {
+        const maktabasauti_codec_t *codec = g_codec ? g_codec : &maktabasauti_mod_desc;
+        d->rc = codec->open(codec, &d->host, NULL, &d->info, &d->state);
+    }
 }
 
 static void dec_open(Dec *d, const uint8_t *data, size_t n, const char *rate, const char *mod_rate) {
@@ -113,7 +117,7 @@ static unsigned layout_channels(const char *m) {
     if (m[0] >= '1' && m[0] <= '9' && m[1] == 'C' && m[2] == 'H' && m[3] == 'N') return (unsigned)(m[0] - '0');
     if (m[0] >= '0' && m[0] <= '9' && m[1] >= '0' && m[1] <= '9' && m[2] == 'C' && (m[3] == 'H' || m[3] == 'N')) {
         ch = (unsigned)(m[0] - '0') * 10u + (unsigned)(m[1] - '0');
-        if (ch >= 10u && ch <= 32u) return ch;
+        if (ch >= 10u && ch <= 99u) return ch;
     }
     return 4u;
 }
@@ -298,9 +302,22 @@ static void test_probe(void) {
     memcpy(hdr + 1080, "XXXX", 4u);
     CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 0);
     memcpy(hdr + 1080, "33CH", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "99CH", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 70);
+    memcpy(hdr + 1080, "00CH", 4u);
     CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 0);
     memcpy(hdr + 1080, "FLT6", 4u);
     CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 0);
+    memcpy(hdr + 1080, "M.K.", 4u);
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, "a.WOW") == 70);
+    CHECK(maktabasauti_mod_wow_desc.probe(&maktabasauti_mod_wow_desc, hdr, sizeof hdr, NULL) == 0);
+    CHECK(maktabasauti_mod_wow_desc.probe(&maktabasauti_mod_wow_desc, hdr, sizeof hdr, "tune.mod") == 0);
+    CHECK(maktabasauti_mod_wow_desc.probe(&maktabasauti_mod_wow_desc, hdr, sizeof hdr, "a.WOW") == 90);
+    CHECK(maktabasauti_mod_wow_desc.probe(&maktabasauti_mod_wow_desc, hdr, sizeof hdr, "dir/tune.wow") == 90);
+    CHECK(maktabasauti_mod_wow_desc.probe(&maktabasauti_mod_wow_desc, hdr, sizeof hdr, "C:\\songs\\tune.WOW") == 90);
+    memcpy(hdr + 1080, "8CHN", 4u);
+    CHECK(maktabasauti_mod_wow_desc.probe(&maktabasauti_mod_wow_desc, hdr, sizeof hdr, "a.wow") == 0);
     memset(hdr, 0, sizeof hdr);
     hdr[470] = 1;
     CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, 600u, NULL) == 60);
@@ -336,8 +353,110 @@ static void test_reject(void) {
     dec_close(&d); free(b);
     b = build(&n, "33CH", 1, 0, NULL, &inst, 1, &cell, 1);
     dec_open(&d, b, n, NULL, NULL);
-    CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FORMAT);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(strcmp(d.info.codec_profile, "33CH") == 0);
     dec_close(&d); free(b);
+    b = build(&n, "99CH", 1, 0, NULL, &inst, 1, &cell, 1);
+    dec_open(&d, b, n, NULL, NULL);
+    CHECK(d.rc == MAKTABASAUTI_OK);
+    CHECK(strcmp(d.info.codec_profile, "99CH") == 0);
+    dec_close(&d); free(b);
+    {
+        uint8_t flat[4];
+        uint8_t *extra;
+        Inst winst;
+        Cell wcell;
+        memset(flat, 127, sizeof flat);
+        winst = (Inst){1, 2, 0, 64, 0, 2, flat};
+        wcell = (Cell){0, 0, 4, 1, 428, 0, 0};
+        b = build(&n, "8CHN", 1, 0, NULL, &winst, 1, &wcell, 1);
+        memcpy(b + 1080, "M.K.", 4u);
+        dec_open(&d, b, n, NULL, NULL);
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(strcmp(d.info.codec_profile, "M.K.") == 0);
+        dec_close(&d);
+        extra = (uint8_t *)malloc(n + 1u);
+        CHECK(extra != NULL);
+        if (extra) {
+            memcpy(extra, b, n);
+            extra[n] = 0xABu;
+            dec_open(&d, extra, n + 1u, NULL, NULL);
+            CHECK(d.rc == MAKTABASAUTI_OK);
+            CHECK(strcmp(d.info.codec_profile, "M.K.") == 0);
+            dec_close(&d);
+            free(extra);
+        }
+        g_codec = &maktabasauti_mod_wow_desc;
+        dec_open(&d, b, n, NULL, NULL);
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(strcmp(d.info.codec_profile, "WOW") == 0);
+        dec_close(&d);
+        expect_channel(b, n, 4, 428, flat, 4, 0, 4, 64, 32);
+        g_codec = NULL;
+        free(b);
+        winst.volume = 32;
+        b = build(&n, "8CHN", 1, 1, NULL, &winst, 1, &wcell, 1);
+        memcpy(b + 1080, "M.K.", 4u);
+        dec_open(&d, b, n, NULL, NULL);
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(strcmp(d.info.codec_profile, "M.K.") == 0);
+        dec_close(&d);
+        g_codec = &maktabasauti_mod_wow_desc;
+        dec_open(&d, b, n, NULL, NULL);
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(strcmp(d.info.codec_profile, "WOW") == 0);
+        dec_close(&d);
+        expect_channel(b, n, 4, 428, flat, 4, 0, 4, 32, 32);
+        g_codec = NULL;
+        free(b);
+        winst.volume = 64;
+        wcell.ch = 0;
+        b = build(&n, "M.K.", 1, 0, NULL, &winst, 1, &wcell, 1);
+        {
+            size_t pat = 1024u;
+            uint8_t *pad = (uint8_t *)malloc(n + pat);
+            CHECK(pad != NULL);
+            if (pad) {
+                memcpy(pad, b, 1084u + pat);
+                memset(pad + 1084u + pat, 0, pat);
+                memcpy(pad + 1084u + pat + pat, b + 1084u + pat, n - 1084u - pat);
+                dec_open(&d, pad, n + pat, NULL, NULL);
+                CHECK(d.rc == MAKTABASAUTI_OK);
+                CHECK(strcmp(d.info.codec_profile, "M.K.") == 0);
+                dec_close(&d);
+                g_codec = &maktabasauti_mod_wow_desc;
+                dec_open(&d, pad, n + pat, NULL, NULL);
+                CHECK(d.rc == MAKTABASAUTI_OK);
+                CHECK(strcmp(d.info.codec_profile, "WOW") == 0);
+                dec_close(&d);
+                expect_channel(pad, n + pat, 0, 428, flat, 4, 0, 4, 64, 32);
+                g_codec = NULL;
+                free(pad);
+            }
+        }
+        free(b);
+        b = build(&n, "M.K.", 1, 0, NULL, &winst, 1, &wcell, 1);
+        g_codec = &maktabasauti_mod_wow_desc;
+        dec_open(&d, b, n, NULL, NULL);
+        CHECK(d.rc == MAKTABASAUTI_E_TRUNCATED);
+        dec_close(&d);
+        g_codec = NULL;
+        free(b);
+        wcell.ch = 32;
+        b = build(&n, "33CH", 1, 0, NULL, &winst, 1, &wcell, 1);
+        expect_channel(b, n, 32, 428, flat, 4, 0, 4, 64, 16);
+        free(b);
+        wcell.ch = 98;
+        b = build(&n, "99CH", 1, 0, NULL, &winst, 1, &wcell, 1);
+        expect_channel(b, n, 98, 428, flat, 4, 0, 4, 64, 8);
+        free(b);
+        wcell.ch = 0;
+        b = build(&n, "M.K.", 1, 0, NULL, &winst, 1, &wcell, 1);
+        dec_open(&d, b, n, NULL, NULL);
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(strcmp(d.info.codec_profile, "M.K.") == 0);
+        dec_close(&d); free(b);
+    }
     b = build(&n, "TDZ4", 1, 0, NULL, &inst, 1, &cell, 1);
     dec_open(&d, b, n, NULL, NULL);
     CHECK(d.rc == MAKTABASAUTI_OK);
@@ -2211,6 +2330,265 @@ static void test_tracker(void) {
         b = build15(&n, 1, NULL, &inst, 1, NULL, 0);
         dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st9");
         CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
+        dec_close(&d); free(b);
+    }
+
+    {
+        uint8_t flat[4];
+        uint8_t volw[4] = {0x00, 0x20, 0x00, 0x20};
+        uint8_t perw[4] = {0x03, 0x58, 0x03, 0x58};
+        uint8_t bytes[8] = {0, 0, 0, 0, 127, 127, 127, 127};
+        uint8_t worded[8] = {127, 127, 127, 127, 50, 50, 50, 50};
+        uint8_t sq[4] = {127, 0x80, 127, 0x80};
+        Inst two[2];
+        Cell rows[3];
+        memset(flat, 127, sizeof flat);
+
+        inst = (Inst){1, 2, 0, 64, 0, 2, sq};
+        cell = (Cell){0, 0, 0, 1, 428, 0, 0};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 120;
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "tjc");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 282240u);
+        dec_close(&d);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "jungle");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 282240u);
+        dec_close(&d); free(b);
+
+        cell = (Cell){0, 0, 0, 1, 428, 0x0F, 0x0F};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 120;
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "tjc");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 282240u);
+        dec_close(&d); free(b);
+
+        cell = (Cell){0, 0, 0, 1, 428, 1, 0x0F};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        pcm = render_opt(&d, b, n, 5u * TICK, "tjc");
+        expect_period(pcm, 0, 413);
+        expect_period(pcm, 4, 353);
+        dec_close(&d); free(pcm); free(b);
+
+        cell = (Cell){0, 0, 0, 1, 856, 0, 0xC0};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        pcm = render_opt(&d, b, n, 3u * TICK, "tjc");
+        expect_period(pcm, 0, 428);
+        expect_period(pcm, 1, 856);
+        expect_period(pcm, 2, 856);
+        dec_close(&d); free(pcm); free(b);
+
+        inst.volume = 40;
+        inst.data = flat;
+        cell = (Cell){0, 0, 0, 1, 428, 0x0D, 0x13};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        pcm = render_opt(&d, b, n, (size_t)TICK + 1u, "tjc");
+        CHECK(pcm && pcm[0] == 127 * 38 && pcm[(size_t)TICK * 2u] == 127 * 36);
+        dec_close(&d); free(pcm); free(b);
+
+        inst.volume = 32;
+        rows[0] = (Cell){0, 0, 0, 1, 428, 0x0E, 0x10};
+        rows[1] = (Cell){0, 1, 0, 0, 0, 0, 0x01};
+        rows[2] = (Cell){0, 2, 0, 0, 0, 0, 0x00};
+        b = build15(&n, 1, NULL, &inst, 1, rows, 3);
+        pcm = render_opt(&d, b, n, 15u * TICK, "tjc");
+        CHECK(pcm && pcm[0] == 127 * 33);
+        CHECK(pcm && pcm[4u * TICK * 2u] == 127 * 37);
+        CHECK(pcm && pcm[5u * TICK * 2u] == 127 * 38);
+        CHECK(pcm && pcm[9u * TICK * 2u] == 127 * 42);
+        CHECK(pcm && pcm[14u * TICK * 2u] == 127 * 42);
+        dec_close(&d); free(pcm); free(b);
+
+        two[0] = (Inst){1, 2, 0, 64, 0, 2, volw};
+        two[1] = (Inst){2, 2, 0, 64, 0, 2, flat};
+        rows[0] = (Cell){0, 0, 0, 1, 428, 3, 0};
+        rows[1] = (Cell){0, 0, 1, 2, 428, 0, 0};
+        b = build15(&n, 1, NULL, two, 2, rows, 2);
+        pcm = render_opt(&d, b, n, 1u, "tjc");
+        CHECK(pcm && pcm[0] == 0 && pcm[1] == 127 * 32);
+        dec_close(&d); free(pcm); free(b);
+
+        rows[0].effect = 6;
+        b = build15(&n, 1, NULL, two, 2, rows, 2);
+        pcm = render_opt(&d, b, n, 1u, "jungle");
+        CHECK(pcm && pcm[0] == 0 && pcm[1] == 127 * 32);
+        dec_close(&d); free(pcm); free(b);
+
+        rows[0] = (Cell){0, 0, 2, 1, 428, 4, 0};
+        rows[1] = (Cell){0, 0, 3, 2, 428, 0, 0};
+        two[0].data = perw;
+        two[1].data = sq;
+        b = build15(&n, 1, NULL, two, 2, rows, 2);
+        pcm = render_opt(&d, b, n, TICK, "tjc");
+        expect_period(pcm, 0, 856);
+        dec_close(&d); free(pcm); free(b);
+
+        two[0].data = flat;
+        two[1].data = flat;
+        rows[0] = (Cell){0, 0, 2, 2, 428, 0, 0};
+        rows[1] = (Cell){0, 0, 3, 1, 428, 3, 0};
+        b = build15(&n, 1, NULL, two, 2, rows, 2);
+        pcm = render_opt(&d, b, n, 1u, "tjc");
+        CHECK(pcm && pcm[0] == 0 && pcm[1] == 127 * 64);
+        dec_close(&d); free(pcm); free(b);
+
+        inst = (Inst){1, 5000, 0, 64, 0, 0, NULL};
+        b = build15(&n, 1, NULL, &inst, 1, NULL, 0);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "tjc");
+        CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
+        dec_close(&d); free(b);
+
+        rows[0] = (Cell){0, 0, 0, 1, 428, 3, 0};
+        rows[1] = (Cell){0, 0, 1, 2, 428, 0, 0};
+        two[0].data = volw;
+        two[1].data = flat;
+        b = build15(&n, 1, NULL, two, 2, rows, 2);
+        b[471] = 124;
+        pcm = render_opt(&d, b, n, 1u, "st2");
+        CHECK(pcm && pcm[1] == 127 * 64);
+        dec_close(&d); free(pcm); free(b);
+
+        inst = (Inst){1, 2, 0, 32, 0, 2, flat};
+        cell = (Cell){0, 0, 0, 1, 428, 0x0A, 0x10};
+        b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, &cell, 1);
+        pcm = render_opt(&d, b, n, (size_t)TICK + 1u, "st23");
+        CHECK(pcm && pcm[0] == 127 * 32 && pcm[(size_t)TICK * 2u] == 127 * 33);
+        dec_close(&d); free(pcm); free(b);
+
+        cell = (Cell){0, 0, 0, 0, 0, 0x0D, 0x16};
+        b = build15(&n, 2, NULL, &inst, 1, &cell, 1);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st23");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 10584u);
+        dec_close(&d); free(b);
+
+        cell = (Cell){0, 0, 0, 1, 428, 0x0F, 0x14};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 120;
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st24");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 225792u);
+        dec_close(&d); free(b);
+
+        cell = (Cell){0, 0, 0, 1, 428, 0, 0};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 120;
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st23");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 338688u);
+        dec_close(&d); free(b);
+
+        inst = (Inst){1, 4, 0, 64, 4, 2, bytes};
+        cell = (Cell){0, 0, 0, 1, 428, 0, 0};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        pcm = render_opt(&d, b, n, 1u, "st23");
+        CHECK(pcm && pcm[0] == 127 * 64);
+        dec_close(&d); free(pcm); free(b);
+
+        inst = (Inst){1, 2, 7, 64, 0, 2, sq};
+        cell = (Cell){0, 0, 0, 1, 428, 0, 0};
+        b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, &cell, 1);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st23");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(maktabasauti_mod_desc.get_tag(d.state, "finetune.1", tag, sizeof tag, NULL) == MAKTABASAUTI_OK);
+        CHECK(strcmp(tag, "7") == 0);
+        dec_close(&d);
+        pcm = render_opt(&d, b, n, TICK, "st23");
+        expect_period(pcm, 0, 428);
+        dec_close(&d); free(pcm); free(b);
+
+        inst = (Inst){1, 2, 0, 64, 0, 2, sq};
+        rows[0] = (Cell){0, 0, 0, 1, 428, 1, 0x0F};
+        rows[1] = (Cell){0, 1, 0, 0, 0, 0, 0x0C};
+        b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, rows, 2);
+        pcm = render_opt(&d, b, n, 9u * TICK, "st23");
+        expect_period(pcm, 6, 428);
+        expect_period(pcm, 8, 214);
+        dec_close(&d); free(pcm); free(b);
+
+        rows[0] = (Cell){0, 0, 0, 1, 856, 0x0F, 0x08};
+        rows[1] = (Cell){0, 1, 0, 0, 0, 0, 0xC0};
+        b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, rows, 2);
+        pcm = render_opt(&d, b, n, 16u * TICK, "st23");
+        expect_period(pcm, 9, 428);
+        expect_period(pcm, 15, 856);
+        dec_close(&d); free(pcm); free(b);
+
+        rows[0] = (Cell){0, 0, 0, 1, 428, 0, 0};
+        rows[1] = (Cell){0, 1, 0, 1, 856, 3, 0x0F};
+        b = build(&n, "M.K.", 1, 0, NULL, &inst, 1, rows, 2);
+        pcm = render_opt(&d, b, n, 8u * TICK, "st23");
+        expect_period(pcm, 6, 856);
+        expect_period(pcm, 7, 856);
+        dec_close(&d); free(pcm); free(b);
+
+        inst = (Inst){1, 16385, 0, 64, 0, 0, NULL};
+        b = build15(&n, 1, NULL, &inst, 1, NULL, 0);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st23");
+        CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
+        dec_close(&d); free(b);
+        inst.words = 16384;
+        b = build15(&n, 1, NULL, &inst, 1, NULL, 0);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st23");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        dec_close(&d); free(b);
+
+        inst = (Inst){1, 4, 0, 64, 2, 2, worded};
+        cell = (Cell){0, 0, 0, 1, 428, 0, 0};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 120;
+        pcm = render_opt(&d, b, n, 23u, "st25");
+        CHECK(pcm && pcm[0] == 127 * 64 && pcm[22u * 2u] == 50 * 64);
+        dec_close(&d); free(pcm);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st25");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 338688u);
+        dec_close(&d); free(b);
+
+        inst = (Inst){1, 2, 0, 64, 0, 2, sq};
+        rows[0] = (Cell){0, 0, 0, 1, 428, 0, 0};
+        rows[1] = (Cell){0, 1, 0, 1, 856, 3, 0x0F};
+        b = build15(&n, 1, NULL, &inst, 1, rows, 2);
+        pcm = render_opt(&d, b, n, 8u * TICK, "st25");
+        expect_period(pcm, 6, 428);
+        expect_period(pcm, 7, 443);
+        dec_close(&d); free(pcm); free(b);
+
+        inst = (Inst){1, 2, 0, 32, 0, 2, flat};
+        cell = (Cell){0, 0, 0, 1, 428, 5, 0x10};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        pcm = render_opt(&d, b, n, (size_t)TICK + 1u, "st25");
+        CHECK(pcm && pcm[(size_t)TICK * 2u] == 127 * 32);
+        dec_close(&d); free(pcm); free(b);
+
+        inst = (Inst){1, 2, 0, 64, 0, 2, sq};
+        cell = (Cell){0, 0, 0, 1, 428, 0x0F, 0x28};
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 120;
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st25");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 451584u);
+        dec_close(&d); free(b);
+
+        cell.param = 0x20;
+        b = build15(&n, 1, NULL, &inst, 1, &cell, 1);
+        b[471] = 120;
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st25");
+        CHECK(d.rc == MAKTABASAUTI_OK);
+        CHECK(d.info.total_frames == 338688u);
+        dec_close(&d); free(b);
+
+        inst = (Inst){1, 32769, 0, 64, 0, 0, NULL};
+        b = build15(&n, 1, NULL, &inst, 1, NULL, 0);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st25");
+        CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
+        dec_close(&d); free(b);
+        inst.words = 32768;
+        b = build15(&n, 1, NULL, &inst, 1, NULL, 0);
+        dec_open_ex(&d, b, n, "44100", NULL, NULL, NULL, "st25");
+        CHECK(d.rc == MAKTABASAUTI_OK);
         dec_close(&d); free(b);
     }
 

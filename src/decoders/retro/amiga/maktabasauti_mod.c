@@ -1,5 +1,5 @@
 /* MaktabaSauti, modul maktabasauti_mod: odtwarzacz modulow ProTracker / SoundTracker
- * (15 i 31 instrumentow, 1..32 kanalow).
+ * (15 i 31 instrumentow, 1..99 kanalow).
  *
  * Kod jest nasz: uklad bajtow, zegar Pauli i regulamin taktu wynikaja z publicznego opisu formatu, nie z kodu
  * ProTrackera, libxmp, OpenMPTa, MikModa ani FFmpeg.  Modul nie linkuje sie z zadna z tych bibliotek.
@@ -7,7 +7,7 @@
  * Kawalek 1:
  *   - magiki M.K. i FLT4 (do 64 patternow) oraz M!K! i 4CHN (do 256);
  *   - odmiany pliku, nie wycinek: 31 instrumentow (M.K., M&K!, FLT4, EXO4, N.T. do 64 patternow;
- *     M!K!, PATT, NSMS, LARD do 256; xCHN 1..9; xxCH i xxCN 10..32; TDZ1..TDZ9;
+ *     M!K!, PATT, NSMS, LARD do 256; xCHN 1..9; xxCH i xxCN 10..99; TDZ1..TDZ9;
  *     CD61 6 kanalow; CD81, OCTA, OKTA 8; FA04/FA06/FA08 to 4/6/8),
  *     FLT8, EXO8 i EX08 (8 kanalow, para patternow 4-kanalowych) i 15 instrumentow bez sygnatury;
  *   - nieznana czteroznakowa sygnatura jest odrzucana i nie jest czytana jako 15 instrumentow.
@@ -50,6 +50,10 @@
  * Opcja ust remapuje efekty Ultimate Soundtrackera i nie zeruje prefiksu.
  * st2 to SoundTracker II-VI: Dxy slajd, Exy slajd trwaly do parametru 00, F z dolnego nibble.
  * st9 to SoundTracker IX i Master: Bxx, lamanie patternu zawsze na wiersz 0, E0x filtr.
+ * tjc to Jungle Command: efekty 3..B moduluja nastepny kanal, predkosc 5, piec przejsc arpeggia.
+ * st23 i st24 to DOC 2.3/2.4: komendy Mastera plus Axy, petla w bajtach, bez wzoru tempa.
+ * st25 to Soundtracker 2.5: komendy NoiseTrackera, petla w slowach, F modulo 32.
+ * Mod's Grave nie wynika z rozmiaru.  Osobny deskryptor gra osiem kanalow, gdy nazwa konczy sie na .wow.
  * Plik nie zapisuje wersji, wiec domyslny dzwiek zostaje przy 1.1.  Plik zostaje.
  * EFx odwraca bajt juz po tym zerze, wiec bajt 0 z zera staje sie 0xFF.
  * Suma glosow jest w NASM.  RC i filtr LED zostaja w C.
@@ -66,11 +70,14 @@ extern void maktabasauti_mod_voice_add(int32_t acc[2], const uint8_t *sample, co
 #define TRACK_UST 2u
 #define TRACK_ST2 3u
 #define TRACK_ST9 4u
+#define TRACK_TJC 5u
+#define TRACK_ST23 6u
+#define TRACK_ST25 7u
 
 #define MOD_INST 31u
 #define MOD_HEADER_31 1084u
 #define MOD_HEADER_15 600u
-#define MOD_CH_MAX 32u
+#define MOD_CH_MAX 99u
 #define PAULA_PAL 3546895u
 #define PAULA_NTSC 3579545u
 
@@ -112,6 +119,12 @@ typedef struct {
     uint8_t vol_slide;
     uint8_t auto_slide; /* Exy grup II-VI.  Parametr 00 gasi auto_on. */
     uint8_t auto_on;
+    uint8_t mod_vol; /* TJC: slowo DMA ustawia glosnosc nastepnego kanalu */
+    uint8_t mod_per; /* TJC: slowo DMA ustawia okres nastepnego kanalu */
+    uint8_t mod_silent; /* kanal modulatora nie wydaje dzwieku */
+    uint16_t note_period; /* okres z prawdziwego triggera, baza arpeggia st23 */
+    uint32_t mod_idx; /* indeks slowa modulatora, nie bajtu probki */
+    uint64_t mod_frac;
     uint8_t offset;
     uint32_t start; /* kumulowany poczatek 9xx, w probkach.  Zatrzask instrumentu zeruje. */
     uint8_t loop_once;
@@ -316,7 +329,7 @@ typedef struct {
     uint8_t filter_on;
     uint8_t hold;
     uint8_t amiga_rc; /* 1: staly RC okolo 4,9 kHz, opcja mod.model a500 */
-    uint8_t tracker; /* TRACK_PT11 domyslnie.  pt10, ust, st2 albo st9 z opcji mod.tracker */
+    uint8_t tracker; /* TRACK_PT11 domyslnie.  pt10, ust, st2, st9, tjc, st23 albo st25 */
     uint8_t clear_n; /* 2, 4 albo 0 bajtow prefiksu czytanych jako zero */
     uint32_t ust_tempo; /* BPM z bajtu 0x1D7, tylko 15-instrumentowy ust.  0: tempo 125. */
     double b0, b1, b2, a1, a2;
@@ -352,7 +365,9 @@ static int tag_bytes(const uint8_t *m) {
     return 1;
 }
 
-/* Sygnatury z publicznego opisu MOD.  xxCH/xxCN stoja na 10..32.  FLT6 nie istnieje. */
+/* Sygnatury z publicznego opisu MOD.  xxCH/xxCN stoja na 10..99.
+ * FLT6 nie jest formatem: autor StarTrekker opisal FLT4 i FLT8, a 6 kanalow to 6CHN. */
+
 static int same4(const uint8_t *m, const char *s) {
     return memcmp(m, s, 4) == 0;
 }
@@ -465,7 +480,7 @@ static void playback_reset(mod_t *m) {
     m->order_pos = 0;
     m->row = 0;
     m->row_tick = 0;
-    m->speed = 6u;
+    m->speed = m->tracker == TRACK_TJC ? 5u : 6u;
     m->tempo = m->ust_tempo ? m->ust_tempo : 125u;
     m->tick_rem = 0;
     m->tick_left = 0;
@@ -661,7 +676,9 @@ static void latch_instrument(mod_t *m, voice_t *v, unsigned sample) {
     v->volume = in->volume;
     v->inst = (uint8_t)sample;
     /* Ultimate Soundtracker nie uzywa bajtu finetune.  Tag i tak czyta bajt z pliku. */
-    v->tune = st_family(m->tracker) ? 0 : in->finetune;
+    /* SoundTracker nie stroi z bajtu finetune.  Tag i tak czyta bajt z pliku.
+     * st25 tez: to NoiseTracker 1.1 bez tego bajtu w odtwarzaniu. */
+    v->tune = (st_family(m->tracker) || m->tracker == TRACK_ST25) ? 0 : in->finetune;
     v->start = 0;
 }
 
@@ -684,7 +701,8 @@ static void ust_remap(unsigned *effect, unsigned *param) {
 }
 
 static int st_family(uint8_t tracker) {
-    return tracker == TRACK_UST || tracker == TRACK_ST2 || tracker == TRACK_ST9;
+    return tracker == TRACK_UST || tracker == TRACK_ST2 || tracker == TRACK_ST9
+        || tracker == TRACK_TJC || tracker == TRACK_ST23;
 }
 
 /* II-VI.  0xy, 1xx i 2xx jak w ProTrackerze.  Dxy slajduje jak Axy.  Exy zapamietuje ten slajd
@@ -740,6 +758,99 @@ static void st9_row(unsigned *effect, unsigned *param) {
     *param = 0u;
 }
 
+/* Jungle Command, SoundTracker II.  Glos N zawsze steruje glosem N+1 i sam milczy.
+ * 3..5 to arpeggio modulatora, 6..8 porta w gore, 9..B porta w dol.  D sklada oba nibble.
+ * E pamieta slajd, az info wyniesie 0.  Parametr 0 nie powtarza pamieci portamento.  F nie istnieje. */
+static void tjc_row(voice_t *v, unsigned *effect, unsigned *param) {
+    unsigned e = *effect;
+    unsigned p = *param;
+    v->mod_vol = 0;
+    v->mod_per = 0;
+    v->mod_silent = 0;
+    if (p == 0u) v->auto_on = 0;
+    if (e >= 3u && e <= 0x0Bu) {
+        v->mod_silent = 1u;
+        if (e == 3u || e == 5u || e == 6u || e == 8u || e == 9u || e == 0x0Bu) v->mod_vol = 1u;
+        if (e == 4u || e == 5u || e == 7u || e == 8u || e == 0x0Au || e == 0x0Bu) v->mod_per = 1u;
+        if (e <= 5u || p == 0u) {
+            *effect = 0u;
+            if (e >= 6u) *param = 0u;
+        } else if (e <= 8u) *effect = 1u;
+        else *effect = 2u;
+        if (v->auto_on) v->vol_slide = v->auto_slide;
+        return;
+    }
+    if (e == 0x0Eu) {
+        if (p) {
+            v->auto_slide = (uint8_t)p;
+            v->auto_on = 1u;
+            v->vol_slide = (uint8_t)p;
+            *effect = 0x0Au;
+        } else {
+            *effect = 0u;
+            *param = 0u;
+        }
+        return;
+    }
+    if (e == 0x0Du) {
+        *effect = 0x0Au;
+        return;
+    }
+    if (e == 0x0Cu) return;
+    if (e == 0x01u || e == 0x02u) {
+        if (p == 0u) {
+            *effect = 0u;
+            *param = 0u;
+            return;
+        }
+        if (v->auto_on) v->vol_slide = v->auto_slide;
+        return;
+    }
+    if (e == 0x00u) {
+        if (v->auto_on) v->vol_slide = v->auto_slide;
+        return;
+    }
+    *effect = 0u;
+    *param = 0u;
+    if (v->auto_on) v->vol_slide = v->auto_slide;
+}
+
+/* DOC Soundtracker 2.3 i 2.4.  Zestaw Master Soundtracker plus Axy.  D ignoruje parametr. */
+static void st23_row(unsigned *effect, unsigned *param) {
+    unsigned e = *effect;
+    if (e == 0x0Du) {
+        *param = 0u;
+        return;
+    }
+    if (e == 0x0Eu) {
+        if ((*param >> 4) != 0u) {
+            *effect = 0u;
+            *param = 0u;
+        }
+        return;
+    }
+    if (e == 0x00u || e == 0x01u || e == 0x02u || e == 0x0Au || e == 0x0Bu || e == 0x0Cu || e == 0x0Fu) return;
+    *effect = 0u;
+    *param = 0u;
+}
+
+/* Soundtracker 2.5, komendy NoiseTrackera 1.1.  Dxx zostaje dziesietne.
+ * Glebia vibrato zostaje przy wzorze ProTrackera: starszy wspolczynnik 1.1 nie byl opublikowany. */
+static void st25_row(unsigned *effect, unsigned *param) {
+    unsigned e = *effect;
+    if (e == 0x0Eu) {
+        if ((*param >> 4) != 0u) {
+            *effect = 0u;
+            *param = 0u;
+        }
+        return;
+    }
+    if (e == 0x00u || e == 0x01u || e == 0x02u || e == 0x03u || e == 0x04u
+        || e == 0x0Au || e == 0x0Bu || e == 0x0Cu || e == 0x0Du || e == 0x0Fu) return;
+    *effect = 0u;
+    *param = 0u;
+}
+
 static void arm_held(voice_t *v) {
     v->sample = v->held;
     v->length = v->held_len;
@@ -770,6 +881,9 @@ static void trigger_note(voice_t *v, unsigned period, unsigned effect) {
     }
     v->period = tp;
     v->target = tp;
+    v->note_period = tp;
+    v->mod_idx = 0;
+    v->mod_frac = 0;
     v->frac = 0;
     v->play_period = 0;
     if ((v->vib_wave & 4u) == 0u) v->vib_pos = 0;
@@ -791,6 +905,9 @@ static void apply_row(mod_t *m, uint32_t *tempo_after) {
         if (m->tracker == TRACK_UST) ust_remap(&effect, &param);
         else if (m->tracker == TRACK_ST2) st2_row(v, &effect, &param);
         else if (m->tracker == TRACK_ST9) st9_row(&effect, &param);
+        else if (m->tracker == TRACK_TJC) tjc_row(v, &effect, &param);
+        else if (m->tracker == TRACK_ST23) st23_row(&effect, &param);
+        else if (m->tracker == TRACK_ST25) st25_row(&effect, &param);
         ex = param >> 4;
         xn = param & 0x0Fu;
         v->effect = (uint8_t)effect;
@@ -874,9 +991,12 @@ static void apply_row(mod_t *m, uint32_t *tempo_after) {
         }
         if (effect == 0x0Cu) v->volume = param > 64u ? 64u : (uint8_t)param;
         if (effect == 0x0Fu) {
-            if (m->tracker == TRACK_ST2 || m->tracker == TRACK_ST9) {
+            if (m->tracker == TRACK_ST2 || m->tracker == TRACK_ST9 || m->tracker == TRACK_ST23) {
                 unsigned sp = param & 0x0Fu;
                 if (sp >= 1u && sp <= 15u) m->speed = sp;
+            } else if (m->tracker == TRACK_ST25) {
+                unsigned sp = param & 31u;
+                if (sp) m->speed = sp;
             } else if (!param) m->hold = 1;
             else if (m->instruments == 15u || param < 32u) m->speed = param;
             else *tempo_after = param;
@@ -896,6 +1016,13 @@ static void slide_volume(voice_t *v) {
     if (!v->vol_slide) return;
     if (up) clamp_volume(v, (int)up);
     else clamp_volume(v, -(int)down);
+}
+
+/* Jungle Command: oba nibble sa zdefiniowane.  Roznica, potem jeden zacisk 0..64. */
+static void tjc_slide(voice_t *v) {
+    unsigned up = v->vol_slide >> 4, down = v->vol_slide & 0x0Fu;
+    if (!v->vol_slide) return;
+    clamp_volume(v, (int)up - (int)down);
 }
 
 static void porta_up(voice_t *v) {
@@ -947,7 +1074,12 @@ static void shape_tick(mod_t *m) {
             else if (ex == 0xAu) clamp_volume(v, (int)v->fine_vol_up);
             else if (ex == 0xBu) clamp_volume(v, -(int)v->fine_vol_down);
         }
-        if (m->row_tick > 0u) {
+        /* Jungle Command rusza porta i slajd w kazdym z pieciu przejsc, takze w pierwszym. */
+        if (m->tracker == TRACK_TJC) {
+            if (fx == 0x1u) porta_up(v);
+            else if (fx == 0x2u) porta_down(v);
+            if (fx == 0x0Au || v->auto_on) tjc_slide(v);
+        } else if (m->row_tick > 0u) {
             if (fx == 0x1u) porta_up(v);
             else if (fx == 0x2u) porta_down(v);
             else if (fx == 0x3u || fx == 0x5u) {
@@ -977,10 +1109,20 @@ static void shape_tick(mod_t *m) {
             v->trem_pos = (uint8_t)((v->trem_pos + v->trem_speed) & 63u);
             use_period(v, v->period);
         } else if (fx == 0u && pa && v->period) {
-            unsigned semis = 0, part = m->row_tick % 3u;
-            if (part == 1u) semis = pa >> 4;
-            else if (part == 2u) semis = pa & 0x0Fu;
-            use_period(v, semis ? arpeggio_period(v->period, semis, v->tune) : v->period);
+            unsigned semis = 0, base = v->period;
+            if (m->tracker == TRACK_TJC) {
+                unsigned step = m->row_tick % 5u;
+                if (step == 0u || step == 3u) semis = pa >> 4;
+                else if (step == 1u || step == 4u) semis = pa & 0x0Fu;
+            } else if (m->tracker == TRACK_ST23 && m->row_tick >= 6u) {
+                base = v->period;
+            } else {
+                unsigned part = m->row_tick % 3u;
+                if (part == 1u) semis = pa >> 4;
+                else if (part == 2u) semis = pa & 0x0Fu;
+                if (m->tracker == TRACK_ST23 && v->note_period) base = v->note_period;
+            }
+            use_period(v, semis ? arpeggio_period(base, semis, v->tune) : base);
         } else use_period(v, v->period);
     }
 }
@@ -1073,6 +1215,7 @@ static int channel_loops(const mod_t *m) {
     unsigned ch;
     for (ch = 0; ch < m->channels; ch++) {
         const voice_t *v = &m->voice[ch];
+        if (v->mod_silent) continue;
         if (v->sample && v->loop_len) return 1;
         if (v->held && v->held_loop_len && held_waiting(v)) return 1;
     }
@@ -1083,6 +1226,7 @@ static int channel_audible(const mod_t *m) {
     unsigned ch;
     for (ch = 0; ch < m->channels; ch++) {
         const voice_t *v = &m->voice[ch];
+        if (v->mod_silent) continue;
         if (!v->play_period || !v->sample) continue;
         if (v->loop_len) return 1;
         if (v->idx < v->length) return 1;
@@ -1239,6 +1383,90 @@ static int count_frames(mod_t *m, uint64_t *out) {
     return 1;
 }
 
+/* Jedno slowo DMA na wygasniecie okresu modulatora.  Petla w slowach.  Jednorazowa zostaje na ostatnim. */
+static uint32_t mod_words(const voice_t *v) {
+    return v->length / 2u;
+}
+
+static void mod_wrap(voice_t *v) {
+    uint32_t n = mod_words(v);
+    uint32_t start, len;
+    if (!n) return;
+    if (v->loop_len >= 2u) {
+        start = v->loop_start / 2u;
+        len = v->loop_len / 2u;
+        if (!len || start >= n) {
+            if (v->mod_idx >= n) v->mod_idx = n - 1u;
+            return;
+        }
+        if (v->mod_idx >= start + len) v->mod_idx = start + (v->mod_idx - start) % len;
+        return;
+    }
+    if (v->mod_idx >= n) v->mod_idx = n - 1u;
+}
+
+static uint16_t mod_word(const voice_t *v) {
+    uint32_t n = mod_words(v);
+    uint32_t i = v->mod_idx;
+    const uint8_t *p;
+    if (!v->sample || !n) return 0;
+    if (i >= n) i = n - 1u;
+    p = v->sample + (size_t)i * 2u;
+    return (uint16_t)(((unsigned)p[0] << 8) | p[1]);
+}
+
+static void mod_clock(voice_t *v, uint32_t rate, uint32_t clock) {
+    uint64_t den;
+    uint32_t n, add, per;
+    per = v->play_period ? v->play_period : v->period;
+    if (!per || !rate || !clock) return;
+    den = (uint64_t)per * rate;
+    v->mod_frac += clock;
+    add = (uint32_t)(v->mod_frac / den);
+    v->mod_frac %= den;
+    if (!add) return;
+    n = mod_words(v);
+    if (!n) return;
+    if (v->loop_len >= 2u) {
+        v->mod_idx += add;
+        mod_wrap(v);
+        return;
+    }
+    if (v->mod_idx >= n - 1u) return;
+    if (add >= n - v->mod_idx) v->mod_idx = n - 1u;
+    else v->mod_idx += add;
+}
+
+/* Bity USE*P* / USE*V* Amigi: kanal pisze do nastepnego.  Kanal 3 tylko milknie.
+ * Oba naraz: parzyste slowo to glosnosc, nieparzyste okres.  Biezace slowo gra od razu. */
+static void mod_drive(mod_t *m, unsigned ch, voice_t *v) {
+    voice_t *dst;
+    uint16_t w;
+    int vol_turn, per_turn;
+    unsigned vol;
+    if (ch + 1u >= m->channels || !v->sample) return;
+    dst = &m->voice[ch + 1u];
+    w = mod_word(v);
+    if (v->mod_vol && v->mod_per) {
+        vol_turn = (v->mod_idx & 1u) == 0u;
+        per_turn = !vol_turn;
+    } else {
+        vol_turn = v->mod_vol;
+        per_turn = v->mod_per;
+    }
+    if (vol_turn) {
+        vol = w & 0x7Fu;
+        if (vol > 64u) vol = 64u;
+        dst->volume = (uint8_t)vol;
+    }
+    if (per_turn) {
+        if (!w) w = 1u;
+        dst->period = w;
+        use_period(dst, w);
+    }
+    mod_clock(v, m->rate, m->clock);
+}
+
 static void mix_one(mod_t *m, int16_t *dst) {
     int32_t acc[2];
     int32_t left, right;
@@ -1247,7 +1475,12 @@ static void mix_one(mod_t *m, int16_t *dst) {
     acc[1] = 0;
     for (ch = 0; ch < m->channels; ch++) {
         voice_t *v = &m->voice[ch];
-        int vol = (int)v->volume + (int)v->tremolo;
+        int vol;
+        if (v->mod_silent) {
+            mod_drive(m, ch, v);
+            continue;
+        }
+        vol = (int)v->volume + (int)v->tremolo;
         if (vol < 0) vol = 0;
         if (vol > 64) vol = 64;
         settle(v);
@@ -1360,7 +1593,8 @@ static int parse_model(const maktabasauti_host_t *h, mod_t *m) {
 
 /* Plik nie niesie wersji trackera.  Brak opcji i pt/protracker/pt11 zostaja przy ProTrackerze 1.1.
  * pt10 wlacza czterobajtowe czyszczenie i Funk Repeat.  ust wlacza grupe 1 Ultimate Soundtrackera.
- * st2 wlacza SoundTracker II-VI, st9 SoundTracker IX i Master Soundtracker. */
+ * st2 to II-VI z pozniejszego zestawienia.  tjc to Jungle Command.  st23/st24 to DOC 2.3/2.4.
+ * st25 to Soundtracker 2.5.  st9 to IX i Master. */
 static int classify_tracker(const maktabasauti_host_t *h, uint8_t *kind, uint8_t *clear_n) {
     const char *s = NULL;
     *kind = TRACK_PT11;
@@ -1384,6 +1618,21 @@ static int classify_tracker(const maktabasauti_host_t *h, uint8_t *kind, uint8_t
     }
     if (same_word(s, "st9") || same_word(s, "master")) {
         *kind = TRACK_ST9;
+        *clear_n = 0;
+        return 1;
+    }
+    if (same_word(s, "tjc") || same_word(s, "jungle")) {
+        *kind = TRACK_TJC;
+        *clear_n = 0;
+        return 1;
+    }
+    if (same_word(s, "st23") || same_word(s, "st24")) {
+        *kind = TRACK_ST23;
+        *clear_n = 0;
+        return 1;
+    }
+    if (same_word(s, "st25")) {
+        *kind = TRACK_ST25;
         *clear_n = 0;
         return 1;
     }
@@ -1565,7 +1814,7 @@ static maktabasauti_result_t parse_module(mod_t *m, const uint8_t *p, size_t n, 
          * Grupa 1 i II-VI koncza sie na 9998 bajtach.  IX i Master siegaja 32 KB.
          * Prefiks ProTrackera tu nie dziala. */
         if (st_family(m->tracker)) {
-            uint32_t cap = m->tracker == TRACK_ST9 ? 32768u : 9998u;
+            uint32_t cap = (m->tracker == TRACK_ST9 || m->tracker == TRACK_ST23) ? 32768u : 9998u;
             if (bytes > cap) {
                 m->err = m->tracker == TRACK_UST
                     ? "probka Ultimate Soundtrackera dluzsza niz 9998 bajtow"
@@ -1594,9 +1843,14 @@ static maktabasauti_result_t parse_module(mod_t *m, const uint8_t *p, size_t n, 
             in->loop_start = ls;
             in->loop_len = ll;
         }
+        if (m->tracker == TRACK_ST25 && bytes > 65536u) {
+            m->err = "probka SoundTrackera przekracza limit tej grupy";
+            return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+        }
     }
-    /* Bajty 0x1D7 to tempo, nie pozycja restartu.  120 daje BPM 121.  Od 240 mianownik by zniknal. */
-    if (st_family(m->tracker) && m->instruments == 15u) {
+    /* Bajty 0x1D7 to tempo, nie pozycja restartu.  120 daje BPM 121.  Od 240 mianownik by zniknal.
+     * Jungle Command i DOC 2.3/2.5 tego wzoru nie uzywaja.  Graja 125 BPM, a bajt nie jest pozycja. */
+    if ((m->tracker == TRACK_UST || m->tracker == TRACK_ST2 || m->tracker == TRACK_ST9) && m->instruments == 15u) {
         unsigned t = m->restart;
         double bpm;
         if (t >= 240u) t = 239u;
@@ -1605,6 +1859,7 @@ static maktabasauti_result_t parse_module(mod_t *m, const uint8_t *p, size_t n, 
         if (!m->ust_tempo) m->ust_tempo = 1u;
         m->restart = 0;
     }
+    if (m->tracker == TRACK_TJC || m->tracker == TRACK_ST23 || m->tracker == TRACK_ST25) m->restart = 0;
     for (cell = 0; cell < (size_t)m->pattern_count * 64u * span; cell++) {
         const uint8_t *c = m->patterns + cell * 4u;
         unsigned sample = (c[0] & 0xF0u) | (c[2] >> 4);
@@ -1620,9 +1875,32 @@ static maktabasauti_result_t parse_module(mod_t *m, const uint8_t *p, size_t n, 
     return MAKTABASAUTI_OK;
 }
 
+/* Rozszerzenie za ostatnia kropka nazwy, po ostatnim ukosniku.  Wielkosc liter nie gra roli. */
+static int hint_wow(const char *hint) {
+    const char *base, *dot, *s;
+    char a, b, c;
+    if (!hint || !hint[0]) return 0;
+    base = hint;
+    for (s = hint; *s; s++) if (*s == '/' || *s == '\\') base = s + 1;
+    dot = NULL;
+    for (s = base; *s; s++) if (*s == '.') dot = s;
+    if (!dot || dot == base || !dot[1] || !dot[2] || !dot[3] || dot[4]) return 0;
+    a = dot[1]; b = dot[2]; c = dot[3];
+    if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
+    if (b >= 'A' && b <= 'Z') b = (char)(b - 'A' + 'a');
+    if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    return a == 'w' && b == 'o' && c == 'w';
+}
+
 static int32_t MAKTABASAUTI_CALL mod_probe(const maktabasauti_codec_t *self, const uint8_t *p, size_t n, const char *hint) {
     ident_t id;
-    (void)self;
+    /* Mod's Grave: samo rozszerzenie .wow i magik M.K.  Rozmiar, restart i glosnosc nie decyduja.
+     * Bez tej nazwy zwykly M.K. zostaje czterokanalowy, takze gdy ogon ma wielkosc osmiu kanalow. */
+    if (self && self->user_data) {
+        if (!p || n < MOD_HEADER_31 || !hint_wow(hint)) return 0;
+        if (memcmp(p + 1080, "M.K.", 4) != 0) return 0;
+        return 90;
+    }
     (void)hint;
     if (!p || !recognize(p, n, &id)) return 0;
     return id.header == MOD_HEADER_15 ? 60 : 70;
@@ -1635,12 +1913,20 @@ static maktabasauti_result_t MAKTABASAUTI_CALL mod_open(const maktabasauti_codec
     mod_t *m;
     ident_t id;
     maktabasauti_result_t r;
-    (void)self;
+    int wow = self && self->user_data;
     if (!h || !info || !state || !h->alloc || !h->free || !h->map) return MAKTABASAUTI_E_INVALID_ARGUMENT;
     *state = NULL;
     r = h->map(h->user, rd, &data, &n);
     if (r != MAKTABASAUTI_OK) return r;
     if (!data || !recognize(data, n, &id)) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    /* Deskryptor Grave wymusza osiem plaskich kanalow.  Za krotki plik urywa sie przy patternie. */
+    if (wow) {
+        if (id.instruments != 31u || memcmp(id.magic, "M.K.", 4) != 0) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+        id.channels = 8;
+        id.pattern_limit = 256;
+        memcpy(id.magic, "WOW", 4u);
+        id.magic[4] = 0;
+    }
     m = (mod_t *)h->alloc(h->user, sizeof *m);
     if (!m) return MAKTABASAUTI_E_NO_MEMORY;
     memset(m, 0, sizeof *m);
@@ -1817,6 +2103,17 @@ const maktabasauti_codec_t maktabasauti_mod_desc = {
     "ProTracker / SoundTracker module (15- and 31-instrument)", "maktabasauti_mod",
     MAKTABASAUTI_CODEC_FLAG_NEEDS_FULL_BUFFER | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK | MAKTABASAUTI_CODEC_FLAG_HAS_TAGS | MAKTABASAUTI_CODEC_FLAG_EXPERIMENTAL,
     0u, NULL,
+    mod_probe, mod_open, mod_read, mod_seek, mod_reset, mod_flush, mod_get_tag, mod_last_error, NULL, mod_close,
+    { NULL }, { NULL }
+};
+
+static const char k_wow_tag[] = "wow";
+
+const maktabasauti_codec_t maktabasauti_mod_wow_desc = {
+    sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "wow",
+    "Mod's Grave module (8-channel M.K.)", "maktabasauti_mod",
+    MAKTABASAUTI_CODEC_FLAG_NEEDS_FULL_BUFFER | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK | MAKTABASAUTI_CODEC_FLAG_HAS_TAGS | MAKTABASAUTI_CODEC_FLAG_EXPERIMENTAL,
+    0u, k_wow_tag,
     mod_probe, mod_open, mod_read, mod_seek, mod_reset, mod_flush, mod_get_tag, mod_last_error, NULL, mod_close,
     { NULL }, { NULL }
 };
