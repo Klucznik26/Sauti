@@ -95,10 +95,14 @@ int main(void) {
     static const uint64_t voice_seeks[] = { 1000, 1001, 1002, 3303, 2002, 0, 3003, 500, 2001 };               /* block starts and their neighbours (1001 frames per full block, the last one 301) */
     static const uint64_t delta_seeks[] = { 500, 501, 502, 1002, 2672 - 1, 0, 1503, 250 };                    /* 501 frames per full block, the last one 167 */
     static const uint64_t stress_seeks[] = { 1000, 1001, 1002, 5337, 2002, 0, 4004, 500 };                    /* 1001 frames per full block, the last one 333 */
+    static const uint64_t real2_seeks[] = { 38399, 38400, 38401, 76799, 1, 0, 19200, 4096, 50000 };            /* WinRec-written Pack 2: 38401 frames per full block */
+    static const uint64_t real4_seeks[] = { 38399, 38400, 38401, 76800, 115199, 1, 0, 60000, 4096 };          /* WinRec-written Pack 4: 38400 frames per block */
     static const Fx fx[] = { { "tests/data/dvsm_adpcm.dvs", "tests/data/dvsm_adpcm.pcm", 9000, 49170, adpcm_seeks, sizeof adpcm_seeks / sizeof adpcm_seeks[0], 1 },
                              { "tests/data/dvsm_voice.dvs", "tests/data/dvsm_voice.pcm", 3304, 49170, voice_seeks, sizeof voice_seeks / sizeof voice_seeks[0], 0 },
                              { "tests/data/dvsm_delta_stress.dvs", "tests/data/dvsm_delta_stress.pcm", 2672, 49170, delta_seeks, sizeof delta_seeks / sizeof delta_seeks[0], 0 },
-                             { "tests/data/dvsm_voice_stress.dvs", "tests/data/dvsm_voice_stress.pcm", 5338, 49170, stress_seeks, sizeof stress_seeks / sizeof stress_seeks[0], 0 } };
+                             { "tests/data/dvsm_voice_stress.dvs", "tests/data/dvsm_voice_stress.pcm", 5338, 49170, stress_seeks, sizeof stress_seeks / sizeof stress_seeks[0], 0 },
+                             { "tests/data/dvsm_winrec_real_pack2.dvs", "tests/data/dvsm_winrec_real_pack2.pcm", 76800, 49170, real2_seeks, sizeof real2_seeks / sizeof real2_seeks[0], 0 },
+                             { "tests/data/dvsm_winrec_real_pack4.dvs", "tests/data/dvsm_winrec_real_pack4.pcm", 115200, 49170, real4_seeks, sizeof real4_seeks / sizeof real4_seeks[0], 0 } };
     size_t k;
     for (k = 0; k < sizeof fx / sizeof fx[0]; k++) check_fixture(&fx[k]);
     if (g_failures) { printf("test_dvsm_winrec: %d FAILURES\n", g_failures); return 1; }
