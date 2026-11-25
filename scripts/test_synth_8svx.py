@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Synthetic Amiga 8SVX files (PCM, Fibonacci delta, exponential delta; mono / stereo; extra chunks before and after BODY, odd sizes, truncated BODY, CHAN after the data) decoded by
 MaktabaSauti (build/maktabasauti_cli) and by FFmpeg (8svx_fib / 8svx_exp / pcm_s8): the 16-bit PCM must be IDENTICAL.  The files are made here (no real Fibonacci file is publicly available);
-FFmpeg is the independent reference for the layout (low nibble first, initial value in the second byte, clipping, stereo = whole left block then whole right block).
+FFmpeg is the reference for PCM files and for which files are accepted / how long they are; for Fibonacci / exponential files it is NOT the reference of the sample values: FFmpeg takes the LOW nibble first and
+CLIPS, but real files (written by wavepak on an Amiga, tests/data/svx_wavepak_*) take the HIGH nibble first and the value WRAPS modulo 256 (the EA reference code stores into a byte).  The values of those files are
+checked against the small model below (validated bit for bit against wavepak's own decoder: docs/IFF_8SVX.md); initial value in the second byte, stereo = whole left block then whole right block.
 usage: scripts/test_synth_8svx.py [N]   (default 60 files; TMPDIR for scratch files).  No ffmpeg = SKIP (exit 0, said loudly: that is NOT a proof)."""
 import os, random, shutil, struct, subprocess, sys, tempfile
 import numpy as np
@@ -33,6 +35,29 @@ def make(rng):
     cut = False
     if rng.random() < 0.15 and len(f) > 80: f = f[:len(f) - rng.randrange(1, min(len(f) - 60, 200))]; cut = True     # truncated file
     return f, cut and nch == 2
+FIB = [-34, -21, -13, -8, -5, -3, -2, -1, 0, 1, 2, 3, 5, 8, 13, 21]; EXP = [-128, -64, -32, -16, -8, -4, -2, -1, 0, 1, 2, 4, 8, 16, 32, 64]
+def model(data):
+    """Expected 16-bit interleaved PCM of a complete (mono or stereo) compressed file; None when the file is not one this model covers."""
+    comp = nch = None; body = None; at = 12
+    while at + 8 <= len(data):
+        tag = data[at:at + 4]; n = struct.unpack('>I', data[at + 4:at + 8])[0]; blob = data[at + 8:at + 8 + n]
+        if tag == b'VHDR' and len(blob) >= 16: comp = blob[15]
+        elif tag == b'CHAN' and len(blob) >= 4: nch = 2 if struct.unpack('>I', blob[:4])[0] == 6 else 1
+        elif tag == b'BODY': body = blob
+        at += 8 + n + (n & 1)
+    if comp not in (1, 2) or body is None: return None
+    nch = nch or 1; table = FIB if comp == 1 else EXP
+    blocks = [body[:len(body) // 2], body[len(body) // 2:]] if nch == 2 else [body]
+    chans = []
+    for b in blocks:
+        if len(b) < 2: return None
+        y = b[1] - 256 if b[1] > 127 else b[1]; out = []
+        for c in b[2:]:
+            for nib in (c >> 4, c & 15):
+                y = (y + table[nib] + 128) % 256 - 128; out.append(y)
+        chans.append(out)
+    m = min(len(c) for c in chans)
+    return np.array([chans[k][i] * 256 for i in range(m) for k in range(nch)], dtype=np.int64)
 def ffmpeg_pcm(path):
     out = subprocess.run(['ffmpeg', '-v', 'error', '-i', path, '-f', 's16le', '-acodec', 'pcm_s16le', '-'], capture_output=True, timeout=60)
     if out.returncode != 0: return None
@@ -58,13 +83,16 @@ def main():
             if ref is None: ff_only_reject += 1; continue          # FFmpeg refuses some files with a cut-off metadata chunk (metadata allocation), the data are fine
             if ours is None: print('f%d: FAIL ours rejects (rc %d) a file FFmpeg decodes (%d values): %s' % (i, run.returncode, len(ref[1]), (run.stderr or run.stdout).strip().splitlines()[-1:])); bad += 1; continue
             q = np.rint(ours.astype(np.float64) * 32768.0).astype(np.int64); r = ref[1].astype(np.int64)
+            if data[35] in (1, 2) and not cut_stereo:
+                mdl = model(data)
+                if mdl is not None and len(mdl) == len(r): r = mdl                       # same length as FFmpeg, values from the model (high nibble first, wrap)
             same = len(q) == len(r) and (q == r).all()
             if same: ok += 1
             else:
                 bad += 1; print('f%d: FAIL %d values vs ffmpeg %d, differing %d' % (i, len(q), len(r), int((q[:min(len(q), len(r))] != r[:min(len(q), len(r))]).sum())))
     finally:
         shutil.rmtree(w, ignore_errors=True)
-    print('%d identical to FFmpeg, %d both reject, %d only FFmpeg rejects (cut metadata chunk), %d truncated stereo skipped, %d failures' % (ok, both_reject, ff_only_reject, skipped, bad))
+    print('%d identical to the reference (FFmpeg for PCM, the model for Fibonacci / exponential), %d both reject, %d only FFmpeg rejects (cut metadata chunk), %d truncated stereo skipped, %d failures' % (ok, both_reject, ff_only_reject, skipped, bad))
     return 1 if bad else 0
 if __name__ == '__main__':
     sys.exit(main())

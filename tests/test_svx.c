@@ -1,4 +1,4 @@
-/* Amiga IFF 8SVX (PCM, Fibonacci delta, exponential delta; mono and stereo) decoded through the engine.  The expected PCM of tests/data/svx_*.pcm comes from FFmpeg (tests/data/make_svx_fixtures.py): it must be
+/* Amiga IFF 8SVX (PCM, Fibonacci delta, exponential delta; mono and stereo) decoded through the engine.  The expected PCM of tests/data/svx_*.pcm comes from FFmpeg for PCM and from a model for the delta files (tests/data/make_svx_fixtures.py); svx_wavepak_* are files written by wavepak on an emulated Amiga, with the PCM of its own decoder: it must be
  * reproduced bit for bit, also after seeks (checkpoints of the delta state) and with reads of any size.  Unknown compressions, a missing BODY / VHDR and rate 0 are refused. */
 #define _POSIX_C_SOURCE 200809L
 #include "maktabasauti/maktabasauti.h"
@@ -53,7 +53,7 @@ static void check_fixture(const Fx *x) {
     CHECK(pcm && frames == x->frames && npcm == frames * x->ch * 2u, "%s: %zu frames (expected %llu)", x->name, frames, (unsigned long long)x->frames);
     for (i = 0; pcm && i < frames * x->ch && 2u * i + 1u < npcm; i++) {
         const int16_t g = (int16_t)((unsigned)gold[2u * i] | ((unsigned)gold[2u * i + 1u] << 8));
-        if (pcm[i] != (float)g * (1.0f / 32768.0f)) { CHECK(0, "%s: sample %zu: %.9g, FFmpeg %d", x->name, i, (double)pcm[i], g); break; }
+        if (pcm[i] != (float)g * (1.0f / 32768.0f)) { CHECK(0, "%s: sample %zu: %.9g, expected %d", x->name, i, (double)pcm[i], g); break; }
     }
     maktabasauti_decoder_close(d);
     for (k = 0; k < 3; k++) {                                                                                   /* reads of other sizes */
@@ -399,7 +399,8 @@ static void check_fade(void) {
 }
 
 int main(void) {
-    static const Fx fx[] = { { "svx_fib_mono", 1, 22050, 18000 }, { "svx_exp_mono", 1, 11025, 6000 }, { "svx_fib_stereo", 2, 44100, 12000 }, { "svx_pcm_stereo", 2, 8363, 5001 } };
+    static const Fx fx[] = { { "svx_fib_mono", 1, 22050, 18000 }, { "svx_exp_mono", 1, 11025, 6000 }, { "svx_fib_stereo", 2, 44100, 12000 }, { "svx_pcm_stereo", 2, 8363, 5001 },
+                              { "svx_wavepak_fib_mono", 1, 22050, 11800 }, { "svx_wavepak_exp_mono", 1, 22050, 11800 }, { "svx_wavepak_fib_stereo", 2, 44100, 10000 }, { "svx_wavepak_exp_stereo", 2, 44100, 10000 } };
     size_t k;
     for (k = 0; k < sizeof fx / sizeof fx[0]; k++) check_fixture(&fx[k]);
     check_octaves();

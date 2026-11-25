@@ -2,8 +2,8 @@
  *
  * Format (Commodore IFF 8SVX): FORM <rozmiar> 8SVX, chunki VHDR (oneShotHiSamples, repeatHiSamples, samplesPerHiCycle, samplesPerSec u16, ctOctave, sCompression, volume), opcjonalnie CHAN (6 = stereo,
  * 2 / 4 = jeden kanal), BODY.  sCompression 0: bajty ze znakiem; 1: delta Fibonacciego (BODY kanalu = bajt wypelniajacy, wartosc poczatkowa ze znakiem, potem bajty z dwoma kodami 4-bitowymi,
- * MLODSZY polbajt pierwszy, tablica {-34,-21,-13,-8,-5,-3,-2,-1,0,1,2,3,5,8,13,21}); 2: delta wykladnicza (rozszerzenie spoza specyfikacji, ten sam uklad, tablica {-128,-64,-32,-16,-8,-4,-2,-1,
- * 0,1,2,4,8,16,32,64}), obslugiwana tak jak w FFmpeg.  Wartosc jest obcinana do -128..127 (jak FFmpeg; wzorzec do porownania: dekodery 8svx_fib / 8svx_exp).  Stereo: BODY = caly kanal lewy, potem caly
+ * STARSZY polbajt pierwszy, tablica {-34,-21,-13,-8,-5,-3,-2,-1,0,1,2,3,5,8,13,21}); 2: delta wykladnicza (rozszerzenie spoza specyfikacji, ten sam uklad, tablica {-128,-64,-32,-16,-8,-4,-2,-1,
+ * 0,1,2,4,8,16,32,64}), obslugiwana tak jak w FFmpeg.  Wartosc zawija sie modulo 256 (wavepak: signed char; kod EA: bajt); FFmpeg obcina i bierze mlodszy polbajt pierwszy, co NIE zgadza sie z plikami programu Amigi (docs/IFF_8SVX.md).  Stereo: BODY = caly kanal lewy, potem caly
  * prawy (skompresowane: kazdy z wlasnym naglowkiem 2 bajty); wymaga wejscia PRZEWIJALNEGO (dwie pozycje odczytu).  Wyjscie f32 = wartosc / 128.  VHDR.volume i petle (repeatHiSamples) nie sa
  * stosowane (jak w FFmpeg).  ctOctave 0 albo 1: cale BODY jeden raz.  ctOctave > 1 (EA, 7 lutego 1985): najwyzsza oktawa
  * ma oneShot+repeat probek i jest pierwsza, kazda nizsza jest dwa razy dluzsza, a kompresja obejmuje cala serie.
@@ -142,10 +142,10 @@ static maktabasauti_result_t svx_frame(svx_t *d, float *out) {
         if (d->comp == 0u) { r = ch_byte(d, c, d->pos, &b[c]); nv[c] = (int8_t)b[c]; }
         else if ((d->pos & 1u) == 0) {
             r = ch_byte(d, c, 2u + d->pos / 2u, &b[c]);
-            if (r == MAKTABASAUTI_OK) { d->ch[c].cur = b[c]; nv[c] = d->ch[c].v + d->table[b[c] & 15u]; }
-        } else { r = MAKTABASAUTI_OK; b[c] = d->ch[c].cur; nv[c] = d->ch[c].v + d->table[b[c] >> 4]; }
+            if (r == MAKTABASAUTI_OK) { d->ch[c].cur = b[c]; nv[c] = d->ch[c].v + d->table[b[c] >> 4]; }
+        } else { r = MAKTABASAUTI_OK; b[c] = d->ch[c].cur; nv[c] = d->ch[c].v + d->table[b[c] & 15u]; }
         if (r != MAKTABASAUTI_OK) return r == MAKTABASAUTI_EOF ? MAKTABASAUTI_E_TRUNCATED : r;
-        if (d->comp != 0u) nv[c] = nv[c] > 127 ? 127 : nv[c] < -128 ? -128 : nv[c];
+        if (d->comp != 0u) nv[c] = (int8_t)(uint8_t)(nv[c] & 255);                              /* wartosc zawija sie modulo 256, jak w dekoderze wavepak i w kodzie EA (bajt); delta wykladnicza z tego korzysta */
     }
     for (c = 0; c < d->channels; c++) { d->ch[c].v = nv[c]; out[c] = (float)nv[c] * 0.0078125f; }
     d->pos++;
