@@ -14,4 +14,11 @@ int sauti_aac_pns_apply(const SautiAacIcsInfo *ics,
                         const SautiAacSections *sections,
                         const SautiAacScaleFactors *factors,
                         uint32_t *seed,float spectral[1024]);
+/* The same, but the bands flagged in `skip[group][band]` (NULL = none) get no noise and do not advance the generator: the second channel of a pair, bands with correlated PNS
+ * (both channels NOISE_HCB and ms_used): their noise is a copy of the first channel's (sauti_aac_cpe.c), and FDK does not consume random numbers for them. */
+int sauti_aac_pns_apply_skip(const SautiAacIcsInfo *ics,
+                        unsigned sample_rate_index,
+                        const SautiAacSections *sections,
+                        const SautiAacScaleFactors *factors,
+                        uint32_t *seed,const uint8_t skip[8][64],float spectral[1024]);
 #endif

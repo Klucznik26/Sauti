@@ -12,6 +12,12 @@ int sauti_aac_pns_apply(const SautiAacIcsInfo *ics,
                         unsigned rate,const SautiAacSections *sec,
                         const SautiAacScaleFactors *sf,
                         uint32_t *seed,float spectral[1024]){
+    return sauti_aac_pns_apply_skip(ics,rate,sec,sf,seed,NULL,spectral);
+}
+int sauti_aac_pns_apply_skip(const SautiAacIcsInfo *ics,
+                        unsigned rate,const SautiAacSections *sec,
+                        const SautiAacScaleFactors *sf,
+                        uint32_t *seed,const uint8_t skip[8][64],float spectral[1024]){
     if(!ics||!sec||!sf||!seed||!spectral||ics->window_sequence>3 ||
        ics->group_count==0 || ics->group_count>8 ||
        sec->section_count>SAUTI_AAC_MAX_SECTIONS ||
@@ -51,6 +57,7 @@ int sauti_aac_pns_apply(const SautiAacIcsInfo *ics,
         const SautiAacSection *s=&sec->sections[k];
         if(s->codebook!=13)continue;
         for(unsigned band=s->first_sfb;band<s->end_sfb;band++){
+            if(skip && band<64u && skip[s->group][band])continue;   /* correlated noise of the second channel: copied from the first channel afterwards, the generator is NOT advanced (as in FDK) */
             unsigned from=offsets[band],to=offsets[band+1];
             if(to<=from || to>sauti_aac_layout_window_len(rate,(unsigned)short_win))return 0;
             const int32_t scale=sf->value[s->group][band];

@@ -264,14 +264,20 @@ int sauti_aac_cpe_spectra(const SautiAacCpeData *parsed,unsigned rate,uint32_t *
 int sauti_aac_cpe_spectra_pred(const SautiAacCpeData *parsed,unsigned rate,uint32_t *pns_stream,
                                float spectral[2][1024],SautiAacPredState pred[2],SautiAacReason *reason){
     uint32_t stream=*pns_stream;
+    uint8_t corr[8][64];
+    memset(corr,0,sizeof corr);
+    if(parsed->common_window && parsed->ms_mask_present)          /* bands with correlated PNS: both channels NOISE_HCB and ms_used */
+        for(unsigned g=0;g<parsed->channel[0].ics.group_count && g<8u;g++)
+            for(unsigned b=0;b<parsed->channel[0].ics.max_sfb && b<64u;b++)
+                corr[g][b]=parsed->ms_used[g][b] && parsed->channel[0].factors.codebook[g][b]==13u && parsed->channel[1].factors.codebook[g][b]==13u;
     for(unsigned ch=0;ch<2;ch++){
         const SautiAacLcMonoData *data=&parsed->channel[ch];
         if(!sauti_aac_lc_dequantize(data->quant,rate,
                     &data->ics,&data->sections,&data->factors,
                     spectral[ch]) ||
-           !sauti_aac_pns_apply(&data->ics,rate,&data->sections,
+           !sauti_aac_pns_apply_skip(&data->ics,rate,&data->sections,
                                &data->factors,&stream,
-                               spectral[ch])){
+                               ch?corr:NULL,spectral[ch])){
             *reason=SAUTI_AAC_REASON_INVALID_SYNTH;return 0;
         }
     }
