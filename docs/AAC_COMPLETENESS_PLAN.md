@@ -53,3 +53,16 @@ Różnice względem klasycznego SBR (z `ixheaacd_*`): (1) ładunek SBR NIE jest 
 ## ELD v2 w trybie jednokrotnym (single rate): ZROBIONE 2026-11-25
 Koder FDK (`tools/sauti_fdk_aac_encoder.c`, `CHMODE=128 SBRMODE=1 SBRRATIO=1`, AOT 39, granule 512) tworzy taki strumień tylko dla rdzenia 24 kHz (32 i 48 kHz: `init failed`). SSC: częstotliwość 24000 < 27713 Hz, więc 32 pasma QMF (ISO/IEC 23003-1 6.3.3; FDK `GetNrOfQmfBands`: LD przy 512: 32 pasma × 16 slotów albo 64 pasma × 8 slotów), `hybridBands = qmfBands = 32`, tablice `kernels_N_to_64` obcięte do pierwszych 32 wpisów. Zrobione: `sauti_aac_eld_sac_dec.c` liczy `nb` pasm z częstotliwości SSC (dekorelator, energie 23 pasm, upmix tylko dla k < nb; siatka SBR zostaje o rozstępie 64), bramka silnika zezwala na SAC przy jednokrotnym SBR, gdy częstotliwość SSC < 27713 Hz (a przy dwukrotnym, gdy ≥ 27713 Hz); SBR miał już syntezę MPS-LD 32 pasm. Wynik wobec FDK (`build/sauti_fdk_raw_oracle`): **opóźnienie 0, 70,8 / 68,6 dB (L / R), mediana bloków 69,8 dB, korelacja 1,0000** (dwukrotny: 56 – 66 dB). Fixtura `tests/data/eldsbr_v2_single.m4a` (generator: `tests/data/make_eldsbr_fixtures.sh v2single`), odciski w `tests/test_eldsbr_fingerprints.h`, `make test-eldsbr`.
 Nie zrobione: wariant 64 pasma × 8 slotów (jednokrotny przy rdzeniu 48 kHz): koder FDK go nie tworzy, więc brak strumienia; bramka odrzuca go jawnie (`UNSUPPORTED_FEATURE`).
+
+## Różnice wobec FDK (SBR 35 – 56 dB, LPD ~47 – 51 dB): wniosek 2026-11-25, to cecha FDK, nie błąd dekodera
+Trzy niezależne dekodery porównane parami (`scripts/test_real_files.py`, który wypisuje teraz też `[libxaac vs FDK]`):
+
+| Strumień | nasz vs FFmpeg | FFmpeg vs FDK | nasz vs FDK | nasz vs libxaac | libxaac vs FDK |
+|---|---|---|---|---|---|
+| HE-AAC `suite_AAC+_48kbps_st_44kHz` (prawdziwy plik) | 134,1 dB | **56,5 dB** | **56,5 dB** | | |
+| HE-AAC (4 prawdziwe pliki, SBR / SBR + PS) | 119 – 139 dB | | 45 – 56 dB | | |
+| xHE-AAC `Sintel_24kbps` (LPD, eSBR 8:3, MPS) | | | **47,4 dB** | 76,9 dB | **47,6 dB** |
+| xHE-AAC `xHEchID` | | | 90,8 dB | 92,4 dB | 74,7 dB |
+
+Wniosek: tam, gdzie mamy dwa wzorce niezależne od FDK (FFmpeg dla HE-AAC, libxaac dla USAC), nasz wynik zgadza się z nimi do 76 – 139 dB, a FDK różni się od wszystkich trzech o tyle samo (FFmpeg vs FDK = nasz vs FDK dokładnie). To znaczy, że odstępstwem jest sam FDK (arytmetyka stałoprzecinkowa: zmniejszona precyzja wzmocnień SBR, tablic i LPC), a nie nasza implementacja; błąd jest równomierny w czasie i w paśmie SBR (około -55 dB względem sygnału). Dopasowanie do FDK oznaczałoby powielanie jego błędów zaokrągleń kosztem zgodności z dwoma pozostałymi dekoderami, więc tych pozycji NIE naprawiamy. Zostają opisane jako „zgodne z wzorcami niezależnymi od FDK".
+Pozostałe pozycje z listy priorytetów (2026-11-25): **ELD v2 STP / GES i AAC-LD + SAC (LD v2)** nie mają strumienia testowego: koder FDK zapisuje zawsze `TEMPSHAPE_OFF` (`sacenc_bitstream.cpp`), a przy AOT 23 `MODE_212` daje zwykły strumień mono bez SAC (MPS jest ograniczony do ELD); libxaac nie ma kodera ELD v2. Do odblokowania potrzebny jest plik z kodera zawodowego (Fraunhofer) albo własny koder strumieni; bez tego nie ma wzorca, więc kodu nie piszemy.

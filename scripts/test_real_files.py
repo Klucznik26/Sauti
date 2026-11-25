@@ -58,6 +58,9 @@ def main():
                 am = np.trunc(a[lo:hi].astype(np.float64) * 32768.0) / 32768.0 if k == 'libxaac' else a[lo:hi]    # libxaac's 16-bit output TRUNCATES toward zero: quantise ours the same way, or quiet passages are limited by its quantisation noise
                 r = snr(am, b[lo:hi + 8192 * ch], k == 'FDK', ch)
                 line += "  %s %s" % (k, "%.1f dB" % r[0] if r else "n/a")
+            if 'libxaac' in ref and 'FDK' in ref and len(ref['libxaac']) >= hi and len(ref['FDK']) >= hi + 8192 * ch:      # the two references against each other: which one is the outlier?
+                r2 = snr(ref['libxaac'][lo:hi], ref['FDK'][lo:hi + 8192 * ch], True, ch)
+                line += "  [libxaac vs FDK %s]" % ("%.1f dB" % r2[0] if r2 else "n/a")
             print(line); sys.stdout.flush()
     return 0
 sys.exit(main())
