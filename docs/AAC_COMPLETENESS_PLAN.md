@@ -69,3 +69,4 @@ Pozostałe pozycje z listy priorytetów (2026-11-25): **ELD v2 STP / GES i AAC-L
 
 ### LD / ELD z rdzeniem <= 24 kHz (11-25)
 Norma nie podaje tablic pasm dla układów 512 / 480 poniżej 24 kHz; FDK używa tablic 24 kHz dla 24, 22,05, 16, 12, 11,025, 8 i 7,35 kHz (TNS max 31 dla 512 i 30 dla 480). Sauti robi teraz to samo (`sauti_aac_bands.c`, bramka w `sauti_aac_er.c`: indeksy 3..12). Pomiar względem FDK na 16 kHz: LD 72–79 dB, ELD 78–90 dB (mono i stereo, 512 i 480, ELD z SBR). Test: `scripts/test_ld_lowrate_vs_fdk.sh` (`tests/data/ld_lowrate/`). 64 kHz i wyżej nadal odrzucone (brak wzorca). Poprawka skorelowanego PNS (949b597) podniosła stereo LD/ELD z 27–47 dB do 77–90 dB.
+Dopełnienie (11-25): 12, 11,025 i 8 kHz zmierzone względem FDK (mono i stereo, 512 i 480, bez SBR): LD 69–76 dB, ELD 87–90 dB. LD jest o kilkanaście dB niżej niż ELD, bo FDK liczy w stałym przecinku (znany odstający wynik FDK), nie dlatego, że coś się rozjeżdża. Nie zmierzone: 22,05 i 7,35 kHz.
