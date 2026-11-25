@@ -24,11 +24,13 @@ static const float *rev_num(unsigned rb) { return rb == 1u ? sauti_aac_eld_sac_d
 int sauti_aac_eld_sac_apply(SautiAacEldSacDec *d, const SautiAacEldSacConfig *cfg, const SautiUsacMpsFrame *f, unsigned slots, const cxf *in, cxf *out0, cxf *out1) {
     cxf diff[MAXS][Q];
     float resg[SAUTI_USAC_MPS_SETS][NB][2], decg[SAUTI_USAC_MPS_SETS][NB][2];
-    unsigned slot_diff[SAUTI_USAC_MPS_SETS], i, k, n, pb, ps, row, rb, start = 0;
+    unsigned slot_diff[SAUTI_USAC_MPS_SETS], i, k, n, pb, ps, row, rb, start = 0, nb = 64u;
     const uint8_t *map = 0, *map23 = sauti_aac_eld_sac_kernel(23);
     const double gain = cfg ? sauti_usac_mps_clip_gain[cfg->fixed_gain_dmx & 7u] : 1.0;
     cxf hyb[MAXS][Q];
-    if (!d || !cfg || !f || !in || !out0 || !out1 || slots == 0 || slots > MAXS || cfg->mps.decorr > 2u || cfg->fixed_gain_dmx > 7u || cfg->mps.temp_shape != 0u) return 0;
+    memset(hyb, 0, sizeof hyb);                                              /* bands above nb are never read, but keep the stack state out of the picture */
+    if (cfg) nb = cfg->sample_rate < 27713u ? 32u : 64u;                     /* ISO/IEC 23003-1 6.3.3: below 27713 Hz the QMF has 32 bands (FDK: hybridBands = qmfBands, kernel tables cut to the first nb entries) */
+    if (!d || !cfg || !f || !in || !out0 || !out1 || slots == 0 || slots > MAXS || cfg->sample_rate > 48000u || cfg->mps.decorr > 2u || cfg->fixed_gain_dmx > 7u || cfg->mps.temp_shape != 0u) return 0;
     map = sauti_aac_eld_sac_kernel(f->param_bands);
     if (!map || f->param_bands > NB || f->num_sets == 0 || f->num_sets > SAUTI_USAC_MPS_SETS) return 0;
     for (i = 0; i < f->num_sets; i++) {
@@ -37,11 +39,11 @@ int sauti_aac_eld_sac_apply(SautiAacEldSacDec *d, const SautiAacEldSacConfig *cf
         slot_diff[i] = i ? f->param_slot[i] - prev : f->param_slot[0] + 1u;
     }
     if (f->param_slot[f->num_sets - 1u] != slots - 1u) return 0;
-    for (n = 0; n < slots; n++) for (k = 0; k < Q; k++) { hyb[n][k].re = (float)(in[(size_t)n * Q + k].re * gain); hyb[n][k].im = (float)(in[(size_t)n * Q + k].im * gain); }
+    for (n = 0; n < slots; n++) for (k = 0; k < nb; k++) { hyb[n][k].re = (float)(in[(size_t)n * Q + k].re * gain); hyb[n][k].im = (float)(in[(size_t)n * Q + k].im * gain); }
     /* decorrelator: reverb band 0 is empty, bands 1 .. 3 delay + all-pass */
     memset(diff, 0, sizeof diff);
     for (rb = 0; rb < 4u; rb++) {
-        const unsigned stop = rev_offset[cfg->mps.decorr][rb];
+        const unsigned stop = rev_offset[cfg->mps.decorr][rb] < nb ? rev_offset[cfg->mps.decorr][rb] : nb;
         if (rb && start < stop) {
             const unsigned delay = rev_delay[rb], order = rev_order[rb];
             const float *num = rev_num(rb);
@@ -67,7 +69,7 @@ int sauti_aac_eld_sac_apply(SautiAacEldSacDec *d, const SautiAacEldSacConfig *cf
     for (n = 0; n < slots; n++) {
         double in_e[NB], out_e[NB], g[NB];
         memset(in_e, 0, sizeof in_e); memset(out_e, 0, sizeof out_e);
-        for (k = 0; k < Q; k++) {
+        for (k = 0; k < nb; k++) {
             in_e[map23[k]] += (double)hyb[n][k].re * hyb[n][k].re + (double)hyb[n][k].im * hyb[n][k].im;
             out_e[map23[k]] += (double)diff[n][k].re * diff[n][k].re + (double)diff[n][k].im * diff[n][k].im;
         }
@@ -78,7 +80,7 @@ int sauti_aac_eld_sac_apply(SautiAacEldSacDec *d, const SautiAacEldSacConfig *cf
             if (d->smooth_out[pb] > d->smooth_in[pb] * DECOR_GAMMA) g[pb] = sqrt(d->smooth_in[pb] * DECOR_GAMMA / (d->smooth_out[pb] + ABS_THR));
             if (d->smooth_in[pb] > d->smooth_out[pb] * DECOR_GAMMA) { const double v = sqrt(d->smooth_in[pb] / (DECOR_GAMMA * d->smooth_out[pb] + ABS_THR)); g[pb] = v < 2.0 ? v : 2.0; }
         }
-        for (k = 0; k < Q; k++) { diff[n][k].re = (float)(diff[n][k].re * g[map23[k]]); diff[n][k].im = (float)(diff[n][k].im * g[map23[k]]); }
+        for (k = 0; k < nb; k++) { diff[n][k].re = (float)(diff[n][k].re * g[map23[k]]); diff[n][k].im = (float)(diff[n][k].im * g[map23[k]]); }
     }
     /* upmix gains of every parameter set, smoothing over time (bsSmoothMode), interpolation slot by slot */
     for (ps = 0; ps < f->num_sets; ps++)
@@ -111,7 +113,7 @@ int sauti_aac_eld_sac_apply(SautiAacEldSacDec *d, const SautiAacEldSacConfig *cf
                         rg[pb][row] = r0 + (double)step * inv * (resg[ps][pb][row] - r0);
                         dg[pb][row] = d0 + (double)step * inv * (decg[ps][pb][row] - d0);
                     }
-                for (k = 0; k < Q; k++) {
+                for (k = 0; k < nb; k++) {
                     const unsigned b = map[k];
                     for (row = 0; row < 2u; row++) {
                         cxf *o = (row ? out1 : out0) + (size_t)t * Q + k;

@@ -259,7 +259,7 @@ static prod_t decode_eldsbr(dec_t *d) {
     if (s->sac_on) {                                                                  /* ELD v2: siatka QMF mono -> MPS 212 -> dwie siatki -> dwie syntezy */
         SautiUsacMpsState ms = s->ms; SautiAacEldSacDec sd = s->sac; SautiUsacMpsFrame mf; static SautiAacSbrComplex g0[64u * 16u], g1[64u * 16u];
         size_t fe = 0; const size_t sbr_end = end + fr[0].payload_data_bits;
-        if (ch != 1u || d->eldsbr != 2u) return P_UNSUPPORTED;
+        if (ch != 1u) return P_UNSUPPORTED;
         if (!sauti_aac_eld_sac_frame_parse(&s->sacc, raw, sbr_end, rawn * 8u, &ms, &mf, &fe)) return P_FAIL;
         for (i = 0; i < n; i++) cc[i] = core[i];
         if (!sauti_aac_sbr_channel_frame(&s->channel[0], cc, &fr[0], grid)) return P_FAIL;
@@ -657,9 +657,9 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
         if (hd.er_aot == 39u && d->eld_ready && d->eld_asc.ld_sbr) {                          /* ELD z SBR niskoopoznieniowym: jednokrotny (wyjscie w czestotliwosci rdzenia) albo dwukrotny (wyjscie 2x) */
             if (hd.config < 1u || hd.config > 2u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
             d->eldsbr = d->eld_asc.ld_sbr_downsampled ? 2u : 1u;
-            if (d->eld_asc.ld_sac_len) {                                                   /* ELD v2: mono rdzen + MPS 212 niskiego opoznienia = wyjscie stereo; tylko dwukrotny SBR (64 pasma QMF) */
+            if (d->eld_asc.ld_sac_len) {                                                   /* ELD v2: mono rdzen + MPS 212 niskiego opoznienia = wyjscie stereo; SBR dwukrotny (SAC na 64 pasmach QMF, wyjscie > 27713 Hz) albo jednokrotny (SAC na 32 pasmach, wyjscie < 27713 Hz) */
                 SautiAacEldSacConfig sc;
-                if (hd.config != 1u || d->eldsbr != 2u || sauti_aac_eld_sac_config_parse(d->eld_asc.ld_sac, d->eld_asc.ld_sac_len, &sc) != 1 || sc.time_slots != (hd.er_480 ? 15u : 16u) || sc.mps.temp_shape != 0u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+                if (hd.config != 1u || sauti_aac_eld_sac_config_parse(d->eld_asc.ld_sac, d->eld_asc.ld_sac_len, &sc) != 1 || (d->eldsbr == 2u) != (sc.sample_rate >= 27713u) || sc.time_slots != (hd.er_480 ? 15u : 16u) || sc.mps.temp_shape != 0u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
                 d->out_channels = 2u;
             }
             d->frame_pcm = n * d->eldsbr; d->out_rate = d->core_rate * d->eldsbr;
