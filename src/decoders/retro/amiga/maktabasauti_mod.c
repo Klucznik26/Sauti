@@ -10,7 +10,8 @@
  *     M!K!, PATT, NSMS, LARD do 256; xCHN 1..9; xxCH i xxCN 10..32; TDZ1..TDZ9;
  *     CD61 6 kanalow; CD81, OCTA, OKTA 8; FA04/FA06/FA08 to 4/6/8),
  *     FLT8, EXO8 i EX08 (8 kanalow, para patternow 4-kanalowych) i 15 instrumentow bez sygnatury;
- *   - nieznana czteroznakowa sygnatura jest odrzucana i nie jest czytana jako 15 instrumentow;
+ *   - nieznana czteroznakowa sygnatura jest odrzucana i nie jest czytana jako 15 instrumentow.
+ *     Sam bajt dlugosci utworu nie wystarcza: kazda glosnosc musi byc 0..64, a kazdy order ponizej 64;
  *   - uciety pattern, probka za koncem pliku, petla poza probka i zla dlugosc utworu: blad, nic nie gra;
  *   - komorka niesie okres z tabeli finetune 0.  Niezerowy finetune zamienia go na okres z kolumny
  *     tego strojenia.  Arpeggio i glissando ida po opublikowanej tabeli, nie po wzorze 2^(-ft/96);
@@ -419,10 +420,24 @@ static void ident_15(ident_t *id) {
     memcpy(id->magic, "15ST", 5u);
 }
 
+/* Opublikowany naglowek 15 instrumentow.  Glosnosc lezy w 0..64, a order wskazuje
+ * pattern 0..63.  Sam bajt 470 w zakresie 1..128 trafia sie w plikach AAC, AIFF, MP3, VOC i WAV. */
+static int header_15(const uint8_t *p) {
+    unsigned i;
+    for (i = 0; i < 15u; i++) {
+        if (p[20u + i * 30u + 25u] > 64u) return 0;
+    }
+    for (i = 0; i < 128u; i++) {
+        if (p[472u + i] >= 64u) return 0;
+    }
+    return 1;
+}
+
 static int recognize(const uint8_t *p, size_t n, ident_t *id) {
     if (n >= MOD_HEADER_31 && ident_magic(p + 1080, id)) return 1;
     if (n >= MOD_HEADER_31 && tag_bytes(p + 1080)) return 0;
     if (n < MOD_HEADER_15 || p[470] < 1u || p[470] > 128u) return 0;
+    if (!header_15(p)) return 0;
     ident_15(id);
     return 1;
 }

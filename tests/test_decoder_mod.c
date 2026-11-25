@@ -304,6 +304,15 @@ static void test_probe(void) {
     memset(hdr, 0, sizeof hdr);
     hdr[470] = 1;
     CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, 600u, NULL) == 60);
+    hdr[45] = 64;
+    hdr[472] = 63;
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, 600u, NULL) == 60);
+    hdr[45] = 65;
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, 600u, NULL) == 0);
+    hdr[45] = 0;
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, 600u, NULL) == 60);
+    hdr[472] = 64;
+    CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, 600u, NULL) == 0);
     hdr[470] = 0;
     CHECK(maktabasauti_mod_desc.probe(&maktabasauti_mod_desc, hdr, sizeof hdr, NULL) == 0);
 }
@@ -1007,7 +1016,7 @@ static void test_variants(void) {
     orders[0] = 64;
     b = build15(&n, 1, orders, &inst, 1, NULL, 0);
     dec_open(&d, b, n, NULL, NULL);
-    CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FEATURE);
+    CHECK(d.rc == MAKTABASAUTI_E_UNSUPPORTED_FORMAT);
     dec_close(&d); free(b);
 
     memset(tiny, 0, sizeof tiny);
