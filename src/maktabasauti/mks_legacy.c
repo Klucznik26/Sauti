@@ -161,11 +161,13 @@ extern const maktabasauti_codec_t maktabasauti_alac_desc;         /* ALAC (Apple
 extern const maktabasauti_codec_t maktabasauti_tta_desc;          /* The True Audio (TTA 1.x): modul strumieniowy (src/decoders/modern/maktabasauti_tta.c) */
 extern const maktabasauti_codec_t maktabasauti_svx_desc;          /* Amiga IFF 8SVX: modul strumieniowy (src/decoders/retro/amiga/maktabasauti_svx.c) */
 extern const maktabasauti_codec_t maktabasauti_16sv_desc;         /* Amiga IFF 16SV: modul strumieniowy (src/decoders/retro/amiga/maktabasauti_16sv.c) */
+extern const maktabasauti_codec_t maktabasauti_maud_desc;         /* Amiga IFF MAUD: modul strumieniowy (src/decoders/retro/amiga/maktabasauti_maud.c) */
+extern const maktabasauti_codec_t maktabasauti_samp_desc;         /* Amiga IFF SAMP: modul strumieniowy (src/decoders/retro/amiga/maktabasauti_samp.c) */
 extern const maktabasauti_codec_t maktabasauti_mod_desc;          /* Amiga MOD: replay ProTracker / SoundTracker (src/decoders/retro/amiga/maktabasauti_mod.c) */
 extern const maktabasauti_codec_t maktabasauti_mod_wow_desc;      /* Mod's Grave: ten sam replay, rozszerzenie .wow */
 static const maktabasauti_codec_t *const legacy_ptrs[] = {
     &maktabasauti_pcm_wav_desc, &maktabasauti_voc_desc, &maktabasauti_pcm_aiff_desc, &maktabasauti_pcm_au_desc, &maktabasauti_aac_adts_desc /* ADTS: modul strumieniowy (src/decoders/modern/aac/maktabasauti_aac_adts.c) */, &maktabasauti_aac_mp4_desc /* MP4: modul indeksowany */, &maktabasauti_aac_loas_desc /* LOAS: modul strumieniowy */, &maktabasauti_aac_adif_desc /* ADIF: modul strumieniowy */, &maktabasauti_alac_desc, &maktabasauti_tta_desc,
-    &maktabasauti_pcm_rawulaw_desc, &maktabasauti_pcm_rawalaw_desc, &maktabasauti_g726_wav_desc, &maktabasauti_g726_au_desc, &maktabasauti_g726_raw_desc, &maktabasauti_g7111_raw_desc, &maktabasauti_g7111_g192_desc, &codec_vorbis, &codec_midi, &maktabasauti_flac_desc, &maktabasauti_dvs_avr_desc, &maktabasauti_dvs_dvsm_desc, &maktabasauti_svx_desc, &maktabasauti_16sv_desc, &maktabasauti_mod_desc, &maktabasauti_mod_wow_desc, &codec_dtm, &codec_ym, &codec_mp3
+    &maktabasauti_pcm_rawulaw_desc, &maktabasauti_pcm_rawalaw_desc, &maktabasauti_g726_wav_desc, &maktabasauti_g726_au_desc, &maktabasauti_g726_raw_desc, &maktabasauti_g7111_raw_desc, &maktabasauti_g7111_g192_desc, &codec_vorbis, &codec_midi, &maktabasauti_flac_desc, &maktabasauti_dvs_avr_desc, &maktabasauti_dvs_dvsm_desc, &maktabasauti_svx_desc, &maktabasauti_16sv_desc, &maktabasauti_maud_desc, &maktabasauti_samp_desc, &maktabasauti_mod_desc, &maktabasauti_mod_wow_desc, &codec_dtm, &codec_ym, &codec_mp3
 };
 
 const maktabasauti_codec_t *const *mks_legacy_codecs(size_t *count) {

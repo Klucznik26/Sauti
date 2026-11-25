@@ -5,11 +5,15 @@
  * potem caly prawy), 2 i 4 to jeden kanal.  Inne chunki (NAME, ANNO, (c), ATAK, RLSE) sa pomijane.
  * VHDR.volume to glosnosc urzadzenia (0x10000 = pelna), nie skala probek, wiec nie zmienia PCM.
  * oneShotHiSamples + repeatHiSamples przy ctOctave <= 1 jest metadanymi petli: wydajemy cale BODY
- * jeden raz.  Przy ctOctave > 1 ta suma jest dlugoscia najwyzszej oktawy (nizsze sa polowe i nie graja).
+ * jeden raz.  Przy ctOctave > 1 (EA, 7 lutego 1985, ten sam VHDR co 8SVX) ta suma jest dlugoscia
+ * najwyzszej oktawy i ona jest pierwsza.  Kazda nizsza jest dwa razy dluzsza.  Jednorazowe granie
+ * bierze najnizsza oktawa: jej one-shot i repeat, jeden raz.  Suma 0 albo oktawa poza calym BODY:
+ * odmawiamy.  Krotsze cale BODY daje tyle probek tej oktawy, ile jest, i EOF, nie lepkie urwanie.
  *
  * sCompression inne niz 0: odmawiamy.  SoundFX nazywa 1 = FDPCM16_6 (Fibonacci 8:3) i 2 = EDPCM16_5
  * (wykladnicza 16:5), ale nie podaje tablicy delt ani ukladu bitow.  CHAN spoza 2, 4 i 6 tez: SoundFX
  * wymienia quadro, a opublikowany CHAN nie ma wartosci ani ukladu czterech kanalow.
+ * SEQN nie jest stosowany: rejestracja Petera Normana opisuje offsety bajtowe 8-bitowego 8SVX.
  *
  * Wyjscie f32 = probka / 32768.  Mono dziala bez przewijania.  Stereo wymaga dwoch pozycji odczytu.
  * Plik urwany: cale probki sprzed urwania, potem lepki E_TRUNCATED. */
@@ -234,10 +238,27 @@ static maktabasauti_result_t MAKTABASAUTI_CALL sv16_open(const maktabasauti_code
         }
         frames = d->ch[0].len / 2u;
         if (channels == 2u && d->ch[1].len / 2u < frames) frames = d->ch[1].len / 2u;
-        /* Najwyzsza oktawa jest krotsza niz cale BODY.  Dluzszy naglowek niz dane nie jest urwanym plikiem. */
-        if (octave > 1u && hi < frames) frames = hi;
         if (!deficit) d->total_known = 1;
-        d->tail = deficit != 0;
+        if (octave > 1u) {
+            uint64_t span, origin, low_len, out;
+            if (octave - 1u >= 64u || hi > UINT64_MAX / (1ull << (octave - 1u))) { h->free(h->user, d); return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
+            span = 1ull << (octave - 1u);
+            low_len = hi * span;
+            if (span > 1ull && hi > UINT64_MAX / (span - 1ull)) { h->free(h->user, d); return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
+            origin = hi * (span - 1ull);
+            if (origin >= frames) { h->free(h->user, d); return deficit ? MAKTABASAUTI_E_TRUNCATED : MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
+            out = low_len;
+            if (out > frames - origin) out = frames - origin;
+            /* Urwane jest tylko to, co obcina wybrana oktawa.  Krotsze cale BODY konczy sie EOF. */
+            d->tail = deficit && origin + low_len > frames;
+            for (c = 0; c < channels; c++) {
+                uint64_t off = origin * 2u, nbytes = out * 2u;
+                if (off > d->ch[c].len) off = d->ch[c].len;
+                if (nbytes > d->ch[c].len - off) nbytes = d->ch[c].len - off;
+                d->ch[c].base += off; d->ch[c].len = nbytes;
+            }
+            frames = out;
+        } else d->tail = deficit != 0;
         d->total = frames;
         if (per < 2u || !frames) { h->free(h->user, d); return MAKTABASAUTI_E_UNSUPPORTED_FORMAT; }
     }

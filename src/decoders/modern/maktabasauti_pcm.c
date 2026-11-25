@@ -1,4 +1,6 @@
-/* MaktabaSauti, modul maktabasauti_pcm: STRUMIENIOWE dekodery RIFF/WAVE PCM, AIFF / AIFF-C (NONE, sowt) i Sun/NeXT AU (.au / .snd), napisane w czystym C.
+/* MaktabaSauti, modul maktabasauti_pcm: STRUMIENIOWE dekodery RIFF/WAVE PCM, AIFF / AIFF-C (NONE, sowt, raw, fl32, fl64) i Sun/NeXT AU (.au / .snd), napisane w czystym C.
+ * AIFF-C fl32 / fl64 (Apple): IEEE 754, bajty starsze pierwsze, sampleSize 32 albo 64.  Wartosc przechodzi bez skali, tak jak float WAV.  NaN i Inf daja 0.  FL32 / FL64 (SoundHack) odmawiamy.
+ * AIFF-C "raw " (Apple, k8BitOffsetBinaryFormat): 8 bit offset-binary, 128 to cisza, (v-128)/128.  sampleSize inne niz 8 odmawiamy.  twos / in24 / in32 odmawiamy: tabela QuickTime nie ustala szerokosci albo kolejnosci bajtow.
  *
  * G.711 (ITU-T, 8 bit, 8 kHz w telefonii, tu dowolna czestotliwosc zapisana w pliku): mu-law i A-law w WAV (format 6 / 7, takze WAVE_FORMAT_EXTENSIBLE), AIFF-C (ulaw / ULAW / alaw / ALAW) i AU (kodowanie 1 / 27).
  * Dekodowanie = definicja ITU-T G.711 (segmenty, wartosc srodka przedzialu; jak implementacja referencyjna Sun, domena publiczna): 16-bitowa liczba ze znakiem, wyjscie f32 = wartosc / 32768.
@@ -123,7 +125,7 @@ static int g711_alaw(uint8_t a) {
 /* ---- wspolny stan odczytu ---- */
 typedef struct {
     const maktabasauti_host_t *host; maktabasauti_reader_t *rd; stage_t st;
-    uint32_t channels, bits, width; int kind;                         /* kind: 0 = WAV PCM, 1 = WAV float, 2 = AIFF / AU big-endian, 3 = AIFF little-endian (sowt), 4 = G.711 mu-law, 5 = G.711 A-law */
+    uint32_t channels, bits, width; int kind;                         /* kind: 0 = WAV PCM albo AIFF-C raw (8 bit offset-binary), 1 = WAV float, 2 = AIFF / AU big-endian, 3 = AIFF little-endian (sowt), 4 = G.711 mu-law, 5 = G.711 A-law, 6 = AIFF-C fl32 / fl64 */
     uint64_t data_off, total, pos; int seekable, total_known;
     maktabasauti_result_t pend;
 } pcm_t;
@@ -135,7 +137,7 @@ static void fill_info(maktabasauti_stream_info_t *info, const pcm_t *p, uint32_t
     info->native_format = MAKTABASAUTI_FORMAT_F32;
     info->bits_per_sample = 0;
     info->total_frames = (p->total_known && p->total) ? p->total : MAKTABASAUTI_UNKNOWN_LENGTH;
-    info->flags = (p->seekable ? MAKTABASAUTI_STREAM_SEEKABLE : 0u) | (p->kind >= 4 ? 0u : MAKTABASAUTI_STREAM_LOSSLESS);
+    info->flags = (p->seekable ? MAKTABASAUTI_STREAM_SEEKABLE : 0u) | (p->kind == 4 || p->kind == 5 ? 0u : MAKTABASAUTI_STREAM_LOSSLESS);
     strncpy(info->codec_name, p->kind == 4 ? "g711-ulaw" : p->kind == 5 ? "g711-alaw" : "pcm", sizeof info->codec_name - 1u);
     strncpy(info->container_name, container, sizeof info->container_name - 1u);
 }
@@ -147,6 +149,9 @@ static float sample_value(const pcm_t *p, const uint8_t *v) {
     case 1:
         if (p->bits == 32u) { uint32_t raw = le32(v); float x; memcpy(&x, &raw, 4); return isfinite(x) ? x : 0.0f; }
         else { uint64_t raw = (uint64_t)le32(v) | ((uint64_t)le32(v + 4) << 32); double x; memcpy(&x, &raw, 8); return isfinite(x) ? (float)x : 0.0f; }
+    case 6:
+        if (p->bits == 32u) { uint32_t raw = be32(v); float x; memcpy(&x, &raw, 4); return isfinite(x) ? x : 0.0f; }
+        else { uint64_t raw = ((uint64_t)be32(v) << 32) | be32(v + 4); double x; memcpy(&x, &raw, 8); return isfinite(x) ? (float)x : 0.0f; }
     case 0:
         if (p->bits == 8u) return ((float)v[0] - 128.0f) / 128.0f;
         { const uint32_t raw = p->bits == 16u ? le16(v) : p->bits == 24u ? ((uint32_t)v[0] | ((uint32_t)v[1] << 8) | ((uint32_t)v[2] << 16)) : le32(v);
@@ -298,7 +303,7 @@ static int32_t MAKTABASAUTI_CALL aiff_probe(const maktabasauti_codec_t *self, co
 }
 static maktabasauti_result_t MAKTABASAUTI_CALL aiff_open(const maktabasauti_codec_t *self, const maktabasauti_host_t *h, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
     scan_t s; pcm_t proto; uint8_t ch[8], body[22] = { 0 }; maktabasauti_result_t r; uint64_t end, off = 12, pcm_bytes = 0; unsigned chunks = 0;
-    uint32_t form_size, frames = 0, rate = 0, channels = 0, bits = 0; int aifc, saw_comm = 0, saw_ssnd = 0, little = 0, law = 0;
+    uint32_t form_size, frames = 0, rate = 0, channels = 0, bits = 0; int aifc, saw_comm = 0, saw_ssnd = 0, little = 0, law = 0, flt = 0, raw8 = 0;
     (void)self; *state = NULL;
     r = sc_begin(&s, h, rd);
     if (r != MAKTABASAUTI_OK) return r;
@@ -324,6 +329,9 @@ static maktabasauti_result_t MAKTABASAUTI_CALL aiff_open(const maktabasauti_code
                 if (is_tag(body + 18, "sowt")) little = 1;
                 else if (is_tag(body + 18, "ulaw") || is_tag(body + 18, "ULAW")) law = 4;               /* G.711 w AIFF-C: sampleSize 16 (rozmiar po dekodowaniu), w pliku 8 bit na probke */
                 else if (is_tag(body + 18, "alaw") || is_tag(body + 18, "ALAW")) law = 5;
+                else if (is_tag(body + 18, "fl32")) flt = 32;                                           /* Apple: IEEE 754, starszy bajt pierwszy */
+                else if (is_tag(body + 18, "fl64")) flt = 64;
+                else if (is_tag(body + 18, "raw ")) raw8 = 1;                                           /* Apple: 8 bit offset-binary, 128 = cisza */
                 else if (!is_tag(body + 18, "NONE")) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
             }
         } else if (is_tag(ch, "SSND")) {
@@ -343,9 +351,13 @@ static maktabasauti_result_t MAKTABASAUTI_CALL aiff_open(const maktabasauti_code
     }
     if (law && bits != 16u && bits != 8u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     if (law) bits = 8u;                                                                         /* w pliku bajt na probke */
-    if (!saw_comm || !saw_ssnd || !frames || !rate || channels < 1u || channels > 2u || (bits != 8u && bits != 16u && bits != 24u && bits != 32u)) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
-    if ((uint64_t)frames > pcm_bytes / ((bits / 8u) * channels)) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
-    proto.channels = channels; proto.bits = bits; proto.width = bits / 8u; proto.kind = law ? law : little ? 3 : 2; proto.total = frames; proto.total_known = 1;
+    if (flt == 32 && bits != 32u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    if (flt == 64 && bits != 64u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    if (raw8 && bits != 8u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    if (!saw_comm || !saw_ssnd || !frames || !rate || channels < 1u || channels > 2u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    if (!flt && bits != 8u && bits != 16u && bits != 24u && bits != 32u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    if ((uint64_t)frames > pcm_bytes / ((uint64_t)(bits / 8u) * channels)) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    proto.channels = channels; proto.bits = bits; proto.width = bits / 8u; proto.kind = raw8 ? 0 : flt ? 6 : law ? law : little ? 3 : 2; proto.total = frames; proto.total_known = 1;
     return pcm_finish(&s, h, rd, &proto, rate, "aiff", info, state);
 }
 
@@ -442,7 +454,7 @@ const maktabasauti_codec_t maktabasauti_pcm_wav_desc = {
     wav_probe, wav_open, pcm_read, pcm_seek, pcm_reset, pcm_flush, NULL, pcm_last_error, NULL, pcm_close, { NULL }, { NULL }
 };
 const maktabasauti_codec_t maktabasauti_pcm_aiff_desc = {
-    sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "aiff-pcm", "AIFF / AIFF-C PCM (streaming)", "maktabasauti_pcm",
+    sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "aiff-pcm", "AIFF / AIFF-C PCM, raw and float (streaming)", "maktabasauti_pcm",
     MAKTABASAUTI_CODEC_FLAG_STREAMING | MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
     aiff_probe, aiff_open, pcm_read, pcm_seek, pcm_reset, pcm_flush, NULL, pcm_last_error, NULL, pcm_close, { NULL }, { NULL }
 };

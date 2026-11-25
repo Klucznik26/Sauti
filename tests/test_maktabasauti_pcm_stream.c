@@ -418,6 +418,131 @@ static int new_accepts(const File *f) {
 }
 static void put_ext80_raw(Buf *x, unsigned exp, uint64_t mant) { bb16(x, exp); bb32(x, (uint32_t)(mant >> 32)); bb32(x, (uint32_t)mant); }
 static void put_ext80_double(Buf *x, double v) { int e; const double m = frexp(v, &e); put_ext80_raw(x, (unsigned)(e - 1 + 16383), (uint64_t)ldexp(m, 64)); }
+/* AIFF-C fl32 / fl64: Apple, IEEE 754, starszy bajt pierwszy.  Stary adapter i modul daja te same probki. */
+static Buf aifc_float_file(const char *comp, unsigned bits, unsigned ch, unsigned frames, const uint8_t *pcm, size_t pcm_n) {
+    Buf x = { 0 };
+    tag(&x, "FORM"); bb32(&x, 0); tag(&x, "AIFC");
+    tag(&x, "COMM"); bb32(&x, 24); bb16(&x, ch); bb32(&x, frames); bb16(&x, bits); put_ext80_double(&x, 44100.0);
+    tag(&x, comp); b8(&x, 0); b8(&x, 0);
+    tag(&x, "SSND"); bb32(&x, (uint32_t)(8u + pcm_n)); bb32(&x, 0); bb32(&x, 0);
+    if (pcm_n) bput(&x, pcm, pcm_n);
+    if (pcm_n & 1u) b8(&x, 0);
+    patch32be(&x, 4, (uint32_t)(x.n - 8u));
+    return x;
+}
+static void test_aiff_float(void) {
+    static const uint8_t f32[12] = { 0x3f, 0x80, 0, 0, 0xbf, 0, 0, 0, 0x7f, 0xc0, 0, 0 };
+    static const uint8_t st[16] = { 0x3f, 0x80, 0, 0, 0xbf, 0x80, 0, 0, 0x3e, 0x80, 0, 0, 0x7f, 0x80, 0, 0 };
+    static const uint8_t f64[8] = { 0x3f, 0xf0, 0, 0, 0, 0, 0, 0 };
+    Buf x; Src s; Mem m; maktabasauti_decoder_t *d = NULL; maktabasauti_stream_info_t info; float out[4]; size_t got = 0; SautiPcmInfo oi; void *stt; uint64_t act;
+    x = aifc_float_file("fl32", 32, 1, 3, f32, sizeof f32);
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = x.b; s.n = x.n; s.seekable = 1; s.size_known = 1;
+    CHECK(open_src(&s, &m, &d) == MAKTABASAUTI_OK, "aiff fl32 open");
+    if (d) {
+        info.struct_size = sizeof info; (void)maktabasauti_decoder_get_info(d, &info);
+        CHECK(info.sample_rate == 44100 && info.channels == 1 && info.total_frames == 3 && (info.flags & MAKTABASAUTI_STREAM_LOSSLESS) && strcmp(info.codec_name, "pcm") == 0, "aiff fl32 info");
+        CHECK(maktabasauti_decoder_read(d, out, 3, MAKTABASAUTI_FORMAT_F32, &got) == MAKTABASAUTI_OK && got == 3 && out[0] == 1.0f && out[1] == -0.5f && out[2] == 0.0f, "aiff fl32 samples");
+        CHECK(maktabasauti_decoder_seek(d, 1, MAKTABASAUTI_SEEK_EXACT, &act) == MAKTABASAUTI_OK && act == 1, "aiff fl32 seek");
+        CHECK(maktabasauti_decoder_read(d, out, 1, MAKTABASAUTI_FORMAT_F32, &got) == MAKTABASAUTI_OK && got == 1 && out[0] == -0.5f, "aiff fl32 after seek");
+        maktabasauti_decoder_close(d); d = NULL;
+    }
+    memset(&oi, 0, sizeof oi); stt = sauti_decoder_aiff_ops.open(x.b, x.n, &oi);
+    CHECK(stt && oi.total_frames == 3 && sauti_decoder_aiff_ops.read(stt, out, 3) == 3 && out[0] == 1.0f && out[1] == -0.5f && out[2] == 0.0f, "aiff fl32 old adapter");
+    if (stt) sauti_decoder_aiff_ops.close(stt);
+    free(x.b);
+    x = aifc_float_file("fl32", 32, 2, 2, st, sizeof st);
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = x.b; s.n = x.n; s.seekable = 1; s.size_known = 1; d = NULL;
+    CHECK(open_src(&s, &m, &d) == MAKTABASAUTI_OK, "aiff fl32 stereo open");
+    if (d) {
+        CHECK(maktabasauti_decoder_read(d, out, 2, MAKTABASAUTI_FORMAT_F32, &got) == MAKTABASAUTI_OK && got == 2 && out[0] == 1.0f && out[1] == -1.0f && out[2] == 0.25f && out[3] == 0.0f, "aiff fl32 stereo");
+        maktabasauti_decoder_close(d);
+    }
+    memset(&oi, 0, sizeof oi); stt = sauti_decoder_aiff_ops.open(x.b, x.n, &oi);
+    CHECK(stt && sauti_decoder_aiff_ops.read(stt, out, 2) == 2 && out[0] == 1.0f && out[1] == -1.0f && out[2] == 0.25f && out[3] == 0.0f, "aiff fl32 stereo old");
+    if (stt) sauti_decoder_aiff_ops.close(stt);
+    free(x.b);
+    x = aifc_float_file("fl64", 64, 1, 1, f64, sizeof f64);
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = x.b; s.n = x.n; s.seekable = 1; s.size_known = 1; d = NULL;
+    CHECK(open_src(&s, &m, &d) == MAKTABASAUTI_OK, "aiff fl64 open");
+    if (d) {
+        CHECK(maktabasauti_decoder_read(d, out, 1, MAKTABASAUTI_FORMAT_F32, &got) == MAKTABASAUTI_OK && got == 1 && out[0] == 1.0f, "aiff fl64 sample");
+        maktabasauti_decoder_close(d);
+    }
+    memset(&oi, 0, sizeof oi); stt = sauti_decoder_aiff_ops.open(x.b, x.n, &oi);
+    CHECK(stt && sauti_decoder_aiff_ops.read(stt, out, 1) == 1 && out[0] == 1.0f, "aiff fl64 old");
+    if (stt) sauti_decoder_aiff_ops.close(stt);
+    free(x.b);
+    x = aifc_float_file("FL32", 32, 1, 1, f32, 4);
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = x.b; s.n = x.n; s.seekable = 1; s.size_known = 1; d = NULL;
+    CHECK(open_src(&s, &m, &d) != MAKTABASAUTI_OK && !d, "FL32 refused");
+    memset(&oi, 0, sizeof oi); CHECK(sauti_decoder_aiff_ops.open(x.b, x.n, &oi) == NULL, "FL32 old refused");
+    free(x.b);
+    x = aifc_float_file("fl32", 16, 1, 1, f32, 4);
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = x.b; s.n = x.n; s.seekable = 1; s.size_known = 1; d = NULL;
+    CHECK(open_src(&s, &m, &d) != MAKTABASAUTI_OK && !d, "fl32 sampleSize 16 refused");
+    memset(&oi, 0, sizeof oi); CHECK(sauti_decoder_aiff_ops.open(x.b, x.n, &oi) == NULL, "fl32 sampleSize 16 old refused");
+    free(x.b);
+    x = aifc_float_file("fl64", 32, 1, 1, f32, 4);
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = x.b; s.n = x.n; s.seekable = 1; s.size_known = 1; d = NULL;
+    CHECK(open_src(&s, &m, &d) != MAKTABASAUTI_OK && !d, "fl64 sampleSize 32 refused");
+    memset(&oi, 0, sizeof oi); CHECK(sauti_decoder_aiff_ops.open(x.b, x.n, &oi) == NULL, "fl64 sampleSize 32 old refused");
+    free(x.b);
+    CHECK(m.live == 0, "aiff float leak");
+}
+/* AIFF-C "raw " (Apple): 8 bit offset-binary, 128 = cisza.  Oba dekodery.  twos / in24 zostaja odmowione. */
+static void test_aiff_raw(void) {
+    static const uint8_t mono[4] = { 0x80, 0xff, 0x00, 0x81 };
+    static const uint8_t st[4] = { 0x80, 0x00, 0xff, 0xc0 };
+    Buf x; Src s; Mem m; maktabasauti_decoder_t *d = NULL; maktabasauti_stream_info_t info; float out[4]; size_t got = 0; SautiPcmInfo oi; void *stt; uint64_t act;
+    const float m0 = 0.0f, m1 = 127.0f / 128.0f, m2 = -1.0f, m3 = 1.0f / 128.0f, s3 = 0.5f;
+    x = aifc_float_file("raw ", 8, 1, 4, mono, sizeof mono);
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = x.b; s.n = x.n; s.seekable = 1; s.size_known = 1;
+    CHECK(open_src(&s, &m, &d) == MAKTABASAUTI_OK, "aiff raw open");
+    if (d) {
+        info.struct_size = sizeof info; (void)maktabasauti_decoder_get_info(d, &info);
+        CHECK(info.sample_rate == 44100 && info.channels == 1 && info.total_frames == 4 && (info.flags & MAKTABASAUTI_STREAM_LOSSLESS) && strcmp(info.codec_name, "pcm") == 0, "aiff raw info");
+        CHECK(maktabasauti_decoder_read(d, out, 4, MAKTABASAUTI_FORMAT_F32, &got) == MAKTABASAUTI_OK && got == 4 && out[0] == m0 && out[1] == m1 && out[2] == m2 && out[3] == m3, "aiff raw samples");
+        CHECK(maktabasauti_decoder_seek(d, 2, MAKTABASAUTI_SEEK_EXACT, &act) == MAKTABASAUTI_OK && act == 2, "aiff raw seek");
+        CHECK(maktabasauti_decoder_read(d, out, 1, MAKTABASAUTI_FORMAT_F32, &got) == MAKTABASAUTI_OK && got == 1 && out[0] == m2, "aiff raw after seek");
+        maktabasauti_decoder_close(d); d = NULL;
+    }
+    memset(&oi, 0, sizeof oi); stt = sauti_decoder_aiff_ops.open(x.b, x.n, &oi);
+    CHECK(stt && oi.total_frames == 4 && sauti_decoder_aiff_ops.read(stt, out, 4) == 4 && out[0] == m0 && out[1] == m1 && out[2] == m2 && out[3] == m3, "aiff raw old adapter");
+    if (stt) sauti_decoder_aiff_ops.close(stt);
+    free(x.b);
+    x = aifc_float_file("raw ", 8, 2, 2, st, sizeof st);
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = x.b; s.n = x.n; s.seekable = 1; s.size_known = 1; d = NULL;
+    CHECK(open_src(&s, &m, &d) == MAKTABASAUTI_OK, "aiff raw stereo open");
+    if (d) {
+        CHECK(maktabasauti_decoder_read(d, out, 2, MAKTABASAUTI_FORMAT_F32, &got) == MAKTABASAUTI_OK && got == 2 && out[0] == m0 && out[1] == m2 && out[2] == m1 && out[3] == s3, "aiff raw stereo");
+        maktabasauti_decoder_close(d);
+    }
+    memset(&oi, 0, sizeof oi); stt = sauti_decoder_aiff_ops.open(x.b, x.n, &oi);
+    CHECK(stt && sauti_decoder_aiff_ops.read(stt, out, 2) == 2 && out[0] == m0 && out[1] == m2 && out[2] == m1 && out[3] == s3, "aiff raw stereo old");
+    if (stt) sauti_decoder_aiff_ops.close(stt);
+    free(x.b);
+    x = aifc_float_file("RAW ", 8, 1, 1, mono, 1);
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = x.b; s.n = x.n; s.seekable = 1; s.size_known = 1; d = NULL;
+    CHECK(open_src(&s, &m, &d) != MAKTABASAUTI_OK && !d, "RAW refused");
+    memset(&oi, 0, sizeof oi); CHECK(sauti_decoder_aiff_ops.open(x.b, x.n, &oi) == NULL, "RAW old refused");
+    free(x.b);
+    x = aifc_float_file("raw ", 16, 1, 1, mono, 1);
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = x.b; s.n = x.n; s.seekable = 1; s.size_known = 1; d = NULL;
+    CHECK(open_src(&s, &m, &d) != MAKTABASAUTI_OK && !d, "raw sampleSize 16 refused");
+    memset(&oi, 0, sizeof oi); CHECK(sauti_decoder_aiff_ops.open(x.b, x.n, &oi) == NULL, "raw sampleSize 16 old refused");
+    free(x.b);
+    x = aifc_float_file("twos", 16, 1, 1, mono, 2);
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = x.b; s.n = x.n; s.seekable = 1; s.size_known = 1; d = NULL;
+    CHECK(open_src(&s, &m, &d) != MAKTABASAUTI_OK && !d, "twos refused");
+    memset(&oi, 0, sizeof oi); CHECK(sauti_decoder_aiff_ops.open(x.b, x.n, &oi) == NULL, "twos old refused");
+    free(x.b);
+    x = aifc_float_file("in24", 24, 1, 1, mono, 3);
+    memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = x.b; s.n = x.n; s.seekable = 1; s.size_known = 1; d = NULL;
+    CHECK(open_src(&s, &m, &d) != MAKTABASAUTI_OK && !d, "in24 refused");
+    memset(&oi, 0, sizeof oi); CHECK(sauti_decoder_aiff_ops.open(x.b, x.n, &oi) == NULL, "in24 old refused");
+    free(x.b);
+    CHECK(m.live == 0, "aiff raw leak");
+}
 /* wzorzec = dawny adapter: oba przyjmuja albo oba odrzucaja; gdy oba przyjmuja i `compare`, PCM tez jest ten sam */
 static void agree_on(const File *f, const char *what, int compare, long *agree) {
     const int o1 = old_accepts(f), n1 = new_accepts(f);
@@ -641,7 +766,7 @@ int main(void) {
         test_mutations(&c->f, c->hdr < 80 ? c->hdr : 80, c->name, 60);
         free(ref.pcm);
     }
-    test_header_matrix(); test_tiny_and_probe(); test_placeholder(); test_float(); test_big_chunk(); test_memory(); test_hostile_random();
+    test_header_matrix(); test_tiny_and_probe(); test_placeholder(); test_float(); test_aiff_float(); test_aiff_raw(); test_big_chunk(); test_memory(); test_hostile_random();
     for (i = 0; i < nc; i++) free(cases[i].f.b);
     printf("PCM streaming (WAV, AIFF): %s (%d failures)\n", g_failures ? "FAIL" : "PASS", g_failures);
     return g_failures ? 1 : 0;

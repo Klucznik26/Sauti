@@ -211,12 +211,13 @@ maktabasauti_result_t MAKTABASAUTI_CALL maktabasauti_decoder_open(const maktabas
         int32_t score;
         size_t at;
         if (forced && forced[0] && !name_matches(forced, c->name)) continue;
-        if ((c->flags & MAKTABASAUTI_CODEC_FLAG_NEEDS_SEEKABLE_INPUT) && !d->io.seek) { skipped_seekable = 1; continue; }
         /* WSZYSTKIE sondy dostaja ograniczony prefiks (<= MKS_PROBE_BYTES): rozpoznawanie nie wczytuje pliku.  Kodek z NEEDS_FULL_BUFFER dostaje cale wejscie dopiero w open()
          * przez host->map (wybranego kandydata), z tym samym buforem czytnika co prefiks. */
         score = c->probe(c, prefix, (size_t)pn, hint);
         if (forced && forced[0] && score <= 0) score = 1;              /* wymuszony kodek otwieramy nawet bez rozpoznania */
         if (score <= 0) continue;
+        /* Dopiero po trafionej sondzie: inaczej sam fakt ALAC w rejestrze zamienial kazdy nierozpoznany krotki plik na wejsciu bez seek w E_NOT_SEEKABLE. */
+        if ((c->flags & MAKTABASAUTI_CODEC_FLAG_NEEDS_SEEKABLE_INPUT) && !d->io.seek) { skipped_seekable = 1; continue; }
         if (score > 100) score = 100;
         for (at = ncands; at > 0 && cands[at - 1].score < score; at--) cands[at] = cands[at - 1];   /* wg pewnosci malejaco, przy remisie kolejnosc rejestru */
         cands[at].index = i; cands[at].score = score;

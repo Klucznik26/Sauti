@@ -17,9 +17,10 @@ Run `make test-voc` for the bounded parser/PCM regression.
 ## AAC, Ogg, WebM, ALAC and AIFF
 
 - Ogg Vorbis and Ogg Opus were already supported (Opus requires opusfile).
-- Native AIFF / AIFF-C uncompressed signed PCM 8/16/24/32-bit decoder:
-  AIFF big-endian and AIFC `sowt` little-endian. Unknown compression
-  is rejected.
+- Native AIFF / AIFF-C decoder: signed PCM 8/16/24/32-bit
+  (AIFF big-endian, AIFC `sowt` little-endian), Apple `raw ` (8-bit
+  offset-binary) and Apple `fl32` / `fl64` (IEEE 754, big-endian; NaN and
+  Inf become 0). Other compression is rejected.
 - Optional *in-process* FFmpeg adapter: ADTS AAC (`.aac`), AAC or ALAC
   in MP4/M4A (`.m4a`, including MP4 renamed to `.alac`), and WebM with
   Opus/Vorbis (`.webm`). Content and codec are checked, not just the suffix.

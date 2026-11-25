@@ -5,13 +5,14 @@ Moduł strumieniowy `src/decoders/retro/amiga/maktabasauti_16sv.c` (kodek `amiga
 ## Format
 `FORM <rozmiar> 16SV` ma te same chunki co 8SVX. `BODY` to próbki ze znakiem, 16 bit, big-endian. `CHAN` 6 = stereo (cały lewy, potem cały prawy); 2 albo 4 = jeden kanał. Inne chunki są pomijane. Wyjście f32 = próbka / 32768.
 
-`ctOctave` 0 albo 1: gra całe `BODY` jeden raz. `oneShotHiSamples` i `repeatHiSamples` są wtedy metadanymi pętli, nie cięciem. `ctOctave` > 1: ta suma jest długością najwyższej oktawy i tylko ona gra. Suma 0 przy więcej niż jednej oktawie: `E_UNSUPPORTED_FEATURE`.
+`ctOctave` 0 albo 1: gra całe `BODY` jeden raz. `oneShotHiSamples` i `repeatHiSamples` są wtedy metadanymi pętli, nie cięciem. `ctOctave` > 1, według EA z 7 lutego 1985 (ten sam `VHDR` co 8SVX): ta suma jest długością najwyższej oktawy i ona jest pierwsza, a każda niższa jest dwa razy dłuższa. Jednorazowe granie bierze najniższą oktawę (one-shot i repeat, jeden raz). Suma 0, albo najniższa oktawa, której nie ma w całym `BODY`: `E_UNSUPPORTED_FEATURE`. Krótsze całe `BODY` wydaje tyle próbek tej oktawy, ile jest, i kończy `EOF`.
 
 `VHDR.volume` nie skaluje próbek (0x10000 to pełna głośność urządzenia).
 
 ## Odkładam
 * `sCompression` 1 i 2 (`E_UNSUPPORTED_FEATURE`). SoundFX nazywa je FDPCM16_6 (Fibonacci, stosunek 8:3) i EDPCM16_5 (wykładnicza, 16:5). Nie publikuje tablicy delt ani układu bitów.
 * `CHAN` poza 2, 4 i 6 (`E_UNSUPPORTED_FEATURE`). SoundFX wymienia quadro, a opublikowany `CHAN` nie podaje wartości ani układu czterech kanałów.
+* `SEQN` nie jest stosowany. Rejestracja Petera Normana opisuje offsety bajtowe 8-bitowego 8SVX, a nie próbkę 16-bit.
 
 Brak `VHDR` albo `BODY`, częstotliwość 0, pusty `BODY`, plik inny niż 16SV: `E_UNSUPPORTED_FORMAT`. Stereo bez przewijania: `E_NOT_SEEKABLE`. Plik urwany: całe próbki sprzed urwania, potem lepki `E_TRUNCATED`.
 

@@ -135,14 +135,34 @@ int main(void) {
     CHECK(do_open(&mem, b, n, 0, &st, &info, &h) == MAKTABASAUTI_E_NOT_SEEKABLE && st == NULL);
     free(b);
 
-    /* ctOctave 2 gra tylko najwyzsza oktawa (2 probki), trzecia zostaje. */
+    /* ctOctave 2: najwyzsza ma 2 probki i jest pierwsza, najnizsza ma 4.  Gramy te cztery. */
+    be_s16(body + 0, 10); be_s16(body + 2, 20); be_s16(body + 4, 30); be_s16(body + 6, 40); be_s16(body + 8, 50); be_s16(body + 10, 60);
+    b = build(&n, 8000, 2, 0, 0, 0, 2, 0, body, 12, 0);
+    CHECK(do_open(&mem, b, n, 1, &st, &info, &h) == MAKTABASAUTI_OK);
+    CHECK(info.total_frames == 4);
+    CHECK(maktabasauti_16sv_desc.read(st, pcm, 4, &got) == MAKTABASAUTI_OK && got == 4);
+    CHECK(pcm[0] == 30.0f / 32768.0f && pcm[1] == 40.0f / 32768.0f && pcm[2] == 50.0f / 32768.0f && pcm[3] == 60.0f / 32768.0f);
+    CHECK(maktabasauti_16sv_desc.seek(st, 2, 0, &actual) == MAKTABASAUTI_OK && actual == 2);
+    CHECK(maktabasauti_16sv_desc.read(st, pcm, 2, &got) == MAKTABASAUTI_OK && got == 2);
+    CHECK(pcm[0] == 50.0f / 32768.0f && pcm[1] == 60.0f / 32768.0f);
+    CHECK(maktabasauti_16sv_desc.read(st, pcm, 1, &got) == MAKTABASAUTI_EOF);
+    maktabasauti_16sv_desc.close(st); free(b);
+    /* Cale BODY krotsze niz wzor: zostaje jedna probka najnizszej oktawy, potem EOF. */
     be_s16(body + 0, 100); be_s16(body + 2, 200); be_s16(body + 4, 32767);
     b = build(&n, 8000, 2, 0, 0, 0, 2, 0, body, 6, 0);
     CHECK(do_open(&mem, b, n, 1, &st, &info, &h) == MAKTABASAUTI_OK);
-    CHECK(info.total_frames == 2);
-    CHECK(maktabasauti_16sv_desc.read(st, pcm, 4, &got) == MAKTABASAUTI_OK && got == 2);
-    CHECK(pcm[0] == s100 && pcm[1] == s200);
+    CHECK(info.total_frames == 1);
+    CHECK(maktabasauti_16sv_desc.read(st, pcm, 4, &got) == MAKTABASAUTI_OK && got == 1 && pcm[0] == s32767);
     CHECK(maktabasauti_16sv_desc.read(st, pcm, 1, &got) == MAKTABASAUTI_EOF);
+    maktabasauti_16sv_desc.close(st); free(b);
+    /* Sama najwyzsza oktawa: najnizszej nie ma w calym BODY. */
+    b = build(&n, 8000, 2, 0, 0, 0, 2, 0, body, 4, 0);
+    CHECK(do_open(&mem, b, n, 1, &st, &info, &h) == MAKTABASAUTI_E_UNSUPPORTED_FEATURE && st == NULL);
+    free(b);
+    /* ctOctave 1 nie obcina polami petli. */
+    be_s16(body + 0, 100); be_s16(body + 2, 200); be_s16(body + 4, 1);
+    b = build(&n, 8000, 1, 0, 0, 0, 1, 0, body, 6, 0);
+    CHECK(do_open(&mem, b, n, 1, &st, &info, &h) == MAKTABASAUTI_OK && info.total_frames == 3);
     maktabasauti_16sv_desc.close(st); free(b);
     b = build(&n, 8000, 2, 0, 0, 0, 0, 0, body, 6, 0);
     CHECK(do_open(&mem, b, n, 1, &st, &info, &h) == MAKTABASAUTI_E_UNSUPPORTED_FEATURE && st == NULL);
