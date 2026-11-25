@@ -145,6 +145,7 @@ static void phase_cross_and_sizes(Guard *g, const corpus_t *c) {
             if (it->owner && !strcmp(it->owner, entry_name(ci)) && s <= 0) FAIL("owner codec does not recognise its own file");
             if (it->owner && ci < g_ncodecs && strcmp(it->owner, entry_name(ci)) && s > 0 && strcmp(entry_name(ci), "mp3-minimp3") != 0 &&
                 !(strstr(it->owner, "-adts") && strstr(entry_name(ci), "-adts")) &&
+                !(!strcmp(entry_name(ci), "alac") && !strcmp(it->owner, "aac-mp4")) &&   /* ALAC i AAC dziela kontener MP4: po prefiksie 16 KiB nie widac, ktory kodek jest w moov (bywa na koncu pliku), rozstrzyga open() */
                 !(!strcmp(entry_name(ci), "aac-adts") && !strncmp(it->name, "syn_id3", 7)))   /* ADTS po znaczniku ID3v2: przy znaczniku dluzszym od prefiksu sonda zwraca 55 (open rozstrzyga) */   /* rodzina ADTS (LC/HE) nakłada się z założenia: wygrywa kolejność rejestru; adaptery FFmpeg tez */
                 FAIL("foreign codec %s claims a %s file", entry_name(ci), it->owner);
         }
