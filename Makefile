@@ -2169,7 +2169,7 @@ test-maktabasauti-headers:
 
 # ---- MaktabaSauti: rdzen (src/maktabasauti) + opakowania starszych dekoderow; docs/MAKTABASAUTI_API.md ----
 MKS_CORE_SRC := $(filter-out src/maktabasauti/mks_nolegacy.c,$(wildcard src/maktabasauti/*.c))
-MKS_LEGACY_SRC := src/decoders/retro/atari/maktabasauti_dvs.c src/decoders/retro/amiga/maktabasauti_svx.c src/decoders/retro/amiga/maktabasauti_mod.c src/decoders/modern/aac/maktabasauti_aac_engine.c src/decoders/modern/aac/maktabasauti_aac_adts.c src/decoders/modern/aac/maktabasauti_aac_loas.c src/decoders/modern/aac/maktabasauti_aac_adif.c src/decoders/modern/aac/maktabasauti_aac_mp4.c src/decoders/modern/maktabasauti_pcm.c src/decoders/modern/maktabasauti_g726.c src/decoders/modern/maktabasauti_flac.c src/decoders/retro/pc/maktabasauti_voc.c src/decoders/modern/sauti_decoder_wav.c src/decoders/retro/pc/sauti_decoder_voc.c src/decoders/modern/sauti_decoder_aiff.c src/decoders/modern/sauti_decoder_vorbis.c \
+MKS_LEGACY_SRC := src/decoders/retro/atari/maktabasauti_dvs.c src/decoders/retro/amiga/maktabasauti_svx.c src/decoders/retro/amiga/maktabasauti_mod.c src/decoders/modern/aac/maktabasauti_aac_engine.c src/decoders/modern/aac/maktabasauti_aac_adts.c src/decoders/modern/aac/maktabasauti_aac_loas.c src/decoders/modern/aac/maktabasauti_aac_adif.c src/decoders/modern/aac/maktabasauti_aac_mp4.c src/decoders/modern/maktabasauti_pcm.c src/decoders/modern/maktabasauti_g726.c src/decoders/modern/maktabasauti_g7111.c src/decoders/modern/maktabasauti_g7111_tables.c src/decoders/modern/maktabasauti_flac.c src/decoders/retro/pc/maktabasauti_voc.c src/decoders/modern/sauti_decoder_wav.c src/decoders/retro/pc/sauti_decoder_voc.c src/decoders/modern/sauti_decoder_aiff.c src/decoders/modern/sauti_decoder_vorbis.c \
                   src/decoders/modern/sauti_decoder_midi.c src/decoders/modern/sauti_decoder_flac.c src/decoders/modern/sauti_decoder_mp3.c src/decoders/retro/atari/sauti_decoder_avr.c \
                   src/decoders/retro/atari/sauti_decoder_dvsm.c src/decoders/retro/atari/sauti_decoder_dtm.c src/decoders/retro/atari/sauti_decoder_ym.c src/sauti_decoder.c
 MOD_ASM := $(OBJDIR)/maktabasauti_mod_mix.o
@@ -2286,6 +2286,11 @@ $(OBJDIR)/test_maktabasauti_g726: tests/test_maktabasauti_g726.c tests/g726_gold
 .PHONY: test-maktabasauti-g726
 test-maktabasauti-g726: $(OBJDIR)/test_maktabasauti_g726
 	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_g726
+$(OBJDIR)/test_maktabasauti_g7111: tests/test_maktabasauti_g7111.c tests/g7111_golden.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -Itests -o $@ tests/test_maktabasauti_g7111.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-maktabasauti-g7111
+test-maktabasauti-g7111: $(OBJDIR)/test_maktabasauti_g7111
+	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_g7111
 $(OBJDIR)/test_maktabasauti_voc_stream: tests/test_maktabasauti_voc_stream.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_voc_stream.c $(MKS_DEPS) -lm -lpthread -no-pie
 .PHONY: test-maktabasauti-voc-stream
