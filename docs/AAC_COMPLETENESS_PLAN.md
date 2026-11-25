@@ -76,3 +76,6 @@ Syntetyczny strumień stereo LC 16 kHz z kodera FDK ma w jednej ramce (wszystkie
 
 ### HE-AAC v1 w sweepie FDK (11-25)
 Wiersze `he5_*` w sweepie pokazywały „−3 dB” tylko dlatego, że wyrocznia FDK zwraca mono HE-AAC jako dwukanałowe (ten sam sygnał w obu kanałach), a skrypt porównywał z 1 kanałem. Po rozdzieleniu kanałów: HE v1 mono 48 kHz = 85 dB względem FDK (oba kanały identyczne); HE v2 (PS) 77–80 dB. Bez zmian w dekoderze.
+
+### ELD 22,05 kHz (11-25)
+Bez SBR: 21–31 dB względem FDK przy domyślnym ziarnie PNS, 88–90 dB z `aac.pns_seed=fdk` (mono i stereo, 512 i 480). Z SBR (stosunek 1): 78–82 dB. Niezmierzony pozostaje tylko 7,35 kHz (kodera FDK nie obsługuje takiej częstotliwości w tym sweepie).
