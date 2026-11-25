@@ -4,6 +4,7 @@
 /* ProTracker / SoundTracker: 15 i 31 instrumentow, 1..99 kanalow.
  * Osobny replay, nie adapter PCM.  Deskryptor jest w rejestrze odtwarzacza.
  * Domyslny dzwiek to ProTracker 1.1.  mod.tracker: pt10, ust, st2, st9, tjc, st23, st25.
+ * Soundtracker 2.6 i Ice Tracker rozpoznaje magik MTN lub IT10 na offsecie 1464, bez slowa w opcji.
  * Mod's Grave to drugi deskryptor.  Wybiera go rozszerzenie .wow, nie test rozmiaru. */
 extern const maktabasauti_codec_t maktabasauti_mod_desc;
 extern const maktabasauti_codec_t maktabasauti_mod_wow_desc;

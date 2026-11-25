@@ -20,11 +20,14 @@
  *     Pozniejsza nuta gra zatrzasnieta probke od poczatku;
  *   - dzialaja: 0xy arpeggio (000 zostaje brakiem efektu), 1xx/2xx porta, 3xx tone porta,
  *     4xy vibrato, 5xy, 6xy, 7xy tremolo, 8xx panorama 0..255, 9xx offset, Axy,
+ *     ProTracker kasuje cel tone porta, gdy okres do niego dojdzie.  Zwykla nuta
+ *     nie zastepuje celu, do ktorego slizg jeszcze nie doszedl;
  *     Cxx, Fxx oraz Exx.  E00 wlacza filtr LED 3275 Hz, kazdy inny E0x go gasi;
  *   - 1xx/2xx i E1x/E2x stoja na okresie 113..856.  Slizg, vibrato, tremolo i arpeggio ida od taktu 1.
  *     E1x, E2x, EAx, EBx i ECx wykonuja sie juz w takcie 0.  Parametr 0 powtarza ostatni niezerowy.
  *     Bxx po wierszu skacze na pozycje order.  Dxx jest dziesietny.
- *     E6x powtarza kawalek patternu ograniczona liczbe razy.  Skok Bxx/Dxx na wiersz, ktory juz gral, konczy utwor.
+ *     E6x powtarza kawalek patternu ograniczona liczbe razy.  Wiersz i licznik zmienia tylko E6x,
+ *     takze po zmianie pozycji, wiec pozniejszy pattern moze skoczyc do przodu.  Skok Bxx/Dxx na wiersz, ktory juz gral, konczy utwor.
  *     EFx co takt dodaje przyrost 0,5,6,7,8,10,11,13,16,19,22,26,32,43,64,128.
  *     Licznik od 128 wraca do zera i odwraca jeden bajt petli (XOR 0xFF), potem indeks rosnie.
  *     EF0 gasi efekt i zeruje licznik.  Bez petli nic sie nie zmienia.  Maska jest prywatna, plik zostaje.
@@ -47,12 +50,16 @@
  * Nowy okres zeruje faze.  Sam numer instrumentu bez okresu nie zeruje fazy.
  * Przy odczycie, domyslnie, dwa pierwsze bajty kazdej probki sa zerem (ProTracker 1.1).
  * Opcja mod.tracker pt10 zeruje cztery i gra stary Funk Repeat zamiast XOR.
+ * Limit okna to dlugosc w slowach przesunieta o bit, modulo 65536.
  * Opcja ust remapuje efekty Ultimate Soundtrackera i nie zeruje prefiksu.
  * st2 to SoundTracker II-VI: Dxy slajd, Exy slajd trwaly do parametru 00, F z dolnego nibble.
  * st9 to SoundTracker IX i Master: Bxx, lamanie patternu zawsze na wiersz 0, E0x filtr.
  * tjc to Jungle Command: efekty 3..B moduluja nastepny kanal, predkosc 5, piec przejsc arpeggia.
  * st23 i st24 to DOC 2.3/2.4: komendy Mastera plus Axy, petla w bajtach, bez wzoru tempa.
  * st25 to Soundtracker 2.5: komendy NoiseTrackera, petla w slowach, F modulo 32.
+ * Soundtracker 2.6 i Ice Tracker nie biora slowa z opcji.  Magik lezy na offsecie 1464:
+ * MTN i bajt 0, albo IT10.  Notatka pisze MNT, zrzut pliku ma MTN.  Bajty 951 to liczba sciezek.
+ * Kazda pozycja nazywa cztery sciezki, a sciezka to jeden kanal.  E to filtr, nie rodzina Exx.
  * Mod's Grave nie wynika z rozmiaru.  Osobny deskryptor gra osiem kanalow, gdy nazwa konczy sie na .wow.
  * Plik nie zapisuje wersji, wiec domyslny dzwiek zostaje przy 1.1.  Plik zostaje.
  * EFx odwraca bajt juz po tym zerze, wiec bajt 0 z zera staje sie 0xFF.
@@ -73,10 +80,12 @@ extern void maktabasauti_mod_voice_add(int32_t acc[2], const uint8_t *sample, co
 #define TRACK_TJC 5u
 #define TRACK_ST23 6u
 #define TRACK_ST25 7u
+#define TRACK_ST26 8u
 
 #define MOD_INST 31u
 #define MOD_HEADER_31 1084u
 #define MOD_HEADER_15 600u
+#define MOD_ST26_HEADER 1468u
 #define MOD_CH_MAX 99u
 #define PAULA_PAL 3546895u
 #define PAULA_NTSC 3579545u
@@ -297,12 +306,15 @@ typedef struct {
     inst_t inst[MOD_INST];
     uint8_t orders[128];
     const uint8_t *patterns;
+    const uint8_t *track_table; /* 128 pozycji * 4 kanaly.  Tylko Soundtracker 2.6. */
     uint8_t song_length;
     uint8_t restart;
     uint16_t pattern_count;
     uint8_t channels;
     uint8_t instruments;
     uint8_t flt8;
+    uint8_t st26;
+    uint8_t ntracks;
     uint32_t rate;
     uint32_t clock;
     uint32_t order_pos;
@@ -329,7 +341,7 @@ typedef struct {
     uint8_t filter_on;
     uint8_t hold;
     uint8_t amiga_rc; /* 1: staly RC okolo 4,9 kHz, opcja mod.model a500 */
-    uint8_t tracker; /* TRACK_PT11 domyslnie.  pt10, ust, st2, st9, tjc, st23 albo st25 */
+    uint8_t tracker; /* TRACK_PT11 domyslnie.  pt10, ust, st2, st9, tjc, st23, st25 albo st26 z pliku */
     uint8_t clear_n; /* 2, 4 albo 0 bajtow prefiksu czytanych jako zero */
     uint32_t ust_tempo; /* BPM z bajtu 0x1D7, tylko 15-instrumentowy ust.  0: tempo 125. */
     double b0, b1, b2, a1, a2;
@@ -346,6 +358,7 @@ typedef struct {
     uint8_t channels;
     uint8_t instruments;
     uint8_t flt8;
+    uint8_t st26;
     uint16_t pattern_limit;
     uint16_t header;
     char magic[5];
@@ -448,16 +461,69 @@ static int header_15(const uint8_t *p) {
     return 1;
 }
 
+/* Notatka kladzie na 1464 napis MNT i zero.  Zrzut pliku ma 4D 54 4E 00, czyli MTN i zero.
+ * Ice Tracker to 49 54 31 30, czyli IT10.  MNT nie jest sygnatura.
+ * Bramka sondy: dlugosc 1..128, co najmniej jedna sciezka, kazdy grany indeks ponizej tej liczby,
+ * kazda glosnosc 0..64.  Ogon tabeli 128*4 nie jest sprawdzany.  Sam magik nie zglasza pliku. */
+static int ident_st26(const uint8_t *p, size_t n, ident_t *id) {
+    unsigned song, ntracks, i;
+    int mtn, it10;
+    if (n < MOD_ST26_HEADER) return 0;
+    mtn = p[1464] == 'M' && p[1465] == 'T' && p[1466] == 'N' && p[1467] == 0;
+    it10 = p[1464] == 'I' && p[1465] == 'T' && p[1466] == '1' && p[1467] == '0';
+    if (!mtn && !it10) return 0;
+    song = p[950];
+    ntracks = p[951];
+    if (song < 1u || song > 128u || ntracks < 1u) return 0;
+    for (i = 0; i < 31u; i++) {
+        if (p[20u + i * 30u + 25u] > 64u) return 0;
+    }
+    for (i = 0; i < song * 4u; i++) {
+        if (p[952u + i] >= ntracks) return 0;
+    }
+    memset(id, 0, sizeof *id);
+    id->channels = 4;
+    id->instruments = 31;
+    id->st26 = 1;
+    id->pattern_limit = 255;
+    id->header = MOD_ST26_HEADER;
+    memcpy(id->magic, p + 1464, 4u);
+    id->magic[4] = 0;
+    return 1;
+}
+
+/* Naglowek 15 instrumentow nie ma magika, wiec jego bramka (glosnosc, tablica kolejnosci, bajt 470) przepuszcza tez dane z samych spacji albo zer, jakie wypelniaja
+ * duze znaczniki ID3 i bloki dopelnienia.  Sonda, ktora uzna taki plik, kaze hostowi zmapowac CALE wejscie (h->map).  Dlatego pliki, ktore zaczynaja sie poprawnym
+ * naglowkiem znanego kontenera audio, nie sa modulem 15-instrumentowym.  Sprawdzane sa pola strukturalne, nie sam magik: tytul modulu (20 bajtow tekstu) moze zaczynac sie od
+ * liter "ID3" albo "RIFF", ale nie ma w nim bajtow sterujacych na pozycjach wersji i rozmiaru. */
+static int audio_container_start(const uint8_t *p, size_t n) {
+    if (n < 12u) return 0;
+    if (memcmp(p, "ID3", 3) == 0 && p[3] >= 2u && p[3] <= 4u && p[4] != 0xFFu && (p[5] & 0x0Fu) == 0u && ((p[6] | p[7] | p[8] | p[9]) & 0x80u) == 0u) return 1;   /* ID3v2 */
+    if (memcmp(p, "RIFF", 4) == 0 && (memcmp(p + 8, "WAVE", 4) == 0 || memcmp(p + 8, "AVI ", 4) == 0)) return 1;
+    if (memcmp(p, "FORM", 4) == 0 && (memcmp(p + 8, "8SVX", 4) == 0 || memcmp(p + 8, "AIFF", 4) == 0 || memcmp(p + 8, "AIFC", 4) == 0 || memcmp(p + 8, "16SV", 4) == 0)) return 1;
+    if (memcmp(p, "OggS", 4) == 0 && p[4] == 0u) return 1;
+    if (memcmp(p, "fLaC", 4) == 0 && (p[4] & 0x7Fu) <= 6u) return 1;
+    if (memcmp(p + 4, "ftyp", 4) == 0) return 1;                                   /* MP4 / M4A */
+    return 0;
+}
+
 static int recognize(const uint8_t *p, size_t n, ident_t *id) {
     if (n >= MOD_HEADER_31 && ident_magic(p + 1080, id)) return 1;
+    /* 1080 lezy w tabeli sciezek 2.6.  Znany magik MOD wygrywa.  Potem 2.6, zanim tag odrzuci plik. */
+    if (ident_st26(p, n, id)) return 1;
     if (n >= MOD_HEADER_31 && tag_bytes(p + 1080)) return 0;
     if (n < MOD_HEADER_15 || p[470] < 1u || p[470] > 128u) return 0;
+    if (audio_container_start(p, n)) return 0;
     if (!header_15(p)) return 0;
     ident_15(id);
     return 1;
 }
 
 static const uint8_t *cell_at(const mod_t *m, unsigned pat, unsigned row, unsigned ch) {
+    if (m->st26) {
+        unsigned track = m->track_table[m->order_pos * 4u + ch];
+        return m->patterns + (size_t)track * 256u + (size_t)row * 4u;
+    }
     if (m->flt8) {
         unsigned stored = pat + (ch >> 2);
         return m->patterns + ((size_t)stored * 64u + row) * 16u + (size_t)(ch & 3u) * 4u;
@@ -678,7 +744,7 @@ static void latch_instrument(mod_t *m, voice_t *v, unsigned sample) {
     /* Ultimate Soundtracker nie uzywa bajtu finetune.  Tag i tak czyta bajt z pliku. */
     /* SoundTracker nie stroi z bajtu finetune.  Tag i tak czyta bajt z pliku.
      * st25 tez: to NoiseTracker 1.1 bez tego bajtu w odtwarzaniu. */
-    v->tune = (st_family(m->tracker) || m->tracker == TRACK_ST25) ? 0 : in->finetune;
+    v->tune = (st_family(m->tracker) || m->tracker == TRACK_ST25 || m->tracker == TRACK_ST26) ? 0 : in->finetune;
     v->start = 0;
 }
 
@@ -851,6 +917,22 @@ static void st25_row(unsigned *effect, unsigned *param) {
     *param = 0u;
 }
 
+/* Soundtracker 2.6 i Ice Tracker.  Notatka podaje nazwy, bez protokolu parametru.
+ * E jest komenda filtra, nie rodzina Exx: zero wlacza LED, kazdy inny parametr gasi.
+ * Zostaja arpeggio, porta, tone porta, vibrato, slajd glosnosci, skok, glosnosc, lamanie i predkosc.
+ * 5, 6, 7, 8 i 9 znikaja. */
+static void st26_row(unsigned *effect, unsigned *param) {
+    unsigned e = *effect;
+    if (e == 0x0Eu) {
+        *param = *param ? 0x01u : 0x00u;
+        return;
+    }
+    if (e == 0x00u || e == 0x01u || e == 0x02u || e == 0x03u || e == 0x04u
+        || e == 0x0Au || e == 0x0Bu || e == 0x0Cu || e == 0x0Du || e == 0x0Fu) return;
+    *effect = 0u;
+    *param = 0u;
+}
+
 static void arm_held(voice_t *v) {
     v->sample = v->held;
     v->length = v->held_len;
@@ -861,8 +943,10 @@ static void arm_held(voice_t *v) {
 }
 
 /* Prawdziwy trigger zeruje faze i pozycje fal, chyba ze bit +4 fali tego zabrania.
- * 3xx/5xx przy juz grajacym glosie tylko zapamietuje cel.  9xx skacze wylacznie wtedy. */
-static void trigger_note(voice_t *v, unsigned period, unsigned effect) {
+ * 3xx/5xx przy juz grajacym glosie tylko zapamietuje cel.  9xx skacze wylacznie wtedy.
+ * Na ProTrackerze zwykla nuta nie rusza celu: niedokonczony slizg ma przezyc pozniejsza nute.
+ * Cel z 3xx na cichym glosie nie zostaje, bo nuta juz stoi na okresie i slizg jest skonczony. */
+static void trigger_note(voice_t *v, unsigned period, unsigned effect, int pt) {
     uint32_t at;
     uint16_t tp;
     if (!period) return;
@@ -880,7 +964,7 @@ static void trigger_note(voice_t *v, unsigned period, unsigned effect) {
         v->start = at + add;
     }
     v->period = tp;
-    v->target = tp;
+    if (!pt) v->target = tp;
     v->note_period = tp;
     v->mod_idx = 0;
     v->mod_frac = 0;
@@ -908,6 +992,7 @@ static void apply_row(mod_t *m, uint32_t *tempo_after) {
         else if (m->tracker == TRACK_TJC) tjc_row(v, &effect, &param);
         else if (m->tracker == TRACK_ST23) st23_row(&effect, &param);
         else if (m->tracker == TRACK_ST25) st25_row(&effect, &param);
+        else if (m->tracker == TRACK_ST26) st26_row(&effect, &param);
         ex = param >> 4;
         xn = param & 0x0Fu;
         v->effect = (uint8_t)effect;
@@ -955,7 +1040,7 @@ static void apply_row(mod_t *m, uint32_t *tempo_after) {
         latch_instrument(m, v, sample);
         /* E5x tej samej komorki stroi nute, zanim okres zostanie przepisany z tabeli. */
         if (effect == 0x0Eu && ex == 0x5u) v->tune = nibble_tune(xn);
-        trigger_note(v, period, effect);
+        trigger_note(v, period, effect, m->tracker == TRACK_PT11 || m->tracker == TRACK_PT10);
         if (effect == 0x0Eu && ex == 0x6u) {
             if (!xn) m->loop_row = m->row;
             else {
@@ -994,7 +1079,8 @@ static void apply_row(mod_t *m, uint32_t *tempo_after) {
             if (m->tracker == TRACK_ST2 || m->tracker == TRACK_ST9 || m->tracker == TRACK_ST23) {
                 unsigned sp = param & 0x0Fu;
                 if (sp >= 1u && sp <= 15u) m->speed = sp;
-            } else if (m->tracker == TRACK_ST25) {
+            } else if (m->tracker == TRACK_ST25 || m->tracker == TRACK_ST26) {
+                /* 2.6 mowi tylko "set speed".  Zostaje regula 2.5: parametr modulo 32, zero nie zmienia predkosci i nie trzyma wiersza. */
                 unsigned sp = param & 31u;
                 if (sp) m->speed = sp;
             } else if (!param) m->hold = 1;
@@ -1056,9 +1142,15 @@ static void gliss_snap(voice_t *v) {
 
 static void tone_porta(voice_t *v) {
     unsigned p = v->period, goal = v->target, step = v->tone_speed;
-    if (!step || !p || !goal || p == goal) return;
+    if (!p || !goal) return;
+    /* ProTracker kasuje cel po dojsciu.  Krok zero nie konczy niedokonczonego slizgu. */
+    if (!step || p == goal) {
+        if (p == goal) v->target = 0;
+        return;
+    }
     if (p < goal) v->period = (uint16_t)(goal - p > step ? p + step : goal);
     else v->period = (uint16_t)(p - goal > step ? p - step : goal);
+    if (v->period == goal) v->target = 0;
 }
 
 static void shape_tick(mod_t *m) {
@@ -1133,7 +1225,7 @@ static void fire_delay(mod_t *m) {
         voice_t *v = &m->voice[ch];
         if (!v->delay_tick || m->row_tick != v->delay_tick) continue;
         latch_instrument(m, v, v->delay_sample);
-        trigger_note(v, v->delay_period, 0);
+        trigger_note(v, v->delay_period, 0, m->tracker == TRACK_PT11 || m->tracker == TRACK_PT10);
         v->delay_tick = 0;
     }
 }
@@ -1169,18 +1261,25 @@ static void funk_hear(voice_t *v, uint32_t at, int first_pass) {
 }
 
 /* Jeden krok Funk Repeat.  Licznik od 128 wraca do zera (reszta przepada) i okno petli skacze o jej dlugosc.
- * Za koncem probki kursor wraca na prawdziwy poczatek petli.  Probka nie jest zmieniana. */
+ * Koniec probki to (dlugosc w slowach << 1) modulo 65536: slowo 16-bitowe.  Do 32767 slow
+ * wychodzi cala probka.  Od 32768 slow limit jest za krotki, wiec okno staje na prawdziwym
+ * poczatku petli albo nie dochodzi do konca.  Probka nie jest zmieniana. */
 static void funk_step(voice_t *v) {
-    uint32_t loop_len, limit, candidate;
+    uint32_t loop_len, wrapped, limit, candidate;
     if (!v->inv_speed || !v->sample) return;
     loop_len = v->loop_len;
     if (loop_len < 2u || v->length < loop_len) return;
     v->inv_acc = (uint16_t)(v->inv_acc + v->inv_speed);
     if (v->inv_acc < 128u) return;
     v->inv_acc = 0;
-    limit = v->length - loop_len;
-    candidate = v->wave_pos > 0xffffffffu - loop_len ? 0xffffffffu : v->wave_pos + loop_len;
-    v->wave_pos = candidate <= limit ? candidate : v->real_loop;
+    wrapped = v->length & 0xffffu;
+    if (wrapped < loop_len) {
+        v->wave_pos = v->real_loop;
+    } else {
+        limit = wrapped - loop_len;
+        candidate = v->wave_pos > 0xffffffffu - loop_len ? 0xffffffffu : v->wave_pos + loop_len;
+        v->wave_pos = candidate <= limit ? candidate : v->real_loop;
+    }
     funk_hear(v, v->wave_pos, 0);
 }
 
@@ -1334,10 +1433,7 @@ static void end_tick(mod_t *m) {
             m->ended = 1;
             return;
         }
-        if (dest_order != m->order_pos) {
-            m->loop_row = 0;
-            m->loop_left = 0;
-        }
+        /* ProTracker trzyma wiersz petli i licznik E6x przy zmianie pozycji.  Zmienia je tylko E6x. */
         m->order_pos = dest_order;
         m->row = dest_row;
         return;
@@ -1345,8 +1441,6 @@ static void end_tick(mod_t *m) {
     m->row++;
     if (m->row < 64u) return;
     m->row = 0;
-    m->loop_row = 0;
-    m->loop_left = 0;
     m->order_pos++;
     if (m->order_pos >= m->song_length) {
         unsigned dest;
@@ -1594,7 +1688,7 @@ static int parse_model(const maktabasauti_host_t *h, mod_t *m) {
 /* Plik nie niesie wersji trackera.  Brak opcji i pt/protracker/pt11 zostaja przy ProTrackerze 1.1.
  * pt10 wlacza czterobajtowe czyszczenie i Funk Repeat.  ust wlacza grupe 1 Ultimate Soundtrackera.
  * st2 to II-VI z pozniejszego zestawienia.  tjc to Jungle Command.  st23/st24 to DOC 2.3/2.4.
- * st25 to Soundtracker 2.5.  st9 to IX i Master. */
+ * st25 to Soundtracker 2.5.  st26 rozpoznaje sam plik, nie to slowo.  st9 to IX i Master. */
 static int classify_tracker(const maktabasauti_host_t *h, uint8_t *kind, uint8_t *clear_n) {
     const char *s = NULL;
     *kind = TRACK_PT11;
@@ -1771,15 +1865,37 @@ static maktabasauti_result_t parse_module(mod_t *m, const uint8_t *p, size_t n, 
         m->err = "dlugosc utworu poza 1..128";
         return MAKTABASAUTI_E_CORRUPT_DATA;
     }
-    memcpy(m->orders, p + info_at + 2u, 128u);
-    for (i = 0; i < 128u; i++) if (m->orders[i] > max_order) max_order = m->orders[i];
-    /* FLT8: pozycja P potrzebuje patternow P i P+1, wiec zapisanych jest max+2. */
-    m->pattern_count = (uint16_t)(max_order + 1u + (id->flt8 ? 1u : 0u));
+    if (id->st26) {
+        unsigned ti;
+        /* 951 to liczba sciezek, nie restart.  orders[i]=i pomyliloby offset probek:
+         * sciezka ma 256 bajtow, a nie pattern 4*1024. */
+        m->st26 = 1;
+        m->restart = 0;
+        m->ntracks = p[info_at + 1u];
+        if (m->ntracks < 1u) {
+            m->err = "Soundtracker 2.6 nie ma zadnej sciezki";
+            return MAKTABASAUTI_E_CORRUPT_DATA;
+        }
+        m->track_table = p + info_at + 2u;
+        for (ti = 0; ti < (unsigned)m->song_length * 4u; ti++) {
+            if (m->track_table[ti] >= m->ntracks) {
+                m->err = "indeks sciezki poza zapisana liczba";
+                return MAKTABASAUTI_E_CORRUPT_DATA;
+            }
+        }
+        m->pattern_count = m->ntracks;
+        span = 1u;
+    } else {
+        memcpy(m->orders, p + info_at + 2u, 128u);
+        for (i = 0; i < 128u; i++) if (m->orders[i] > max_order) max_order = m->orders[i];
+        /* FLT8: pozycja P potrzebuje patternow P i P+1, wiec zapisanych jest max+2. */
+        m->pattern_count = (uint16_t)(max_order + 1u + (id->flt8 ? 1u : 0u));
+        span = id->flt8 ? 4u : id->channels;
+    }
     if ((unsigned)m->pattern_count > id->pattern_limit) {
         m->err = "za duzo patternow dla tego magika";
         return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
     }
-    span = id->flt8 ? 4u : id->channels;
     off = (size_t)id->header + (size_t)m->pattern_count * 64u * span * 4u;
     if (off > n) {
         m->err = "pattern urywa sie przed koncem pliku";
@@ -1859,7 +1975,8 @@ static maktabasauti_result_t parse_module(mod_t *m, const uint8_t *p, size_t n, 
         if (!m->ust_tempo) m->ust_tempo = 1u;
         m->restart = 0;
     }
-    if (m->tracker == TRACK_TJC || m->tracker == TRACK_ST23 || m->tracker == TRACK_ST25) m->restart = 0;
+    if (m->tracker == TRACK_TJC || m->tracker == TRACK_ST23 || m->tracker == TRACK_ST25
+        || m->tracker == TRACK_ST26) m->restart = 0;
     for (cell = 0; cell < (size_t)m->pattern_count * 64u * span; cell++) {
         const uint8_t *c = m->patterns + cell * 4u;
         unsigned sample = (c[0] & 0xF0u) | (c[2] >> 4);
@@ -1934,6 +2051,11 @@ static maktabasauti_result_t MAKTABASAUTI_CALL mod_open(const maktabasauti_codec
     {
         uint8_t kind = TRACK_PT11, clear_n = 2;
         int tracker_ok = classify_tracker(h, &kind, &clear_n);
+        /* Plik 2.6 sam niesie zestaw komend.  Slowo mod.tracker go nie przestawia na parser 1080. */
+        if (id.st26) {
+            kind = TRACK_ST26;
+            clear_n = 0;
+        }
         m->tracker = kind;
         m->clear_n = clear_n;
         r = parse_module(m, data, n, &id);
