@@ -21,4 +21,4 @@ Moduł strumieniowy `src/decoders/retro/amiga/maktabasauti_svx.c` (kodek `amiga-
 * `make test-svx` (`tests/test_svx.c`): cztery fixtury `tests/data/svx_*.8svx` z oczekiwanym PCM z FFmpeg (`make_svx_fixtures.py`), odczyty dowolnej długości, przewijanie przez punkty kontrolne, odrzucenia.
 
 ## Otwarte
-8SVX 16-bitowy (`16SV`) i wieloktawowe `8SVX` (kilka `VHDR` / oktaw w jednym `BODY`) nie są obsługiwane; AIFF-C / `8SVX` w kontenerze innym niż FORM nie występuje.
+Wieloktawowe `8SVX` (kilka oktaw w jednym `BODY`) nie jest obsługiwane. Nieskompresowane `16SV` jest osobnym kodekiem (`docs/IFF_16SV.md`). AIFF-C / `8SVX` w kontenerze innym niż FORM nie występuje.
