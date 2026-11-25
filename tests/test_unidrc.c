@@ -140,6 +140,17 @@ int main(void) {
             free(fdk); free(norm);
         }
         free(off);
+        {   /* MULTI-BAND gain sets (tests/data/usac_mb.m4a, tests/data/make_usac_mb_fixture.sh: set 0 = 2 bands, set 2 = 3 bands): the gain of band 0 is applied to the whole spectrum, as FDK does (its subband
+             * path is "single-band DRC").  The effect-1 request selects set 0 (before: skipped as multi band, another set was used); effect 4 (set 2) agrees with FDK at 39.7 dB (rms 825.053 vs 826.219) */
+            static const maktabasauti_option_t o1[] = { { "aac.drc", "on" }, { "aac.drc_effect", "1" }, { "aac.drc_align", "fdk" } }, o4[] = { { "aac.drc", "on" }, { "aac.drc_effect", "4" }, { "aac.drc_align", "fdk" } };
+            float *mo = decode_file("tests/data/usac_mb.m4a", NULL, 0, &f0, &c0), *m1 = decode_file("tests/data/usac_mb.m4a", o1, 3, &f1, &c1), *m4;
+            size_t f4; unsigned c4;
+            m4 = decode_file("tests/data/usac_mb.m4a", o4, 3, &f4, &c4);
+            CHECK(mo && m1 && m4 && f0 == f1 && f0 == f4 && fabs(rms(mo, f0 * c0) - 1659.393) < 0.01, "multi band: decodes (rms %.3f, 1659.393)", mo ? rms(mo, f0 * c0) : 0.0);
+            CHECK(m1 && fabs(rms(m1, f1 * c1) - 1068.669) < 0.01, "multi band: effect 1 (set 0, 2 bands): rms %.3f (1068.669)", m1 ? rms(m1, f1 * c1) : 0.0);
+            CHECK(m4 && fabs(rms(m4, f4 * c4) - 825.053) < 0.01, "multi band: effect 4 (set 2, 3 bands): rms %.3f (825.053; FDK 826.219)", m4 ? rms(m4, f4 * c4) : 0.0);
+            free(mo); free(m1); free(m4);
+        }
     }
     free(st); free(pcm); free(asc); free(aus);
     if (g_failures) { printf("test_unidrc: %d FAILURES\n", g_failures); return 1; }

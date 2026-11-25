@@ -32,7 +32,7 @@ static int usable(const SautiUniDrcConfig *c, const SautiUniDrcInstr *in, unsign
     if (!co || in->channels != channels || in->groups > SAUTI_UNIDRC_RUN_GROUPS) return 0;
     for (ch = 0; ch < in->groups; ch++) {
         const int gs = in->gain_set_of_group[ch];
-        if (gs < 0 || (unsigned)gs >= co->gain_set_count || co->gain_set[gs].band_count != 1u) return 0;   /* multi band sets are not applied */
+        if (gs < 0 || (unsigned)gs >= co->gain_set_count || co->gain_set[gs].band_count == 0u) return 0;   /* multi band sets: the gain of band 0 is applied to the whole spectrum, as FDK does (its time and subband paths run `b = 0` / "single-band DRC"); the other bands are parsed and ignored */
     }
     return 1;
 }
