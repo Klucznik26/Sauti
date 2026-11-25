@@ -19,6 +19,9 @@
  * (ITU-T, implementacja referencyjna Sun, domena publiczna).  W pliku 8 bitow na kod.
  * Wyjscie f32 = wartosc liniowa / 32768.  Inna szerokosc kodu: odmowa.
  *
+ * ID 11 (nieoficjalne, program ma2s Lorence'a Lombardo z Aminet): 8 bitow ZE ZNAKIEM zamiast bez znaku; autor opisuje to jednym zdaniem ("8bit IFF-MAUD signed ... compression ID 11"), wiec inna szerokosc: odmowa.
+ * ID 9 (float, ten sam autor, aw2m) nie jest obslugiwane: ani szerokosc, ani kolejnosc bajtow, ani rodzaj (IEEE / FFP) nie sa nigdzie podane, a program nie dal sie uruchomic, zeby je zmierzyc: odmowa.
+ *
  * MCOMP_FIBDELTA, ADPCM 2..5 i LONGDAT: autor pisze, ze biblioteka ich nie obsluguje i nie zna
  * programu, ktory je zapisuje.  Uklad bitow nie jest podany poza nazwa (FIBDELTA tylko "jak 8SVX",
  * a przyklad upakowania bitow dotyczy braku kompresji).  Odmawiamy.
@@ -144,6 +147,7 @@ static maktabasauti_result_t take_bits(maud_t *d, unsigned n, uint32_t *out) {
     return MAKTABASAUTI_OK;
 }
 static float scale_sample(uint32_t raw, unsigned bits, unsigned comp) {
+    if (comp == 11u) return (float)(int8_t)raw * (1.0f / 128.0f);                                 /* 8 bitow ze znakiem (nieoficjalne ID 11, ma2s) */
     if (comp == 2u) return (float)g711_alaw((uint8_t)raw) * (1.0f / 32768.0f);
     if (comp == 3u) return (float)g711_ulaw((uint8_t)raw) * (1.0f / 32768.0f);
     if (bits == 8u) return (float)((int)raw - 128) * (1.0f / 128.0f);
@@ -283,7 +287,7 @@ static maktabasauti_result_t MAKTABASAUTI_CALL maud_open(const maktabasauti_code
     r = channels_of(chinfo, channels);
     if (r != MAKTABASAUTI_OK) return r;
     if (comp == 0u) { if (bits < 1u || bits > 32u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT; }
-    else if (comp == 2u || comp == 3u) { if (bits != 8u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
+    else if (comp == 2u || comp == 3u || comp == 11u) { if (bits != 8u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
     else return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
     if (rate_div == 0u || rate_src == 0u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     if (rate_src % rate_div) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
@@ -312,9 +316,9 @@ static maktabasauti_result_t MAKTABASAUTI_CALL maud_open(const maktabasauti_code
     info->struct_size = sizeof *info; info->sample_rate = rate; info->channels = channels;
     info->channel_mask = channels == 1u ? MAKTABASAUTI_LAYOUT_MONO : channels == 2u && chinfo == 1u ? MAKTABASAUTI_LAYOUT_STEREO : 0u;
     info->native_format = MAKTABASAUTI_FORMAT_F32;
-    info->bits_per_sample = comp ? 16u : bits;
+    info->bits_per_sample = comp && comp != 11u ? 16u : bits;
     info->total_frames = d->total_known || d->seekable ? d->total : MAKTABASAUTI_UNKNOWN_LENGTH;
-    info->flags = (d->seekable ? MAKTABASAUTI_STREAM_SEEKABLE : 0u) | (comp ? 0u : MAKTABASAUTI_STREAM_LOSSLESS);
+    info->flags = (d->seekable ? MAKTABASAUTI_STREAM_SEEKABLE : 0u) | (comp && comp != 11u ? 0u : MAKTABASAUTI_STREAM_LOSSLESS);
     strncpy(info->codec_name, comp == 2u ? "g711-alaw" : comp == 3u ? "g711-ulaw" : "pcm", sizeof info->codec_name - 1u);
     strncpy(info->container_name, "iff", sizeof info->container_name - 1u);
     *state = d;

@@ -179,6 +179,21 @@ int main(void) {
     CHECK(r == MAKTABASAUTI_OK && pcm[0] == 0.0f);
     close_st(&h, st); st = NULL; free(b);
 
+    /* ID 11 (nieoficjalne, ma2s): 8 bitow ZE ZNAKIEM; ID 9 (float, aw2m) i ID 11 przy innej szerokosci: odmowa. */
+    body[0] = 0x80; body[1] = 0x7F; body[2] = 0x00; body[3] = 0xFF;
+    b = build(&n, 4u, 8000u, 1u, 8u, 0u, 1u, 11u, body, 4, 0, 0);
+    r = do_open(&mem, b, n, 1, &st, &info, &h);
+    CHECK(r == MAKTABASAUTI_OK && info.total_frames == 4u && info.bits_per_sample == 8u && strcmp(info.codec_name, "pcm") == 0 && (info.flags & MAKTABASAUTI_STREAM_LOSSLESS) != 0u);
+    r = maktabasauti_maud_desc.read(st, pcm, 4, &got);
+    CHECK(r == MAKTABASAUTI_OK && got == 4 && pcm[0] == -1.0f && pcm[1] == 127.0f / 128.0f && pcm[2] == 0.0f && pcm[3] == -1.0f / 128.0f);
+    close_st(&h, st); st = NULL; free(b);
+    b = build(&n, 2u, 8000u, 1u, 16u, 0u, 1u, 11u, body, 4, 0, 0);
+    CHECK(do_open(&mem, b, n, 1, &st, &info, &h) == MAKTABASAUTI_E_UNSUPPORTED_FEATURE && st == NULL);
+    free(b);
+    b = build(&n, 1u, 8000u, 1u, 32u, 0u, 1u, 9u, body, 4, 0, 0);
+    CHECK(do_open(&mem, b, n, 1, &st, &info, &h) == MAKTABASAUTI_E_UNSUPPORTED_FEATURE && st == NULL);
+    free(b);
+
     /* MDAT przed MHDR: z przewijaniem gra, bez przewijania odmowa. */
     body[0] = 128;
     b = build(&n, 1u, 8000u, 1u, 8u, 0u, 1u, 0u, body, 1, 0, 1);
