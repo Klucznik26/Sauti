@@ -73,3 +73,6 @@ Dopełnienie (11-25): 12, 11,025 i 8 kHz zmierzone względem FDK (mono i stereo,
 
 ### Anomalia `lc_1024_16000_2` — wyjaśniona (11-25)
 Syntetyczny strumień stereo LC 16 kHz z kodera FDK ma w jednej ramce (wszystkie pasma M/S, `ms_mask_present = 2`, skalefaktory do 165, książki 6/11) wybuch w kanale 1: wyjście ma tam RMS 1,76 (Sauti i FFmpeg zgodne co do 138 dB) albo 0,78 (FDK), a wejście 0,16. Brak PNS i IS w tej ramce. Żaden dekoder nie odtwarza sygnału, więc to strumień z kodera (kodowanie przejścia na szumowej serii), a różnica FDK↔reszta to inne traktowanie wartości spoza zakresu — nie błąd dekodera Sauti. Na muzyce wszystkie zgodne. Do ponownego zbadania tylko jeśli pojawi się prawdziwy plik o takim objawie.
+
+### HE-AAC v1 w sweepie FDK (11-25)
+Wiersze `he5_*` w sweepie pokazywały „−3 dB” tylko dlatego, że wyrocznia FDK zwraca mono HE-AAC jako dwukanałowe (ten sam sygnał w obu kanałach), a skrypt porównywał z 1 kanałem. Po rozdzieleniu kanałów: HE v1 mono 48 kHz = 85 dB względem FDK (oba kanały identyczne); HE v2 (PS) 77–80 dB. Bez zmian w dekoderze.
