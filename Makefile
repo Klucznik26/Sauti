@@ -2286,6 +2286,11 @@ $(OBJDIR)/test_maktabasauti_g726: tests/test_maktabasauti_g726.c tests/g726_gold
 .PHONY: test-maktabasauti-g726
 test-maktabasauti-g726: $(OBJDIR)/test_maktabasauti_g726
 	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_g726
+$(OBJDIR)/test_maktabasauti_atari_hw: tests/test_maktabasauti_atari_hw.c tests/data/atari_hw/avr_st16.avr $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_maktabasauti_atari_hw.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-maktabasauti-atari-hw
+test-maktabasauti-atari-hw: $(OBJDIR)/test_maktabasauti_atari_hw
+	ASAN_OPTIONS=allocator_may_return_null=1 ./$(OBJDIR)/test_maktabasauti_atari_hw
 $(OBJDIR)/test_maktabasauti_g7111: tests/test_maktabasauti_g7111.c tests/g7111_golden.h $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -Itests -o $@ tests/test_maktabasauti_g7111.c $(MKS_DEPS) -lm -lpthread -no-pie
 .PHONY: test-maktabasauti-g7111

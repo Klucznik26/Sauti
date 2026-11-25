@@ -218,7 +218,7 @@ static void test_truncation(const File *f, const Ref *ref, const char *name, uns
         if (is_avr) { const size_t fb = (size_t)ref->ch * (bits / 8u); expect = (cut - off) / fb; if (expect > ref->frames) expect = ref->frames; }
         else expect = frames_in(pack, (unsigned)ref->ch, bits, block, cut - off, &tail);
         rr = drain(d, out, ref->ch, ref->frames + 4096, 211, &got);
-        if (is_avr) CHECK(got == expect && rr == (expect == ref->frames ? MAKTABASAUTI_EOF : MAKTABASAUTI_E_TRUNCATED) && same(out, ref->pcm, got * ref->ch), "%s cut %zu: end %d, %zu/%zu frames", name, cut, (int)rr, got, expect);
+        if (is_avr) CHECK(got == expect && rr == ((expect == ref->frames || s.size_known) ? MAKTABASAUTI_EOF : MAKTABASAUTI_E_TRUNCATED) && same(out, ref->pcm, got * ref->ch), "%s cut %zu: end %d, %zu/%zu frames", name, cut, (int)rr, got, expect);
         else CHECK(got == expect && rr == (tail ? MAKTABASAUTI_E_TRUNCATED : MAKTABASAUTI_EOF) && same(out, ref->pcm, got * ref->ch), "%s cut %zu: end %d (tail %d), %zu/%zu frames", name, cut, (int)rr, tail, got, expect);
         if (rr == MAKTABASAUTI_E_TRUNCATED) {                                                   /* blad jest lepki, a flush go czysci (dane nadal sa urwane, wiec wraca) */
             size_t g2 = 0; maktabasauti_result_t r2 = maktabasauti_decoder_read(d, out, 10, MAKTABASAUTI_FORMAT_F32, &g2);
@@ -281,6 +281,29 @@ static void test_seek_long(unsigned pack, unsigned ch, const char *name) {
     free(buf); free(ref.pcm); free(f.b);
 }
 
+/* Program 525 (Five to Five) zapisuje przy redukcji do mono w naglowku AVR liczbe probek ZRODLA (2x za duzo): przy znanym rozmiarze dlugosc jest przycinana do danych i plik konczy sie czysto (EOF), bez
+ * rozmiaru zostaje E_TRUNCATED; stereo i poprawne naglowki sie nie zmieniaja. */
+static void test_avr_overstated(void) {
+    static const unsigned bitsv[] = { 8u, 16u }; unsigned v, mode;
+    for (v = 0; v < 2; v++) for (mode = 0; mode < 2; mode++) {
+        File f = make_avr(1, bitsv[v], 1, 44100, 1000u); Ref ref; Src s; Mem m; maktabasauti_decoder_t *d = NULL; size_t got = 0; maktabasauti_result_t r, rr; maktabasauti_stream_info_t info;
+        float *out = (float *)malloc(4096 * sizeof(float));
+        ref = reference(&f); put32(f.b + 26, 2000u);                                                              /* naglowek obiecuje 2x wiecej niz jest */
+        memset(&s, 0, sizeof s); memset(&m, 0, sizeof m); s.data = f.b; s.n = f.n; s.seekable = (int)mode; s.size_known = (int)mode;
+        r = open_src(&s, &m, &d); CHECK(r == MAKTABASAUTI_OK, "avr overstated %u/%u: open (%d)", bitsv[v], mode, (int)r);
+        if (r == MAKTABASAUTI_OK) {
+            memset(&info, 0, sizeof info); info.struct_size = sizeof info; (void)maktabasauti_decoder_get_info(d, &info);
+            rr = drain(d, out, 1, 4096, 97, &got);
+            CHECK(got == 1000u && same(out, ref.pcm, 1000u), "avr overstated %u/%u: %zu frames", bitsv[v], mode, got);
+            CHECK(rr == (mode ? MAKTABASAUTI_EOF : MAKTABASAUTI_E_TRUNCATED), "avr overstated %u/%u: end %d", bitsv[v], mode, (int)rr);
+            if (mode) CHECK(info.total_frames == 1000u, "avr overstated %u: length %llu", bitsv[v], (unsigned long long)info.total_frames);
+            maktabasauti_decoder_close(d);
+        }
+        CHECK(m.live == 0, "avr overstated %u/%u: leak", bitsv[v], mode);
+        free(out); free(ref.pcm); free(f.b);
+    }
+}
+
 typedef struct { const char *name; File f; unsigned pack, bits; uint32_t block; size_t off; } Case;
 int main(void) {
     static const unsigned hz[] = { 0, 3, 7, 12345, 44100, 48000 };
@@ -324,6 +347,7 @@ int main(void) {
         if (c->pack == 2 && ref.ch == 1) test_memory(&c->f, c->name, c->off);
         free(ref.pcm);
     }
+    test_avr_overstated();
     test_seek_long(2, 1, "dvsm pack2 mono"); test_seek_long(4, 1, "dvsm pack4 mono"); test_seek_long(2, 2, "dvsm pack2 stereo"); test_seek_long(4, 2, "dvsm pack4 stereo");
     test_hostile();
     for (i = 0; i < nc; i++) free(cases[i].f.b);

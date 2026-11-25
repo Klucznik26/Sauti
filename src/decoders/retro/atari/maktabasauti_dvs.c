@@ -100,6 +100,15 @@ static maktabasauti_result_t MAKTABASAUTI_CALL avr_open(const maktabasauti_codec
     if (!a) return MAKTABASAUTI_E_NO_MEMORY;
     memset(a, 0, sizeof *a);
     a->host = h; a->rd = rd; a->channels = channels; a->bits = bits; a->is_signed = is_signed; a->total = units / channels; a->data_off = AVR_HEADER;
+    /* Program 525 (Five to Five) po redukcji do mono zostawia w naglowku liczbe probek ZRODLA (2x za duzo), a wiec naglowek obiecuje wiecej danych niz jest w pliku.  Przy znanym rozmiarze
+     * wejscia dlugosc przycinamy do faktycznych danych (jak FFmpeg); bez znanego rozmiaru zostaje E_TRUNCATED na urwanym koncu. */
+    if (h->size) {
+        const int64_t sz = h->size(h->user, rd);
+        if (sz >= (int64_t)AVR_HEADER) {
+            const uint64_t have = ((uint64_t)sz - AVR_HEADER) / ((uint64_t)channels * (bits / 8u));
+            if (have < a->total) a->total = have;
+        }
+    }
     flags = h->input_flags ? h->input_flags(h->user, rd) : 0u;
     a->seekable = (flags & MAKTABASAUTI_INPUT_SEEKABLE) != 0;
     fill_common(info, rate, channels, a->total, a->seekable, 1, "pcm", "avr");

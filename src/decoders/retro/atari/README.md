@@ -9,7 +9,7 @@
 
 Scope: 128-byte `2BIT` header, big-endian fields, 8/16-bit uncompressed PCM, signed and unsigned, mono and interleaved stereo. Interpret header length as individual sample units (bytes at 8-bit and words at 16-bit), inclusive of both channels. Legacy speed selector occupies the high byte; low 24 bits specify sample Hz.
 
-Current limitations: reserved compression modes rejected; loop metadata not acted upon; mixed-resolution 12/14-bit variants not yet handled; AVR is now registered in the Linux SDL playback decoder list and recognized as a browser candidate by the .avr extension. End-to-end playback of a real Atari file has not yet been verified; rebuild and regression tests are required after integration.
+Current limitations: reserved compression modes rejected; loop metadata not acted upon; mixed-resolution 12/14-bit variants not yet handled; AVR is now registered in the Linux SDL playback decoder list and recognized as a browser candidate by the .avr extension. Real files from the original 525 converter (Hatari) decode bit-exactly (docs/ATARI_HW_FIXTURES.md, `make test-maktabasauti-atari-hw`); an AVR header that promises more samples than the file holds (525 does this for mono) is clamped to the real data when the input size is known.
 
 Sources: Atari Wiki AVR / 1991 Stereo Master appendix, https://www.atari-wiki.com/index.php?title=AVR
 
