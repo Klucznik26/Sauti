@@ -167,7 +167,7 @@ static const unsigned char long960_count[13]={40,40,46,49,49,49,46,46,42,42,42,4
 static const uint16_t *const short120_offsets[13]={swb_offset_120_96,swb_offset_120_96,swb_offset_120_96,swb_offset_120_48,swb_offset_120_48,swb_offset_120_48,swb_offset_120_24,swb_offset_120_24,swb_offset_120_16,swb_offset_120_16,swb_offset_120_16,swb_offset_120_8,swb_offset_120_8};
 static const unsigned char short120_count[13]={12,12,12,14,14,14,15,15,15,15,15,15,15};
 
-/* Low-delay layouts (AAC-LD / AAC-ELD): 512 and 480 lines, long window only, sampling_frequency_index 3..7 (48, 44.1, 32, 24, 22.05 kHz).
+/* Low-delay layouts (AAC-LD / AAC-ELD): 512 and 480 lines, long window only, sampling_frequency_index 3..12 (48, 44.1, 32 kHz tables; 24 kHz table for 24 kHz and below, as FDK).
  * Numeric tables validated against FFmpeg libavcodec/aactab.c (LGPL-2.1-or-later), like the tables above; same licensing note applies. */
 static const uint16_t swb_offset_512_48[37] = {
       0,   4,   8,  12,  16,  20,  24,  28,  32,  36,  40,  44,  48,  52,  56,  60,
@@ -197,13 +197,13 @@ static const uint16_t swb_offset_480_24[31] = {
       0,   4,   8,  12,  16,  20,  24,  28,  32,  36,  40,  44,  52,  60,  68,  80,
      92, 104, 120, 140, 164, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480
 };
-static const uint16_t *const ld512_offsets[13]={NULL,NULL,NULL,swb_offset_512_48,swb_offset_512_48,swb_offset_512_32,swb_offset_512_24,swb_offset_512_24,NULL,NULL,NULL,NULL,NULL};
-static const unsigned char ld512_count[13]={0,0,0,36,36,37,31,31,0,0,0,0,0};
-static const uint16_t *const ld480_offsets[13]={NULL,NULL,NULL,swb_offset_480_48,swb_offset_480_48,swb_offset_480_32,swb_offset_480_24,swb_offset_480_24,NULL,NULL,NULL,NULL,NULL};
-static const unsigned char ld480_count[13]={0,0,0,35,35,37,30,30,0,0,0,0,0};
+static const uint16_t *const ld512_offsets[13]={NULL,NULL,NULL,swb_offset_512_48,swb_offset_512_48,swb_offset_512_32,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24};
+static const unsigned char ld512_count[13]={0,0,0,36,36,37,31,31,31,31,31,31,31};
+static const uint16_t *const ld480_offsets[13]={NULL,NULL,NULL,swb_offset_480_48,swb_offset_480_48,swb_offset_480_32,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24};
+static const unsigned char ld480_count[13]={0,0,0,35,35,37,30,30,30,30,30,30,30};
 /* tns_max_bands of the low-delay layouts (ISO/IEC 14496-3, same source as above) */
-static const unsigned char tns_max_512[13]={0,0,0,31,32,37,31,31,0,0,0,0,0};
-static const unsigned char tns_max_480[13]={0,0,0,31,32,37,30,30,0,0,0,0,0};
+static const unsigned char tns_max_512[13]={0,0,0,31,32,37,31,31,31,31,31,31,31};
+static const unsigned char tns_max_480[13]={0,0,0,31,32,37,30,30,30,30,30,30,30};
 
 int sauti_aac_band_offsets(unsigned sample_rate_index,unsigned short_window,
                            const uint16_t **offsets,unsigned *count){
