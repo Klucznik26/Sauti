@@ -158,9 +158,9 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
         return true;
     }
     if (reg == 15) {
-        /* Serial and two-tone modes are not modeled; pot scan and
-         * keyboard flags beyond initialization have no audio effect. */
-        if (value & 0xf8u)
+        /* Support the force-break two-tone mode with the serial clock
+         * disabled. Other serial modes remain unsupported. */
+        if ((value & 0x78u) != 0 && (value & 0xf8u) != 0x88u)
             return false;
         p->skctl = value;
         if (!(value & 3u)) {
@@ -231,6 +231,7 @@ void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles)
             ((p->skctl & 4u) || tick114))
             ++p->pot_count;
         bool slow_tick = (p->audctl & 1) ? tick114 : tick28;
+        bool timer2_pulse = false;
         for (unsigned ch = 0; ch < 4; ++ch) {
             if (!fast_timer(p->audctl, ch) && !slow_tick)
                 continue;
@@ -249,6 +250,7 @@ void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles)
                  * actual IRQ propagation and STIMER latency are pending. */
                 static const uint8_t timer_irq[4] = {1, 2, 0, 4};
                 p->irq_pending |= p->irq_enable & timer_irq[ch];
+                if (ch == 1) timer2_pulse = true;
                 clock_waveform(p, ch);
                 if (ch >= 2 && filter_enabled(p->audctl, ch - 2)) {
                     p->filter_sample[ch - 2] = p->output[ch - 2];
@@ -256,6 +258,13 @@ void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles)
                 }
             }
         }
+        /* Force-break selects the zero tone: timer 2 resynchronizes
+         * timer 1 without an extra waveform or IRQ event. Reload timer
+         * 1 after both timers have been evaluated for this cycle.
+         * This is a steady-state approximation, not the silicon's
+         * reset propagation pipeline. */
+        if (timer2_pulse && (p->skctl & 0x88u) == 0x88u)
+            p->counter[0] = reload(p, 0);
     }
 }
 

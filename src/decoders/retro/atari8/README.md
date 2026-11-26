@@ -257,3 +257,16 @@ write diagnostics include the attempted byte, so NMIEN/SKCTL failures
 can be investigated without guessing. Active NMI sources still fault.
 Reference: Altirra Hardware Reference Manual, bus pullups, PBI and
 POKEY serial output. No emulator source imported.
+
+ASMA retry2: 19 nonzero, 9 silent, 41 failures out of 69. Reported
+SKCTL failure values: $8B (12 files), $20 (1 file); NMIEN values
+$40/$60/$C0/$80 (26 files). SKCTL force-break two-tone with serial
+clock disabled now reloads timer 1 on timer 2 underflow without
+generating a spurious audio pulse or IRQ. Force-break alone is also
+accepted with no audio impact. This is a steady-state approximation
+of resynchronization, not the hardware propagation pipeline. Other
+two-tone and serial clock modes, including $20, are still unsupported.
+Tests cover suppression of timer 1 pulses and IRQs, timer 2 output and
+exit from two-tone. Reference: Altirra Hardware Reference Manual,
+section Two-tone mode, https://doczz.net/doc/1531988/altirra-hardware-reference-manual .
+NMIEN remains a separate task.

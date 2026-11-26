@@ -515,6 +515,30 @@ static void test_headless_inputs(void)
     CHECK(!atari8_pokey_read(&p,16,&v));
 }
 
+static void test_two_tone_break(void)
+{
+    Atari8Pokey p;
+    atari8_pokey_reset(&p,false);
+    CHECK(atari8_pokey_write(&p,0,4)); /* timer 1 period 5 ticks */
+    CHECK(atari8_pokey_write(&p,2,2)); /* timer 2 period 3 ticks */
+    CHECK(atari8_pokey_write(&p,1,0xaf));
+    CHECK(atari8_pokey_write(&p,3,0xaf));
+    CHECK(atari8_pokey_write(&p,15,0x8b));
+    CHECK(atari8_pokey_write(&p,14,3));
+    CHECK(atari8_pokey_write(&p,9,0));
+    atari8_pokey_step(&p,84);
+    CHECK(p.counter[0]==5 && p.counter[1]==3);
+    CHECK(p.output[0]==1 && p.output[1]==0);
+    CHECK(p.irq_pending==2);
+    atari8_pokey_step(&p,84);
+    CHECK(p.counter[0]==5 && p.output[0]==1 && p.output[1]==1);
+    CHECK(p.irq_pending==2);
+    CHECK(atari8_pokey_write(&p,15,3));
+    atari8_pokey_step(&p,140);
+    CHECK(p.output[0]==0 && (p.irq_pending & 1u));
+    CHECK(!atari8_pokey_write(&p,15,0x20));
+}
+
 int main(void)
 {
     for (unsigned f = 0; f < 256; ++f) {
@@ -546,6 +570,7 @@ int main(void)
     test_filter(1);
     test_polarity();
     test_headless_inputs();
+    test_two_tone_break();
     test_random(false);
     test_random(true);
     test_random_scanline();
