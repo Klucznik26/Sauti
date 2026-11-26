@@ -21,7 +21,7 @@ typedef void (*Atari8MachineSink)(void *, const int16_t frame[2]);
 #define ATARI8_TRACE_SIZE 16u
 typedef struct {
     uint16_t pc, irq_vector;
-    uint8_t opcode, sp, p;
+    uint8_t opcode, operand1, operand2, a, x, y, sp, p;
     bool irq, nmi;
     uint64_t cycle;
 } Atari8Trace;
@@ -44,6 +44,8 @@ typedef struct {
     bool sap_host_scheduled;
     uint8_t antic_nmien, antic_nmist;
     Atari8Trace trace[ATARI8_TRACE_SIZE], first_zero;
+    Atari8Trace before_zero[ATARI8_TRACE_SIZE];
+    unsigned before_zero_count;
     unsigned trace_next, trace_count;
     bool entered_zero;
 } Atari8Machine;

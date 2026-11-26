@@ -536,7 +536,11 @@ static void test_two_tone_break(void)
     CHECK(atari8_pokey_write(&p,15,3));
     atari8_pokey_step(&p,140);
     CHECK(p.output[0]==0 && (p.irq_pending & 1u));
-    CHECK(!atari8_pokey_write(&p,15,0x20));
+    CHECK(atari8_pokey_write(&p,15,0x20));
+    CHECK(p.skctl==0x20 && p.phase28==9 && p.phase114==36);
+    atari8_pokey_step(&p,114);
+    CHECK(p.phase28==9 && p.phase114==36);
+    CHECK(!atari8_pokey_write(&p,15,0x23));
 }
 
 int main(void)

@@ -37,6 +37,9 @@ static Atari8SapbResult segments(const uint8_t *data, size_t size,
 {
     size_t pos = info->binary_offset;
     bool any = false, init = false, player = false;
+    if ((info->init >= 0xd000u && info->init < 0xd800u) ||
+        (info->player >= 0xd000u && info->player < 0xd800u))
+        return ATARI8_SAPB_UNSUPPORTED;
     while (pos < size) {
         if (size - pos >= 2 && le16(data + pos) == 0xffffu)
             pos += 2;
@@ -49,12 +52,12 @@ static Atari8SapbResult segments(const uint8_t *data, size_t size,
         size_t n = (size_t)end - start + 1u;
         if (n > size - pos)
             return ATARI8_SAPB_BAD_FORMAT;
-        if (start < 0xd800u && end >= 0xd000u)
-            return ATARI8_SAPB_UNSUPPORTED;
         if (info->init >= start && info->init <= end) init = true;
         if (info->player >= start && info->player <= end) player = true;
-        if (m && !atari8_machine_load(m, start, data + pos, n))
-            return ATARI8_SAPB_RUNTIME;
+        /* SAP blocks are memory images, not writes to device registers.
+         * Preserve backing bytes even for a segment spanning the I/O
+         * window. CPU bus access still follows the hardware map. */
+        if (m) memcpy(m->ram + start, data + pos, n);
         any = true;
         pos += n;
     }

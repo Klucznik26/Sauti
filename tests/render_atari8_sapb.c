@@ -59,8 +59,9 @@ static bool integer(const char *s, long low, long high, long *v)
 
 static void trace_line(const Atari8Trace *t)
 {
-    fprintf(stderr," PC=%04X op=%02X SP=%02X P=%02X IRQ=%u NMI=%u vec=%04X cycle=%" PRIu64,
-            (unsigned)t->pc,(unsigned)t->opcode,(unsigned)t->sp,(unsigned)t->p,
+    fprintf(stderr," PC=%04X op=%02X %02X %02X A=%02X X=%02X Y=%02X SP=%02X P=%02X IRQ=%u NMI=%u vec=%04X cycle=%" PRIu64,
+            (unsigned)t->pc,(unsigned)t->opcode,(unsigned)t->operand1,(unsigned)t->operand2,
+            (unsigned)t->a,(unsigned)t->x,(unsigned)t->y,(unsigned)t->sp,(unsigned)t->p,
             (unsigned)t->irq,(unsigned)t->nmi,(unsigned)t->irq_vector,t->cycle);
 }
 
@@ -82,6 +83,11 @@ static void diagnostic(const Atari8Sapb *s, const char *stage, Atari8SapbResult 
             if (m->entered_zero) {
                 fputs("; first transition to $0000 from",stderr);
                 trace_line(&m->first_zero);
+                fputs("; instructions before first zero:",stderr);
+                for (unsigned j=0;j<m->before_zero_count;++j) {
+                    trace_line(&m->before_zero[j]);
+                    fputc(';',stderr);
+                }
             }
             fputs("; recent instructions:",stderr);
             for (unsigned j=0;j<m->trace_count;++j) {

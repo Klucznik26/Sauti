@@ -170,6 +170,9 @@ Atari8MachineResult atari8_machine_step(Atari8Machine *m)
     Atari8Trace *t = &m->trace[m->trace_next];
     *t = (Atari8Trace){
         .pc = m->cpu.pc, .opcode = m->ram[m->cpu.pc],
+        .operand1 = m->ram[(uint16_t)(m->cpu.pc + 1u)],
+        .operand2 = m->ram[(uint16_t)(m->cpu.pc + 2u)],
+        .a = m->cpu.a, .x = m->cpu.x, .y = m->cpu.y,
         .sp = m->cpu.sp, .p = m->cpu.p,
         .irq = m->cpu.irq_line, .nmi = m->cpu.nmi_pending,
         .irq_vector = (uint16_t)(m->ram[0xfffe] | ((uint16_t)m->ram[0xffff] << 8)),
@@ -181,6 +184,9 @@ Atari8MachineResult atari8_machine_step(Atari8Machine *m)
     if (m->cpu.pc == 0 && t->pc != 0 && !m->entered_zero) {
         m->entered_zero = true;
         m->first_zero = *t;
+        m->before_zero_count = m->trace_count;
+        for (unsigned i = 0; i < m->trace_count; ++i)
+            m->before_zero[i] = m->trace[(m->trace_next + ATARI8_TRACE_SIZE - m->trace_count + i) % ATARI8_TRACE_SIZE];
     }
     if (!cycles && m->status == ATARI8_MACHINE_OK)
         m->status = ATARI8_MACHINE_CPU_STOP;
@@ -218,6 +224,7 @@ Atari8MachineResult atari8_machine_call(Atari8Machine *m, uint16_t entry,
     m->cpu.pc = entry;
     m->trace_next = m->trace_count = 0;
     m->entered_zero = false;
+    m->before_zero_count = 0;
     uint64_t start = m->master_cycles;
     while (m->master_cycles - start < cycle_budget) {
         Atari8MachineResult r = atari8_machine_step(m);

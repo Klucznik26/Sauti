@@ -73,7 +73,7 @@ static void test_bad(void)
     CHECK(atari8_sapb_parse(data,n,&i)==ATARI8_SAPB_BAD_FORMAT);
     n=fixture(data,false,false);
     data[pos+3]=0xd2; data[pos+5]=0xd2;
-    CHECK(atari8_sapb_parse(data,n,&i)==ATARI8_SAPB_UNSUPPORTED);
+    CHECK(atari8_sapb_parse(data,n,&i)==ATARI8_SAPB_BAD_FORMAT);
     n=fixture(data,false,false);
     /* INIT immediately JAMs. */
     data[pos+6]=0x02;
@@ -113,9 +113,28 @@ static void test_host_antic(void)
     CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
     CHECK(s.intervals==1 && !m->cpu.nmi_pending);
 }
+static void test_shadow_load(void)
+{
+    uint8_t data[512];
+    size_t n=fixture(data,false,false);
+    /* An image segment straddles RAM and I/O. Loading it must not
+     * perform writes to GTIA or change its output latch. */
+    static const uint8_t block[]={0xff,0xcf,0x01,0xd0,0x11,0x22,0x33};
+    memcpy(data+n,block,sizeof(block)); n+=sizeof(block);
+    Atari8Sapb s;
+    CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    CHECK(s.machine.ram[0xcfff]==0x11 && s.machine.ram[0xd000]==0x22);
+    CHECK(s.machine.ram[0xd001]==0x33 && s.machine.console_latch==8);
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+    /* Entry points in MMIO remain explicitly unsupported. */
+    CHECK(!memcmp(data+13,"INIT 2000",9));
+    memcpy(data+18,"D000",4);
+    Atari8SapbInfo i;
+    CHECK(atari8_sapb_parse(data,n,&i)==ATARI8_SAPB_UNSUPPORTED);
+}
 int main(void)
 {
-    test_play(false); test_play(true); test_bad(); test_host_antic();
+    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load();
     puts("PASS: experimental Atari8 SAP-B");
     return 0;
 }

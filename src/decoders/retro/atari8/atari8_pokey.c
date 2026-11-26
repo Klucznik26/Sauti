@@ -160,7 +160,11 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
     if (reg == 15) {
         /* Support the force-break two-tone mode with the serial clock
          * disabled. Other serial modes remain unsupported. */
-        if ((value & 0x78u) != 0 && (value & 0xf8u) != 0x88u)
+        /* $20 selects a serial clock but also holds the keyboard/slow
+         * clocks and noise generators in initialization. No serial
+         * device or serial interrupt is implemented in this profile. */
+        if ((value & 0x78u) != 0 && (value & 0xf8u) != 0x88u &&
+            value != 0x20u)
             return false;
         p->skctl = value;
         if (!(value & 3u)) {

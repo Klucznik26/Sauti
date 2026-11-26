@@ -296,3 +296,19 @@ CPU stepping. A new external comparison script checks pending entries
 against an installed ASAP executable, prints unsupported header and
 first nonzero sample at up to 60 seconds. This is onset/compatibility
 diagnostics, not waveform fidelity; no external player code imported.
+
+Pending comparison after ff3a519: all nine previously silent entries
+match ASAP silence/onset over 15 seconds (maximum onset difference
+13 ms, not a waveform comparison). Ten files still fail. Six enter
+PC=0000 through absolute JMP with IRQ/NMI inactive; this is not evidence
+of an interrupt fault. Two other PLAYER routines exhaust the interval.
+Impossible_but_Real has a standard stereo TYPE B header (no COVOX);
+parser rejected its segment overlap with I/O. SAP image loading now
+copies backing RAM without bus writes, including segments crossing I/O,
+while CPU accesses keep the existing map and MMIO entry points are
+rejected. SKCTL $20 is accepted only as a headless initialization
+case, not general serial support. Trace now includes operand bytes,
+A/X/Y and the instruction history immediately before the first jump
+to zero. No change to PLAYER timing yet. References: SAP format
+specification https://asap.sourceforge.net/sap-format.html and Altirra
+Hardware Reference Manual, SKCTL register layout.
