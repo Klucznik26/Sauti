@@ -202,3 +202,18 @@ Errors report the stage, CPU PC, machine status and unsupported I/O
 address; incomplete output is removed. Use a distinct output path.
 External music remains outside the repository, e.g. ASMA:
 https://asma.atari.org/ . No external decoder is linked.
+
+ASMA compatibility milestone: the local listening diagnostic successfully
+rendered Bhogoosh.sap (720000 PCM frames, 748 calls). Sixteen earlier
+files failed at ALLPOT ($D208 read), possibly due to indexed-store dummy
+reads; their original CPU traces have not been inspected. The POKEY read
+map now includes headless POT0-7, ALLPOT, keyboard/serial idle and unused
+register reads. POTGO starts a shared disconnected-input counter, which
+saturates at 228 on scanline ticks (or master cycles in fast scan mode).
+This is not a full analog paddle, serial or keyboard model. SKREST and
+unused write $D20C are accepted; unsupported serial modes/writes and
+non-timer IRQ enables still fault. The model uses the documented active
+high busy bits of ALLPOT; no audio-register readback. Tests include
+indexed STA dummy reads, mono/stereo register mapping and scan timing.
+Reference: https://atariwiki.org/wiki/Wiki.jsp?page=AUDCTL and
+https://doczz.net/doc/1531988/altirra-hardware-reference-manual .

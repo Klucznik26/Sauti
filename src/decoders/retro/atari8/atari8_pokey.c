@@ -85,6 +85,7 @@ void atari8_pokey_reset(Atari8Pokey *p, bool ntsc)
     p->clock_hz = ntsc ? 1789773u : 1773447u;
     /* Deterministic playback reset, not physical power-up state. */
     p->skctl = 3;
+    p->pot_count = 228;
     p->poly[0] = 15u;
     p->poly[1] = 31u;
     p->poly[2] = 511u;
@@ -128,6 +129,18 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
         restart_timers(p);
         return true;
     }
+    if (reg == 10) {
+        /* SKREST: no keyboard/serial errors exist in headless playback. */
+        return true;
+    }
+    if (reg == 11) {
+        /* POTGO: all disconnected inputs run to the timeout. */
+        if (p->skctl & 3u)
+            p->pot_count = 0;
+        return true;
+    }
+    if (reg == 12)
+        return true; /* unused write */
     if (reg == 14) {
         /* Only the three timer sources are implemented. */
         if (value & 0xf8)
@@ -158,6 +171,20 @@ bool atari8_pokey_read(const Atari8Pokey *p, uint8_t reg, uint8_t *value)
 {
     if (!value)
         return false;
+    if (reg < 8) {
+        *value = p->pot_count;
+        return true;
+    }
+    if (reg == 8) {
+        *value = p->pot_count < 228 ? 0xff : 0;
+        return true;
+    }
+    if (reg == 9 || reg == 11 || reg == 12 || reg == 13 || reg == 15) {
+        /* Headless keyboard/serial idle and unused register reads.
+         * Indexed NMOS stores may perform dummy reads here. */
+        *value = 0xff;
+        return true;
+    }
     if (reg == 10) {
         /* The eight most significant bits of the selected LFSR. */
         *value = (uint8_t)((p->audctl & 0x80u) ?
@@ -193,6 +220,9 @@ void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles)
             p->phase28 = 0;
         if (tick114)
             p->phase114 = 0;
+        if (!initializing && p->pot_count < 228 &&
+            ((p->skctl & 4u) || tick114))
+            ++p->pot_count;
         bool slow_tick = (p->audctl & 1) ? tick114 : tick28;
         for (unsigned ch = 0; ch < 4; ++ch) {
             if (!fast_timer(p->audctl, ch) && !slow_tick)

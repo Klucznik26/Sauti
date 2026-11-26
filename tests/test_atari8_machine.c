@@ -84,9 +84,25 @@ static void test_faults(void)
     CHECK(m.cpu.jammed && m.master_cycles==1);
 }
 
+static void test_indexed_pokey_store(void)
+{
+    Atari8Machine m;
+    CHECK(atari8_machine_init(&m,false,true,48000,false,NULL,NULL));
+    /* Indexed STA performs a read of ALLPOT before writing AUDCTL,
+     * and a POT read before writing AUDC. Neither must fault. */
+    static const uint8_t code[] = {
+        0xa2,8,0xa9,0x40,0x9d,0x00,0xd2,
+        0xa2,1,0xa9,0xaf,0x9d,0x10,0xd2,0x60
+    };
+    CHECK(atari8_machine_load(&m,0x2000,code,sizeof(code)));
+    CHECK(atari8_machine_call(&m,0x2000,24)==ATARI8_MACHINE_OK);
+    CHECK(m.master_cycles==24 && m.core.pokey[0].audctl==0x40);
+    CHECK(m.core.pokey[1].audc[0]==0xaf);
+}
 int main(void)
 {
     test_audio(false); test_audio(true); test_bus_cycle(); test_faults();
+    test_indexed_pokey_store();
     puts("PASS: experimental Atari8 CPU/RAM/POKEY machine");
     return 0;
 }

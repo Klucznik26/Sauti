@@ -334,7 +334,7 @@ static void test_irq_fast_and_linked(void)
     atari8_pokey_step(&p, 1);
     check_irq(&p, 0xf9);
     uint8_t v = 42;
-    CHECK(!atari8_pokey_read(&p, 0, &v));
+    CHECK(atari8_pokey_read(&p, 0, &v) && v == 228);
     CHECK(v == 42);
     CHECK(!atari8_pokey_read(&p, 14, NULL));
 }
@@ -481,6 +481,35 @@ static void test_skctl_clocks(unsigned divider)
     CHECK(p.output[1] == 1);
 }
 
+static void test_headless_inputs(void)
+{
+    Atari8Pokey p;
+    uint8_t v;
+    atari8_pokey_reset(&p, false);
+    CHECK(atari8_pokey_read(&p,8,&v) && v==0);
+    CHECK(atari8_pokey_write(&p,8,0x40));
+    CHECK(atari8_pokey_read(&p,8,&v) && v==0 && p.audctl==0x40);
+    CHECK(atari8_pokey_write(&p,11,0));
+    CHECK(atari8_pokey_read(&p,8,&v) && v==255);
+    CHECK(atari8_pokey_read(&p,7,&v) && v==0);
+    atari8_pokey_step(&p,114u*227u);
+    CHECK(atari8_pokey_read(&p,8,&v) && v==255);
+    CHECK(atari8_pokey_read(&p,0,&v) && v==227);
+    atari8_pokey_step(&p,114);
+    CHECK(atari8_pokey_read(&p,8,&v) && v==0);
+    CHECK(atari8_pokey_read(&p,7,&v) && v==228);
+    CHECK(atari8_pokey_write(&p,15,7));
+    CHECK(atari8_pokey_write(&p,11,0));
+    atari8_pokey_step(&p,227);
+    CHECK(atari8_pokey_read(&p,8,&v) && v==255);
+    atari8_pokey_step(&p,1);
+    CHECK(atari8_pokey_read(&p,8,&v) && v==0);
+    CHECK(atari8_pokey_read(&p,9,&v) && v==255);
+    CHECK(atari8_pokey_read(&p,15,&v) && v==255);
+    CHECK(atari8_pokey_write(&p,10,0));
+    CHECK(!atari8_pokey_read(&p,16,&v));
+}
+
 int main(void)
 {
     for (unsigned f = 0; f < 256; ++f) {
@@ -511,6 +540,7 @@ int main(void)
     test_filter(0);
     test_filter(1);
     test_polarity();
+    test_headless_inputs();
     test_random(false);
     test_random(true);
     test_random_scanline();
