@@ -395,3 +395,18 @@ not yet established. No guest-specific or CPU changes introduced
 here. Comparison utility adds optional path filter, input SHA256
 and per-second PCM peak/RMS/nonzero counts to aid external
 reference diagnosis. Reference remains a separate executable.
+
+### Full SAP-B archive validation (fb2fbc7)
+
+All seven regression suites passed. User-run complete repeat scan of
+3824 ASMA SAP-B files, 3 seconds at 48000 Hz, default subsong:
+3814 nonzero WAVs, 9 silent WAVs, 1 runtime budget failure (Chromatics).
+3823/3824 (99.97%) conversion success, no additional failures. Report:
+build/sapb-final-scan.csv (local, not committed). The nine initial
+silences were previously checked against ASAP at 15 seconds.
+This is not waveform fidelity or all-subsong validation.
+Decision_in_the_Desert rendered 15 seconds with 114 skipped deadlines;
+tempo fidelity remains unverified. Next diagnostic: obtain reference
+CPU trace using the external asapscan tool and compare the first
+PLAYER call, including the branch-table target at music offset $06F8.
+No CPU or player changes, guest data, or reference source included.
