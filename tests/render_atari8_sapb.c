@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <inttypes.h>
 #include <errno.h>
+#include <string.h>
 
 typedef struct {
     FILE *file;
@@ -104,10 +105,12 @@ static void diagnostic(const Atari8Sapb *s, const char *stage, Atari8SapbResult 
 
 int main(int argc,char **argv)
 {
+    bool restart=argc>1 && !strcmp(argv[argc-1],"--frame-restart");
+    if (restart) --argc;
     long seconds=15, song=-1;
     if (argc<3 || argc>5 || (argc>=4 && !integer(argv[3],1,300,&seconds))
         || (argc==5 && !integer(argv[4],-1,255,&song))) {
-        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [seconds 1..300] [song -1..255]\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [seconds 1..300] [song -1..255] [--frame-restart]\n",argv[0]);
         return 2;
     }
     FILE *in=fopen(argv[1],"rb");
@@ -124,9 +127,10 @@ int main(int argc,char **argv)
     if (!ok) { free(data); return 2; }
     Atari8Sapb s={0};
     Output out={0};
-    Atari8SapbResult r=atari8_sapb_open(&s,data,(size_t)n,(int)song,48000,sink,&out);
+    Atari8SapbResult r=atari8_sapb_open_mode(&s,data,(size_t)n,(int)song,48000,sink,&out,restart);
     free(data);
     if (r!=ATARI8_SAPB_OK) { diagnostic(&s,"INIT/parse",r); return 1; }
+    if (restart) fputs("Experimental frame-restart policy enabled\n",stderr);
     out.channels=s.info.stereo?2u:1u;
     out.limit=(uint64_t)seconds*48000u;
     out.file=fopen(argv[2],"wb");
@@ -149,5 +153,6 @@ int main(int argc,char **argv)
     }
     printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " player calls, %" PRIu64 " skipped deadlines, %" PRIu64 " legacy VBI returns\n",
         out.frames,s.intervals,s.missed_intervals,s.machine.sap_vbi_returns);
+    if (restart) printf("Abandoned calls: %" PRIu64 "\n",s.abandoned_calls);
     return 0;
 }

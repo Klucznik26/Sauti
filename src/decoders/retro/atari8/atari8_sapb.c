@@ -167,9 +167,10 @@ static void recognize_vbi_tails(Atari8Machine *m)
     }
 }
 
-Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
+Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
                                   size_t size, int song, uint32_t rate,
-                                  Atari8MachineSink sink, void *context)
+                                  Atari8MachineSink sink, void *context,
+                                  bool frame_restart)
 {
     if (!s) return ATARI8_SAPB_BAD_FORMAT;
     Atari8SapbInfo info;
@@ -180,16 +181,34 @@ Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
     s->info = info;
     s->intervals = 0;
     s->missed_intervals = 0;
+    s->frame_restart = frame_restart;
+    s->next_deadline = s->abandoned_calls = 0;
     if (!atari8_machine_init(&s->machine,info.ntsc,info.stereo,rate,true,NULL,NULL))
         return s->status = ATARI8_SAPB_UNSUPPORTED;
     s->machine.sap_host_scheduled = true;
     r = segments(data,size,&info,&s->machine);
     if (r != ATARI8_SAPB_OK) return s->status = r;
     s->machine.cpu.a = (uint8_t)(song < 0 ? info.default_song : (unsigned)song);
+    if (frame_restart) {
+        s->machine.cpu.sp = 0xff;
+        s->machine.cpu.p = ATARI8_CPU_U | (s->machine.cpu.a ? 0 : ATARI8_CPU_Z);
+        if (s->machine.cpu.a & 0x80u) s->machine.cpu.p |= ATARI8_CPU_N;
+        if (atari8_machine_idle(&s->machine,9) != ATARI8_MACHINE_OK)
+            return s->status = ATARI8_SAPB_RUNTIME;
+    }
     if (atari8_machine_call(&s->machine,info.init,
                             (uint64_t)s->machine.pcm.clock_hz * 2u) != ATARI8_MACHINE_OK)
         return s->status = ATARI8_SAPB_RUNTIME;
     recognize_vbi_tails(&s->machine);
+    if (frame_restart) {
+        /* Begin scheduled playback on the next FASTPLAY grid point,
+         * offset nine master cycles; discard INIT and alignment audio. */
+        uint32_t phase = (uint32_t)(s->machine.master_cycles % info.interval);
+        uint32_t wait = (info.interval + 9u - phase) % info.interval;
+        if (atari8_machine_idle(&s->machine,wait) != ATARI8_MACHINE_OK)
+            return s->status = ATARI8_SAPB_RUNTIME;
+        s->next_deadline = s->machine.master_cycles;
+    }
     /* INIT is not part of the output timeline. Keep hardware phase, but
      * start a fresh sample integrator and output frame count. */
     if (!atari8_pcm_init(&s->machine.pcm,s->machine.core.pokey[0].clock_hz,
@@ -201,10 +220,60 @@ Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
     return s->status = ATARI8_SAPB_OK;
 }
 
+Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
+                                  size_t size, int song, uint32_t rate,
+                                  Atari8MachineSink sink, void *context)
+{
+    return atari8_sapb_open_mode(s,data,size,song,rate,sink,context,false);
+}
+
+/* Experimental scheduler based on observed frame-boundary behavior.
+ * Guest state is retained, including the stack of an unfinished call.
+ * The host models a six-cycle call and uses a reserved I/O address as
+ * its return marker, without executing host code in guest RAM.
+ * Each invocation is bounded by one interval plus an instruction;
+ * JAM and unsupported I/O still fail. BRK is executed normally. */
+static Atari8SapbResult restart_interval(Atari8Sapb *s)
+{
+    Atari8Machine *m=&s->machine;
+    uint8_t sp=m->cpu.sp;
+    m->ram[0x100u | m->cpu.sp--]=0xd2;
+    m->ram[0x100u | m->cpu.sp--]=0x02;
+    m->cpu.pc=s->info.player;
+    m->trace_next=m->trace_count=m->before_zero_count=0;
+    m->entered_zero=false;
+    s->next_deadline+=s->info.interval;
+    if (atari8_machine_idle(m,6)!=ATARI8_MACHINE_OK)
+        return s->status=ATARI8_SAPB_RUNTIME;
+    m->cpu.cycles+=6;
+    bool returned=false;
+    while (m->master_cycles<s->next_deadline) {
+        if (atari8_machine_step(m)!=ATARI8_MACHINE_OK)
+            return s->status=ATARI8_SAPB_RUNTIME;
+        if (m->cpu.pc==0xd203u && m->cpu.sp==sp) {
+            returned=true;
+            break;
+        }
+    }
+    if (!returned) ++s->abandoned_calls;
+    if (m->master_cycles<s->next_deadline &&
+        atari8_machine_idle(m,(uint32_t)(s->next_deadline-m->master_cycles))!=ATARI8_MACHINE_OK)
+        return s->status=ATARI8_SAPB_RUNTIME;
+    /* Preserve a fixed grid even when WSYNC or a final instruction
+     * overshoots one or more unusually short FASTPLAY intervals. */
+    while (m->master_cycles>=s->next_deadline+s->info.interval) {
+        s->next_deadline+=s->info.interval;
+        ++s->missed_intervals;
+    }
+    ++s->intervals;
+    return ATARI8_SAPB_OK;
+}
+
 Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s)
 {
     if (!s) return ATARI8_SAPB_BAD_FORMAT;
     if (s->status != ATARI8_SAPB_OK) return s->status;
+    if (s->frame_restart) return restart_interval(s);
     uint64_t start = s->machine.master_cycles;
     /* Compatibility policy: finish an overlong call, never reenter it.
      * Skip elapsed deadlines and return to the original FASTPLAY grid.

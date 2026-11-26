@@ -207,9 +207,37 @@ static void test_legacy_vbi_chain(void)
     s.machine.ram[0x224]=1;
     CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME && !s.machine.sap_vbi_returns);
 }
+static void test_frame_restart(void)
+{
+    uint8_t data[512];
+    size_t n=fixture(data,false,false);
+    Atari8Sapb s;
+    /* Finite work before an endless loop: each frame increments $80. */
+    const uint8_t code[]={0xe6,0x80,0xa5,0x80,0x4c,0x04,0x21,0xea};
+    memcpy(data+n-sizeof(code),code,sizeof(code));
+    CHECK(atari8_sapb_open_mode(&s,data,n,0,48000,NULL,NULL,true)==ATARI8_SAPB_OK);
+    uint8_t sp=s.machine.cpu.sp;
+    uint64_t start=s.machine.master_cycles;
+    for(unsigned i=0;i<5;++i) CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+    CHECK(s.intervals==5 && s.abandoned_calls==5 && s.machine.ram[0x80]==5);
+    CHECK(s.machine.cpu.sp==(uint8_t)(sp-10));
+    CHECK(s.machine.master_cycles>=start+5u*s.info.interval &&
+          s.machine.master_cycles<start+5u*s.info.interval+10u);
+    /* Returning code parks the CPU and does not leak stack entries. */
+    n=fixture(data,false,false);
+    CHECK(atari8_sapb_open_mode(&s,data,n,0,48000,NULL,NULL,true)==ATARI8_SAPB_OK);
+    sp=s.machine.cpu.sp;
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+    CHECK(s.abandoned_calls==0 && s.machine.cpu.sp==sp);
+    /* JAM is not swallowed in the alternate mode. */
+    data[n-8]=0x02;
+    CHECK(atari8_sapb_open_mode(&s,data,n,0,48000,NULL,NULL,true)==ATARI8_SAPB_OK);
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME);
+    CHECK(s.machine.status==ATARI8_MACHINE_CPU_STOP);
+}
 int main(void)
 {
-    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh(); test_legacy_vbi_chain();
+    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh(); test_legacy_vbi_chain(); test_frame_restart();
     puts("PASS: experimental Atari8 SAP-B");
     return 0;
 }

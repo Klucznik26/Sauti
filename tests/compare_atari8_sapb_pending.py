@@ -94,6 +94,7 @@ def main():
     p.add_argument("--seconds",type=int,default=15,choices=range(1,61))
     p.add_argument("--only",help="case-insensitive substring of relative SAP path")
     p.add_argument("--stats",action="store_true",help="print per-second PCM peak and RMS")
+    p.add_argument("--frame-restart",action="store_true",help="opt in to experimental Sauti scheduler")
     a=p.parse_args()
     if not a.asap.is_file() or not a.renderer.is_file():
         p.error("ASAP or Sauti executable missing")
@@ -120,6 +121,8 @@ def main():
                 output.unlink(missing_ok=True)
                 if label=="Sauti":
                     cmd=[str(exe.resolve()),str(src),str(output),str(a.seconds)]
+                    if a.frame_restart:
+                        cmd.append("--frame-restart")
                 else:
                     cmd=[str(exe.resolve()),"-o",str(output),"-t",
                          f"{a.seconds//60:02d}:{a.seconds%60:02d}","-R","48000",str(src)]

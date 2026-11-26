@@ -21,6 +21,8 @@ typedef struct {
     Atari8SapbInfo info;
     Atari8SapbResult status;
     uint64_t intervals, missed_intervals;
+    bool frame_restart;
+    uint64_t next_deadline, abandoned_calls;
 } Atari8Sapb;
 
 Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
@@ -30,6 +32,13 @@ Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
 Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
                                   size_t size, int song, uint32_t rate,
                                   Atari8MachineSink sink, void *context);
+/* Explicit experimental playback policy for nonreturning legacy players.
+ * Default open remains non-reentrant. The alternate mode abandons the
+ * unfinished execution at a FASTPLAY deadline, retaining guest state. */
+Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
+                                  size_t size, int song, uint32_t rate,
+                                  Atari8MachineSink sink, void *context,
+                                  bool frame_restart);
 /* Call PLAYER and advance to the next FASTPLAY grid boundary.
  * Overlong calls skip elapsed deadlines, bounded by a watchdog.
  * intervals counts actual calls; missed_intervals counts skipped calls.

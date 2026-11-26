@@ -431,3 +431,22 @@ Keep the budget failure visible; do not count the file as rendered or
 silently patch its data. No trace, guest bytes or reference code added.
 Archive result remains 3823/3824. This evidence does not establish that
 all SAP-B files are correct or that every other track matches hardware.
+
+### Experimental frame-restart scheduling
+
+A 30-second external ASAP render of Chromatics (SHA256
+ db675978c3a0837bc26eb9bd1c6ae95b412ba88153190690a9d5f83542b51ccc)
+has sustained nonzero PCM in every second (RMS 1002.60 to 2766.53).
+It is not merely an initial transient; musical fidelity remains unverified.
+Introduce an explicit alternate scheduler, never enabled by default.
+The host schedules a six-cycle synthetic call on each FASTPLAY deadline,
+retaining guest registers, RAM, and stack even after an unfinished call.
+BRK runs normally. Normal returns park the CPU. Abandoned calls are
+counted; I/O faults and JAM still fail. Initial SP, flags and phase are
+adjusted only in this mode based on the observed external trace. The
+call timing and INIT return address are approximations. Each call is
+bounded by the next deadline plus instruction overshoot, and no source
+or guest-specific bytes are imported. Synthetic tests cover repeated
+abandonment, normal return and JAM. The regular 3823/3824 policy is
+unchanged. Use --frame-restart on the diagnostic renderer or comparison
+script; verify the real input before considering automatic selection.
