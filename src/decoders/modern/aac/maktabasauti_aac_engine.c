@@ -38,7 +38,7 @@ int aac_adts_parse_header(const uint8_t *p, size_t n, aac_adts_hdr_t *h) {
 
 int aac_same_stream(const dec_t *d, const aac_adts_hdr_t *h) {
     return h->rate_index == d->rate_index && h->config == d->config && h->raw_blocks == 1u && h->crc_present == d->crc_present &&
-           (h->er ? (d->variant == V_ER && h->er_aot == d->er_aot && h->er_480 == d->er_480) : d->variant != V_ER);
+           (h->er ? (d->variant == V_ER && h->er_aot == d->er_aot && h->er_480 == d->er_480) : (d->lcw_adts ? (d->variant == V_ER && d->er_aot == 100u) : d->variant != V_ER));
 }
 
 /* ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
@@ -454,6 +454,25 @@ static void drop_checkpoints(dec_t *d) {
 }
 
 static uint64_t default_mask(unsigned channels);
+static maktabasauti_result_t setup_lcw(dec_t *d, const aac_adts_hdr_t *hd0) {
+    aac_adts_hdr_t hd = *hd0;
+    {           /* AAC-LC / Main z ukladem PCE, bez ograniczenia 8 kanalow, ze sprzezeniami (CCE): sauti_aac_lcw */
+        const unsigned n = hd.er_480 ? 960u : 1024u; const size_t need = (size_t)n * d->lcw_cfg.layout.channels;
+        if (!d->lcw_ready || hd.crc_present || d->lcw_cfg.rate_index != hd.rate_index || d->lcw_cfg.frame960 != hd.er_480 || d->lcw_cfg.main != (hd.er_aot == 101u)) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+        if (need > d->cache_cap) {
+            float *bigger = (float *)d->host->alloc(d->host->user, need * sizeof(float));
+            if (!bigger) return MAKTABASAUTI_E_NO_MEMORY;
+            memset(bigger, 0, need * sizeof(float)); d->host->free(d->host->user, d->cache); d->cache = bigger; d->cache_cap = need;
+        }
+        d->variant = V_ER; d->er_aot = hd.er_aot; d->er_480 = hd.er_480;
+        d->core_channels = d->lcw_cfg.layout.channels; d->out_channels = d->core_channels; d->ps_mode = 0; d->he960 = 0u; d->eldsbr = 0u;
+        d->frame_pcm = n; d->out_rate = d->core_rate;
+        core_reset(d);
+        if (decode_er(d) != P_OK) { lcm_free(d, &d->core); return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
+        core_reset(d);
+        return MAKTABASAUTI_OK;
+    }
+}
 static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp);
 static void fill_info(const dec_t *d, maktabasauti_stream_info_t *info) {
     memset(info, 0, sizeof *info);
@@ -660,22 +679,7 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
         core_reset(d);
         return up == P_OK ? MAKTABASAUTI_OK : MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
     }
-    if (hd.er && (hd.er_aot == 100u || hd.er_aot == 101u)) {           /* AAC-LC / Main z ukladem PCE, bez ograniczenia 8 kanalow, ze sprzezeniami (CCE): sauti_aac_lcw */
-        const unsigned n = hd.er_480 ? 960u : 1024u; const size_t need = (size_t)n * d->lcw_cfg.layout.channels;
-        if (!d->lcw_ready || hd.crc_present || d->lcw_cfg.rate_index != hd.rate_index || d->lcw_cfg.frame960 != hd.er_480 || d->lcw_cfg.main != (hd.er_aot == 101u)) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
-        if (need > d->cache_cap) {
-            float *bigger = (float *)d->host->alloc(d->host->user, need * sizeof(float));
-            if (!bigger) return MAKTABASAUTI_E_NO_MEMORY;
-            memset(bigger, 0, need * sizeof(float)); d->host->free(d->host->user, d->cache); d->cache = bigger; d->cache_cap = need;
-        }
-        d->variant = V_ER; d->er_aot = hd.er_aot; d->er_480 = hd.er_480;
-        d->core_channels = d->lcw_cfg.layout.channels; d->out_channels = d->core_channels; d->ps_mode = 0; d->he960 = 0u; d->eldsbr = 0u;
-        d->frame_pcm = n; d->out_rate = d->core_rate;
-        core_reset(d);
-        if (decode_er(d) != P_OK) { lcm_free(d, &d->core); return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
-        core_reset(d);
-        return MAKTABASAUTI_OK;
-    }
+    if (hd.er && (hd.er_aot == 100u || hd.er_aot == 101u)) return setup_lcw(d, &hd);
     if (hd.er) {                                                       /* AAC-LD / AAC-ELD: jeden wariant, bez wykrywania */
         SautiAacErConfig c; unsigned n;
         c.aot = hd.er_aot; c.rate_index = hd.rate_index; c.frame480 = hd.er_480; c.channel_config = hd.config;
@@ -716,7 +720,13 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
             if (hd.crc_present) { return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }             /* wielokanalowy LC bez CRC (jak wczesniej) */
             if (hd.config == 0u) {
                 int sc = sauti_aac_lc_multi_scan_pce(d->frame, d->frame_len, &d->layout);
-                if (sc != 1) { return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
+                if (sc != 1) {                                                            /* a layout lc_multi does not take (more than 8 channels, no standard position, coupling): sauti_aac_lcw */
+                    aac_adts_hdr_t lh = hd; SautiAacLcwLayout lay;
+                    if (hd.er || sauti_aac_lcw_scan_pce(d->frame + hd.header_bytes, d->frame_len - hd.header_bytes, &lay) != 1) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+                    memset(&d->lcw_cfg, 0, sizeof d->lcw_cfg); d->lcw_cfg.rate_index = hd.rate_index; d->lcw_cfg.layout = lay; d->lcw_ready = 1u; d->lcw_adts = 1u;
+                    lh.er = 1u; lh.er_aot = 100u; lh.er_480 = 0u;
+                    return setup_lcw(d, &lh);
+                }
             } else if (!sauti_aac_lc_multi_config_channels(hd.config)) { return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
         }
         for (k = 0; k < norder; k++) {

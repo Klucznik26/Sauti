@@ -117,7 +117,7 @@ typedef struct {
     checkpoint_t **cps; size_t cp_count, cp_cap; uint64_t cp_stride;
     size_t cp_max;
     float *cache; size_t cache_cap;                      /* blok PCM ostatnio zdekodowanej ramki; CACHE_FLOATS, wiecej dla ukladow szerokich (lcw) */
-    SautiAacLcwConfig lcw_cfg; unsigned lcw_ready;       /* uklad PCE z ASC (kontener), er_aot 100 / 101 */
+    SautiAacLcwConfig lcw_cfg; unsigned lcw_ready, lcw_adts;       /* uklad PCE z ASC (kontener), er_aot 100 / 101 */
     size_t cache_pos, cache_len;                         /* ramki PCM w cache */
     uint64_t position;                                   /* ramki PCM wydane */
     int have_frame; size_t frame_len;

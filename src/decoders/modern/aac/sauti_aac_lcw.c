@@ -84,6 +84,20 @@ int sauti_aac_lcw_pce_parse(const uint8_t *raw,size_t length,size_t *pos,SautiAa
     *out=l;
     return 1;
 }
+/* The in-band PCE of a raw_data_block (ADTS channel_configuration 0): elements DSE / FIL before it are skipped.  1 found, 0 none / malformed, -1 layout not supported. */
+static int skip_dse(const uint8_t *raw,size_t length,size_t *pos);
+int sauti_aac_lcw_scan_pce(const uint8_t *raw,size_t length,SautiAacLcwLayout *layout){
+    size_t pos=0;
+    if(!raw||!layout)return 0;
+    for(;;){
+        uint32_t id=0;
+        if(!get(raw,length,&pos,3,&id))return 0;
+        if(id==5u)return sauti_aac_lcw_pce_parse(raw,length,&pos,layout);
+        if(id==4u){if(!skip_dse(raw,length,&pos))return 0;continue;}
+        if(id==6u){if(sauti_aac_fill_skip_non_sbr(raw,length,&pos,NULL)!=1)return 0;continue;}
+        return 0;
+    }
+}
 /* ---- state ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
 struct SautiAacLcw {
     SautiAacLcwConfig cfg;

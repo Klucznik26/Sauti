@@ -24,6 +24,8 @@ typedef struct {
  * 1 ok, 0 malformed / truncated, -1 not supported (more than SAUTI_AAC_LCW_MAX_CHANNELS channels or elements). */
 int sauti_aac_lcw_pce_parse(const uint8_t *data,size_t length,size_t *pos,SautiAacLcwLayout *layout);
 
+int sauti_aac_lcw_scan_pce(const uint8_t *raw,size_t length,SautiAacLcwLayout *layout);   /* the PCE at the start of a raw_data_block (after DSE / FIL elements): 1 / 0 / -1 as above */
+
 typedef struct {
     unsigned rate_index;                                /* 0..12 (0..11 for Main) */
     unsigned frame960;                                  /* plain LC with frameLengthFlag = 1 (Main: see sauti_aac_lcn.h) */
