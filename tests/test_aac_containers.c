@@ -176,6 +176,28 @@ static Buf build_ts(const uint8_t *adts, size_t n, const TsOpt *o) {
     return out;
 }
 
+
+/* ---- ADTS that says LC but carries AAC SSR (gain control) ------------------------------------------------------------------------------------------------------------------------------ */
+static void ssr_au(Buf *b, int rising) {                                          /* one SCE, silent spectrum (max_sfb 0), gain_control_data present with two changes in band 1 */
+    unsigned acc = 0, bits = 0; uint8_t byte; size_t i;
+    struct { unsigned v, w; } f[] = { { 0, 3 }, { 0, 4 }, { 100, 8 }, { 0, 1 }, { 0, 2 }, { 0, 1 }, { 0, 6 }, { 0, 1 }, { 0, 1 }, { 0, 1 }, { 1, 1 },
+                                      { 1, 2 }, { 2, 3 }, { 5, 4 }, { 9, 5 }, { 7, 4 }, { 0, 0 } };                      /* id SCE, tag, gain, ics_info, flags, max_band 1, adjust 2, (lev, loc) x 2 */
+    f[16].v = rising ? 20u : 4u; f[16].w = 5;
+    for (i = 0; i < sizeof f / sizeof f[0]; i++) { unsigned k; for (k = f[i].w; k > 0; k--) { acc = (acc << 1) | ((f[i].v >> (k - 1u)) & 1u); if (++bits == 8u) { byte = (uint8_t)acc; put(b, &byte, 1); acc = 0; bits = 0; } } }
+    acc = (acc << 3) | 7u; bits += 3u;                                             /* ID_END */
+    while (bits % 8u) { acc <<= 1; bits++; }
+    if (bits >= 8u) { for (i = bits; i >= 8u; i -= 8u) { byte = (uint8_t)(acc >> (i - 8u)); put(b, &byte, 1); } }
+}
+static Buf ssr_adts(int rising, unsigned frames) {
+    Buf f = { 0 }; unsigned k;
+    for (k = 0; k < frames; k++) {
+        Buf a = { 0 }; size_t l; uint8_t h[7];
+        ssr_au(&a, rising); l = a.n + 7u;
+        h[0] = 0xff; h[1] = 0xf1; h[2] = (uint8_t)(0x40u | (4u << 2)); h[3] = (uint8_t)(0x40u | ((l >> 11) & 3u)); h[4] = (uint8_t)(l >> 3); h[5] = (uint8_t)(((l & 7u) << 5) | 0x1fu); h[6] = 0xfc;
+        put(&f, h, 7); put(&f, a.p, a.n); free(a.p);
+    }
+    return f;
+}
 static int same_pcm(const float *a, size_t na, const float *b, size_t nb) { return a && b && na == nb && !memcmp(a, b, na * 2u * sizeof(float)); }
 static void expect_equal(const char *what, const uint8_t *data, size_t n, const float *ref, size_t ref_n, const char *want_container) {
     size_t frames = 0; const char *cont; float *pcm = decode_all(data, n, &frames, &cont);
@@ -260,6 +282,14 @@ int main(void) {
             }
         }
         {   TsOpt o = { 188, 0, 0x03 }; Buf b = build_ts(adts, n, &o); expect_refused("a program without AAC", b.p, b.n); free(b.p); }
+    }
+    {   /* the profile field says LC; gain_control_data with rising locations in a frame that parses as SSR makes the stream SSR, the same bits with falling locations (a flag set by garbage) do not */
+        Buf g = ssr_adts(1, 6); maktabasauti_stream_info_t info; maktabasauti_decoder_t *d = open_mem(g.p, g.n, &info, NULL);
+        CHECK(d != NULL && !strcmp(info.codec_profile, "SSR"), "ADTS profile LC with plausible gain control is detected as SSR (%s)", d ? info.codec_profile : "open failed");
+        if (d) maktabasauti_decoder_close(d);
+        free(g.p); g = ssr_adts(0, 6);
+        expect_refused("gain control with falling locations is not SSR (and LC refuses it)", g.p, g.n);
+        free(g.p);
     }
     {   /* garbage that looks like neither */
         uint8_t junk[3000]; size_t i; for (i = 0; i < sizeof junk; i++) junk[i] = (uint8_t)(i * 7u + 3u);

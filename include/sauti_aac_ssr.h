@@ -23,6 +23,7 @@ typedef struct {
     double overlap[SAUTI_AAC_SSR_BANDS][512];                                           /* per band, the second half of the previous frame (short windows use up to 400 entries) */
     SautiAacSsrGainInf prev[SAUTI_AAC_SSR_BANDS];                                       /* gain data of the last block of the previous frame, per band */
     double pqf0[2][24], pqf1[2][24];                                                    /* IPQF delay lines */
+    unsigned bands;                                                                     /* bands that are synthesised (1..3: scalable sampling rate, the others are silent); 0 or 4 = all */
 } SautiAacSsrState;
 
 extern const double sauti_aac_ssr_pqf_half[48];                                         /* generated: tools/gen_aac_ssr_tables.py */

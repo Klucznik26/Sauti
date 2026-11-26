@@ -77,6 +77,7 @@ int sauti_aac_lcn_element(const SautiAacLcnConfig *cfg,unsigned idx,unsigned id,
                           SautiAacLcnChannel ch[2],uint32_t *pns_seed,float out[2][1024],SautiAacReason *reason,const uint8_t *adts_header,unsigned adts_crc){
     int status=0;
     size_t p=at;
+    if(cfg->ssr)for(unsigned c=0;c<2;c++)if(ch[c].ssr)ch[c].ssr->bands=cfg->ssr_bands;
     if(id==0u || id==3u){
         SautiAacLcMonoData *mono=(SautiAacLcMonoData *)calloc(1,sizeof(*mono));
         if(!mono)return 0;
@@ -171,6 +172,47 @@ int sauti_aac_lcn_stage_tns(const SautiAacLcnStage *st,unsigned idx,float spectr
 /* The filter bank of one channel (the TNS has been applied by the caller). */
 int sauti_aac_lcn_stage_synth(unsigned idx,SautiAacLcSynthesis *syn,const SautiAacLcnStage *st,const float spectral[1024],float out[1024]){
     return sauti_aac_lc_synthesis_spectral(syn,&st->ics,NULL,idx,spectral,out);
+}
+/* Is this access unit plausibly AAC SSR with gain control?  It must parse to ID_END with the SSR syntax, carry gain_control_data in at least one channel, and every gain change list must have
+ * strictly rising locations (an encoder writes them in order; the flag of an LC stream that is set by a bit error is followed by meaningless data).  1 / 0. */
+static int gain_ascending(const SautiAacSsrGain *g,unsigned ws){
+    const unsigned blocks=ws==0u?1u:ws==2u?8u:2u;
+    for(unsigned b=1;b<=g->max_band&&b<SAUTI_AAC_SSR_BANDS;b++)
+        for(unsigned k=0;k<blocks;k++){
+            const SautiAacSsrGainInf *x=&g->band[b][k];
+            for(unsigned j=1;j<x->num;j++)if(x->loc[j]<=x->loc[j-1])return 0;
+        }
+    return 1;
+}
+int sauti_aac_lcn_ssr_plausible(unsigned rate_index,const uint8_t *au,size_t length){
+    const unsigned idx=SAUTI_AAC_IDX(rate_index,SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_SSR_FLAG;
+    size_t pos=0;int seen=0;
+    if(!au||rate_index>12u||length>SIZE_MAX/8u)return 0;
+    for(;;){
+        uint32_t id=0;size_t at=pos;SautiAacReason why=SAUTI_AAC_REASON_OK;
+        if(!get(au,length,&pos,3,&id))return 0;
+        if(id==7u)break;
+        if(id==4u){if(!skip_dse(au,length,&pos))return 0;continue;}
+        if(id==6u){if(sauti_aac_fill_skip_non_sbr(au,length,&pos,NULL)!=1)return 0;continue;}
+        if(id==0u||id==3u){
+            SautiAacLcMonoData *m=(SautiAacLcMonoData *)calloc(1,sizeof(*m));int r;
+            if(!m)return 0;
+            pos=at;r=sauti_aac_lc_element_parse(au,length,&pos,idx,id,m,&why);
+            if(r==1&&m->gain_present){seen=1;if(!gain_ascending(&m->gain,m->ics.window_sequence))r=0;}
+            free(m);if(r!=1)return 0;
+            continue;
+        }
+        if(id==1u){
+            SautiAacCpeData *c=(SautiAacCpeData *)calloc(1,sizeof(*c));int r;
+            if(!c)return 0;
+            pos=at;r=sauti_aac_lc_cpe_parse(au,length,&pos,idx,c,&why);
+            if(r==1)for(unsigned k=0;k<2;k++)if(c->channel[k].gain_present){seen=1;if(!gain_ascending(&c->channel[k].gain,c->channel[k].ics.window_sequence))r=0;}
+            free(c);if(r!=1)return 0;
+            continue;
+        }
+        return 0;
+    }
+    return seen;
 }
 unsigned sauti_aac_lcn_index(const SautiAacLcnConfig *cfg){
     if(cfg->er)return SAUTI_AAC_IDX(cfg->rate_index,cfg->frame960?SAUTI_AAC_LAYOUT_960:SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_ER_FLAG|(cfg->ltp?SAUTI_AAC_IDX_LTP_FLAG:0u);

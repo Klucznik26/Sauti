@@ -188,6 +188,7 @@ int sauti_aac_ssr_synthesis(SautiAacSsrState *st, unsigned ws, unsigned prev_sha
     }
     for (unsigned b = 0; b < NB; b++) {
         const SautiAacSsrGainInf *blocks = gain ? gain->band[b] : none;
+        if (st->bands && st->bands < NB && b >= st->bands) { memset(band_out[b], 0, sizeof band_out[b]); continue; }       /* scalable sampling rate: the band is not decoded */
         /* IMDCT and window */
         if (ws == 2u) {
             for (unsigned blk = 0; blk < 8; blk++) {

@@ -100,6 +100,21 @@ static void test_algebra(void) {
         CHECK(sauti_aac_ssr_synthesis(&s1, 0, 0, 0, spec, NULL, c1) == 1 && sauti_aac_ssr_synthesis(&s2, 0, 0, 0, spec2, NULL, c2) == 1, "linearity: synthesis");
         for (i = 0; i < 1024; i++) if (fabs(c2[i] - 2.0 * c1[i]) > 1e-4 * (fabs(c1[i]) + 1e-3)) { CHECK(0, "linearity at %d: %g vs %g", i, c2[i], c1[i]); break; }
     }
+    {   /* scalable sampling rate: the bands above `bands` are not synthesised; spectra that live below equal the full decoder, spectra above vanish */
+        float lo[1024] = { 0 }, hi[1024] = { 0 }, full[1024], part[1024];
+        for (i = 0; i < 512; i++) lo[i] = spec[i];
+        for (i = 768; i < 1024; i++) hi[i] = 50.0f * (float)sin(0.3 * i);
+        sauti_aac_ssr_state_init(&s1); sauti_aac_ssr_state_init(&s2); s2.bands = 2;
+        for (int f = 0; f < 3; f++) {
+            CHECK(sauti_aac_ssr_synthesis(&s1, 0, (unsigned)(f > 0 ? 1 : 0), 1, lo, NULL, full) == 1 && sauti_aac_ssr_synthesis(&s2, 0, (unsigned)(f > 0 ? 1 : 0), 1, lo, NULL, part) == 1, "bands: synthesis");
+            CHECK(memcmp(full, part, sizeof full) == 0, "frame %d: two bands decoded == all bands when the spectrum has nothing above", f);
+        }
+        sauti_aac_ssr_state_init(&s2); s2.bands = 2;
+        for (int f = 0; f < 3; f++) {
+            CHECK(sauti_aac_ssr_synthesis(&s2, 0, (unsigned)(f > 0 ? 1 : 0), 1, hi, NULL, part) == 1, "bands: synthesis (high)");
+            for (i = 0; i < 1024; i++) if (part[i] != 0.0f) { CHECK(0, "frame %d: a band above the decoded ones leaked into sample %d", f, i); break; }
+        }
+    }
     CHECK(sauti_aac_ssr_synthesis(&s1, 4, 0, 0, spec, NULL, a) == 0 && sauti_aac_ssr_synthesis(&s1, 0, 2, 0, spec, NULL, a) == 0 && sauti_aac_ssr_synthesis(&s1, 0, 0, 2, spec, NULL, a) == 0, "wrong sequence / shape refused");
 }
 int main(void) {

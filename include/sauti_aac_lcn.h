@@ -16,6 +16,7 @@ typedef struct {
     unsigned ltp;              /* 1: AAC LTP (object type 4): 1024 lines, ics_info ltp_data, long-term prediction from the decoder's own output (sauti_aac_ltp.h); exclusive with `main` */
     unsigned frame960;         /* with `main`: frameLengthFlag = 1, 960 lines per frame (the predictor works on the first 960 states); not defined for LTP */
     unsigned ssr;              /* 1: AAC SSR (object type 3): 1024 lines, gain control tool and the 4-band filter bank (sauti_aac_ssr.h); exclusive with main / ltp / er */
+    unsigned ssr_bands;        /* with `ssr`: number of PQF bands that are decoded (1..3: scalable sampling rate, the upper bands stay silent); 0 or 4 = all */
     unsigned main;             /* 1: AAC Main (object type 1): 1024 lines per frame, ics_info predictor_data, backward-adaptive prediction (sauti_aac_pred.h); 0: AAC-LC with 960 lines */
 } SautiAacLcnConfig;
 typedef struct {
@@ -46,6 +47,9 @@ unsigned sauti_aac_lcn_index(const SautiAacLcnConfig *config);       /* the pack
  * adts_header / adts_crc as in sauti_aac_lcn_decode_adts (NULL = no check). */
 int sauti_aac_lcn_element(const SautiAacLcnConfig *config,unsigned idx,unsigned id,const uint8_t *au,size_t length,size_t at,size_t *pos,
                           SautiAacLcnChannel ch[2],uint32_t *pns_seed,float out[2][1024],SautiAacReason *reason,const uint8_t *adts_header,unsigned adts_crc);
+/* Detection of AAC SSR in a stream that claims AAC-LC (ADTS profile 1): 1 when the access unit parses with the SSR syntax and carries plausible gain_control_data (see the .c file). */
+int sauti_aac_lcn_ssr_plausible(unsigned rate_index,const uint8_t *au,size_t length);
+
 /* Staged decoding for the wide multichannel decoder (sauti_aac_lcw.h): plain LC (1024 / 960 lines) and Main only.  `stage_element` parses an SCE / CPE / LFE and leaves the spectra before TNS (after
  * dequantisation, PNS, M/S, intensity, Main prediction); `stage_cce` does that for the individual_channel_stream of a coupling channel element; `stage_tns` applies the TNS of a stage; `stage_synth`
  * runs the filter bank (window, IMDCT, overlap-add) on spectra whose TNS has been applied.  1 / 0 / -1 as sauti_aac_lcn_element. */
