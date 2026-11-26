@@ -11,6 +11,8 @@ typedef struct {
     uint8_t output[4];
     uint32_t clock_hz;
     uint32_t phase28, phase114;
+    uint32_t poly[4]; /* 4, 5, 9, 17 bits */
+    uint8_t noise_history[4]; /* one cycle of delay per channel */
 } Atari8Pokey;
 
 void atari8_pokey_reset(Atari8Pokey *p, bool ntsc);

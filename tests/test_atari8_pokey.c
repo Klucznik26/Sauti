@@ -36,8 +36,7 @@ static void test_volume_and_rejection(void)
     CHECK(atari8_pokey_level(&p) == 60);
     atari8_pokey_step(&p, 10000);
     CHECK(atari8_pokey_level(&p) == 60);
-    CHECK(!atari8_pokey_write(&p, 1, 0x8f));
-    CHECK(!atari8_pokey_write(&p, 8, 0x80));
+    CHECK(!atari8_pokey_write(&p, 8, 0x02));
     CHECK(!atari8_pokey_write(&p, 255, 0));
     CHECK(p.audctl == 0 && p.audc[0] == 0x1f);
     CHECK(atari8_pokey_level(&p) == 60);
@@ -126,6 +125,88 @@ static void test_mixed_clocks(void)
     CHECK(atari8_pokey_level(&p) == 3);
 }
 
+/* Verify full polynomial cycles, uniqueness and output balance. */
+static void test_polynomials(void)
+{
+    static const unsigned periods[] = {15, 31, 511, 131071};
+    for (unsigned i = 0; i < 4; ++i) {
+        Atari8Pokey p;
+        atari8_pokey_reset(&p, false);
+        unsigned initial = p.poly[i];
+        unsigned ones = 0;
+        for (unsigned n = 0; n < periods[i]; ++n) {
+            atari8_pokey_step(&p, 1);
+            CHECK(p.poly[i] != 0);
+            CHECK((p.poly[i] == initial) == (n + 1 == periods[i]));
+            ones += p.noise_history[i] & 1u;
+        }
+        CHECK(ones == (periods[i] + (i < 2 ? 0u : 1u)) / 2u);
+    }
+}
+
+/* Documented short-polynomial bit patterns, allowing a cyclic rotation
+ * because hardware initialization phase is not yet implemented. */
+static void test_short_pattern(unsigned i, const char *pattern, unsigned n)
+{
+    Atari8Pokey p;
+    char observed[31];
+    atari8_pokey_reset(&p, false);
+    for (unsigned j = 0; j < n; ++j) {
+        atari8_pokey_step(&p, 1);
+        observed[j] = (char)('0' + (p.noise_history[i] & 1u));
+    }
+    unsigned matches = 0;
+    for (unsigned offset = 0; offset < n; ++offset) {
+        unsigned j;
+        for (j = 0; j < n; ++j)
+            if (observed[j] != pattern[(offset + j) % n])
+                break;
+        matches += j == n;
+    }
+    CHECK(matches == 1);
+}
+
+static void test_waveforms(void)
+{
+    /* Independent bit-selection expectations at successive timer events,
+     * including the five-bit gate and per-channel delay. */
+    for (unsigned short_noise = 0; short_noise < 2; ++short_noise) {
+        for (unsigned mode = 0; mode < 8; ++mode) {
+            Atari8Pokey p;
+            uint8_t expected[4] = {0};
+            atari8_pokey_reset(&p, false);
+            CHECK(atari8_pokey_write(&p, 8, short_noise ? 0x80 : 0));
+            for (unsigned ch = 0; ch < 4; ++ch)
+                CHECK(atari8_pokey_write(&p, (uint8_t)(2 * ch + 1),
+                                        (uint8_t)(mode * 32 + 15)));
+            CHECK(atari8_pokey_write(&p, 9, 0));
+            for (unsigned n = 0; n < 1000; ++n) {
+                atari8_pokey_step(&p, 28);
+                for (unsigned ch = 0; ch < 4; ++ch) {
+                    if ((mode >= 4) || ((p.noise_history[1] >> ch) & 1)) {
+                        if (mode & 1)
+                            expected[ch] = 1 - expected[ch];
+                        else {
+                            unsigned source = (mode & 2) ? 0 :
+                                              (short_noise ? 2 : 3);
+                            expected[ch] = (p.noise_history[source] >> ch) & 1;
+                        }
+                    }
+                    CHECK(p.output[ch] == expected[ch]);
+                }
+            }
+        }
+    }
+    Atari8Pokey p;
+    atari8_pokey_reset(&p, false);
+    CHECK(atari8_pokey_write(&p, 1, 0xaf));
+    CHECK(atari8_pokey_write(&p, 9, 0));
+    atari8_pokey_step(&p, 27);
+    CHECK(atari8_pokey_write(&p, 8, 0x80));
+    atari8_pokey_step(&p, 1);
+    CHECK(atari8_pokey_level(&p) == 15);
+}
+
 int main(void)
 {
     for (unsigned f = 0; f < 256; ++f) {
@@ -144,6 +225,10 @@ int main(void)
             test_link(low, values[i], 114);
         }
     }
+    test_polynomials();
+    test_short_pattern(0, "000111011001010", 15);
+    test_short_pattern(1, "1000001110010001010111101101001", 31);
+    test_waveforms();
     test_mixed_clocks();
     test_volume_and_rejection();
     test_channels();

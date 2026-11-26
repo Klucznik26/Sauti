@@ -47,10 +47,48 @@ static void restart_timers(Atari8Pokey *p)
     }
 }
 
+/* Right-shifting representations of the documented polynomial
+ * sequences. The short audio sequences have inverted polarity.
+ * The 9/17-bit generator is temporarily represented by two free-running
+ * registers; switching between them is not yet hardware-exact. */
+static void clock_noise(Atari8Pokey *p)
+{
+    static const uint8_t width[] = {4, 5, 9, 17};
+    static const uint8_t tap[] = {1, 2, 5, 5};
+
+    for (unsigned i = 0; i < 4; ++i) {
+        uint32_t s = p->poly[i];
+        uint32_t feedback = (s ^ (s >> tap[i])) & 1u;
+        s = (s >> 1) | (feedback << (width[i] - 1));
+        p->poly[i] = s;
+        unsigned bit = (s & 1u) ^ (i < 2 ? 1u : 0u);
+        p->noise_history[i] =
+            (uint8_t)(((unsigned)p->noise_history[i] << 1 | bit) & 15u);
+    }
+}
+
+static void clock_waveform(Atari8Pokey *p, unsigned ch)
+{
+    uint8_t mode = p->audc[ch];
+    if (!(mode & 0x80) && !((p->noise_history[1] >> ch) & 1u))
+        return;
+    if (mode & 0x20) {
+        p->output[ch] ^= 1;
+    } else {
+        unsigned poly = (mode & 0x40) ? 0 : ((p->audctl & 0x80) ? 2 : 3);
+        p->output[ch] = (uint8_t)((p->noise_history[poly] >> ch) & 1u);
+    }
+}
+
 void atari8_pokey_reset(Atari8Pokey *p, bool ntsc)
 {
     memset(p, 0, sizeof(*p));
     p->clock_hz = ntsc ? 1789773u : 1773447u;
+    p->poly[0] = 15u;
+    p->poly[1] = 31u;
+    p->poly[2] = 511u;
+    p->poly[3] = 131071u;
+    p->noise_history[2] = p->noise_history[3] = 15u;
     for (unsigned ch = 0; ch < 4; ++ch)
         p->counter[ch] = 1;
 }
@@ -62,9 +100,6 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
         if (!(reg & 1)) {
             p->audf[ch] = value;
         } else {
-            /* Only unconditional pure tone, volume-only and reset silence. */
-            if (!(value & 0x10) && (value & 0xa0) != 0xa0 && value != 0)
-                return false;
             if (low_linked(p->audctl, ch) && oscillator_audible(value))
                 return false;
             p->audc[ch] = value;
@@ -72,17 +107,20 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
         return true;
     }
     if (reg == 8) {
-        /* Noise selection and high-pass filters remain unsupported. */
-        if (value & 0x86)
+        /* High-pass filters remain unsupported. */
+        if (value & 0x06)
             return false;
         for (unsigned ch = 0; ch < 4; ch += 2) {
             if (low_linked(value, ch) && oscillator_audible(p->audc[ch]))
                 return false;
         }
         if (p->audctl != value) {
+            uint8_t changed = p->audctl ^ value;
             p->audctl = value;
-            /* Simplified mode transition; not hardware-exact phase. */
-            restart_timers(p);
+            /* Simplified timer mode transition; noise selection alone
+             * must not restart the frequency timers. */
+            if (changed & 0x79)
+                restart_timers(p);
         }
         return true;
     }
@@ -97,6 +135,7 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
 void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles)
 {
     while (cycles--) {
+        clock_noise(p);
         bool tick28 = ++p->phase28 == 28;
         bool tick114 = ++p->phase114 == 114;
         if (tick28)
@@ -111,7 +150,7 @@ void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles)
                 continue;
             if (--p->counter[ch] == 0) {
                 p->counter[ch] = reload(p, ch);
-                p->output[ch] ^= 1;
+                clock_waveform(p, ch);
             }
         }
     }
