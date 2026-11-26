@@ -7,8 +7,16 @@ oscillator is not modeled: audible oscillator writes are rejected, while
 volume-only is allowed. Slow periods are N+1 selected ticks, fast periods
 are N+4 (8-bit) or N+7 (16-bit) master cycles. Counter capacity includes
 65536 slow ticks and 65542 fast cycles. STIMER, initialization and AUDCTL
-mode transitions are simplified; exact low-counter events, filters,
+mode transitions are simplified; exact low-counter events,
 IRQs, analog output, PCM and CPU emulation are not implemented.
+High-pass XOR latches on channels 1/2 are clocked by timers 3/4.
+The roughly 1.5-cycle hardware propagation is rounded to two cycles;
+simultaneous events use the updated lower-channel waveform. The
+combination of filter 1 and linked timers 3/4 is rejected because
+linked low-timer pulses are not yet modeled. STIMER sets raw output
+flip-flops to one, and channels 1/2 have inverted unfiltered polarity.
+Volume-only overrides the filter. Tests cover both filters, polarity,
+volume override, and the simplified propagation delay.
 All AUDC waveform selections now have a digital model. Four LFSRs run
 at master-clock speed with per-channel sample delays. The 9/17-bit modes
 currently use separate free-running registers; hardware mode switching,

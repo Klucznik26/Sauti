@@ -8,7 +8,8 @@
 typedef struct {
     uint8_t audf[4], audc[4], audctl;
     uint32_t counter[4];
-    uint8_t output[4];
+    uint8_t output[4]; /* raw waveform flip-flops */
+    uint8_t filter_latch[2], filter_sample[2], filter_delay[2];
     uint32_t clock_hz;
     uint32_t phase28, phase114;
     uint32_t poly[4]; /* 4, 5, 9, 17 bits */
