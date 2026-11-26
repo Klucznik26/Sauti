@@ -121,7 +121,7 @@ static inline void corpus_add_synthetic(corpus_t *c) {
     memset(&m, 0, sizeof m);
     mk_str(&m, "OggS"); mk_u8(&m, 0); mk_u8(&m, 2); mk_zero(&m, 8); mk_le32(&m, 1); mk_le32(&m, 0); mk_le32(&m, 0); mk_u8(&m, 1); mk_u8(&m, 30);
     mk_u8(&m, 1); mk_str(&m, "vorbis"); mk_le32(&m, 0); mk_u8(&m, 1); mk_le32(&m, 44100); mk_le32(&m, 0); mk_le32(&m, 64000); mk_le32(&m, 0); mk_u8(&m, 0xB8); mk_u8(&m, 1);
-    corpus_add(c, "syn.ogg", "ogg-vorbis-stb", m.b, m.n);
+    corpus_add(c, "syn.ogg", "vorbis", m.b, m.n);
 
     /* MIDI: format 0, jedna nuta */
     memset(&m, 0, sizeof m);
@@ -242,7 +242,7 @@ static inline void corpus_add_synthetic(corpus_t *c) {
 static inline const char *corpus_owner_for(const char *path) {
     static const struct { const char *suffix, *owner; } map[] = {
         { "lc.aac", "aac-adts" }, { "m51.aac", "aac-adts" }, { "lc_mono.aac", "aac-adts" }, { "he1.aac", "aac-adts" }, { "he2.aac", "aac-adts" }, { "he1_mono.aac", "aac-adts" }, { "lc.loas", "aac-loas" }, { "lc_mono.loas", "aac-loas" }, { "he2.loas", "aac-loas" }, { "lc.adif", "aac-adif" }, { "lc_mono.adif", "aac-adif" }, { "lc.m4a", "aac-mp4" }, { "lc_mono.m4a", "aac-mp4" }, { "he2.m4a", "aac-mp4" }, { "lc_frag.m4a", "aac-mp4" }, { "he1.m4a", "aac-mp4" }, { "he1.loas", "aac-loas" }, { "he1.adif", "aac-adif" },
-        { "probe_real.flac", "flac-drflac" }, { "probe_real.ogg", "ogg-vorbis-stb" }, { "probe_real.mp3", "mp3-minimp3" }, { "probe_real.wav", "wav-pcm" },
+        { "probe_real.flac", "flac-drflac" }, { "probe_real.ogg", "vorbis" }, { "probe_real.mp3", "mp3-minimp3" }, { "probe_real.wav", "wav-pcm" },
         { "probe_real.aiff", "aiff-pcm" }, { "probe_real.voc", "creative-voc-pcm" }
     };
     size_t i, n = strlen(path);
