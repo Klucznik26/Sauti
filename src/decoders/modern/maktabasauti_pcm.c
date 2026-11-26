@@ -354,7 +354,7 @@ static maktabasauti_result_t MAKTABASAUTI_CALL aiff_open(const maktabasauti_code
     if (flt == 32 && bits != 32u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     if (flt == 64 && bits != 64u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     if (raw8 && bits != 8u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
-    if (!saw_comm || !saw_ssnd || !frames || !rate || channels < 1u || channels > 2u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    if (!saw_comm || !saw_ssnd || !frames || !rate || channels < 1u || channels > 32u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     if (!flt && bits != 8u && bits != 16u && bits != 24u && bits != 32u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     if ((uint64_t)frames > pcm_bytes / ((uint64_t)(bits / 8u) * channels)) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     proto.channels = channels; proto.bits = bits; proto.width = bits / 8u; proto.kind = raw8 ? 0 : flt ? 6 : law ? law : little ? 3 : 2; proto.total = frames; proto.total_known = 1;
