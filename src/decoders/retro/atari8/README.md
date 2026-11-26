@@ -227,3 +227,20 @@ default subsong each, with a bounded subprocess timeout and CSV report.
 It distinguishes valid nonzero WAV, silence, and error categories.
 This measures short-render compatibility only, not music fidelity.
 No external files are included.
+
+ASMA baseline (commit 5cd9cfd, local report): 3824 SAP-B files tested
+for three seconds, default subsong; 3546 nonzero WAV, 8 silence, 270
+failures. Leading failure: 189 reads of $D01F. The machine now has a
+headless GTIA read map (released triggers, no collisions, PAL/NTSC,
+CONSOL output latch default $08); video writes are ignored except
+CONSOL. Console speaker audio is not mixed. ANTIC VCOUNT reflects
+master cycles / 114 and frame length; WSYNC stalls until the next
+scanline boundary (approximation, not actual horizontal release phase).
+POKEY and PCM advance during stalls; CPU cycles exclude stalled time.
+NMIEN writes disabling both NMI sources are accepted, but enabling
+either faults. No video DMA, DLI/VBI or full NMI emulation. Other
+unsupported I/O remains a fault. Reference for register values:
+https://www.oxyron.de/html/registers_gtia.html and
+https://mads.atari8.info/library/doc/atari.html .
+The scanner --retry option selects previous failures and silent WAVs
+from a separate CSV; this is not a full regression scan.

@@ -44,6 +44,22 @@ static uint8_t bus_read(void *context, uint16_t a)
         return 0xff;
     if (!io_address(a))
         return m->ram[a];
+    if ((a & 0xff00u) == 0xd000u) {
+        unsigned reg = a & 31u;
+        if (reg < 16) return 0; /* no video collisions in headless mode */
+        if (reg < 20) return 1; /* released joystick triggers */
+        if (reg == 20) return m->ntsc ? 15 : 1;
+        if (reg == 31) return (uint8_t)(15u & ~m->console_latch);
+        return 0; /* unused GTIA read bits */
+    }
+    if ((a & 0xff00u) == 0xd400u) {
+        unsigned reg = a & 15u;
+        if (reg == 11)
+            return (uint8_t)((m->master_cycles / 114u %
+                              (m->ntsc ? 262u : 312u)) / 2u);
+        if (reg == 10 || reg == 14)
+            return 0xff; /* write-only registers, idle bus approximation */
+    }
     uint8_t value;
     if (atari8_core_read(&m->core, a, &value))
         return value;
@@ -60,6 +76,24 @@ static void bus_write(void *context, uint16_t a, uint8_t value)
     if (!io_address(a)) {
         m->ram[a] = value;
         return;
+    }
+    if ((a & 0xff00u) == 0xd000u) {
+        unsigned reg = a & 31u;
+        /* No display or collision hardware in this music runtime. */
+        if (reg == 31) m->console_latch = value & 15u;
+        return;
+    }
+    if ((a & 0xff00u) == 0xd400u) {
+        unsigned reg = a & 15u;
+        if (reg == 10) {
+            /* Approximate WSYNC: suspend the CPU until the next
+             * scanline boundary, keeping audio/master time running. */
+            unsigned wait = 114u - (unsigned)(m->master_cycles % 114u);
+            while (wait--) tick(m);
+            return;
+        }
+        if (reg == 11) return; /* VCOUNT is read-only */
+        if (reg == 14 && !(value & 0xc0u)) return; /* NMI disabled */
     }
     if (!atari8_core_write(&m->core, a, value)) {
         io_fault(m, a, true);
@@ -81,6 +115,8 @@ bool atari8_machine_init(Atari8Machine *m, bool ntsc, bool stereo,
         m->status = ATARI8_MACHINE_BAD_ARGUMENT;
         return false;
     }
+    m->ntsc = ntsc;
+    m->console_latch = 8; /* OS-style idle console */
     m->sink = sink;
     m->sink_context = context;
     atari8_cpu_init(&m->cpu, bus_read, bus_write, m, 0);

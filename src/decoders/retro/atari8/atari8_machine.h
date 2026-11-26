@@ -29,7 +29,8 @@ typedef struct {
     void *sink_context;
     Atari8MachineResult status;
     uint16_t fault_address;
-    bool fault_write;
+    bool fault_write, ntsc;
+    uint8_t console_latch;
 } Atari8Machine;
 
 bool atari8_machine_init(Atari8Machine *m, bool ntsc, bool stereo,
@@ -45,7 +46,8 @@ Atari8MachineResult atari8_machine_idle(Atari8Machine *m, uint32_t cycles);
 /* Host subroutine call with a synthetic RTS return address ($FFFF).
  * Preserves CPU registers except PC and stack during call. Stack setup
  * is host bookkeeping, not emulated JSR cycles. Budget is checked at
- * instruction boundaries; a final instruction may overshoot by <=7 cycles.
+ * instruction boundaries; WSYNC can add up to 114 master cycles per
+ * write, so a final instruction can overshoot by more than CPU cycles.
  * Faults and budget exhaustion latch status until reinitialization. */
 Atari8MachineResult atari8_machine_call(Atari8Machine *m, uint16_t entry,
                                         uint64_t cycle_budget);

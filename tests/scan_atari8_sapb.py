@@ -46,12 +46,20 @@ def main():
     parser.add_argument("--seconds", type=int, default=1, choices=range(1, 16), metavar="1..15")
     parser.add_argument("--limit", type=int, default=100, help="0 tests all SAP-B files")
     parser.add_argument("--report", type=Path, default=Path("build/sapb-scan.csv"))
+    parser.add_argument("--retry", type=Path, help="retry only non-success rows of a previous CSV report")
     args = parser.parse_args()
     if args.limit < 0 or not args.archive.is_dir() or not args.renderer.is_file():
         parser.error("invalid archive, renderer or limit")
     renderer = args.renderer.resolve()
     paths = sorted(p for p in args.archive.rglob("*")
                    if p.is_file() and p.suffix.lower() == ".sap" and is_sapb(p))
+    if args.retry:
+        if args.retry.resolve() == args.report.resolve():
+            parser.error("retry and output reports must be different")
+        with args.retry.open(newline="", encoding="utf-8") as previous:
+            retry = {row["file"] for row in csv.DictReader(previous)
+                     if row["result"] != "rendered nonzero"}
+        paths = [p for p in paths if str(p.relative_to(args.archive)) in retry]
     selected = paths[:args.limit] if args.limit else paths
     print(f"SAP-B files: {len(paths)}; testing {len(selected)} at {args.seconds}s each", flush=True)
     if not selected:

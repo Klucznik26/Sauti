@@ -99,10 +99,46 @@ static void test_indexed_pokey_store(void)
     CHECK(m.master_cycles==24 && m.core.pokey[0].audctl==0x40);
     CHECK(m.core.pokey[1].audc[0]==0xaf);
 }
+static void test_headless_video(void)
+{
+    Atari8Machine m;
+    static const uint8_t code[] = {
+        0xad,0x1f,0xd0,0x85,0x80, /* CONSOL */
+        0xad,0x14,0xd0,0x85,0x81, /* PAL */
+        0xad,0x10,0xd0,0x85,0x82, /* TRIG0 */
+        0xa9,0x0a,0x8d,0x1f,0xd0,
+        0xad,0x3f,0xd0,0x85,0x83, /* mirror */
+        0xa9,0,0x8d,0x0e,0xd4,0x60
+    };
+    for (unsigned ntsc=0;ntsc<2;++ntsc) {
+        CHECK(atari8_machine_init(&m,ntsc,false,48000,false,NULL,NULL));
+        CHECK(atari8_machine_load(&m,0x2000,code,sizeof(code)));
+        CHECK(atari8_machine_call(&m,0x2000,100)==ATARI8_MACHINE_OK);
+        CHECK(m.ram[0x80]==7 && m.ram[0x81]==(ntsc?15:1));
+        CHECK(m.ram[0x82]==1 && m.ram[0x83]==5);
+    }
+    static const uint8_t sync[]={0x8d,0x0a,0xd4,0xad,0x0b,0xd4,0x60};
+    CHECK(atari8_machine_init(&m,false,false,48000,false,NULL,NULL));
+    CHECK(atari8_machine_load(&m,0x2000,sync,sizeof(sync)));
+    CHECK(atari8_machine_idle(&m,114)==ATARI8_MACHINE_OK);
+    CHECK(atari8_machine_call(&m,0x2000,200)==ATARI8_MACHINE_OK);
+    CHECK(m.cpu.cycles==14 && m.master_cycles==238 && m.cpu.a==1);
+    CHECK(m.frames==238u*48000u/1773447u);
+    CHECK(atari8_machine_init(&m,true,false,48000,false,NULL,NULL));
+    CHECK(atari8_machine_load(&m,0x2000,sync,sizeof(sync)));
+    CHECK(atari8_machine_idle(&m,261u*114u)==ATARI8_MACHINE_OK);
+    CHECK(atari8_machine_call(&m,0x2000,200)==ATARI8_MACHINE_OK);
+    CHECK(m.cpu.a==0);
+    static const uint8_t nmi[]={0xa9,0x40,0x8d,0x0e,0xd4,0x60};
+    CHECK(atari8_machine_init(&m,false,false,48000,false,NULL,NULL));
+    CHECK(atari8_machine_load(&m,0x2000,nmi,sizeof(nmi)));
+    CHECK(atari8_machine_call(&m,0x2000,100)==ATARI8_MACHINE_IO);
+    CHECK(m.fault_address==0xd40e && m.fault_write);
+}
 int main(void)
 {
     test_audio(false); test_audio(true); test_bus_cycle(); test_faults();
-    test_indexed_pokey_store();
+    test_indexed_pokey_store(); test_headless_video();
     puts("PASS: experimental Atari8 CPU/RAM/POKEY machine");
     return 0;
 }
