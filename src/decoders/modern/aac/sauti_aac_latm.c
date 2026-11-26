@@ -265,7 +265,7 @@ int sauti_aac_latm_convert_element(SautiAacLatmState *st,const uint8_t *payload,
         if(!slot||slot>8184u||b.nbits-b.pos<(size_t)slot*8u)return -1;
         const unsigned l=7u+slot;
         if(w+l>cap)return -1;
-        if(cfg->aot==1u||cfg->aot==4u||cfg->aot==17u||cfg->aot==19u||cfg->aot==23u||cfg->aot==39u||cfg->aot==42u||(cfg->aot==2u&&cfg->frame480))(void)sauti_aac_er_wrap_header(out+w,cfg->aot,cfg->rate_index,cfg->channel_config,cfg->frame480,slot);     /* AAC-LD / ELD i LC z ramka 960: naglowek wewnetrzny silnika */
+        if(cfg->aot==1u||cfg->aot==3u||cfg->aot==4u||cfg->aot==17u||cfg->aot==19u||cfg->aot==23u||cfg->aot==39u||cfg->aot==42u||(cfg->aot==2u&&cfg->frame480))(void)sauti_aac_er_wrap_header(out+w,cfg->aot,cfg->rate_index,cfg->channel_config,cfg->frame480,slot);     /* AAC-LD / ELD i LC z ramka 960: naglowek wewnetrzny silnika */
         else{
         out[w+0]=0xff;out[w+1]=0xf1;
         out[w+2]=(uint8_t)(0x40u|(cfg->rate_index<<2)|((cfg->channel_config>>2)&1u));

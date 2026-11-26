@@ -9,7 +9,7 @@ static int get(const uint8_t *data,size_t length,size_t *pos,unsigned width,uint
     return sauti_aac_bits_read_asm(data,length,pos,width,value);
 }
 unsigned sauti_aac_lcm_channels(const SautiAacLcnConfig *c){
-    if(!c || c->channel_config<3u || c->channel_config>7u || (!c->main && !c->ltp && !c->er) || (c->main && (c->ltp || c->er)) || c->frame960)return 0u;
+    if(!c || c->channel_config<3u || c->channel_config>7u || (!c->main && !c->ltp && !c->er && !c->ssr) || (c->main && (c->ltp || c->er)) || (c->ssr && (c->main || c->ltp || c->er)) || c->frame960)return 0u;
     if(c->main?c->rate_index>11u:c->rate_index>12u)return 0u;
     return sauti_aac_lc_multi_config_channels(c->channel_config);
 }
@@ -18,7 +18,7 @@ void sauti_aac_lcm_state_init(SautiAacLcmState *state,const SautiAacLcnConfig *c
     state->channels=sauti_aac_lcm_channels(c);state->config=c->channel_config;
     for(unsigned i=0;i<state->channels;i++){
         (void)sauti_aac_lc_synthesis_init(&state->syn[i],0u);
-        if(c->main)sauti_aac_pred_reset(&state->u.pred[i]);else if(c->ltp)sauti_aac_ltp_reset(&state->u.ltp[i]);
+        if(c->main)sauti_aac_pred_reset(&state->u.pred[i]);else if(c->ltp)sauti_aac_ltp_reset(&state->u.ltp[i]);else if(c->ssr)sauti_aac_ssr_state_init(&state->u.ssr[i]);
     }
     state->pns_seed=state->syn[0].pns_seed;
 }
@@ -72,7 +72,7 @@ int sauti_aac_lcm_decode(const SautiAacLcnConfig *cfg,SautiAacLcmState *state,co
                 ch[k].syn=&next->syn[used+k];
                 ch[k].pred=cfg->main?&next->u.pred[used+k]:NULL;
                 ch[k].ltp=cfg->ltp?&next->u.ltp[used+k]:NULL;
-                ch[k].ssr=NULL;
+                ch[k].ssr=cfg->ssr?&next->u.ssr[used+k]:NULL;
             }
             if(need==1u){ch[1]=ch[0];}                                       /* unused */
             status=sauti_aac_lcn_element(cfg,idx,id,au,length,at,&pos,ch,&seed,out,reason,NULL,0u);

@@ -17,11 +17,13 @@ int aac_adts_parse_header(const uint8_t *p, size_t n, aac_adts_hdr_t *h) {
         h->er_480 = (unsigned)(p[2] >> 1) & 1u;
         if (((p[6] >> 2) & 0x3fu) == 0x10u) { h->er_aot = 17u; h->er_480 = (unsigned)(p[3] >> 4) & 1u; }               /* ER AAC LC (kod w polu zapelnienia bufora, 960 linii: bit `home`) */
         else if (((p[6] >> 2) & 0x3fu) == 0x11u) { h->er_aot = 19u; h->er_480 = 0u; }                              /* ER AAC LTP */
+        else if (((p[6] >> 2) & 0x3fu) == 0x13u) { h->er_aot = 3u; h->er_480 = 0u; }                              /* AAC SSR */
         else if (((p[6] >> 2) & 0x3fu) == 0x12u) { h->er_aot = 42u; h->er_480 = 0u; }                              /* USAC (xHE-AAC): konfiguracja jest w dec_t, ramka niesie tylko jednostke dostepu */
         else if (h->er_aot == 1u && h->er_480) { h->er_aot = 4u; h->er_480 = 0u; }
         else if (h->er_aot == 1u) h->er_480 = (unsigned)(p[3] >> 4) & 1u;                                           /* Main: bit `home` = 960 linii */
     } else if ((p[2] >> 6) == 3u) { h->er = 1u; h->er_aot = 4u; h->er_480 = 0u; }                              /* profil 3 = AAC LTP */
     else if ((p[2] >> 6) == 0u) { h->er = 1u; h->er_aot = 1u; h->er_480 = 0u; }    /* profil 0 = AAC Main: ta sama sciezka co ramki z naglowkiem wewnetrznym (dekoder sauti_aac_lcn) */
+    else if ((p[2] >> 6) == 2u) { h->er = 1u; h->er_aot = 3u; h->er_480 = 0u; }    /* profil 2 = AAC SSR (sauti_aac_lcn / sauti_aac_lcm z narzedziem gain control) */
     else if ((p[2] >> 6) != 1u) return 0;                                /* profil 1 = AAC-LC */
     sfi = (unsigned)(p[2] >> 2) & 15u;
     if (sfi > 12u) return 0;
@@ -51,11 +53,11 @@ static maktabasauti_result_t eng_fetch(dec_t *d) {
 }
 
 /* the decoders of sauti_aac_lcn / sauti_aac_lcm serve AAC-LC with 960 lines (2), Main (1), LTP (4), ER AAC LC (17) and ER AAC LTP (19) */
-static int aot_is_lcn(unsigned aot) { return aot == 1u || aot == 2u || aot == 4u || aot == 17u || aot == 19u; }
+static int aot_is_lcn(unsigned aot) { return aot == 1u || aot == 2u || aot == 3u || aot == 4u || aot == 17u || aot == 19u; }
 static void lcn_config(SautiAacLcnConfig *lc, unsigned aot, unsigned rate_index, unsigned config, unsigned f960) {
     memset(lc, 0, sizeof *lc);
     lc->rate_index = rate_index; lc->channel_config = config;
-    lc->main = aot == 1u; lc->ltp = aot == 4u || aot == 19u; lc->er = aot == 17u || aot == 19u;
+    lc->main = aot == 1u; lc->ssr = aot == 3u; lc->ltp = aot == 4u || aot == 19u; lc->er = aot == 17u || aot == 19u;
     lc->frame960 = (aot == 1u || aot == 17u) && f960;
 }
 /* AAC Main / LTP wielokanalowy: stan na stercie hosta; kopia gleboka dla punktow kontrolnych i stanu poczatkowego */
@@ -450,7 +452,7 @@ static void fill_info(const dec_t *d, maktabasauti_stream_info_t *info) {
     info->total_frames = d->trimmed ? d->avail : (d->total_known ? d->known_frames * d->frame_pcm : MAKTABASAUTI_UNKNOWN_LENGTH);
     info->flags = d->seekable ? MAKTABASAUTI_STREAM_SEEKABLE : 0u;
     strcpy(info->codec_name, "aac"); strncpy(info->container_name, d->cont->name, sizeof info->container_name - 1u);
-    strcpy(info->codec_profile, d->variant == V_ER ? (d->er_aot == 42u ? "USAC" : d->er_aot == 39u ? "ELD" : (d->er_aot == 2u ? (d->he960 ? "HE-AAC" : "LC") : (d->er_aot == 1u ? "Main" : (d->er_aot == 4u ? "LTP" : (d->er_aot == 17u ? "ER-LC" : (d->er_aot == 19u ? "ER-LTP" : "LD")))))) : (d->variant >= V_HE_MONO ? "HE-AAC" : "LC"));
+    strcpy(info->codec_profile, d->variant == V_ER ? (d->er_aot == 42u ? "USAC" : d->er_aot == 39u ? "ELD" : (d->er_aot == 2u ? (d->he960 ? "HE-AAC" : "LC") : (d->er_aot == 1u ? "Main" : (d->er_aot == 3u ? "SSR" : (d->er_aot == 4u ? "LTP" : (d->er_aot == 17u ? "ER-LC" : (d->er_aot == 19u ? "ER-LTP" : "LD"))))))) : (d->variant >= V_HE_MONO ? "HE-AAC" : "LC"));
 }
 
 maktabasauti_result_t MAKTABASAUTI_CALL aac_eng_get_info(const void *state, maktabasauti_stream_info_t *info) {

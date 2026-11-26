@@ -91,6 +91,30 @@ static unsigned getbits(const uint8_t *p,size_t n,size_t *bit,unsigned count){
     }
     return v;
 }
+/* program_config_element() in an AudioSpecificConfig -> the standard channel_configuration (1..7) with the same element order, 0 otherwise: one front SCE / CPE, then more front CPEs, side and back
+ * elements, then the LFE ("S", "C", "SC", "SCS", "SCC", "SCCL", "SCCCL" as in sauti_aac_lcm.c).  `bit` is the position of the PCE and moves past it. */
+static unsigned pce_standard_config(const uint8_t *asc,size_t n,size_t *bit){
+    unsigned v[12];
+    for(unsigned i=0;i<9u;i++){static const uint8_t w[9]={4,2,4,4,4,4,2,3,4};v[i]=getbits(asc,n,bit,w[i]);if(v[i]==0xffffffffu)return 0;}
+    const unsigned nf=v[3],ns=v[4],nb=v[5],nl=v[6],na=v[7],ncc=v[8];
+    for(unsigned k=0;k<3u;k++){const unsigned f=getbits(asc,n,bit,1);if(f==0xffffffffu)return 0;if(f&&getbits(asc,n,bit,k==2u?3u:4u)==0xffffffffu)return 0;}
+    char kinds[16];unsigned count=0;
+    for(unsigned part=0;part<3u;part++){
+        const unsigned num=part==0u?nf:part==1u?ns:nb;
+        for(unsigned i=0;i<num;i++){
+            const unsigned is_cpe=getbits(asc,n,bit,1),tag=getbits(asc,n,bit,4);
+            if(is_cpe==0xffffffffu||tag==0xffffffffu||count>=15u)return 0;
+            kinds[count++]=is_cpe?'C':'S';
+        }
+    }
+    for(unsigned i=0;i<nl;i++){if(getbits(asc,n,bit,4)==0xffffffffu||count>=15u)return 0;kinds[count++]='L';}
+    for(unsigned i=0;i<na;i++)if(getbits(asc,n,bit,4)==0xffffffffu)return 0;
+    for(unsigned i=0;i<ncc;i++)if(getbits(asc,n,bit,5)==0xffffffffu)return 0;
+    kinds[count]=0;
+    static const char *const layout[8]={"","S","C","SC","SCS","SCC","SCCL","SCCCL"};
+    for(unsigned c=1;c<8u;c++)if(!strcmp(kinds,layout[c]))return c;
+    return 0;
+}
 static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     size_t bit=0;
     unsigned aot=getbits(asc,n,&bit,5);
@@ -112,6 +136,14 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
         if(er.ld_sbr&&(aot!=39u||er.channel_config<1u||er.channel_config>2u||n>sizeof(info->asc)))return 0;       /* ELD z SBR niskoopoznieniowym: mono i stereo; konfiguracja (ld_sbr_header) jest czescia ASC */
         info->aot=aot;info->rate_index=er.rate_index;info->sample_rate=rates[er.rate_index];info->channel_config=er.channel_config;info->frame480=er.frame480;
         if(er.ld_sbr){memcpy(info->asc,asc,n);info->asc_len=(unsigned)n;}
+        return 1;
+    }
+    if(aot==3u){                                                              /* AAC SSR: GASpecificConfig (frameLengthFlag 0, no core coder), channel_configuration or a program_config_element that is one of the standard layouts */
+        if(getbits(asc,n,&bit,1)!=0u||getbits(asc,n,&bit,1)!=0u||getbits(asc,n,&bit,1)!=0u)return 0;
+        unsigned config=cc;
+        if(cc==0u&&(config=pce_standard_config(asc,n,&bit))==0u)return 0;
+        if(config<1u||config>7u)return 0;
+        info->aot=3u;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=config;info->frame480=0u;
         return 1;
     }
     if(aot!=1u&&aot!=2u&&aot!=5u&&aot!=29u&&aot!=4u)return 0;                         /* Main, LC, albo HE/HEv2 (rdzen LC + SBR w FIL) */
@@ -208,7 +240,7 @@ int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t 
         if(!have_esds||!parse_esds(esds,asc,&asc_len))continue;
         SautiAacMp4Info inf;memset(&inf,0,sizeof(inf));
         if(!parse_asc(asc,asc_len,&inf))continue;
-        if(inf.aot==1u||inf.aot==4u||inf.aot==17u||inf.aot==19u||inf.aot==23u||inf.aot==39u||inf.aot==42u||(inf.aot==2u&&inf.frame480))continue;                              /* AAC-LD / ELD nie da sie zapisac jako ADTS (sciezka strumieniowa silnika owija je wlasnym naglowkiem) */
+        if(inf.aot==1u||inf.aot==3u||inf.aot==4u||inf.aot==17u||inf.aot==19u||inf.aot==23u||inf.aot==39u||inf.aot==42u||(inf.aot==2u&&inf.frame480))continue;                              /* AAC-LD / ELD nie da sie zapisac jako ADTS (sciezka strumieniowa silnika owija je wlasnym naglowkiem) */
         /* Lista jednostek dostepu: z tablic probek (stbl) i z fragmentow (moof/trun) - plik moze miec jedno, drugie albo oba. */
         Sample *list=NULL;size_t nlist=0,caplist=0;
         {

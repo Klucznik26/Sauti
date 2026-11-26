@@ -1682,6 +1682,11 @@ $(OBJDIR)/sauti_usac_gen: tools/sauti_usac_gen.c src/decoders/modern/aac/sauti_u
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_usac_gen.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
 $(OBJDIR)/sauti_er_cli: tools/sauti_er_cli.c include/sauti_aac_er.h $(AAC_NATIVE_ADAPTER_DEPS) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_er_cli.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
+$(OBJDIR)/test_aac_ssr: tests/test_aac_ssr.c tests/test_aac_ssr_fingerprints.h include/sauti_aac_ssr.h src/decoders/modern/aac/sauti_aac_ssr.c src/decoders/modern/aac/sauti_aac_ssr_tables.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -Iinclude -Itests -o $@ tests/test_aac_ssr.c src/decoders/modern/aac/sauti_aac_ssr.c src/decoders/modern/aac/sauti_aac_ssr_tables.c -lm
+.PHONY: test-aac-ssr
+test-aac-ssr: $(OBJDIR)/test_aac_ssr
+	./$(OBJDIR)/test_aac_ssr
 $(OBJDIR)/sauti_ssr_probe: tools/sauti_ssr_probe.c include/sauti_aac_ssr.h $(AAC_NATIVE_ADAPTER_DEPS) src/sauti_decoder.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_ssr_probe.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
 .PHONY: ssr-probe

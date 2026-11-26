@@ -12,7 +12,7 @@ typedef struct {
     unsigned config;                            /* channel_configuration 3..7 */
     SautiAacLcSynthesis syn[SAUTI_AAC_LC_MULTI_MAX];
     uint32_t pns_seed;
-    union { SautiAacPredState pred[SAUTI_AAC_LC_MULTI_MAX]; SautiAacLtpState ltp[SAUTI_AAC_LC_MULTI_MAX]; } u;     /* Main XOR LTP */
+    union { SautiAacPredState pred[SAUTI_AAC_LC_MULTI_MAX]; SautiAacLtpState ltp[SAUTI_AAC_LC_MULTI_MAX]; SautiAacSsrState ssr[SAUTI_AAC_LC_MULTI_MAX]; } u;     /* Main XOR LTP XOR SSR */
 } SautiAacLcmState;
 
 /* The number of channels of a supported configuration (cfg->channel_config 3..7, cfg->main xor cfg->ltp, the rate rules of sauti_aac_lcn_frame_samples), 0 otherwise. */

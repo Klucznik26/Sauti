@@ -154,3 +154,11 @@ Weryfikacja: transposer zgodny z libxaac do 2,4e-7 (szum float) w strumieniach l
 
 Liczone, nie przepisywane: okna sinusoidalne FAC / TCX, `0,92^i` (ważenie LPC), `10^(i/128)`, twiddle DCT-IV (DCT-IV liczone wprost).
 
+
+## Rejestr: dane z oprogramowania referencyjnego ISO/IEC 14496-5 (AAC SSR), 2026-11-26
+Zgoda użytkownika na użycie tablic jako danych z notą. Źródło: `C050470e_Electronic_inserts/audio/natural/aacErrRobTrans` (paczka `c050470__ISO_IEC_14496-5_2001_Amd_20_2009_Reference_Software.zip` z `standards.iso.org`, dostarczona przez użytkownika, poza repozytorium). Licencja z nagłówków plików (Sony, Oikawa i Hatanaka, 1996) i nota: `third_party/iso14496-5/NOTICE` (powtórzona w wygenerowanym pliku). Generator: `tools/gen_aac_ssr_tables.py`.
+| tablica | plik źródłowy | gdzie | uwagi |
+|---|---|---|---|
+| `sauti_aac_ssr_pqf_half[48]` | `gc_pqf_common.c` (`a_half`) | `sauti_aac_ssr_tables.c` | połowa prototypu 96-odczepowego filtra PQF, symetria `p[95-j] = p[j]` |
+| `sauti_aac_ssr_tns_max_bands[12][2]` | `decdata.c` (`tns_max_bands_tbl`, kolumny SSR) | `sauti_aac_ssr_tables.c` | TNS_MAX_BANDS profilu SSR, okno long / short |
+Okna sinus i KBD (α = 4 dla 256, α = 6 dla 32 punktów) są LICZONE (zgodność z tablicą referencyjną 3e-9), nie są danymi.
