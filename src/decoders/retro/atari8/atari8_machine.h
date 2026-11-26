@@ -42,6 +42,9 @@ typedef struct {
     uint8_t console_latch, fault_value;
     /* Set only by SAP host-scheduled playback before guest execution. */
     bool sap_host_scheduled;
+    /* SAP-B compatibility: recognized legacy VBI chain tails only. */
+    uint8_t sap_vbi_tails[8192];
+    uint64_t sap_vbi_returns;
     uint64_t refresh_stalls; /* CPU-only DRAM refresh delays in SAP profile */
     uint8_t antic_nmien, antic_nmist;
     Atari8Trace trace[ATARI8_TRACE_SIZE], first_zero;

@@ -147,7 +147,7 @@ int main(int argc,char **argv)
         remove(argv[2]);
         return 1;
     }
-    printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " player calls, %" PRIu64 " skipped deadlines\n",
-        out.frames,s.intervals,s.missed_intervals);
+    printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " player calls, %" PRIu64 " skipped deadlines, %" PRIu64 " legacy VBI returns\n",
+        out.frames,s.intervals,s.missed_intervals,s.machine.sap_vbi_returns);
     return 0;
 }

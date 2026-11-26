@@ -169,9 +169,39 @@ static void test_refresh(void)
     CHECK(atari8_machine_idle(m,114)==ATARI8_MACHINE_OK);
     CHECK(m->refresh_stalls==stalls);
 }
+static void test_legacy_vbi_chain(void)
+{
+    uint8_t data[512];
+    size_t n=fixture(data,false,false);
+    Atari8Sapb s;
+    /* Independent synthetic example. A player emits a POKEY write then
+     * chains to the uninstalled previous VBI. A separate installer
+     * saves VVBLKI into the JMP operand, but is not invoked by INIT. */
+    static const uint8_t player[]={0xa9,0xaf,0x8d,0x01,0xd2,0x4c,0,0};
+    memcpy(data+n-sizeof(player),player,sizeof(player));
+    size_t original=n;
+    static const uint8_t installer[]={0x00,0x23,0x0c,0x23,
+        0xad,0x25,0x02,0x8d,0x07,0x21,
+        0xad,0x24,0x02,0x8d,0x06,0x21,0x60};
+    memcpy(data+n,installer,sizeof(installer)); n+=sizeof(installer);
+    CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    uint8_t sp=s.machine.cpu.sp;
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+    CHECK(s.machine.sap_vbi_returns==1 && s.machine.cpu.sp==sp);
+    CHECK(s.machine.ram[0]==0 && s.machine.ram[0x2106]==0 && s.machine.ram[0x2107]==0);
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK && s.machine.sap_vbi_returns==2);
+    /* Identical null jump without a VBI installer is still an error. */
+    CHECK(atari8_sapb_open(&s,data,original,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME);
+    CHECK(s.machine.status==ATARI8_MACHINE_BUDGET && !s.machine.sap_vbi_returns);
+    /* A nonzero old VBI vector does not qualify for host adaptation. */
+    CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    s.machine.ram[0x224]=1;
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME && !s.machine.sap_vbi_returns);
+}
 int main(void)
 {
-    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh();
+    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh(); test_legacy_vbi_chain();
     puts("PASS: experimental Atari8 SAP-B");
     return 0;
 }

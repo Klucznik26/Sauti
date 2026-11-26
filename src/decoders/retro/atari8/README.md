@@ -347,3 +347,23 @@ copied into the repository. Sources:
 https://asap.sourceforge.net/sap-format.html (Timing) and Altirra
 Hardware Reference Manual (Memory refresh DMA). The effect on
 real songs and the seven remaining failures needs validation.
+
+Pending comparison after a8eac54: all seven regression tests passed;
+Zador_II onset now matches ASAP at 20 ms. Seven files still fail.
+Local inspection of two user-supplied SAP images identifies an original
+VBI chaining idiom: a routine saves VVBLKI ($0224/$0225) into an
+absolute JMP operand, but INIT does not install that VBI. The direct
+PLAYER call later jumps through its zero operand after restoring the
+scratch area. SAP-B formally requires RTS; this is a narrow legacy
+host ABI adaptation, not a 6502 behavior. After INIT the decoder
+recognizes the two absolute load/store pairs and zero JMP operand,
+without patching the file or guest memory. A jump to zero from a
+recognized site can terminate a call only with the synthetic stack
+frame intact, zero old vector and zero RAM[0], and no interrupt
+dispatch. Such returns are counted separately. Arbitrary JMP $0000
+and general machine operation remain strict. Synthetic positive and
+negative regressions are included. The two supplied tracks and
+independent instruction-level probe are not stored in the repository.
+Chromatics also loops in its first PLAYER call; its cause remains
+open. No claim of waveform fidelity or complete archive validation.
+Reference: https://asap.sourceforge.net/sap-format.html (TYPE B).

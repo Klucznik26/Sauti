@@ -220,6 +220,25 @@ Atari8MachineResult atari8_machine_idle(Atari8Machine *m, uint32_t cycles)
     return m->status;
 }
 
+/* A few legacy SAP-B images invoke an original VBI handler directly.
+ * They restore their saved scratch area and tail-jump through an
+ * uninstalled previous VBI vector instead of executing RTS.
+ * Accept only a recognized chain site and an intact host stack frame.
+ * This is a host ABI adaptation, never a change to the CPU instruction. */
+static bool sap_vbi_return(const Atari8Machine *m, uint8_t sp)
+{
+    if (!m->sap_host_scheduled || m->cpu.pc != 0 ||
+        m->cpu.sp != (uint8_t)(sp-2u) || !m->trace_count ||
+        m->ram[0x224] || m->ram[0x225] || m->ram[0] ||
+        m->ram[0x100u | sp] != 0xff ||
+        m->ram[0x100u | (uint8_t)(sp-1u)] != 0xfe)
+        return false;
+    const Atari8Trace *t = &m->trace[(m->trace_next+ATARI8_TRACE_SIZE-1u)%ATARI8_TRACE_SIZE];
+    return t->opcode == 0x4c && !t->operand1 && !t->operand2 &&
+           !t->nmi && (!t->irq || (t->p & ATARI8_CPU_I)) &&
+           (m->sap_vbi_tails[t->pc/8u] & (1u << (t->pc%8u)));
+}
+
 Atari8MachineResult atari8_machine_call(Atari8Machine *m, uint16_t entry,
                                         uint64_t cycle_budget)
 {
@@ -250,6 +269,15 @@ Atari8MachineResult atari8_machine_call(Atari8Machine *m, uint16_t entry,
             break;
         if (m->cpu.pc == 0xffffu && m->cpu.sp == sp)
             return ATARI8_MACHINE_OK;
+        if (sap_vbi_return(m,sp)) {
+            /* Consume the synthetic host frame without executing
+             * arbitrary zero-page data. As with host call setup, no
+             * guest instruction or bus cycles are fabricated. */
+            m->cpu.sp = sp;
+            m->cpu.pc = 0xffffu;
+            ++m->sap_vbi_returns;
+            return ATARI8_MACHINE_OK;
+        }
     }
     return m->status = ATARI8_MACHINE_BUDGET;
 }

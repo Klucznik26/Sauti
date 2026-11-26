@@ -141,6 +141,32 @@ Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
     return r;
 }
 
+/* Recognize the standard 6502 idiom that saves the Atari OS immediate
+ * VBI vector (VVBLKI at $0224/$0225) into the operand of an absolute JMP.
+ * No file name, author, fixed player address or guest patch is used.
+ * The two load/store pairs can occur in either byte order. */
+static void recognize_vbi_tails(Atari8Machine *m)
+{
+    const uint8_t *ram=m->ram;
+    for (unsigned i=0; i+11u<65536u; ++i) {
+        const uint8_t *p=ram+i;
+        if (p[0]!=0xad || p[2]!=2 || p[3]!=0x8d ||
+            p[6]!=0xad || p[8]!=2 || p[9]!=0x8d)
+            continue;
+        unsigned lo, hi;
+        if (p[1]==0x24 && p[7]==0x25) {
+            lo=le16(p+4); hi=le16(p+10);
+        } else if (p[1]==0x25 && p[7]==0x24) {
+            hi=le16(p+4); lo=le16(p+10);
+        } else continue;
+        if (!lo || lo>=65535u || hi!=lo+1u ||
+            ram[lo-1u]!=0x4c || ram[lo] || ram[hi])
+            continue;
+        unsigned tail=lo-1u;
+        m->sap_vbi_tails[tail/8u] |= (uint8_t)(1u<<(tail%8u));
+    }
+}
+
 Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
                                   size_t size, int song, uint32_t rate,
                                   Atari8MachineSink sink, void *context)
@@ -163,6 +189,7 @@ Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
     if (atari8_machine_call(&s->machine,info.init,
                             (uint64_t)s->machine.pcm.clock_hz * 2u) != ATARI8_MACHINE_OK)
         return s->status = ATARI8_SAPB_RUNTIME;
+    recognize_vbi_tails(&s->machine);
     /* INIT is not part of the output timeline. Keep hardware phase, but
      * start a fresh sample integrator and output frame count. */
     if (!atari8_pcm_init(&s->machine.pcm,s->machine.core.pokey[0].clock_hz,
