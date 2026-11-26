@@ -409,6 +409,84 @@ static void test_unofficial_immediate(void)
     CHECK(c.a==9 && (c.p & ATARI8_CPU_C));
 }
 
+static void test_arr_lxa_las(void)
+{
+    Bus b = {0};
+    Atari8Cpu c;
+    atari8_cpu_init(&c,read_bus,write_bus,&b,0x200);
+    for (unsigned v = 0; v < 256; ++v)
+        for (unsigned carry = 0; carry < 2; ++carry) {
+            unsigned expected = v / 2u + 128u * carry;
+            alu_case(&c,&b,0x6b,0xff,(uint8_t)v,(uint8_t)carry);
+            CHECK(c.a == expected);
+            CHECK(!!(c.p & ATARI8_CPU_C) == !!(expected & 64u));
+            CHECK(!!(c.p & ATARI8_CPU_V) == (!!(expected & 64u) != !!(expected & 32u)));
+            CHECK(!!(c.p & ATARI8_CPU_Z) == (expected == 0));
+            CHECK(!!(c.p & ATARI8_CPU_N) == (expected >= 128));
+        }
+    alu_case(&c,&b,0x6b,0x66,0xff,ATARI8_CPU_D);
+    CHECK(c.a == 0x99 && (c.p & ATARI8_CPU_C) && (c.p & ATARI8_CPU_V));
+    CHECK(!(c.p & (ATARI8_CPU_N | ATARI8_CPU_Z)));
+    alu_case(&c,&b,0x6b,0,0xff,ATARI8_CPU_D | ATARI8_CPU_C);
+    CHECK(c.a == 0x80 && (c.p & ATARI8_CPU_N) && !(c.p & ATARI8_CPU_C));
+    c.x = 0xff;
+    alu_case(&c,&b,0x8b,0,0xff,0);
+    CHECK(c.a == 0xee && c.x == 0xff);
+    alu_case(&c,&b,0xab,1,0xff,0);
+    CHECK(c.a == 0xef && c.x == 0xef);
+    c.pc = 0x200; c.y = 1; c.sp = 0x8f;
+    b.ram[0x200] = 0xbb; b.ram[0x201] = 0xff; b.ram[0x202] = 0x30;
+    b.ram[0x3100] = 0xf0;
+    step(&c,&b,5);
+    CHECK(c.a == 0x80 && c.x == 0x80 && c.sp == 0x80);
+    CHECK(b.trace[3] == 0x3000 && b.trace[4] == 0x3100);
+}
+
+static void test_masked_stores(void)
+{
+    Bus b = {0};
+    Atari8Cpu c;
+    atari8_cpu_init(&c,read_bus,write_bus,&b,0x200);
+    const uint8_t ops[] = {0x93,0x9f,0x9b,0x9c,0x9e};
+    for (unsigned k=0;k<sizeof(ops);++k)
+        for (unsigned cross=0;cross<2;++cross) {
+            c.pc=0x200; c.a=0x0f; c.x=0x03; c.y=0x03; c.sp=0xfd;
+            c.p=ATARI8_CPU_U | ATARI8_CPU_C;
+            b.ram[0x200]=ops[k];
+            uint8_t low=cross?0xff:0x10;
+            b.ram[0x201]=low; b.ram[0x202]=0x30;
+            if (k==0) {
+                b.ram[0x201]=0xff; b.ram[0xff]=low; b.ram[0]=0x30;
+            }
+            unsigned n=k==0?6:5;
+            step(&c,&b,n);
+            uint16_t dest=cross?0x0102:0x3013;
+            CHECK(b.trace[n-2]==(cross?0x3002:0x3013));
+            CHECK(b.trace[n-1]==dest && b.writes[n-1] && b.values[n-1]==1);
+            CHECK(c.sp==(k==2?3:0xfd));
+            CHECK(c.p==(ATARI8_CPU_U | ATARI8_CPU_C));
+        }
+}
+
+static void test_jam(void)
+{
+    Bus b = {0};
+    Atari8Cpu c;
+    const uint8_t ops[]={0x02,0x12,0x22,0x32,0x42,0x52,0x62,0x72,0x92,0xb2,0xd2,0xf2};
+    for(unsigned k=0;k<sizeof(ops);++k) {
+        atari8_cpu_init(&c,read_bus,write_bus,&b,0x200);
+        b.ram[0x200]=ops[k];
+        CHECK(atari8_cpu_step(&c)==0 && c.stopped && c.jammed);
+        CHECK(c.pc==0x200 && c.bad_opcode==ops[k] && c.cycles==1);
+        atari8_cpu_set_nmi(&c,true);
+        CHECK(atari8_cpu_step(&c)==0 && c.cycles==1);
+    }
+    atari8_cpu_init(&c,read_bus,write_bus,&b,0x200);
+    b.ram[0x200]=0xea;
+    CHECK(!c.jammed && !c.stopped);
+    step(&c,&b,2);
+}
+
 int main(void)
 {
     test_load_store(); test_stack(); test_branches();
@@ -416,6 +494,7 @@ int main(void)
     test_modify(); test_interrupts();
     test_unofficial_compound(); test_unofficial_transfer();
     test_unofficial_nops(); test_unofficial_immediate();
-    puts("PASS: experimental Atari8 NMOS 6502 official and stable undocumented subset");
+    test_arr_lxa_las(); test_masked_stores(); test_jam();
+    puts("PASS: experimental Atari8 NMOS 6502 all opcode encodings");
     return 0;
 }

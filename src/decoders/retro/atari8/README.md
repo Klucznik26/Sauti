@@ -152,3 +152,14 @@ indexed dummy reads. Decimal compound operations reuse ADC/SBC.
 Remaining: 12 JAM encodings (currently explicit unsupported stop), ARR,
 unstable immediate/load/store variants, LAS; no claim of hardware lockup
 or unstable silicon behavior. Reference: https://cc65.github.io/doc/cpus.html
+
+Opcode map completed: 256/256 encodings are explicitly handled (244
+executing instructions and 12 JAM encodings). JAM stops the player after
+the opcode fetch; reinitialization clears it. This is not an electrical
+lockup simulation. ARR covers binary and decimal adjustment. LAS and
+masked stores (AHX/SHX/SHY/TAS) have a deterministic page-carry model;
+XAA/LXA use a fixed 0xEE magic constant. These unstable instructions
+vary by silicon and bus conditions; this model is not hardware-verified.
+External functional test validated the earlier official instruction set,
+not these undocumented instructions. Hardware RESET and exact IRQ/NMI
+polling remain pending. Reference: https://cc65.github.io/doc/cpus.html

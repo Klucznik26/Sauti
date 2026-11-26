@@ -88,6 +88,26 @@ static void sbc(Atari8Cpu *c, uint8_t v)
     c->a = raw;
 }
 
+/* ARR rotates the AND result; decimal correction does not alter N/Z/V. */
+static void arr(Atari8Cpu *c, uint8_t v)
+{
+    unsigned input = c->a & v;
+    unsigned result = (input >> 1) | ((c->p & ATARI8_CPU_C) ? 128u : 0u);
+    nz(c, (uint8_t)result);
+    flag(c, ATARI8_CPU_V, ((result ^ (result << 1)) & 64u) != 0);
+    if (c->p & ATARI8_CPU_D) {
+        if ((input & 15u) + (input & 1u) > 5u)
+            result = (result & 0xf0u) | ((result + 6u) & 15u);
+        bool high = (input & 0xf0u) + (input & 16u) > 0x50u;
+        flag(c, ATARI8_CPU_C, high);
+        if (high)
+            result += 0x60u;
+    } else {
+        flag(c, ATARI8_CPU_C, (result & 64u) != 0);
+    }
+    c->a = (uint8_t)result;
+}
+
 static void compare(Atari8Cpu *c, uint8_t reg, uint8_t v)
 {
     flag(c, ATARI8_CPU_C, reg >= v);
@@ -204,6 +224,36 @@ static void lax(Atari8Cpu *c, Mode mode)
 {
     c->a = c->x = rd(c, address(c, mode, false));
     nz(c, c->a);
+}
+
+/* Deterministic NMOS approximation for unstable high-byte stores.
+ * The mask uses the unindexed high byte plus one. A page carry can
+ * replace the destination high byte with the actual stored value. */
+static void masked_store(Atari8Cpu *c, uint8_t op)
+{
+    uint16_t base;
+    if (op == 0x93) {
+        uint8_t z = fetch(c);
+        base = zp16(c, z);
+    } else {
+        base = fetch16(c);
+    }
+    uint8_t offset = op == 0x9c ? c->x : c->y;
+    uint16_t dest = indexed(c, base, offset, true);
+    uint8_t source;
+    if (op == 0x9c)
+        source = c->y;
+    else if (op == 0x9e)
+        source = c->x;
+    else {
+        source = c->a & c->x;
+        if (op == 0x9b)
+            c->sp = source;
+    }
+    uint8_t value = source & (uint8_t)((base >> 8) + 1u);
+    if ((base ^ dest) & 0xff00u)
+        dest = (uint16_t)(((uint16_t)value << 8) | (dest & 255u));
+    wr(c, dest, value);
 }
 
 static void interrupt_vector(Atari8Cpu *c, uint16_t vector, bool brk)
@@ -540,6 +590,33 @@ unsigned atari8_cpu_step(Atari8Cpu *c)
         c->x = (uint8_t)(a - v);
         break;
     case 0xeb: sbc(c, fetch(c)); break;
+    case 0x6b: arr(c, fetch(c)); break;
+    case 0x8b: /* XAA/ANE: fixed magic constant, not silicon prediction */
+        v = fetch(c);
+        c->a = (uint8_t)((c->a | 0xeeu) & c->x & v);
+        nz(c, c->a);
+        break;
+    case 0xab: /* LXA: same deterministic magic constant */
+        v = fetch(c);
+        c->a = c->x = (uint8_t)((c->a | 0xeeu) & v);
+        nz(c, c->a);
+        break;
+    case 0xbb: /* LAS */
+        v = rd(c, address(c, ABSY, false));
+        c->a = c->x = c->sp = (uint8_t)(v & c->sp);
+        nz(c, c->a);
+        break;
+    case 0x93: case 0x9f: case 0x9b: case 0x9c: case 0x9e:
+        masked_store(c, op);
+        break;
+    case 0x02: case 0x12: case 0x22: case 0x32: case 0x42: case 0x52:
+    case 0x62: case 0x72: case 0x92: case 0xb2: case 0xd2: case 0xf2:
+        /* JAM: halt the player immediately. Not a pin-level lockup. */
+        c->jammed = true;
+        --c->pc;
+        c->bad_opcode = op;
+        c->stopped = true;
+        return 0;
     default:
         --c->pc;
         c->bad_opcode = op;
