@@ -20,7 +20,7 @@ typedef struct {
     Atari8Machine machine;
     Atari8SapbInfo info;
     Atari8SapbResult status;
-    uint64_t intervals;
+    uint64_t intervals, missed_intervals;
 } Atari8Sapb;
 
 Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
@@ -30,7 +30,9 @@ Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
 Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
                                   size_t size, int song, uint32_t rate,
                                   Atari8MachineSink sink, void *context);
-/* Call PLAYER and advance exactly one FASTPLAY interval on success.
+/* Call PLAYER and advance to the next FASTPLAY grid boundary.
+ * Overlong calls skip elapsed deadlines, bounded by a watchdog.
+ * intervals counts actual calls; missed_intervals counts skipped calls.
  * Duration and end-of-song policy are left to the caller. */
 Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s);
 #endif

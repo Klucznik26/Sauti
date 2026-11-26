@@ -312,3 +312,18 @@ A/X/Y and the instruction history immediately before the first jump
 to zero. No change to PLAYER timing yet. References: SAP format
 specification https://asap.sourceforge.net/sap-format.html and Altirra
 Hardware Reference Manual, SKCTL register layout.
+
+Pending comparison after 094a1f8: Impossible_but_Real now renders
+stereo with 21 ms onset (ASAP 23 ms); Zador_II advances from SKCTL $20
+to $96. All seven tests passed. SKCTL async receive, serial mode 001,
+now holds timers 3/4 reset while disconnected input waits for a start
+bit; channels 1/2 and volume-only output remain available. No serial
+data transfer. Reference: Altirra Hardware Reference Manual section
+Asynchronous receive mode. SAP-B overlong PLAYER calls now finish
+without reentry, skip deadlines on the existing FASTPLAY grid, and
+report skipped deadlines. A bounded watchdog (up to eight intervals,
+normally capped at two emulated seconds, at least one interval) still
+rejects nonreturning calls. This is a compatibility policy for music
+not conforming to the ideal timing contract, not verified equivalence
+to ASAP scheduling. Six absolute JMP $0000 failures remain under
+investigation; no special treatment of those jumps is introduced.

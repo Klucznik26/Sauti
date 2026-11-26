@@ -163,10 +163,17 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
         /* $20 selects a serial clock but also holds the keyboard/slow
          * clocks and noise generators in initialization. No serial
          * device or serial interrupt is implemented in this profile. */
+        /* Asynchronous receive with the serial input held idle high:
+         * no start bit, so timers 3/4 remain in reset. Only clock mode
+         * 001 (external output clock) is supported for this case. */
         if ((value & 0x78u) != 0 && (value & 0xf8u) != 0x88u &&
-            value != 0x20u)
+            (value & 0x78u) != 0x10u && value != 0x20u)
             return false;
         p->skctl = value;
+        if (value & 0x10u) {
+            p->counter[2] = reload(p, 2);
+            p->counter[3] = reload(p, 3);
+        }
         if (!(value & 3u)) {
             /* Approximate initial prescaler phase; first pulses after
              * release at 19 and 78 cycles, excluding timer pipelines. */
@@ -237,6 +244,10 @@ void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles)
         bool slow_tick = (p->audctl & 1) ? tick114 : tick28;
         bool timer2_pulse = false;
         for (unsigned ch = 0; ch < 4; ++ch) {
+            if (ch >= 2 && (p->skctl & 0x10u)) {
+                p->counter[ch] = reload(p, ch);
+                continue; /* no asynchronous start bit on idle SIO */
+            }
             if (!fast_timer(p->audctl, ch) && !slow_tick)
                 continue;
             if (--p->counter[ch] == 0) {

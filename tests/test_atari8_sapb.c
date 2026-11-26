@@ -132,9 +132,26 @@ static void test_shadow_load(void)
     Atari8SapbInfo i;
     CHECK(atari8_sapb_parse(data,n,&i)==ATARI8_SAPB_UNSUPPORTED);
 }
+static void test_overlong_player(void)
+{
+    uint8_t data[512];
+    size_t n=fixture(data,false,false);
+    Atari8Sapb s;
+    CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    /* 256 x 256 nested countdowns: finite, but longer than one frame.
+     * Use a smaller outer loop so execution fits within eight frames. */
+    static const uint8_t loop[]={0xa2,40,0xa0,0,0x88,0xd0,0xfd,
+                                 0xca,0xd0,0xf8,0x60};
+    CHECK(atari8_machine_load(&s.machine,0x2100,loop,sizeof(loop)));
+    uint64_t start=s.machine.master_cycles;
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+    CHECK(s.intervals==1 && s.missed_intervals==1);
+    CHECK(s.machine.master_cycles-start==2u*s.info.interval);
+    CHECK(s.machine.frames==(uint64_t)2*s.info.interval*48000u/s.machine.pcm.clock_hz);
+}
 int main(void)
 {
-    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load();
+    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player();
     puts("PASS: experimental Atari8 SAP-B");
     return 0;
 }

@@ -153,6 +153,7 @@ Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
         return s->status = ATARI8_SAPB_BAD_FORMAT;
     s->info = info;
     s->intervals = 0;
+    s->missed_intervals = 0;
     if (!atari8_machine_init(&s->machine,info.ntsc,info.stereo,rate,true,NULL,NULL))
         return s->status = ATARI8_SAPB_UNSUPPORTED;
     s->machine.sap_host_scheduled = true;
@@ -178,12 +179,23 @@ Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s)
     if (!s) return ATARI8_SAPB_BAD_FORMAT;
     if (s->status != ATARI8_SAPB_OK) return s->status;
     uint64_t start = s->machine.master_cycles;
-    if (atari8_machine_call(&s->machine,s->info.player,s->info.interval) != ATARI8_MACHINE_OK)
+    /* Compatibility policy: finish an overlong call, never reenter it.
+     * Skip elapsed deadlines and return to the original FASTPLAY grid.
+     * A non-returning routine still faults within eight periods and
+     * at most two seconds of emulated time. */
+    uint64_t budget = (uint64_t)s->info.interval * 8u;
+    uint64_t ceiling = (uint64_t)s->machine.pcm.clock_hz * 2u;
+    if (budget > ceiling) budget = ceiling;
+    if (budget < s->info.interval) budget = s->info.interval;
+    if (atari8_machine_call(&s->machine,s->info.player,budget) != ATARI8_MACHINE_OK)
         return s->status = ATARI8_SAPB_RUNTIME;
     uint64_t spent = s->machine.master_cycles - start;
-    if (spent > s->info.interval ||
-        atari8_machine_idle(&s->machine,s->info.interval - (uint32_t)spent) != ATARI8_MACHINE_OK)
+    uint64_t periods = (spent + s->info.interval - 1u) / s->info.interval;
+    if (!periods) periods = 1;
+    uint32_t remaining = (uint32_t)(periods * s->info.interval - spent);
+    if (atari8_machine_idle(&s->machine,remaining) != ATARI8_MACHINE_OK)
         return s->status = ATARI8_SAPB_RUNTIME;
+    s->missed_intervals += periods - 1u;
     ++s->intervals;
     return ATARI8_SAPB_OK;
 }
