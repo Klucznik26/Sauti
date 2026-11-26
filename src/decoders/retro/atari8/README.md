@@ -163,3 +163,18 @@ vary by silicon and bus conditions; this model is not hardware-verified.
 External functional test validated the earlier official instruction set,
 not these undocumented instructions. Hardware RESET and exact IRQ/NMI
 polling remain pending. Reference: https://cc65.github.io/doc/cpus.html
+
+Machine milestone: CPU callbacks clock POKEY and PCM once per bus cycle,
+including dummy reads/writes. RAM is flat 64 KiB except $D000-$D7FF I/O;
+only implemented POKEY registers are accessible. Reads/writes happen at
+the end of the modeled cycle. Primary POKEY IRQ feeds CPU. PCM is emitted
+via synchronous optional callback; host idle advances sound without CPU
+execution. Host calls use a synthetic $FFFF return sentinel and a cycle
+budget checked per instruction. I/O faults, CPU JAM and budget exhaustion
+are sticky. The final instruction may overshoot by up to seven cycles.
+No OS ROM, ANTIC, GTIA, PIA, DMA, WSYNC, full interrupt timing or SAP-B
+parser yet. Unknown I/O is rejected rather than silently emulated. This
+is a restricted music runtime, not a complete Atari computer emulator.
+Do not copy or move an initialized machine; its CPU bus points to itself.
+Tests: original synthetic CPU programs write mono/stereo POKEY registers,
+check sample count, cycle ordering, repeated calls and bounded failure.

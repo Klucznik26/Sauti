@@ -1,0 +1,92 @@
+#include "../src/decoders/retro/atari8/atari8_machine.h"
+#include <stdio.h>
+#include <stdlib.h>
+#define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL %d: %s\n", __LINE__, #x); exit(1); } } while (0)
+
+typedef struct { uint64_t count; unsigned left, right; } Capture;
+static void capture(void *ctx, const int16_t frame[2])
+{
+    Capture *c = ctx;
+    ++c->count;
+    c->left += frame[0] != 0;
+    c->right += frame[1] != 0;
+}
+
+static void test_audio(bool stereo)
+{
+    Atari8Machine m;
+    Capture out = {0};
+    CHECK(atari8_machine_init(&m,false,stereo,48000,false,capture,&out));
+    /* LDA #71; STA $D200; LDA #$AF; STA $D201;
+       LDA #95; STA $D210; LDA #$A9; STA $D211;
+       STA $D209; RTS. */
+    static const uint8_t program[] = {
+        0xa9,71,0x8d,0x00,0xd2,0xa9,0xaf,0x8d,0x01,0xd2,
+        0xa9,95,0x8d,0x10,0xd2,0xa9,0xa9,0x8d,0x11,0xd2,
+        0x8d,0x09,0xd2,0x60
+    };
+    CHECK(atari8_machine_load(&m,0x2000,program,sizeof(program)));
+    CHECK(atari8_machine_call(&m,0x2000,100)==ATARI8_MACHINE_OK);
+    CHECK(m.cpu.pc==0xffff && m.cpu.sp==0xfd);
+    CHECK(m.cpu.cycles==34 && m.master_cycles==34);
+    CHECK(m.core.pokey[0].audf[0]==(stereo?71:95));
+    CHECK(m.core.pokey[0].audc[0]==(stereo?0xaf:0xa9));
+    if (stereo) {
+        CHECK(m.core.pokey[1].audf[0]==95);
+        CHECK(m.core.pokey[1].audc[0]==0xa9);
+    }
+    CHECK(atari8_machine_idle(&m,1773447u-34u)==ATARI8_MACHINE_OK);
+    CHECK(m.master_cycles==1773447u && m.cpu.cycles==34);
+    CHECK(out.count==48000 && m.frames==out.count);
+    CHECK(out.left>1000 && (stereo?out.right>1000:out.right==0));
+    CHECK(atari8_machine_call(&m,0x2000,34)==ATARI8_MACHINE_OK);
+    CHECK(m.cpu.cycles==68 && m.master_cycles==1773447u+34u);
+}
+
+static void test_bus_cycle(void)
+{
+    Atari8Machine m;
+    CHECK(atari8_machine_init(&m,false,false,48000,false,NULL,NULL));
+    static const uint8_t program[]={0xa9,0x1f,0x8d,0x01,0xd2,0xad,0x0e,0xd2,0x60};
+    CHECK(atari8_machine_load(&m,0x2000,program,sizeof(program)));
+    m.cpu.pc=0x2000;
+    CHECK(atari8_machine_step(&m)==ATARI8_MACHINE_OK);
+    CHECK(m.master_cycles==2 && m.core.pokey[0].audc[0]==0);
+    CHECK(atari8_machine_step(&m)==ATARI8_MACHINE_OK);
+    CHECK(m.master_cycles==6 && m.core.pokey[0].audc[0]==0x1f);
+    CHECK(m.pcm.area[0]==0); /* new level begins on the next cycle */
+    CHECK(atari8_machine_step(&m)==ATARI8_MACHINE_OK);
+    CHECK(m.master_cycles==10 && m.cpu.a==0xff);
+    CHECK(m.pcm.area[0]==4u*15u*48000u);
+}
+
+static void test_faults(void)
+{
+    Atari8Machine m;
+    static const uint8_t loop[]={0x4c,0x00,0x20};
+    CHECK(!atari8_machine_init(&m,false,false,0,false,NULL,NULL));
+    CHECK(atari8_machine_init(&m,false,false,44100,true,NULL,NULL));
+    CHECK(!atari8_machine_load(&m,0xffff,loop,sizeof(loop)));
+    CHECK(!atari8_machine_load(&m,0xcfff,loop,sizeof(loop)));
+    CHECK(atari8_machine_load(&m,0x2000,loop,sizeof(loop)));
+    CHECK(atari8_machine_call(&m,0x2000,10)==ATARI8_MACHINE_BUDGET);
+    CHECK(m.master_cycles==12);
+    CHECK(atari8_machine_step(&m)==ATARI8_MACHINE_BUDGET && m.master_cycles==12);
+    CHECK(atari8_machine_init(&m,false,false,44100,true,NULL,NULL));
+    static const uint8_t io[]={0xad,0x00,0xd4,0x60};
+    CHECK(atari8_machine_load(&m,0x2000,io,sizeof(io)));
+    CHECK(atari8_machine_call(&m,0x2000,100)==ATARI8_MACHINE_IO);
+    CHECK(m.fault_address==0xd400 && !m.fault_write && m.master_cycles==4);
+    CHECK(atari8_machine_init(&m,false,false,44100,true,NULL,NULL));
+    static const uint8_t jam[]={0x02};
+    CHECK(atari8_machine_load(&m,0x2000,jam,sizeof(jam)));
+    CHECK(atari8_machine_call(&m,0x2000,100)==ATARI8_MACHINE_CPU_STOP);
+    CHECK(m.cpu.jammed && m.master_cycles==1);
+}
+
+int main(void)
+{
+    test_audio(false); test_audio(true); test_bus_cycle(); test_faults();
+    puts("PASS: experimental Atari8 CPU/RAM/POKEY machine");
+    return 0;
+}
