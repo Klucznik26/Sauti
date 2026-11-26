@@ -59,7 +59,7 @@ static int ps_extension_parse(const uint8_t *data,size_t size,size_t *pos,
     }
     size_t ps_pos=0u;
     if(!sauti_aac_ps_frame_parse(compact,(available+7u)/8u,&ps_pos,state,frame) ||
-       ps_pos>available)return 0;
+       ps_pos>((available+7u)/8u)*8u)return 0;       /* the reference decoders read on past the extension when the PS syntax needs the last bits of its byte (al960_sbr_ps_04) */
     *used=ps_pos;
     return 1;
 }
@@ -198,6 +198,7 @@ static int payload_parse_impl(
             if(id!=2u || result.has_ps ||
                !ps_extension_parse(packed,len,&pos,remain,&next.ps,
                                    &result.ps,&used))return 0;
+            if(used>remain)used=remain;
             pos+=used;remain-=used;result.has_ps=1u;
         }
         while(remain){
