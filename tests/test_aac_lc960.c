@@ -193,7 +193,7 @@ static int open_result(const uint8_t *data, size_t n) {
 static void test_refused_files(void) {
     size_t n, i; uint8_t *data = slurp("tests/data/lc960_he_sbr.m4a", &n); unsigned patched = 0;
     if (!data) { CHECK(0, "cannot read tests/data/lc960_he_sbr.m4a"); } else {
-        CHECK(open_result(data, n) == (int)MAKTABASAUTI_E_UNSUPPORTED_FEATURE, "HE-AAC with 960-sample frames (SBR fill in the access units) must be refused as an unsupported feature, got %d", open_result(data, n));
+        CHECK(open_result(data, n) == (int)MAKTABASAUTI_OK, "HE-AAC with 960-sample frames opens (the SBR of the 960 layout is decoded since 2026-11-23, verified on the ISO streams al960_sbr_* against FDK), got %d", open_result(data, n));
         free(data);
     }
     data = slurp("tests/data/lc960_st.m4a", &n);

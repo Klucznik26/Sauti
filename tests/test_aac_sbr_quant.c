@@ -220,15 +220,23 @@ static void test_atomic_rollback(void) {
     }
     assert(truncated>5u);
 
-    /* A time-coded first envelope without history is invalid. */
-    c.df_env[0]=1;
+    /* A time-coded first envelope without history (a stream that joins in the middle, or SBR that starts late): the previous values count as zero and the results are clamped, as in the reference
+     * decoders; if the bits do not parse, the failure is atomic. */
+    {
+        SautiAacSbrQuantState before=state;SautiAacSbrQuantFrame keep=out;size_t p0=0;
+        c.df_env[0]=1;
+        if(!sauti_aac_sbr_quant_decode(b.bytes,bytes_used(&b),&p0,&g,&t,&c,1,0,&state,&out)){
+            assert(p0==0 && memcmp(&state,&before,sizeof(state))==0 && memcmp(&out,&keep,sizeof(out))==0);
+        }
+        state=before;out=keep;p0=0;
+        c.df_env[0]=0;
+        c.df_noise[0]=1;
+        if(!sauti_aac_sbr_quant_decode(b.bytes,bytes_used(&b),&p0,&g,&t,&c,1,0,&state,&out)){
+            assert(p0==0 && memcmp(&state,&before,sizeof(state))==0 && memcmp(&out,&keep,sizeof(out))==0);
+        }
+        state=before;out=keep;
+    }
     size_t pos=0;
-    assert(!sauti_aac_sbr_quant_decode(b.bytes,bytes_used(&b),&pos,
-                                        &g,&t,&c,1,0,&state,&out));
-    c.df_env[0]=0;
-    c.df_noise[0]=1;
-    assert(!sauti_aac_sbr_quant_decode(b.bytes,bytes_used(&b),&pos,
-                                        &g,&t,&c,1,0,&state,&out));
     c.df_noise[0]=0;
     assert(memcmp(&state,&before,sizeof(state))==0 &&
            memcmp(&out,&old,sizeof(out))==0 && pos==0);

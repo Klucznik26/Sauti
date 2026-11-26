@@ -111,14 +111,16 @@ static int decode_envelopes(const uint8_t *data,size_t size,size_t *pos,
         const unsigned n=res?tables->n_high:tables->n_low;
         next->freq_res[e]=(uint8_t)res;
         if(control->df_env[e]){
-            if(e==0u && (!state->has_env || !mode->geometry_ok || (!mode->mode_ok && !grid->ld)))return 0;   /* low delay: the previous values are used as they are, whatever the coupling or resolution of the previous frame (the reference does not convert them) */
-            const unsigned prev_res=e?grid->freq_res[e-1u]:state->prev_freq_res;
+            if(e==0u && state->has_env && (!mode->geometry_ok || (!mode->mode_ok && !grid->ld)))return 0;      /* no previous envelope at all (the stream joined at this frame, or SBR started late): the previous values are zero, as in the reference decoders */   /* low delay: the previous values are used as they are, whatever the coupling or resolution of the previous frame (the reference does not convert them) */
+            const unsigned prev_res=e?grid->freq_res[e-1u]:(state->has_env?state->prev_freq_res:res);      /* no previous frame: same resolution, zero values */
             const uint8_t *prev=e?next->env[e-1u]:state->prev_env;
+            const int fresh=!state->has_env;                                                                /* the values are meaningless then: clamp instead of rejecting */
             const unsigned prev_n=prev_res?tables->n_high:tables->n_low;
             for(unsigned j=0u;j<n;j++){
                 int32_t delta=0;const unsigned ref=previous_band(j,res,prev_res,tables->n_high);
                 if(ref>=prev_n || !sauti_aac_sbr_huffman_decode(data,size,pos,mode->env_t,&delta))return 0;
-                const int value=(int)prev[ref]+(int)mode->factor*(int)delta;
+                int value=(int)prev[ref]+(int)mode->factor*(int)delta;
+                if(fresh)value=value<0?0:value>127?127:value;
                 if(value<0 || value>127)return 0;
                 next->env[e][j]=(uint8_t)value;
             }
@@ -148,11 +150,13 @@ static int decode_noise(const uint8_t *data,size_t size,size_t *pos,
     for(unsigned e=0u;e<grid->noise_count;e++){
         const unsigned n=tables->n_noise;
         if(control->df_noise[e]){
-            if(e==0u && (!state->has_noise || !mode->geometry_ok || (state->balanced!=(mode->factor==2u) && !grid->ld)))return 0;
+            if(e==0u && state->has_noise && (!mode->geometry_ok || (state->balanced!=(mode->factor==2u) && !grid->ld)))return 0;      /* likewise: no previous noise floor = zeros */
             const uint8_t *prev=e?next->noise[e-1u]:state->prev_noise;
+            const int fresh=!state->has_noise;
             for(unsigned j=0u;j<n;j++){
                 int32_t delta=0;if(!sauti_aac_sbr_huffman_decode(data,size,pos,mode->noise_t,&delta))return 0;
-                const int value=(int)prev[j]+(int)mode->factor*(int)delta;
+                int value=(int)prev[j]+(int)mode->factor*(int)delta;
+                if(fresh)value=value<0?0:value>30?30:value;
                 if(value<0 || value>30)return 0;
                 next->noise[e][j]=(uint8_t)value;
             }

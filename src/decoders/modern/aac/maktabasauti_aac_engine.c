@@ -212,12 +212,32 @@ static prod_t decode_he960(dec_t *d) {
     lcn_config(d, &lc, 2u, d->rate_index, d->config, 1u);
     r = sauti_aac_lcn_decode_sbr(&lc, &s->lcn, raw, rawn, core, &why, &sb);
     if (r != 1) return r < 0 ? P_UNSUPPORTED : P_FAIL;
-    if (!sb.present || (ch != 1u && ch != 2u)) return P_FAIL;
+    if (ch != 1u && ch != 2u) return P_FAIL;
+    if (!sb.present && !(ch == 1u ? s->mono.initialized : s->cpe.initialized)) {         /* before the first sbr_header: the core signal alone (see sauti_aac_sbr_channel_core_only) */
+        float c2[2][1024]; float *pc[2]; unsigned n = ch == 1u ? 1u : 2u;
+        pc[0] = core;
+        if (ch == 2u) { for (i = 0; i < 960u; i++) { c2[0][i] = core[2u * i]; c2[1][i] = core[2u * i + 1u]; } pc[0] = c2[0]; pc[1] = c2[1]; }
+        for (k = 0; k < n; k++) {
+            SautiAacSbrComplex *g = ch == 1u ? grid : d->scratch_g2[k];
+            if (!sauti_aac_sbr_channel_core_only(&s->channel[k], pc[k], g) || !sauti_aac_sbr_channel_synthesize(&s->channel[k], g, pcm[k])) return P_FAIL;
+        }
+        if (ch == 1u) { memcpy(d->cache, pcm[0], 1920u * sizeof(float)); if (d->ps_mode) for (i = 1920u; i-- > 0u;) { d->cache[2u * i + 1u] = d->cache[i]; d->cache[2u * i] = d->cache[i]; } }
+        else for (i = 0; i < 1920u; i++) { d->cache[2u * i] = pcm[0][i]; d->cache[2u * i + 1u] = pcm[1][i]; }
+        return all_finite(d->cache, (size_t)1920u * (ch == 2u || d->ps_mode ? 2u : 1u)) ? P_OK : P_FAIL;
+    }
+    if (!sb.present) return P_FAIL;
     if (ch == 1u) {
         SautiAacSbrPayloadState ns = s->mono; SautiAacSbrPayloadFrame pl;
         ns.ps.slots = 30u;                                                             /* PS: 30 kolumn QMF na ramke 960 */
         if (!sauti_aac_sbr_payload_temporal_parse_ex(raw, rawn, sb.start_bit, sb.bits, d->out_rate, &ns, &pl, NULL)) return P_FAIL;
-        if (pl.has_ps && !d->ps_mode) { d->ps_mode = 1; d->out_channels = 2u; }       /* PS wykryte w pierwszej ramce: wyjscie stereo */
+        if (pl.no_sbr) {
+            if (!sauti_aac_sbr_channel_core_only(&s->channel[0], core, grid) || !sauti_aac_sbr_channel_synthesize(&s->channel[0], grid, pcm[0])) return P_FAIL;
+            memcpy(d->cache, pcm[0], 1920u * sizeof(float));
+            if (d->ps_mode) for (i = 1920u; i-- > 0u;) { d->cache[2u * i + 1u] = d->cache[i]; d->cache[2u * i] = d->cache[i]; }
+            return all_finite(d->cache, (size_t)1920u * (d->ps_mode ? 2u : 1u)) ? P_OK : P_FAIL;
+        }
+        if (pl.has_ps && !d->ps_mode && d->core.frames_in == 0u && d->cp_count == 0u) { d->ps_mode = 1; d->out_channels = 2u; }       /* PS wykryte w pierwszej ramce: wyjscie stereo */
+        if (pl.has_ps && !d->ps_mode) pl.has_ps = 0u;                                  /* PS later in a stream that was announced as mono: the channel count cannot change, the PS data is ignored */
         if (d->ps_mode) {
             if (!pl.has_ps) {
                 if (!s->pending_payload.has_ps) return P_FAIL;                         /* nie ma czego powtorzyc */
@@ -244,7 +264,7 @@ static prod_t decode_he960(dec_t *d) {
         if (!sauti_aac_sbr_payload_cpe_parse(raw, rawn, sb.start_bit, sb.bits, d->out_rate, &ns, &pl)) return P_FAIL;
         for (i = 0; i < 960u; i++) { c[0][i] = core[2u * i]; c[1][i] = core[2u * i + 1u]; }
         for (k = 0; k < 2u; k++)
-            if (!sauti_aac_sbr_channel_frame(&s->channel[k], c[k], &pl.channel[k], g2[k]) || !sauti_aac_sbr_channel_synthesize(&s->channel[k], g2[k], pcm[k])) return P_FAIL;
+            if (!(pl.channel[k].no_sbr ? sauti_aac_sbr_channel_core_only(&s->channel[k], c[k], g2[k]) : sauti_aac_sbr_channel_frame(&s->channel[k], c[k], &pl.channel[k], g2[k])) || !sauti_aac_sbr_channel_synthesize(&s->channel[k], g2[k], pcm[k])) return P_FAIL;
         s->cpe = ns;
         for (i = 0; i < 1920u; i++) { d->cache[2u * i] = pcm[0][i]; d->cache[2u * i + 1u] = pcm[1][i]; }
         return all_finite(d->cache, 3840u) ? P_OK : P_FAIL;
@@ -675,6 +695,34 @@ static int he_lookahead_ps(dec_t *d) {
     if (d->cont->seek_to ? d->cont->seek_to(d, pos0) != MAKTABASAUTI_OK : h->seek(h->user, d->rd, pos0, 0) < 0) return -1;
     return found;
 }
+/* HE-AAC with 960 lines, mono core: the PS data may start after the first frames (before the first sbr_header there is none).  The next frames are decoded on scratch states; the container
+ * position is restored.  1 = parametric stereo found, 0 = none found within 400 frames, -1 = cannot go back. */
+static int he960_lookahead_ps(dec_t *d) {
+    const maktabasauti_host_t *h = d->host;
+    SautiAacLcnState *lcn = (SautiAacLcnState *)h->alloc(h->user, sizeof *lcn);
+    SautiAacSbrPayloadState *ns = (SautiAacSbrPayloadState *)h->alloc(h->user, sizeof *ns);
+    uint8_t *save = (uint8_t *)h->alloc(h->user, sizeof d->frame);
+    int64_t pos0 = d->cont->position ? d->cont->position(d) : h->tell(h->user, d->rd);
+    size_t save_len = d->frame_len; int found = 0, n; SautiAacLcnConfig lc;
+    if (!lcn || !ns || !save || pos0 < 0) { if (lcn) h->free(h->user, lcn); if (ns) h->free(h->user, ns); if (save) h->free(h->user, save); return 0; }
+    memcpy(save, d->frame, sizeof d->frame);
+    sauti_aac_lcn_state_init(lcn);
+    memcpy(ns, &d->core.u.h9.mono, sizeof *ns);
+    lcn_config(d, &lc, 2u, d->rate_index, d->config, 1u);
+    for (n = 0; n < 400 && !found; n++) {
+        float core[2u * 1024u]; SautiAacLcnSbr sb; SautiAacReason why = SAUTI_AAC_REASON_OK; SautiAacSbrPayloadFrame pl;
+        if (n > 0 && d->cont->fetch(d) != MAKTABASAUTI_OK) break;
+        if (sauti_aac_lcn_decode_sbr(&lc, lcn, d->frame + 7u, d->frame_len - 7u, core, &why, &sb) != 1) break;
+        if (!sb.present) continue;
+        ns->ps.slots = 30u;
+        if (!sauti_aac_sbr_payload_temporal_parse_ex(d->frame + 7u, d->frame_len - 7u, sb.start_bit, sb.bits, d->out_rate, ns, &pl, NULL)) break;
+        if (!pl.no_sbr && pl.has_ps) found = 1;
+    }
+    memcpy(d->frame, save, sizeof d->frame); d->frame_len = save_len;
+    h->free(h->user, lcn); h->free(h->user, ns); h->free(h->user, save);
+    if (d->cont->seek_to ? d->cont->seek_to(d, pos0) != MAKTABASAUTI_OK : h->seek(h->user, d->rd, pos0, 0) < 0) return -1;
+    return found;
+}
 static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
     const aac_adts_hdr_t hd = *hdp; prod_t pr = P_FAIL; variant_t chosen = V_LC_STEREO;
     d->rate_index = hd.rate_index; d->core_rate = hd.rate; d->config = hd.config; d->crc_present = hd.crc_present;
@@ -741,6 +789,11 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
             core_reset(d);
             pr = decode_er(d);
             if (!(pr == P_OK || pr == P_NEED_MORE)) { d->he960 = 0u; d->ps_mode = 0; d->out_channels = d->core_channels; }
+            else if (hd.config == 1u && !d->ps_mode && d->seekable) {                         /* PS that starts later: the channel count of the stream must be known now */
+                const int la = he960_lookahead_ps(d);
+                if (la < 0) return MAKTABASAUTI_E_CORRUPT_DATA;
+                if (la) { d->ps_mode = 1; d->out_channels = 2u; }
+            }
         }
         if (!(pr == P_OK || pr == P_NEED_MORE)) { lcm_free(d, &d->core); return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
         core_reset(d);
