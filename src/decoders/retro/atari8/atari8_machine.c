@@ -32,6 +32,7 @@ static void io_fault(Atari8Machine *m, uint16_t a, bool writing)
     m->status = ATARI8_MACHINE_IO;
     m->fault_address = a;
     m->fault_write = writing;
+    m->fault_value = 0;
 }
 
 /* Sample/read or commit/write at the end of the modeled bus cycle.
@@ -60,6 +61,10 @@ static uint8_t bus_read(void *context, uint16_t a)
         if (reg == 10 || reg == 14)
             return 0xff; /* write-only registers, idle bus approximation */
     }
+    /* XL-style bus pullups, with no PBI device or cartridge attached.
+     * This is not the floating-bus behavior of every Atari model. */
+    if ((a & 0xff00u) == 0xd100u || a >= 0xd500u)
+        return 0xff;
     uint8_t value;
     if (atari8_core_read(&m->core, a, &value))
         return value;
@@ -95,8 +100,11 @@ static void bus_write(void *context, uint16_t a, uint8_t value)
         if (reg == 11) return; /* VCOUNT is read-only */
         if (reg == 14 && !(value & 0xc0u)) return; /* NMI disabled */
     }
+    if ((a & 0xff00u) == 0xd100u || a >= 0xd500u)
+        return; /* no expansion device to receive the write */
     if (!atari8_core_write(&m->core, a, value)) {
         io_fault(m, a, true);
+        m->fault_value = value;
         return;
     }
     sync_irq(m);

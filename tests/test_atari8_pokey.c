@@ -509,6 +509,9 @@ static void test_headless_inputs(void)
     CHECK(atari8_pokey_read(&p,9,&v) && v==255);
     CHECK(atari8_pokey_read(&p,15,&v) && v==255);
     CHECK(atari8_pokey_write(&p,10,0));
+    CHECK(atari8_pokey_write(&p,13,0xa5) && p.serout==0xa5);
+    CHECK(atari8_pokey_read(&p,13,&v) && v==0xff);
+    CHECK(!atari8_pokey_write(&p,15,0x0b));
     CHECK(!atari8_pokey_read(&p,16,&v));
 }
 

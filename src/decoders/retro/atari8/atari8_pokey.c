@@ -141,6 +141,13 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
     }
     if (reg == 12)
         return true; /* unused write */
+    if (reg == 13) {
+        /* SEROUT holding register. Headless sink with no SIO device.
+         * Serial transfer timing and serial IRQs are not modeled;
+         * SKCTL serial/two-tone modes remain explicitly unsupported. */
+        p->serout = value;
+        return true;
+    }
     if (reg == 14) {
         /* Only the three timer sources are implemented. */
         if (value & 0xf8)

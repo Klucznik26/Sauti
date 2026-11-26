@@ -133,12 +133,35 @@ static void test_headless_video(void)
     CHECK(atari8_machine_init(&m,false,false,48000,false,NULL,NULL));
     CHECK(atari8_machine_load(&m,0x2000,nmi,sizeof(nmi)));
     CHECK(atari8_machine_call(&m,0x2000,100)==ATARI8_MACHINE_IO);
-    CHECK(m.fault_address==0xd40e && m.fault_write);
+    CHECK(m.fault_address==0xd40e && m.fault_write && m.fault_value==0x40);
+}
+static void test_absent_expansion(void)
+{
+    Atari8Machine m;
+    static const uint8_t code[]={
+        0xad,0x06,0xd1,0x85,0x80, /* PBI read */
+        0xa9,0x42,0x8d,0xff,0xd1, /* no device selected */
+        0xad,0xff,0xd1,0x85,0x81,
+        0xad,0x00,0xd5,0x85,0x82, /* no cartridge */
+        0xad,0xff,0xd7,0x85,0x83,
+        0xa9,0x55,0x8d,0x0d,0xd2, /* SEROUT */
+        0x8d,0x1d,0xd2,0x60
+    };
+    CHECK(atari8_machine_init(&m,false,true,48000,false,NULL,NULL));
+    CHECK(atari8_machine_load(&m,0x2000,code,sizeof(code)));
+    CHECK(atari8_machine_call(&m,0x2000,100)==ATARI8_MACHINE_OK);
+    for(unsigned i=0;i<4;++i) CHECK(m.ram[0x80+i]==0xff);
+    CHECK(m.core.pokey[0].serout==0x55 && m.core.pokey[1].serout==0x55);
+    CHECK(m.ram[0xd1ff]==0);
+    static const uint8_t unsupported[]={0xa9,0x0b,0x8d,0x0f,0xd2,0x60};
+    CHECK(atari8_machine_load(&m,0x2000,unsupported,sizeof(unsupported)));
+    CHECK(atari8_machine_call(&m,0x2000,100)==ATARI8_MACHINE_IO);
+    CHECK(m.fault_address==0xd20f && m.fault_write && m.fault_value==0x0b);
 }
 int main(void)
 {
     test_audio(false); test_audio(true); test_bus_cycle(); test_faults();
-    test_indexed_pokey_store(); test_headless_video();
+    test_indexed_pokey_store(); test_headless_video(); test_absent_expansion();
     puts("PASS: experimental Atari8 CPU/RAM/POKEY machine");
     return 0;
 }

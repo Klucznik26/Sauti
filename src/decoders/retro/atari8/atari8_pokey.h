@@ -13,6 +13,7 @@ typedef struct {
     uint8_t filter_latch[2], filter_sample[2], filter_delay[2];
     uint32_t clock_hz;
     uint32_t phase28, phase114;
+    uint8_t serout; /* headless transmit holding register */
     uint8_t pot_count; /* headless disconnected-input scan */
     uint32_t poly[4]; /* 4, 5, 9, 17 bits */
     uint8_t noise_history[4]; /* one cycle of delay per channel */

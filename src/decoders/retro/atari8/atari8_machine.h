@@ -30,7 +30,7 @@ typedef struct {
     Atari8MachineResult status;
     uint16_t fault_address;
     bool fault_write, ntsc;
-    uint8_t console_latch;
+    uint8_t console_latch, fault_value;
 } Atari8Machine;
 
 bool atari8_machine_init(Atari8Machine *m, bool ntsc, bool stereo,

@@ -64,9 +64,12 @@ static void diagnostic(const Atari8Sapb *s, const char *stage, Atari8SapbResult 
         const Atari8Machine *m=&s->machine;
         fprintf(stderr,", machine status %d, PC=%04X, cycles=%" PRIu64,
                 (int)m->status,(unsigned)m->cpu.pc,m->master_cycles);
-        if (m->status==ATARI8_MACHINE_IO)
+        if (m->status==ATARI8_MACHINE_IO) {
             fprintf(stderr,", unsupported I/O %s $%04X",
                 m->fault_write?"write":"read",(unsigned)m->fault_address);
+            if (m->fault_write)
+                fprintf(stderr," value=$%02X",(unsigned)m->fault_value);
+        }
         if (m->status==ATARI8_MACHINE_CPU_STOP)
             fprintf(stderr,", stopped opcode $%02X",(unsigned)m->cpu.bad_opcode);
     }

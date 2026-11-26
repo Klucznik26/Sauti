@@ -244,3 +244,16 @@ https://www.oxyron.de/html/registers_gtia.html and
 https://mads.atari8.info/library/doc/atari.html .
 The scanner --retry option selects previous failures and silent WAVs
 from a separate CSV; this is not a full regression scan.
+
+ASMA retry after GTIA/ANTIC change: 209/278 nonzero, 9 silent,
+60 failed. Combined with the previous 3546 nonzero files, the
+estimated totals are 3755 nonzero and 3764 rendered of 3824, assuming
+no regressions in the files not retested. This is not a full rerun.
+The machine now models absent PBI/ECI and cartridge hardware at
+$D100-$D1FF and $D500-$D7FF as XL-style pulled-up reads and ignored
+writes. SEROUT stores a byte without transmitting; no SIO device,
+serial timing, two-tone mode, or serial IRQ is emulated. Unsupported
+write diagnostics include the attempted byte, so NMIEN/SKCTL failures
+can be investigated without guessing. Active NMI sources still fault.
+Reference: Altirra Hardware Reference Manual, bus pullups, PBI and
+POKEY serial output. No emulator source imported.
