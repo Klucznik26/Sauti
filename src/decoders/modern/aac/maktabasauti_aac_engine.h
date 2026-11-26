@@ -120,7 +120,7 @@ typedef struct {
     checkpoint_t **cps; size_t cp_count, cp_cap; uint64_t cp_stride;
     size_t cp_max;
     float *cache; size_t cache_cap;                      /* blok PCM ostatnio zdekodowanej ramki; CACHE_FLOATS, wiecej dla ukladow szerokich (lcw) */
-    SautiAacLcwConfig lcw_cfg; unsigned lcw_ready, lcw_adts, ssr_adts, sbr_down, hm_ready, hm_config;
+    SautiAacLcwConfig lcw_cfg; unsigned lcw_ready, lcw_adts, ssr_adts, sbr_down, hm_ready, hm_config, hm_adts;
     unsigned ssr_bands;                                  /* AAC SSR: option aac.ssr_bands = 1..3 decodes only the lowest bands (scalable sampling rate: a low-passed signal at the full rate); 0 = all four */       /* uklad PCE z ASC (kontener), er_aot 100 / 101 */
     size_t cache_pos, cache_len;                         /* ramki PCM w cache */
     uint64_t position;                                   /* ramki PCM wydane */

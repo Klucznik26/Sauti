@@ -10,11 +10,11 @@ int main(int argc, char **argv) {
     if (argc < 9) { fprintf(stderr, "usage: %s IN.s16le RATE CHANNELS AOT BITRATE GRANULE OUT.aus OUT.asc\n", argv[0]); return 1; }
     FILE *f = fopen(argv[1], "rb"), *o = fopen(argv[7], "wb"), *c = fopen(argv[8], "wb");
     const int rate = atoi(argv[2]), ch = atoi(argv[3]), aot = atoi(argv[4]), br = atoi(argv[5]), gran = atoi(argv[6]);
-    HANDLE_AACENCODER h; static short in[2048 * 2 * 4]; UCHAR out[20480]; AACENC_InfoStruct info;
-    if (!f || !o || !c || ch < 1 || ch > 2) return 2;
+    HANDLE_AACENCODER h; static short in[2048 * 8 * 4]; UCHAR out[20480]; AACENC_InfoStruct info;
+    if (!f || !o || !c || ch < 1 || ch > 8) return 2;
     if (aacEncOpen(&h, 0, (UINT)ch) != AACENC_OK) return 2;
     if (aacEncoder_SetParam(h, AACENC_AOT, (UINT)aot) != AACENC_OK) { fprintf(stderr, "aot\n"); return 3; }
-    aacEncoder_SetParam(h, AACENC_SAMPLERATE, (UINT)rate); aacEncoder_SetParam(h, AACENC_CHANNELMODE, getenv("CHMODE") ? (CHANNEL_MODE)atoi(getenv("CHMODE")) : (ch == 1 ? MODE_1 : MODE_2));
+    aacEncoder_SetParam(h, AACENC_SAMPLERATE, (UINT)rate); aacEncoder_SetParam(h, AACENC_CHANNELMODE, getenv("CHMODE") ? (CHANNEL_MODE)atoi(getenv("CHMODE")) : (ch == 1 ? MODE_1 : ch == 2 ? MODE_2 : ch == 6 ? MODE_1_2_2_1 : MODE_1_2_2));
     aacEncoder_SetParam(h, AACENC_BITRATE, (UINT)br);
     if (aacEncoder_SetParam(h, AACENC_GRANULE_LENGTH, (UINT)gran) != AACENC_OK) { fprintf(stderr, "granule\n"); return 4; }
     if (getenv("SBRMODE")) aacEncoder_SetParam(h, AACENC_SBR_MODE, (UINT)atoi(getenv("SBRMODE")));

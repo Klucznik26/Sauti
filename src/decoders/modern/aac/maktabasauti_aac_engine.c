@@ -39,7 +39,7 @@ int aac_adts_parse_header(const uint8_t *p, size_t n, aac_adts_hdr_t *h) {
 
 int aac_same_stream(const dec_t *d, const aac_adts_hdr_t *h) {
     return h->rate_index == d->rate_index && h->config == d->config && h->raw_blocks == 1u && h->crc_present == d->crc_present &&
-           (d->ssr_adts ? (d->variant == V_ER && d->er_aot == 3u) : d->lcw_adts ? (d->variant == V_ER && (d->er_aot == 100u || d->er_aot == 101u)) : h->er ? (d->variant == V_ER && h->er_aot == d->er_aot && h->er_480 == d->er_480) : d->variant != V_ER);
+           (d->ssr_adts ? (d->variant == V_ER && d->er_aot == 3u) : d->hm_adts ? (d->variant == V_ER && d->er_aot == 102u) : d->lcw_adts ? (d->variant == V_ER && (d->er_aot == 100u || d->er_aot == 101u)) : h->er ? (d->variant == V_ER && h->er_aot == d->er_aot && h->er_480 == d->er_480) : d->variant != V_ER);
 }
 
 /* ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
@@ -847,7 +847,10 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
                     if (hd.er || sauti_aac_lcw_scan_pce(d->frame + hd.header_bytes, d->frame_len - hd.header_bytes, &lay) != 1) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
                     memset(&d->lcw_cfg, 0, sizeof d->lcw_cfg); d->lcw_cfg.rate_index = hd.rate_index; d->lcw_cfg.layout = lay; d->lcw_ready = 1u; d->lcw_adts = 1u;
                     lh.er = 1u; lh.er_aot = 100u; lh.er_480 = 0u;
-                    return setup_lcw(d, &lh);
+                    { const maktabasauti_result_t lr = setup_lcw(d, &lh);
+                      if (lr == MAKTABASAUTI_OK) return lr;
+                      d->lcw_adts = 0u; d->hm_config = 0u; d->hm_ready = 1u; d->hm_adts = 1u;                       /* the same layout with SBR */
+                      lh.er_aot = 102u; { const maktabasauti_result_t hr = setup_hem(d, &lh); if (hr == MAKTABASAUTI_OK) return hr; d->hm_ready = 0u; d->hm_adts = 0u; d->lcw_ready = 1u; d->lcw_adts = 1u; return lr; } }
                 }
             } else if (!sauti_aac_lc_multi_config_channels(hd.config)) { return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
         }
@@ -868,6 +871,12 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
             }
             pr = order[k] <= V_LC_MULTI ? decode_lc(d) : decode_he(d);
             if (pr == P_OK || pr == P_NEED_MORE) { chosen = order[k]; break; }
+        }
+        if (!(pr == P_OK || pr == P_NEED_MORE) && hd.config >= 3u && hd.config <= 7u && !hd.er) {      /* HE-AAC wielokanalowy bez jawnej sygnalizacji SBR: ten sam uklad, SBR w FIL */
+            aac_adts_hdr_t hh = hd;
+            memset(&d->lcw_cfg, 0, sizeof d->lcw_cfg); d->lcw_cfg.rate_index = hd.rate_index; d->hm_config = hd.config; d->hm_ready = 1u; d->lcw_adts = 0u; d->hm_adts = 1u;
+            hh.er = 1u; hh.er_aot = 102u; hh.er_480 = 0u;
+            return setup_hem(d, &hh);
         }
         if (!(pr == P_OK || pr == P_NEED_MORE)) { return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }   /* pierwsza ramka nie dekoduje sie zadnym wariantem */
     }

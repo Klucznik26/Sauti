@@ -2298,6 +2298,11 @@ test-aac-lcw: $(OBJDIR)/test_aac_lcw
 # AAC in Matroska / WebM and MPEG-2 TS (containers built in the test from tests/data/aac_tone_st.aac)
 $(OBJDIR)/test_aac_containers: tests/test_aac_containers.c src/decoders/modern/aac/maktabasauti_aac_mkv.c src/decoders/modern/aac/maktabasauti_aac_ts.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
 	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_aac_containers.c $(MKS_DEPS) -lm -lpthread -no-pie
+$(OBJDIR)/test_aac_he_multi: tests/test_aac_he_multi.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_aac_he_multi.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-aac-he-multi
+test-aac-he-multi: $(OBJDIR)/test_aac_he_multi
+	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_aac_he_multi
 .PHONY: test-aac-containers
 test-aac-containers: $(OBJDIR)/test_aac_containers
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_aac_containers
