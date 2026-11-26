@@ -122,9 +122,12 @@ instructions (all official LDA/LDX/LDY/STA/STX/STY modes), transfers,
 index increment/decrement, flags, conditional branches, JMP/JSR/RTS,
 PHA/PHP/PLA/PLP and NOP. Each bus access counts a cycle, including
 documented dummy reads for the implemented subset. Unsupported opcodes
-stop explicitly. Deterministic entry is not a hardware RESET. Arithmetic,
-logic, comparisons, shifts, memory RMW, BRK/RTI, IRQ/NMI and undocumented
-opcodes are pending; no Atari bus integration yet. No copied CPU code.
+stop explicitly. Deterministic entry is not a hardware RESET. Arithmetic and logic (ADC/SBC, ORA/AND/EOR, CMP/CPX/CPY, BIT) now include
+all official addressing modes. NMOS BCD adjustment and flag behavior are
+implemented; binary ADC/SBC tests exhaust 262144 input combinations and
+valid BCD tests exhaust 40000 combinations, with selected NMOS flag and
+invalid-digit cases. Full invalid-BCD external validation is pending.
+Shifts, memory RMW, BRK/RTI, IRQ/NMI and undocumented opcodes are pending; no Atari bus integration yet. No copied CPU code.
 Reference: https://www.dusted.dk/pages/c64/C64-programming/files/6502%20Instruction%20Set.html
 Tests use original synthetic instructions and bus traces. External
 functional suite will be run after the official opcode set is complete.

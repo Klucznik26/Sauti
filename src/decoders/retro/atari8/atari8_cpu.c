@@ -31,6 +31,76 @@ static void nz(Atari8Cpu *c, uint8_t v)
                      | (v & 128u) | (v == 0 ? ATARI8_CPU_Z : 0));
 }
 
+static void flag(Atari8Cpu *c, uint8_t mask, bool on)
+{
+    if (on)
+        c->p |= mask;
+    else
+        c->p &= (uint8_t)~mask;
+}
+
+/* NMOS decimal ADC: Z from binary sum, N/V from intermediate sum
+ * before high-digit correction, C from final decimal correction.
+ * Low digit carries at most once, including invalid BCD digits. */
+static void adc(Atari8Cpu *c, uint8_t v)
+{
+    unsigned a = c->a;
+    unsigned carry = (c->p & ATARI8_CPU_C) != 0;
+    unsigned binary = a + v + carry;
+    unsigned result = binary;
+    if (c->p & ATARI8_CPU_D) {
+        unsigned low = (a & 15u) + (v & 15u) + carry;
+        if (low >= 10)
+            low = ((low + 6u) & 15u) + 16u;
+        result = (a & 0xf0u) + (v & 0xf0u) + low;
+    }
+    flag(c, ATARI8_CPU_Z, (uint8_t)binary == 0);
+    flag(c, ATARI8_CPU_N, (result & 128u) != 0);
+    flag(c, ATARI8_CPU_V, ((~(a ^ v) & (a ^ result)) & 128u) != 0);
+    if ((c->p & ATARI8_CPU_D) && result >= 0xa0u)
+        result += 0x60u;
+    flag(c, ATARI8_CPU_C, result > 255u);
+    c->a = (uint8_t)result;
+}
+
+/* NMOS decimal SBC: flags come from the binary subtraction, while
+ * the stored accumulator receives the nibble corrections. */
+static void sbc(Atari8Cpu *c, uint8_t v)
+{
+    int a = c->a;
+    int borrow = (c->p & ATARI8_CPU_C) ? 0 : 1;
+    int binary = a - v - borrow;
+    uint8_t raw = (uint8_t)binary;
+    flag(c, ATARI8_CPU_C, binary >= 0);
+    flag(c, ATARI8_CPU_V, ((a ^ v) & (a ^ raw) & 128) != 0);
+    nz(c, raw);
+    if (c->p & ATARI8_CPU_D) {
+        int low = (a & 15) - (v & 15) - borrow;
+        int high = (a >> 4) - (v >> 4);
+        if (low < 0) {
+            low -= 6;
+            --high;
+        }
+        if (high < 0)
+            high -= 6;
+        raw = (uint8_t)((high * 16) + ((unsigned)low & 15u));
+    }
+    c->a = raw;
+}
+
+static void compare(Atari8Cpu *c, uint8_t reg, uint8_t v)
+{
+    flag(c, ATARI8_CPU_C, reg >= v);
+    nz(c, (uint8_t)(reg - v));
+}
+
+static void bit_test(Atari8Cpu *c, uint8_t v)
+{
+    flag(c, ATARI8_CPU_Z, !(c->a & v));
+    flag(c, ATARI8_CPU_N, (v & 128u) != 0);
+    flag(c, ATARI8_CPU_V, (v & 64u) != 0);
+}
+
 static void push(Atari8Cpu *c, uint8_t v)
 {
     wr(c, (uint16_t)(0x100u | c->sp), v);
@@ -177,6 +247,62 @@ unsigned atari8_cpu_step(Atari8Cpu *c)
     case 0xb0: branch(c, (c->p & ATARI8_CPU_C) != 0); break;
     case 0xd0: branch(c, (c->p & ATARI8_CPU_Z) == 0); break;
     case 0xf0: branch(c, (c->p & ATARI8_CPU_Z) != 0); break;
+    case 0x09: c->a |= rd(c, address(c, IMM, false)); nz(c, c->a); break;
+    case 0x05: c->a |= rd(c, address(c, ZP, false)); nz(c, c->a); break;
+    case 0x15: c->a |= rd(c, address(c, ZPX, false)); nz(c, c->a); break;
+    case 0x0d: c->a |= rd(c, address(c, ABS, false)); nz(c, c->a); break;
+    case 0x1d: c->a |= rd(c, address(c, ABSX, false)); nz(c, c->a); break;
+    case 0x19: c->a |= rd(c, address(c, ABSY, false)); nz(c, c->a); break;
+    case 0x01: c->a |= rd(c, address(c, INDX, false)); nz(c, c->a); break;
+    case 0x11: c->a |= rd(c, address(c, INDY, false)); nz(c, c->a); break;
+    case 0x29: c->a &= rd(c, address(c, IMM, false)); nz(c, c->a); break;
+    case 0x25: c->a &= rd(c, address(c, ZP, false)); nz(c, c->a); break;
+    case 0x35: c->a &= rd(c, address(c, ZPX, false)); nz(c, c->a); break;
+    case 0x2d: c->a &= rd(c, address(c, ABS, false)); nz(c, c->a); break;
+    case 0x3d: c->a &= rd(c, address(c, ABSX, false)); nz(c, c->a); break;
+    case 0x39: c->a &= rd(c, address(c, ABSY, false)); nz(c, c->a); break;
+    case 0x21: c->a &= rd(c, address(c, INDX, false)); nz(c, c->a); break;
+    case 0x31: c->a &= rd(c, address(c, INDY, false)); nz(c, c->a); break;
+    case 0x49: c->a ^= rd(c, address(c, IMM, false)); nz(c, c->a); break;
+    case 0x45: c->a ^= rd(c, address(c, ZP, false)); nz(c, c->a); break;
+    case 0x55: c->a ^= rd(c, address(c, ZPX, false)); nz(c, c->a); break;
+    case 0x4d: c->a ^= rd(c, address(c, ABS, false)); nz(c, c->a); break;
+    case 0x5d: c->a ^= rd(c, address(c, ABSX, false)); nz(c, c->a); break;
+    case 0x59: c->a ^= rd(c, address(c, ABSY, false)); nz(c, c->a); break;
+    case 0x41: c->a ^= rd(c, address(c, INDX, false)); nz(c, c->a); break;
+    case 0x51: c->a ^= rd(c, address(c, INDY, false)); nz(c, c->a); break;
+    case 0x69: adc(c, rd(c, address(c, IMM, false))); break;
+    case 0x65: adc(c, rd(c, address(c, ZP, false))); break;
+    case 0x75: adc(c, rd(c, address(c, ZPX, false))); break;
+    case 0x6d: adc(c, rd(c, address(c, ABS, false))); break;
+    case 0x7d: adc(c, rd(c, address(c, ABSX, false))); break;
+    case 0x79: adc(c, rd(c, address(c, ABSY, false))); break;
+    case 0x61: adc(c, rd(c, address(c, INDX, false))); break;
+    case 0x71: adc(c, rd(c, address(c, INDY, false))); break;
+    case 0xc9: compare(c, c->a, rd(c, address(c, IMM, false))); break;
+    case 0xc5: compare(c, c->a, rd(c, address(c, ZP, false))); break;
+    case 0xd5: compare(c, c->a, rd(c, address(c, ZPX, false))); break;
+    case 0xcd: compare(c, c->a, rd(c, address(c, ABS, false))); break;
+    case 0xdd: compare(c, c->a, rd(c, address(c, ABSX, false))); break;
+    case 0xd9: compare(c, c->a, rd(c, address(c, ABSY, false))); break;
+    case 0xc1: compare(c, c->a, rd(c, address(c, INDX, false))); break;
+    case 0xd1: compare(c, c->a, rd(c, address(c, INDY, false))); break;
+    case 0xe9: sbc(c, rd(c, address(c, IMM, false))); break;
+    case 0xe5: sbc(c, rd(c, address(c, ZP, false))); break;
+    case 0xf5: sbc(c, rd(c, address(c, ZPX, false))); break;
+    case 0xed: sbc(c, rd(c, address(c, ABS, false))); break;
+    case 0xfd: sbc(c, rd(c, address(c, ABSX, false))); break;
+    case 0xf9: sbc(c, rd(c, address(c, ABSY, false))); break;
+    case 0xe1: sbc(c, rd(c, address(c, INDX, false))); break;
+    case 0xf1: sbc(c, rd(c, address(c, INDY, false))); break;
+    case 0xe0: compare(c, c->x, rd(c, address(c, IMM, false))); break;
+    case 0xe4: compare(c, c->x, rd(c, address(c, ZP, false))); break;
+    case 0xec: compare(c, c->x, rd(c, address(c, ABS, false))); break;
+    case 0xc0: compare(c, c->y, rd(c, address(c, IMM, false))); break;
+    case 0xc4: compare(c, c->y, rd(c, address(c, ZP, false))); break;
+    case 0xcc: compare(c, c->y, rd(c, address(c, ABS, false))); break;
+    case 0x24: bit_test(c, rd(c, address(c, ZP, false))); break;
+    case 0x2c: bit_test(c, rd(c, address(c, ABS, false))); break;
     case 0xea: (void)rd(c, c->pc); break;
     case 0x4c: c->pc = fetch16(c); break;
     case 0x6c:
