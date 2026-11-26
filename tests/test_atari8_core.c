@@ -95,8 +95,23 @@ static void test_irq_routing(void)
     CHECK(atari8_core_read(&c, 0xd2fe, &value) && value == 0xfe);
 }
 
+static void test_random_isolation(void)
+{
+    Atari8Core c;
+    uint8_t left, right;
+    atari8_core_reset(&c, false, true);
+    CHECK(atari8_core_write(&c, 0xd20f, 0));
+    atari8_core_step(&c, 18);
+    CHECK(atari8_core_read(&c, 0xd20a, &left) && left == 255);
+    CHECK(atari8_core_read(&c, 0xd21a, &right) && right != 255);
+    CHECK(atari8_core_write(&c, 0xd21f, 0));
+    atari8_core_step(&c, 18);
+    CHECK(atari8_core_read(&c, 0xd21a, &right) && right == 255);
+}
+
 int main(void)
 {
+    test_random_isolation();
     test_mapping(false);
     test_mapping(true);
     test_stereo_timing();

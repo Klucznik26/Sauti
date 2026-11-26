@@ -6,7 +6,7 @@
 
 /* Experimental internal interface, not the public MaktabaSauti API. */
 typedef struct {
-    uint8_t audf[4], audc[4], audctl;
+    uint8_t audf[4], audc[4], audctl, skctl;
     uint32_t counter[4];
     uint8_t irq_enable, irq_pending; /* active-high internal masks */
     uint8_t output[4]; /* raw waveform flip-flops */
@@ -20,7 +20,7 @@ typedef struct {
 void atari8_pokey_reset(Atari8Pokey *p, bool ntsc);
 /* Unsupported writes return false without changing state. */
 bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value);
-/* Only IRQST (register 14) is currently readable. */
+/* RANDOM (10) and IRQST (14) are currently readable. */
 bool atari8_pokey_read(const Atari8Pokey *p, uint8_t reg, uint8_t *value);
 bool atari8_pokey_irq(const Atari8Pokey *p);
 void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles);

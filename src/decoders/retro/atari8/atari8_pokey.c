@@ -50,14 +50,14 @@ static void restart_timers(Atari8Pokey *p)
  * sequences. The short audio sequences have inverted polarity.
  * The 9/17-bit generator is temporarily represented by two free-running
  * registers; switching between them is not yet hardware-exact. */
-static void clock_noise(Atari8Pokey *p)
+static void clock_noise(Atari8Pokey *p, bool initializing)
 {
     static const uint8_t width[] = {4, 5, 9, 17};
     static const uint8_t tap[] = {1, 2, 5, 5};
 
     for (unsigned i = 0; i < 4; ++i) {
         uint32_t s = p->poly[i];
-        uint32_t feedback = (s ^ (s >> tap[i])) & 1u;
+        uint32_t feedback = initializing ? 1u : ((s ^ (s >> tap[i])) & 1u);
         s = (s >> 1) | (feedback << (width[i] - 1));
         p->poly[i] = s;
         unsigned bit = (s & 1u) ^ (i < 2 ? 1u : 0u);
@@ -83,6 +83,8 @@ void atari8_pokey_reset(Atari8Pokey *p, bool ntsc)
 {
     memset(p, 0, sizeof(*p));
     p->clock_hz = ntsc ? 1789773u : 1773447u;
+    /* Deterministic playback reset, not physical power-up state. */
+    p->skctl = 3;
     p->poly[0] = 15u;
     p->poly[1] = 31u;
     p->poly[2] = 511u;
@@ -135,16 +137,39 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
         p->irq_pending &= value;
         return true;
     }
+    if (reg == 15) {
+        /* Serial and two-tone modes are not modeled; pot scan and
+         * keyboard flags beyond initialization have no audio effect. */
+        if (value & 0xf8u)
+            return false;
+        p->skctl = value;
+        if (!(value & 3u)) {
+            /* Approximate initial prescaler phase; first pulses after
+             * release at 19 and 78 cycles, excluding timer pipelines. */
+            p->phase28 = 9;
+            p->phase114 = 36;
+        }
+        return true;
+    }
     return false;
 }
 
 bool atari8_pokey_read(const Atari8Pokey *p, uint8_t reg, uint8_t *value)
 {
-    if (reg != 14 || !value)
+    if (!value)
         return false;
-    /* IRQST is active low; reading does not acknowledge. */
-    *value = (uint8_t)~p->irq_pending;
-    return true;
+    if (reg == 10) {
+        /* The eight most significant bits of the selected LFSR. */
+        *value = (uint8_t)((p->audctl & 0x80u) ?
+                           (p->poly[2] >> 1) : (p->poly[3] >> 9));
+        return true;
+    }
+    if (reg == 14) {
+        /* IRQST is active low; reading does not acknowledge. */
+        *value = (uint8_t)~p->irq_pending;
+        return true;
+    }
+    return false;
 }
 
 bool atari8_pokey_irq(const Atari8Pokey *p)
@@ -160,9 +185,10 @@ void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles)
             if (p->filter_delay[ch] && --p->filter_delay[ch] == 0)
                 p->filter_latch[ch] = p->filter_sample[ch];
         }
-        clock_noise(p);
-        bool tick28 = ++p->phase28 == 28;
-        bool tick114 = ++p->phase114 == 114;
+        bool initializing = !(p->skctl & 3u);
+        clock_noise(p, initializing);
+        bool tick28 = !initializing && ++p->phase28 == 28;
+        bool tick114 = !initializing && ++p->phase114 == 114;
         if (tick28)
             p->phase28 = 0;
         if (tick114)

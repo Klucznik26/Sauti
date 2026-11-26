@@ -29,9 +29,16 @@ Volume-only overrides the filter. Tests cover both filters, polarity,
 volume override, and the simplified propagation delay.
 All AUDC waveform selections now have a digital model. Four LFSRs run
 at master-clock speed with per-channel sample delays. The 9/17-bit modes
-currently use separate free-running registers; hardware mode switching,
-SKCTL initialization and absolute phase are not modeled. Tests check
-full periods, short sequences up to cyclic rotation and waveform gating.
+currently use separate registers; physical mode switching and absolute
+noise phase are not modeled. SKCTL ($D20F) bits 0/1 control the modeled
+initialization state: polynomial feedback is forced to one, slow clocks
+stop, and fast timers keep advancing. RANDOM ($D20A read) exposes the
+top eight bits of the selected long polynomial. The initial slow-clock
+pulses after release are approximated at 19/78 cycles, without the
+hardware timer/IRQ pipeline. Reset starts in active playback mode (3).
+SKCTL bits 3–7 are rejected; keyboard, serial and potentiometer hardware
+are not implemented. Tests cover initialization, slow/fast timer
+behavior, RANDOM settling, and the documented 9-bit scanline sequence.
 The sound subsystem now contains one or two POKEYs with a common
 master-cycle advance and independent register, filter and timer state.
 In stereo, address bit A4 selects the primary ($D200) or secondary

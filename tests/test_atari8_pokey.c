@@ -403,6 +403,84 @@ static void test_linked_filter(void)
     CHECK(atari8_pokey_write(&p, 8, 0x0e)); /* both filters with linked pair */
 }
 
+static uint8_t random_byte(const Atari8Pokey *p)
+{
+    uint8_t value = 0;
+    CHECK(atari8_pokey_read(p, 10, &value));
+    return value;
+}
+
+static void test_random(bool short_mode)
+{
+    Atari8Pokey p;
+    atari8_pokey_reset(&p, false);
+    CHECK(atari8_pokey_write(&p, 8, short_mode ? 0x80 : 0));
+    atari8_pokey_step(&p, 197);
+    CHECK(atari8_pokey_write(&p, 15, 0));
+    atari8_pokey_step(&p, 9);
+    CHECK(random_byte(&p) == 255);
+    atari8_pokey_step(&p, 9);
+    CHECK(random_byte(&p) == 255);
+    CHECK(p.poly[0] == 15u && p.poly[1] == 31u);
+    CHECK(p.poly[2] == 511u && p.poly[3] == 131071u);
+    atari8_pokey_step(&p, 200);
+    CHECK(random_byte(&p) == 255);
+    CHECK(atari8_pokey_write(&p, 15, 3));
+    /* From the all-ones seed the first three feedback bits are zero. */
+    for (unsigned i = 0; i < 3; ++i) {
+        atari8_pokey_step(&p, 1);
+        CHECK(random_byte(&p) == (255u >> (i + 1)));
+    }
+    CHECK(!atari8_pokey_write(&p, 15, 0x0b));
+    CHECK(p.skctl == 3);
+}
+
+static void test_random_scanline(void)
+{
+    Atari8Pokey p;
+    atari8_pokey_reset(&p, false);
+    CHECK(atari8_pokey_write(&p, 8, 0x80));
+    /* Find the unique 9-bit state whose visible byte is zero. */
+    unsigned n = 0;
+    while (random_byte(&p) != 0 && n++ < 511)
+        atari8_pokey_step(&p, 1);
+    CHECK(random_byte(&p) == 0);
+    /* Independently documented 114-cycle sample progression. */
+    static const uint8_t sequence[] = {0xdf, 0xee, 0x16, 0xb9};
+    for (unsigned i = 0; i < sizeof(sequence); ++i) {
+        atari8_pokey_step(&p, 114);
+        CHECK(random_byte(&p) == sequence[i]);
+    }
+}
+
+static void test_skctl_clocks(unsigned divider)
+{
+    Atari8Pokey p;
+    atari8_pokey_reset(&p, false);
+    CHECK(atari8_pokey_write(&p, 8, (uint8_t)(0x40 | (divider == 114))));
+    CHECK(atari8_pokey_write(&p, 0, 0));
+    CHECK(atari8_pokey_write(&p, 2, 0));
+    CHECK(atari8_pokey_write(&p, 1, 0xaf));
+    CHECK(atari8_pokey_write(&p, 3, 0xaf));
+    CHECK(atari8_pokey_write(&p, 9, 0));
+    CHECK(atari8_pokey_write(&p, 14, 3));
+    CHECK(atari8_pokey_write(&p, 15, 0));
+    atari8_pokey_step(&p, 4);
+    CHECK(p.output[0] == 0 && p.output[1] == 1);
+    check_irq(&p, 0xfe);
+    atari8_pokey_step(&p, 400);
+    CHECK(p.output[1] == 1 && p.counter[1] == 1);
+    CHECK(atari8_pokey_write(&p, 15, 1));
+    unsigned first = divider == 114 ? 78u : 19u;
+    atari8_pokey_step(&p, first - 1);
+    CHECK(p.output[1] == 1);
+    atari8_pokey_step(&p, 1);
+    CHECK(p.output[1] == 0);
+    check_irq(&p, 0xfc);
+    atari8_pokey_step(&p, divider);
+    CHECK(p.output[1] == 1);
+}
+
 int main(void)
 {
     for (unsigned f = 0; f < 256; ++f) {
@@ -433,6 +511,11 @@ int main(void)
     test_filter(0);
     test_filter(1);
     test_polarity();
+    test_random(false);
+    test_random(true);
+    test_random_scanline();
+    test_skctl_clocks(28);
+    test_skctl_clocks(114);
     test_polynomials();
     test_short_pattern(0, "000111011001010", 15);
     test_short_pattern(1, "1000001110010001010111101101001", 31);
