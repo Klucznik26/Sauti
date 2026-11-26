@@ -178,3 +178,17 @@ is a restricted music runtime, not a complete Atari computer emulator.
 Do not copy or move an initialized machine; its CPU bus points to itself.
 Tests: original synthetic CPU programs write mono/stereo POKEY registers,
 check sample count, cycle ordering, repeated calls and bounded failure.
+
+SAP-B milestone: strict CRLF header, FF FF Atari executable segments with
+inclusive little-endian ranges, optional segment separators, subsong
+selection, PAL/NTSC, stereo and FASTPLAY. INIT receives the subsong in A;
+PLAYER is called at the start of each interval and remaining cycles are
+spent with CPU parked. INIT output is discarded, with hardware state
+retained. INIT budget is two modeled seconds; PLAYER budget is one
+interval. TIME is metadata only; no seek or automatic EOF. Loaded code
+is limited to the restricted machine, with no ANTIC refresh stalls,
+WSYNC/VCOUNT or other non-POKEY I/O. IRQs are sampled only while CPU runs.
+Parser requires INIT and PLAYER addresses in loaded RAM segments.
+The interval callback is experimental, not yet registered in Sauti.
+Tests use original synthetic 6502 programs only. Format reference:
+https://asap.sourceforge.net/sap-format.html

@@ -1,0 +1,185 @@
+#include "atari8_sapb.h"
+#include <string.h>
+
+static bool eq(const uint8_t *p, size_t n, const char *s)
+{
+    return n == strlen(s) && memcmp(p, s, n) == 0;
+}
+
+static bool num(const uint8_t *p, size_t n, unsigned base,
+                unsigned max, unsigned *out)
+{
+    unsigned v = 0;
+    if (!n || (base == 16 && n > 4))
+        return false;
+    for (size_t i = 0; i < n; ++i) {
+        unsigned d;
+        if (p[i] >= '0' && p[i] <= '9') d = p[i] - '0';
+        else if (p[i] >= 'A' && p[i] <= 'F') d = p[i] - 'A' + 10u;
+        else if (p[i] >= 'a' && p[i] <= 'f') d = p[i] - 'a' + 10u;
+        else return false;
+        if (d >= base || d > max || v > (max - d) / base)
+            return false;
+        v = v * base + d;
+    }
+    *out = v;
+    return true;
+}
+
+static uint16_t le16(const uint8_t *p)
+{
+    return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
+}
+
+/* Validate every segment before execution; optionally load it. */
+static Atari8SapbResult segments(const uint8_t *data, size_t size,
+                                const Atari8SapbInfo *info, Atari8Machine *m)
+{
+    size_t pos = info->binary_offset;
+    bool any = false, init = false, player = false;
+    while (pos < size) {
+        if (size - pos >= 2 && le16(data + pos) == 0xffffu)
+            pos += 2;
+        if (size - pos < 4)
+            return ATARI8_SAPB_BAD_FORMAT;
+        uint16_t start = le16(data + pos), end = le16(data + pos + 2);
+        pos += 4;
+        if (end < start)
+            return ATARI8_SAPB_BAD_FORMAT;
+        size_t n = (size_t)end - start + 1u;
+        if (n > size - pos)
+            return ATARI8_SAPB_BAD_FORMAT;
+        if (start < 0xd800u && end >= 0xd000u)
+            return ATARI8_SAPB_UNSUPPORTED;
+        if (info->init >= start && info->init <= end) init = true;
+        if (info->player >= start && info->player <= end) player = true;
+        if (m && !atari8_machine_load(m, start, data + pos, n))
+            return ATARI8_SAPB_RUNTIME;
+        any = true;
+        pos += n;
+    }
+    return any && init && player ? ATARI8_SAPB_OK : ATARI8_SAPB_BAD_FORMAT;
+}
+
+Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
+                                   Atari8SapbInfo *info)
+{
+    if (!data || !info || size < 7 || size > 8u * 1024u * 1024u ||
+        memcmp(data, "SAP\r\n", 5))
+        return ATARI8_SAPB_BAD_FORMAT;
+    Atari8SapbInfo x = {0};
+    x.songs = 1;
+    unsigned seen = 0, fast = 0, times = 0;
+    size_t pos = 5;
+    enum { TYPE=1, INIT=2, PLAYER=4, FAST=8, SONGS=16, DEF=32, STEREO=64, NTSC=128 };
+    while (pos < 16384u && pos < size) {
+        if (size - pos >= 2 && le16(data + pos) == 0xffffu) {
+            x.binary_offset = pos;
+            break;
+        }
+        size_t start = pos;
+        while (pos < size && pos < 16384u && data[pos] != '\r') {
+            if (data[pos] < 32 || data[pos] > 126)
+                return ATARI8_SAPB_BAD_FORMAT;
+            ++pos;
+        }
+        if (pos >= 16384u || size - pos < 2 || data[pos+1] != '\n')
+            return ATARI8_SAPB_BAD_FORMAT;
+        size_t len = pos - start;
+        const uint8_t *line = data + start;
+        pos += 2;
+        size_t k = 0;
+        while (k < len && line[k] != ' ') ++k;
+        size_t arg = k < len ? k + 1 : k;
+        const uint8_t *a = line + arg;
+        size_t n = len - arg;
+        unsigned bit = 0, v;
+        if (eq(line,k,"TYPE")) {
+            bit = TYPE;
+            if (n != 1) return ATARI8_SAPB_BAD_FORMAT;
+            if (*a != 'B') return ATARI8_SAPB_UNSUPPORTED;
+        } else if (eq(line,k,"INIT") || eq(line,k,"PLAYER")) {
+            bit = eq(line,k,"INIT") ? INIT : PLAYER;
+            if (!num(a,n,16,65535u,&v)) return ATARI8_SAPB_BAD_FORMAT;
+            if (v == 65535u) return ATARI8_SAPB_UNSUPPORTED;
+            if (bit == INIT) x.init = (uint16_t)v; else x.player = (uint16_t)v;
+        } else if (eq(line,k,"FASTPLAY")) {
+            bit = FAST;
+            if (!num(a,n,10,32767u,&fast) || !fast) return ATARI8_SAPB_BAD_FORMAT;
+        } else if (eq(line,k,"SONGS") || eq(line,k,"DEFSONG")) {
+            bit = eq(line,k,"SONGS") ? SONGS : DEF;
+            if (!num(a,n,10,bit == SONGS ? 256u : 255u,&v))
+                return ATARI8_SAPB_BAD_FORMAT;
+            if (bit == SONGS) {
+                if (!v) return ATARI8_SAPB_BAD_FORMAT;
+                x.songs = v;
+            } else x.default_song = v;
+        } else if (eq(line,k,"STEREO") || eq(line,k,"NTSC")) {
+            bit = eq(line,k,"STEREO") ? STEREO : NTSC;
+            if (arg != len || k != len) return ATARI8_SAPB_BAD_FORMAT;
+            if (bit == STEREO) x.stereo = true; else x.ntsc = true;
+        } else if (eq(line,k,"AUTHOR") || eq(line,k,"NAME") || eq(line,k,"DATE")) {
+            if (n < 2 || a[0] != '"' || a[n-1] != '"') return ATARI8_SAPB_BAD_FORMAT;
+        } else if (eq(line,k,"TIME")) {
+            /* Metadata only in this milestone; no automatic loop/EOF. */
+            if (!n || ++times > 256u) return ATARI8_SAPB_BAD_FORMAT;
+        } else {
+            return ATARI8_SAPB_UNSUPPORTED;
+        }
+        if (seen & bit) return ATARI8_SAPB_BAD_FORMAT;
+        seen |= bit;
+    }
+    if ((seen & (TYPE|INIT|PLAYER)) != (TYPE|INIT|PLAYER) ||
+        !x.binary_offset || x.default_song >= x.songs || times > x.songs)
+        return ATARI8_SAPB_BAD_FORMAT;
+    x.interval = (fast ? fast : (x.ntsc ? 262u : 312u)) * 114u;
+    Atari8SapbResult r = segments(data,size,&x,NULL);
+    if (r == ATARI8_SAPB_OK) *info = x;
+    return r;
+}
+
+Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
+                                  size_t size, int song, uint32_t rate,
+                                  Atari8MachineSink sink, void *context)
+{
+    if (!s) return ATARI8_SAPB_BAD_FORMAT;
+    Atari8SapbInfo info;
+    Atari8SapbResult r = atari8_sapb_parse(data,size,&info);
+    if (r != ATARI8_SAPB_OK) return s->status = r;
+    if (song < -1 || (song >= 0 && (unsigned)song >= info.songs))
+        return s->status = ATARI8_SAPB_BAD_FORMAT;
+    s->info = info;
+    s->intervals = 0;
+    if (!atari8_machine_init(&s->machine,info.ntsc,info.stereo,rate,true,NULL,NULL))
+        return s->status = ATARI8_SAPB_UNSUPPORTED;
+    r = segments(data,size,&info,&s->machine);
+    if (r != ATARI8_SAPB_OK) return s->status = r;
+    s->machine.cpu.a = (uint8_t)(song < 0 ? info.default_song : (unsigned)song);
+    if (atari8_machine_call(&s->machine,info.init,
+                            (uint64_t)s->machine.pcm.clock_hz * 2u) != ATARI8_MACHINE_OK)
+        return s->status = ATARI8_SAPB_RUNTIME;
+    /* INIT is not part of the output timeline. Keep hardware phase, but
+     * start a fresh sample integrator and output frame count. */
+    if (!atari8_pcm_init(&s->machine.pcm,s->machine.core.pokey[0].clock_hz,
+                         rate,info.stereo ? 2u : 1u,true))
+        return s->status = ATARI8_SAPB_RUNTIME;
+    s->machine.frames = 0;
+    s->machine.sink = sink;
+    s->machine.sink_context = context;
+    return s->status = ATARI8_SAPB_OK;
+}
+
+Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s)
+{
+    if (!s) return ATARI8_SAPB_BAD_FORMAT;
+    if (s->status != ATARI8_SAPB_OK) return s->status;
+    uint64_t start = s->machine.master_cycles;
+    if (atari8_machine_call(&s->machine,s->info.player,s->info.interval) != ATARI8_MACHINE_OK)
+        return s->status = ATARI8_SAPB_RUNTIME;
+    uint64_t spent = s->machine.master_cycles - start;
+    if (spent > s->info.interval ||
+        atari8_machine_idle(&s->machine,s->info.interval - (uint32_t)spent) != ATARI8_MACHINE_OK)
+        return s->status = ATARI8_SAPB_RUNTIME;
+    ++s->intervals;
+    return ATARI8_SAPB_OK;
+}
