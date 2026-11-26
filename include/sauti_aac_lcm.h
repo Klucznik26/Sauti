@@ -16,6 +16,7 @@ typedef struct {
 } SautiAacLcmState;
 
 /* The number of channels of a supported configuration (cfg->channel_config 3..7, cfg->main xor cfg->ltp, the rate rules of sauti_aac_lcn_frame_samples), 0 otherwise. */
+unsigned sauti_aac_lcm_frame_samples(const SautiAacLcnConfig *config);       /* 960 (plain LC) or 1024; 0 = unsupported */
 unsigned sauti_aac_lcm_channels(const SautiAacLcnConfig *config);
 void sauti_aac_lcm_state_init(SautiAacLcmState *state,const SautiAacLcnConfig *config);
 /* Atomic: on failure neither the state nor `pcm` (1024 frames x channels, interleaved, output order) changes.  1 decoded, 0 malformed / truncated, -1 valid but unsupported. */

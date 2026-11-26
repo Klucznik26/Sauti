@@ -650,7 +650,7 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
     if (hd.er) {                                                       /* AAC-LD / AAC-ELD: jeden wariant, bez wykrywania */
         SautiAacErConfig c; unsigned n;
         c.aot = hd.er_aot; c.rate_index = hd.rate_index; c.frame480 = hd.er_480; c.channel_config = hd.config;
-        if (aot_is_lcn(hd.er_aot)) { SautiAacLcnConfig lc; lcn_config(&lc, hd.er_aot, hd.rate_index, hd.config, hd.er_480); n = hd.config > 2u ? (sauti_aac_lcm_channels(&lc) ? 1024u : 0u) : sauti_aac_lcn_frame_samples(&lc); }
+        if (aot_is_lcn(hd.er_aot)) { SautiAacLcnConfig lc; lcn_config(&lc, hd.er_aot, hd.rate_index, hd.config, hd.er_480); n = hd.config > 2u ? sauti_aac_lcm_frame_samples(&lc) : sauti_aac_lcn_frame_samples(&lc); }
         else n = sauti_aac_er_frame_samples(&c);
         if (!n || (hd.crc_present && (hd.er_aot == 39u || hd.er_aot == 23u || hd.er_aot == 2u || hd.er_aot == 17u || hd.er_aot == 19u || hd.config > 2u))) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;   /* error check: AAC Main / LTP and (via sauti_aac_lcn) ADTS only; LD / ELD and the 960 layout have none */
         d->variant = V_ER; d->er_aot = hd.er_aot; d->er_480 = hd.er_480;
@@ -680,9 +680,9 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
     }
     d->er_aot = 0u; d->er_480 = 0u;
     /* wariant wg PIERWSZEJ ramki, w kolejnosci starego rejestru; probne dekodowanie na swiezym stanie, potem stan wraca do poczatkowego */
-    {   static const variant_t order_stereo[] = { V_LC_STEREO, V_HE_CPE }, order_mono[] = { V_LC_MONO, V_HE_MONO }, order_multi[] = { V_LC_MULTI };
+    {   static const variant_t order_stereo[] = { V_LC_STEREO, V_HE_CPE, V_LC_MULTI }, order_mono[] = { V_LC_MONO, V_HE_MONO, V_LC_MULTI }, order_multi[] = { V_LC_MULTI };
         const variant_t *order = hd.config == 2u ? order_stereo : hd.config == 1u ? order_mono : order_multi;
-        size_t norder = hd.config == 2u ? 2u : hd.config == 1u ? 2u : 1u, k;
+        size_t norder = hd.config == 2u ? 3u : hd.config == 1u ? 3u : 1u, k;
         if (hd.config == 0u || hd.config >= 3u) {
             if (hd.crc_present) { return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }             /* wielokanalowy LC bez CRC (jak wczesniej) */
             if (hd.config == 0u) {

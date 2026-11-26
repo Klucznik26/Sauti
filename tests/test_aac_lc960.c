@@ -202,9 +202,9 @@ static void test_refused_files(void) {
     for (i = 0; i + 3 < n; i++) if (data[i] == 0x02 && data[i + 1] == 0x11 && data[i + 2] == 0x94) {           /* DecoderSpecificInfo: AOT 2, 48 kHz, stereo, frameLengthFlag 1 */
         patched++;
         data[i + 2] = 0x9c;                                                                                  /* channel_configuration 3 */
-        CHECK(open_result(data, n) == (int)MAKTABASAUTI_E_UNSUPPORTED_FORMAT, "960 with channel_configuration 3 is not supported, got %d", open_result(data, n));
+        CHECK(open_result(data, n) == (int)MAKTABASAUTI_E_UNSUPPORTED_FEATURE, "960 with channel_configuration 3 goes to sauti_aac_lcm; the stereo access units do not fit the layout, got %d", open_result(data, n));
         data[i + 2] = 0x84;                                                                                  /* channel_configuration 0 (PCE) */
-        CHECK(open_result(data, n) == (int)MAKTABASAUTI_E_UNSUPPORTED_FORMAT, "960 with channel_configuration 0 is not supported, got %d", open_result(data, n));
+        CHECK(open_result(data, n) == (int)MAKTABASAUTI_E_UNSUPPORTED_FORMAT, "960 with channel_configuration 0 and no valid program_config_element is refused, got %d", open_result(data, n));
         data[i + 2] = 0x94;
     }
     CHECK(patched == 1u, "the AudioSpecificConfig of the fixture was found %u times", patched);

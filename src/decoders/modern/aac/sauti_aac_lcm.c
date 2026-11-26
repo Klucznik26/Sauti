@@ -8,8 +8,13 @@
 static int get(const uint8_t *data,size_t length,size_t *pos,unsigned width,uint32_t *value){
     return sauti_aac_bits_read_asm(data,length,pos,width,value);
 }
+/* Frame length of the multichannel decoder: plain LC is the 960 layout, the others are 1024. */
+unsigned sauti_aac_lcm_frame_samples(const SautiAacLcnConfig *c){
+    if(!sauti_aac_lcm_channels(c))return 0u;
+    return (!c->main&&!c->ltp&&!c->er&&!c->ssr)?960u:1024u;
+}
 unsigned sauti_aac_lcm_channels(const SautiAacLcnConfig *c){
-    if(!c || c->channel_config<3u || c->channel_config>7u || (!c->main && !c->ltp && !c->er && !c->ssr) || (c->main && (c->ltp || c->er)) || (c->ssr && (c->main || c->ltp || c->er)) || c->frame960)return 0u;
+    if(!c || c->channel_config<3u || c->channel_config>7u ||  (c->main && (c->ltp || c->er)) || (c->ssr && (c->main || c->ltp || c->er)) || (c->frame960 && (c->ltp || c->er || c->ssr)))return 0u;   /* plain LC in lcn is the 960 layout */
     if(c->main?c->rate_index>11u:c->rate_index>12u)return 0u;
     return sauti_aac_lc_multi_config_channels(c->channel_config);
 }
@@ -32,13 +37,31 @@ static int skip_dse(const uint8_t *raw,size_t length,size_t *pos){
     *pos+=(size_t)count*8u;
     return 1;
 }
+/* program_config_element in the access unit: skipped (the layout comes from the channel configuration). */
+static int skip_pce(const uint8_t *raw,size_t length,size_t *pos){
+    uint32_t v,front,side,back,lfe,assoc,cc;
+    if(!get(raw,length,pos,4,&v)||!get(raw,length,pos,2,&v)||!get(raw,length,pos,4,&v)||
+       !get(raw,length,pos,4,&front)||!get(raw,length,pos,4,&side)||!get(raw,length,pos,4,&back)||
+       !get(raw,length,pos,2,&lfe)||!get(raw,length,pos,3,&assoc)||!get(raw,length,pos,4,&cc))return 0;
+    for(unsigned k=0;k<2;k++){if(!get(raw,length,pos,1,&v))return 0;if(v&&!get(raw,length,pos,4,&v))return 0;}
+    if(!get(raw,length,pos,1,&v))return 0;
+    if(v&&(!get(raw,length,pos,2,&v)||!get(raw,length,pos,1,&v)))return 0;
+    for(uint32_t i=0;i<front+side+back;i++)if(!get(raw,length,pos,1,&v)||!get(raw,length,pos,4,&v))return 0;
+    for(uint32_t i=0;i<lfe+assoc;i++)if(!get(raw,length,pos,4,&v))return 0;
+    for(uint32_t i=0;i<cc;i++)if(!get(raw,length,pos,1,&v)||!get(raw,length,pos,4,&v))return 0;
+    while(*pos&7u)if(!get(raw,length,pos,1,&v))return 0;
+    if(!get(raw,length,pos,8,&v))return 0;
+    if(v>(length*8u-*pos)/8u)return 0;
+    *pos+=(size_t)v*8u;
+    return 1;
+}
 int sauti_aac_lcm_decode(const SautiAacLcnConfig *cfg,SautiAacLcmState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason){
     SautiAacReason local=SAUTI_AAC_REASON_INVALID_SCE;
     if(!reason)reason=&local;
     *reason=SAUTI_AAC_REASON_INVALID_SCE;
     const unsigned channels=sauti_aac_lcm_channels(cfg);
     if(!channels||!state||!au||!pcm||length>SIZE_MAX/8u||state->channels!=channels||state->config!=cfg->channel_config)return 0;
-    const unsigned idx=sauti_aac_lcn_index(cfg);
+    const unsigned idx=sauti_aac_lcn_index(cfg),n=sauti_aac_lcm_frame_samples(cfg);
     SautiAacLcmState *next=(SautiAacLcmState *)malloc(sizeof(*next));         /* atomic: work on a copy */
     float (*stage)[1024]=(float (*)[1024])malloc(sizeof(float)*SAUTI_AAC_LC_MULTI_MAX*1024u);
     float *outbuf=(float *)malloc(sizeof(float)*SAUTI_AAC_LC_MULTI_MAX*1024u);
@@ -81,7 +104,8 @@ int sauti_aac_lcm_decode(const SautiAacLcnConfig *cfg,SautiAacLcmState *state,co
             used+=need;
             continue;
         }
-        *reason=SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;status=-1;goto fail;       /* PCE (5), CCE (2) */
+        if(id==5u&&!cfg->er){if(!skip_pce(au,length,&pos)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;goto fail0;}continue;}
+        *reason=SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;status=-1;goto fail;       /* CCE (2) */
     }
     while(pos&7u){
         uint32_t pad=1;
@@ -93,14 +117,14 @@ int sauti_aac_lcm_decode(const SautiAacLcnConfig *cfg,SautiAacLcmState *state,co
         uint8_t map[SAUTI_AAC_LC_MULTI_MAX];
         if(!sauti_aac_lc_multi_output_map(cfg->channel_config,map)){*reason=SAUTI_AAC_REASON_UNSUPPORTED_ADTS;status=-1;goto fail;}
         for(unsigned c=0;c<channels;c++)
-            for(unsigned i=0;i<1024u;i++){
+            for(unsigned i=0;i<n;i++){
                 const float v=ldexpf(stage[map[c]][i],-16);
                 if(!isfinite(v)){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;goto fail0;}
                 outbuf[(size_t)i*channels+c]=v;
             }
     }
     memcpy(state,next,sizeof(*state));
-    memcpy(pcm,outbuf,sizeof(float)*1024u*channels);
+    memcpy(pcm,outbuf,sizeof(float)*n*channels);
     *reason=SAUTI_AAC_REASON_OK;
     free(next);free(stage);free(outbuf);
     return 1;

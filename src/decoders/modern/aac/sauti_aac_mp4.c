@@ -115,6 +115,16 @@ static unsigned pce_standard_config(const uint8_t *asc,size_t n,size_t *bit){
     for(unsigned c=1;c<8u;c++)if(!strcmp(kinds,layout[c]))return c;
     return 0;
 }
+/* GASpecificConfig after frameLengthFlag: dependsOnCoreCoder (+14 bits of delay), extensionFlag, then for channelConfiguration 0 a program_config_element that must be a standard layout.
+ * Returns the channel configuration 1..7 or 0 when it cannot be resolved. */
+static unsigned ga_channel_config(const uint8_t *asc,size_t n,size_t *bit,unsigned cc){
+    if(cc!=0u)return cc;
+    const unsigned core=getbits(asc,n,bit,1);
+    if(core==0xffffffffu)return 0;
+    if(core&&getbits(asc,n,bit,14)==0xffffffffu)return 0;
+    if(getbits(asc,n,bit,1)==0xffffffffu)return 0;
+    return pce_standard_config(asc,n,bit);
+}
 static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     size_t bit=0;
     unsigned aot=getbits(asc,n,&bit,5);
@@ -150,12 +160,16 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     info->frame480=0u;
     if(aot==1u||aot==4u){                                                    /* AAC Main / AAC LTP: 1024 linii (frameLengthFlag 1 nie jest obslugiwane), mono i stereo */
         const unsigned flag=getbits(asc,n,&bit,1);
-        if(flag==1u&&(aot!=1u||cc<1u||cc>2u))return 0;                         /* 960 linii: tylko Main mono / stereo (AAC LTP nie ma wariantu 960) */
-        info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cc;info->frame480=flag;return cc>=1u&&cc<=7u;      /* wielokanalowy: sauti_aac_lcm */
+        const unsigned cfg=ga_channel_config(asc,n,&bit,cc);
+        if(flag==1u&&(aot!=1u||cfg<1u||cfg>2u))return 0;                       /* 960 linii: tylko Main mono / stereo (AAC LTP nie ma wariantu 960) */
+        info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cfg;info->frame480=flag;return cfg>=1u&&cfg<=7u;      /* wielokanalowy: sauti_aac_lcm */
     }
     if(aot==2u){                                                              /* GASpecificConfig: frameLengthFlag 1 = 960 linii (tylko LC bez SBR) */
         const unsigned flag=getbits(asc,n,&bit,1);
-        if(flag==1u){info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cc;info->frame480=1u;return cc>=1u&&cc<=2u;}
+        const unsigned cfg=ga_channel_config(asc,n,&bit,cc);
+        if(cfg<1u||cfg>7u)return 0;
+        info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cfg;info->frame480=flag;
+        return 1;                                                             /* 960 multichannel goes through lcm */
     }
     if(aot==5u||aot==29u){                                                    /* jawny SBR: nastepna jest czestotliwosc wyjsciowa i AOT rdzenia */
         const unsigned eri=getbits(asc,n,&bit,4);
@@ -163,9 +177,14 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
         if(eri==15u)bit+=24u;
         unsigned core=getbits(asc,n,&bit,5);
         if(core!=2u)return 0;
-        if(getbits(asc,n,&bit,1)==1u){                                        /* HE-AAC z ramka 960: rdzen LC 960 bez SBR; AU z SBR odrzuca dekoder (E_UNSUPPORTED_FEATURE), nie dekoduje ich jako 1024 */
-            info->aot=2u;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cc;info->frame480=1u;return cc>=1u&&cc<=2u;
+        const unsigned flag=getbits(asc,n,&bit,1);
+        const unsigned cfg=ga_channel_config(asc,n,&bit,cc);
+        if(cfg<1u||cfg>7u)return 0;
+        if(flag==1u){                                                         /* HE-AAC z ramka 960: rdzen LC 960 bez SBR; AU z SBR odrzuca dekoder (E_UNSUPPORTED_FEATURE), nie dekoduje ich jako 1024 */
+            info->aot=2u;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cfg;info->frame480=1u;return cfg<=2u;
         }
+        info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cfg;info->frame480=0u;
+        return 1;
     }
     info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cc;info->frame480=0u;
     return 1;
