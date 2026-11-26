@@ -4,13 +4,14 @@
 #include <string.h>
 #define CHECK(x) do { if (!(x)) { fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x); exit(1); } } while (0)
 
-typedef struct { uint64_t frames, left, right; } Capture;
+typedef struct { uint64_t frames, left, right, different; } Capture;
 static void capture(void *ctx,const int16_t frame[2])
 {
     Capture *c=ctx;
     ++c->frames;
     c->left += frame[0]!=0;
     c->right += frame[1]!=0;
+    c->different += frame[0]!=frame[1];
 }
 static size_t fixture(uint8_t *buf,bool stereo,bool ntsc)
 {
@@ -54,6 +55,7 @@ static void test_play(bool stereo)
     CHECK(s.intervals==5 && s.machine.master_cycles-start==5u*i.interval);
     CHECK(c.frames==(uint64_t)5*i.interval*48000u/s.machine.pcm.clock_hz);
     CHECK(c.frames==s.machine.frames && c.left>0 && (stereo?c.right>0:c.right==0));
+    if (stereo) CHECK(c.different>0);
     CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
     CHECK(s.machine.ram[0x80]==0);
     CHECK(atari8_sapb_open(&s,data,n,3,48000,NULL,NULL)==ATARI8_SAPB_BAD_FORMAT);
@@ -85,9 +87,35 @@ static void test_bad(void)
     CHECK(s.machine.status==ATARI8_MACHINE_BUDGET);
     CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME);
 }
+static void test_host_antic(void)
+{
+    Atari8Sapb s;
+    uint8_t data[512];
+    size_t n=fixture(data,false,false);
+    CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    Atari8Machine *m=&s.machine;
+    CHECK(m->sap_host_scheduled);
+    /* Enable both interrupt sources, read NMIST, then RTS.
+     * There must be no ANTIC NMI even when a VBI occurs. */
+    static const uint8_t code[]={0xa9,0xc0,0x8d,0x0e,0xd4,0xad,0x0f,0xd4,0x60};
+    CHECK(atari8_machine_load(m,0x2200,code,sizeof(code)));
+    CHECK(atari8_machine_call(m,0x2200,100)==ATARI8_MACHINE_OK);
+    CHECK(m->antic_nmien==0xc0 && m->cpu.a==0x1f);
+    CHECK(m->master_cycles<248u*114u);
+    CHECK(atari8_machine_idle(m,(uint32_t)(248u*114u-m->master_cycles))==ATARI8_MACHINE_OK);
+    CHECK(m->antic_nmist==0x40 && !m->cpu.nmi_pending);
+    CHECK(atari8_machine_call(m,0x2200,100)==ATARI8_MACHINE_OK);
+    CHECK(m->cpu.a==0x5f);
+    static const uint8_t clear[]={0x8d,0x0f,0xd4,0xad,0x0f,0xd4,0x60};
+    CHECK(atari8_machine_load(m,0x2200,clear,sizeof(clear)));
+    CHECK(atari8_machine_call(m,0x2200,100)==ATARI8_MACHINE_OK);
+    CHECK(m->cpu.a==0x1f && !m->antic_nmist && m->antic_nmien==0xc0);
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+    CHECK(s.intervals==1 && !m->cpu.nmi_pending);
+}
 int main(void)
 {
-    test_play(false); test_play(true); test_bad();
+    test_play(false); test_play(true); test_bad(); test_host_antic();
     puts("PASS: experimental Atari8 SAP-B");
     return 0;
 }

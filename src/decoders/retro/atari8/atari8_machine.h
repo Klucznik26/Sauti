@@ -31,6 +31,9 @@ typedef struct {
     uint16_t fault_address;
     bool fault_write, ntsc;
     uint8_t console_latch, fault_value;
+    /* Set only by SAP host-scheduled playback before guest execution. */
+    bool sap_host_scheduled;
+    uint8_t antic_nmien, antic_nmist;
 } Atari8Machine;
 
 bool atari8_machine_init(Atari8Machine *m, bool ntsc, bool stereo,

@@ -152,6 +152,7 @@ Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
     s->intervals = 0;
     if (!atari8_machine_init(&s->machine,info.ntsc,info.stereo,rate,true,NULL,NULL))
         return s->status = ATARI8_SAPB_UNSUPPORTED;
+    s->machine.sap_host_scheduled = true;
     r = segments(data,size,&info,&s->machine);
     if (r != ATARI8_SAPB_OK) return s->status = r;
     s->machine.cpu.a = (uint8_t)(song < 0 ? info.default_song : (unsigned)song);

@@ -19,6 +19,11 @@ static void tick(Atari8Machine *m)
     bool ready = atari8_pcm_feed(&m->pcm, levels, frame);
     atari8_core_step(&m->core, 1);
     ++m->master_cycles;
+    /* Approximate VBI status at scanline 248; independent of NMIEN.
+     * The SAP player profile deliberately has no ANTIC NMI delivery. */
+    if (m->sap_host_scheduled &&
+        m->master_cycles % ((m->ntsc ? 262u : 312u) * 114u) == 248u * 114u)
+        m->antic_nmist = 0x40;
     sync_irq(m);
     if (ready) {
         ++m->frames;
@@ -58,6 +63,8 @@ static uint8_t bus_read(void *context, uint16_t a)
         if (reg == 11)
             return (uint8_t)((m->master_cycles / 114u %
                               (m->ntsc ? 262u : 312u)) / 2u);
+        if (reg == 15 && m->sap_host_scheduled)
+            return (uint8_t)(m->antic_nmist | 0x1fu);
         if (reg == 10 || reg == 14)
             return 0xff; /* write-only registers, idle bus approximation */
     }
@@ -98,7 +105,16 @@ static void bus_write(void *context, uint16_t a, uint8_t value)
             return;
         }
         if (reg == 11) return; /* VCOUNT is read-only */
-        if (reg == 14 && !(value & 0xc0u)) return; /* NMI disabled */
+        if (reg == 14 && (m->sap_host_scheduled || !(value & 0xc0u))) {
+            /* SAP B/C use host calls, not ANTIC NMI dispatch.
+             * Strict machine mode still rejects active ANTIC sources. */
+            m->antic_nmien = value & 0xc0u;
+            return;
+        }
+        if (reg == 15 && m->sap_host_scheduled) {
+            m->antic_nmist = 0;
+            return;
+        }
     }
     if ((a & 0xff00u) == 0xd100u || a >= 0xd500u)
         return; /* no expansion device to receive the write */

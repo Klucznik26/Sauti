@@ -270,3 +270,17 @@ Tests cover suppression of timer 1 pulses and IRQs, timer 2 output and
 exit from two-tone. Reference: Altirra Hardware Reference Manual,
 section Two-tone mode, https://doczz.net/doc/1531988/altirra-hardware-reference-manual .
 NMIEN remains a separate task.
+
+ASMA retry3 (local report for 39fec39): 12 nonzero, 9 silent, 29
+failures of 50; all seven regression tests passed. SAP host scheduling
+is now explicitly selected for type B. Per the published SAP execution
+model, PLAYER/FASTPLAY drives playback rather than ANTIC interrupts.
+NMIEN writes latch the source bits in this profile but do not dispatch
+ANTIC NMI. NMIST reports approximate VBI status from scanline 248
+independent of enable; NMIRES clears it. DLI, precise VBI timing and
+real ANTIC NMI delivery are not implemented. The default restricted
+machine still faults on enabled ANTIC NMI sources. This policy is
+not intended for a general Atari emulator. Reference:
+https://asap.sourceforge.net/sap-format.html (Execution Model).
+Stereo regression now also asserts that the generated left and right
+sample streams differ for the synthetic dual-POKEY fixture.
