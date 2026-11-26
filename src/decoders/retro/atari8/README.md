@@ -8,7 +8,7 @@ volume-only is allowed. Slow periods are N+1 selected ticks, fast periods
 are N+4 (8-bit) or N+7 (16-bit) master cycles. Counter capacity includes
 65536 slow ticks and 65542 fast cycles. STIMER, initialization and AUDCTL
 mode transitions are simplified; exact low-counter events,
-analog output, PCM and CPU emulation are not implemented.
+analog output and CPU emulation are not implemented.
 IRQEN/IRQST now model latched timer 1/2/4 interrupts, active-low status,
 selective acknowledgment by disabling sources, and a level IRQ signal.
 Timer 3 does not generate an IRQ. Enabling IRQ1 with linked timers 1/2
@@ -36,8 +36,7 @@ In stereo, address bit A4 selects the primary ($D200) or secondary
 ($D210) chip in the $D2xx page; mono mirrors all 16 registers throughout
 the page. The primary chip supplies left audio and CPU IRQ; the secondary
 supplies right audio and its IRQ is not routed to the CPU in the standard
-stereo modification. No analog mixing, PCM, or nonstandard stereo wiring
-is implemented. Chip limitations above apply to both instances.
+stereo modification. No analog mixing or nonstandard stereo wiring is implemented. Chip limitations above apply to both instances.
 The internal interface is not registered as a decoder. Tests validate
 the stated subset, not hardware equivalence.
 
@@ -67,5 +66,31 @@ Stereo subsystem test:
       src/decoders/retro/atari8/atari8_core.c tests/test_atari8_core.c \
       -o build/test_atari8_core
     ./build/test_atari8_core
+
+Streaming PCM: atari8_pcm_feed integrates each master-cycle digital
+level over the exact rational sample boundary. The rate range is
+8–192 kHz, with 16-bit mono or interleaved stereo frames. A diagnostic
+unipolar output is available; the listening mode includes an independent
+first-order DC blocker per channel. Feed the level before advancing the
+master cycle. This is a boxcar integrator, not a full anti-aliasing
+resampler or a measured analog POKEY model. Tests check frame counts,
+fractional cycle boundaries, stereo isolation, DC settling and generated
+tones. No external source or music data is used.
+
+    cc -std=c99 -Wall -Wextra -Werror -pedantic -O2 \
+      src/decoders/retro/atari8/atari8_pokey.c \
+      src/decoders/retro/atari8/atari8_core.c \
+      src/decoders/retro/atari8/atari8_pcm.c tests/test_atari8_pcm.c \
+      -o build/test_atari8_pcm
+    ./build/test_atari8_pcm
+
+Build the original synthetic listening demo:
+
+    cc -std=c99 -Wall -Wextra -Werror -pedantic -O2 \
+      src/decoders/retro/atari8/atari8_pokey.c \
+      src/decoders/retro/atari8/atari8_core.c \
+      src/decoders/retro/atari8/atari8_pcm.c tests/demo_atari8_wav.c \
+      -o build/demo_atari8_wav
+    ./build/demo_atari8_wav build/atari8-demo.wav
 
 No production build or decoder registry changes in this milestone.
