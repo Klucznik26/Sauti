@@ -139,3 +139,16 @@ functional runner accepts the unmodified 64 KiB Klaus Dormann NMOS
 6502_functional_test.bin from the separate test checkout (entry $0400,
 success trap $3469 for the distributed binary). External test data is
 not bundled. See https://github.com/Klaus2m5/6502_65C02_functional_tests .
+
+External validation reported by the local tester for commit 5656498:
+PASS: Klaus Dormann 6502 functional test, 30646177 instructions, 96241367 cycles.
+This confirms functional coverage, not exact interrupt timing.
+
+Undocumented NMOS milestone: 84 additional opcode encodings (235/256
+implemented), including SLO/RLA/SRE/RRA/DCP/ISC (42), LAX/SAX (10),
+alternate NOPs (27), ANC/ALR/AXS and alternate SBC (5). All addressing
+forms are covered by synthetic tests, including RMW bus writes and
+indexed dummy reads. Decimal compound operations reuse ADC/SBC.
+Remaining: 12 JAM encodings (currently explicit unsupported stop), ARR,
+unstable immediate/load/store variants, LAS; no claim of hardware lockup
+or unstable silicon behavior. Reference: https://cc65.github.io/doc/cpus.html

@@ -173,13 +173,37 @@ static uint8_t modify(Atari8Cpu *c, Modify kind, uint8_t v)
     return v;
 }
 
-static void rmw(Atari8Cpu *c, Mode mode, Modify kind)
+static uint8_t rmw(Atari8Cpu *c, Mode mode, Modify kind)
 {
     uint16_t a = address(c, mode, true);
     uint8_t old = rd(c, a);
     /* NMOS bus writes the old value before the modified value. */
     wr(c, a, old);
-    wr(c, a, modify(c, kind, old));
+    uint8_t v = modify(c, kind, old);
+    wr(c, a, v);
+    return v;
+}
+
+/* Stable undocumented RMW+ALU combinations use the same bus
+ * sequence as a memory RMW. The second operation consumes no
+ * additional bus cycle. */
+static void compound(Atari8Cpu *c, Mode mode, Modify kind)
+{
+    uint8_t v = rmw(c, mode, kind);
+    switch (kind) {
+    case ASL: c->a |= v; nz(c, c->a); break;
+    case ROL: c->a &= v; nz(c, c->a); break;
+    case LSR: c->a ^= v; nz(c, c->a); break;
+    case ROR: adc(c, v); break;
+    case DEC: compare(c, c->a, v); break;
+    case INC: sbc(c, v); break;
+    }
+}
+
+static void lax(Atari8Cpu *c, Mode mode)
+{
+    c->a = c->x = rd(c, address(c, mode, false));
+    nz(c, c->a);
 }
 
 static void interrupt_vector(Atari8Cpu *c, uint16_t vector, bool brk)
@@ -435,6 +459,87 @@ unsigned atari8_cpu_step(Atari8Cpu *c)
         if (op == 0x68) { c->a = v; nz(c, v); }
         else c->p = (uint8_t)((v & ~ATARI8_CPU_B) | ATARI8_CPU_U);
         break;
+    /* Stable undocumented NMOS opcodes. */
+    case 0x03: compound(c, INDX, ASL); break;
+    case 0x07: compound(c, ZP, ASL); break;
+    case 0x0f: compound(c, ABS, ASL); break;
+    case 0x13: compound(c, INDY, ASL); break;
+    case 0x17: compound(c, ZPX, ASL); break;
+    case 0x1b: compound(c, ABSY, ASL); break;
+    case 0x1f: compound(c, ABSX, ASL); break;
+    case 0x23: compound(c, INDX, ROL); break;
+    case 0x27: compound(c, ZP, ROL); break;
+    case 0x2f: compound(c, ABS, ROL); break;
+    case 0x33: compound(c, INDY, ROL); break;
+    case 0x37: compound(c, ZPX, ROL); break;
+    case 0x3b: compound(c, ABSY, ROL); break;
+    case 0x3f: compound(c, ABSX, ROL); break;
+    case 0x43: compound(c, INDX, LSR); break;
+    case 0x47: compound(c, ZP, LSR); break;
+    case 0x4f: compound(c, ABS, LSR); break;
+    case 0x53: compound(c, INDY, LSR); break;
+    case 0x57: compound(c, ZPX, LSR); break;
+    case 0x5b: compound(c, ABSY, LSR); break;
+    case 0x5f: compound(c, ABSX, LSR); break;
+    case 0x63: compound(c, INDX, ROR); break;
+    case 0x67: compound(c, ZP, ROR); break;
+    case 0x6f: compound(c, ABS, ROR); break;
+    case 0x73: compound(c, INDY, ROR); break;
+    case 0x77: compound(c, ZPX, ROR); break;
+    case 0x7b: compound(c, ABSY, ROR); break;
+    case 0x7f: compound(c, ABSX, ROR); break;
+    case 0xc3: compound(c, INDX, DEC); break;
+    case 0xc7: compound(c, ZP, DEC); break;
+    case 0xcf: compound(c, ABS, DEC); break;
+    case 0xd3: compound(c, INDY, DEC); break;
+    case 0xd7: compound(c, ZPX, DEC); break;
+    case 0xdb: compound(c, ABSY, DEC); break;
+    case 0xdf: compound(c, ABSX, DEC); break;
+    case 0xe3: compound(c, INDX, INC); break;
+    case 0xe7: compound(c, ZP, INC); break;
+    case 0xef: compound(c, ABS, INC); break;
+    case 0xf3: compound(c, INDY, INC); break;
+    case 0xf7: compound(c, ZPX, INC); break;
+    case 0xfb: compound(c, ABSY, INC); break;
+    case 0xff: compound(c, ABSX, INC); break;
+    case 0xa3: lax(c, INDX); break;
+    case 0xa7: lax(c, ZP); break;
+    case 0xaf: lax(c, ABS); break;
+    case 0xb3: lax(c, INDY); break;
+    case 0xb7: lax(c, ZPY); break;
+    case 0xbf: lax(c, ABSY); break;
+    case 0x83: wr(c, address(c, INDX, true), (uint8_t)(c->a & c->x)); break;
+    case 0x87: wr(c, address(c, ZP, true), (uint8_t)(c->a & c->x)); break;
+    case 0x8f: wr(c, address(c, ABS, true), (uint8_t)(c->a & c->x)); break;
+    case 0x97: wr(c, address(c, ZPY, true), (uint8_t)(c->a & c->x)); break;
+    case 0x1a: case 0x3a: case 0x5a: case 0x7a: case 0xda: case 0xfa:
+        (void)rd(c, c->pc); break;
+    case 0x80: case 0x82: case 0x89: case 0xc2: case 0xe2:
+        (void)rd(c, address(c, IMM, false)); break;
+    case 0x04: case 0x44: case 0x64:
+        (void)rd(c, address(c, ZP, false)); break;
+    case 0x14: case 0x34: case 0x54: case 0x74: case 0xd4: case 0xf4:
+        (void)rd(c, address(c, ZPX, false)); break;
+    case 0x0c:
+        (void)rd(c, address(c, ABS, false)); break;
+    case 0x1c: case 0x3c: case 0x5c: case 0x7c: case 0xdc: case 0xfc:
+        (void)rd(c, address(c, ABSX, false)); break;
+    case 0x0b: case 0x2b: /* ANC */
+        c->a &= fetch(c);
+        nz(c, c->a);
+        flag(c, ATARI8_CPU_C, c->a & 128u);
+        break;
+    case 0x4b: /* ALR */
+        c->a &= fetch(c);
+        c->a = modify(c, LSR, c->a);
+        break;
+    case 0xcb: /* AXS/SBX: subtract without input carry or decimal mode */
+        v = fetch(c);
+        a = c->a & c->x;
+        compare(c, (uint8_t)a, v);
+        c->x = (uint8_t)(a - v);
+        break;
+    case 0xeb: sbc(c, fetch(c)); break;
     default:
         --c->pc;
         c->bad_opcode = op;

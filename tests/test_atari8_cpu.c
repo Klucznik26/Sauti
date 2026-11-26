@@ -280,11 +280,142 @@ static void test_interrupts(void)
     step(&c,&b,7); CHECK(c.pc == 0x5000);
 }
 
+/* All seven memory addressing forms, including page wrap and
+ * mandatory dummy cycles on indexed RMW instructions. */
+static uint16_t unofficial_operand(Bus *b, unsigned mode, bool y_index)
+{
+    b->ram[0x201] = 0x80; b->ram[0x202] = 0x30;
+    switch (mode) {
+    case 0: /* (zp,X), X=1 */
+        b->ram[0x201] = 0xfe; b->ram[0xff] = 0x34; b->ram[0] = 0x12;
+        return 0x1234;
+    case 1: return 0x80;
+    case 2: return 0x3080;
+    case 3: /* (zp),Y, Y=1 */
+        b->ram[0x201] = 0xff; b->ram[0xff] = 0xff; b->ram[0] = 0x30;
+        return 0x3100;
+    case 4:
+        b->ram[0x201] = 0xff;
+        return 0;
+    case 5: case 6:
+        b->ram[0x201] = 0xff;
+        (void)y_index;
+        return 0x3100;
+    }
+    return 0;
+}
+
+static void test_unofficial_compound(void)
+{
+    Bus b = {0};
+    Atari8Cpu c;
+    atari8_cpu_init(&c,read_bus,write_bus,&b,0x200);
+    const uint8_t bases[] = {0,32,64,96,192,224};
+    const uint8_t off[] = {3,7,15,19,23,27,31};
+    const unsigned clocks[] = {8,5,6,8,6,7,7};
+    const uint8_t mem[] = {2,3,0x40,0xc0,0x80,0x82};
+    const uint8_t acc[] = {0x42,0,0,1,0x40,0xbe};
+    const uint8_t flags[] = {1,3,3,1,0x80,0xc0};
+    for (unsigned k = 0; k < 6; ++k)
+        for (unsigned mode = 0; mode < 7; ++mode) {
+            c.pc = 0x200; c.a = 0x40; c.x = c.y = 1;
+            c.p = ATARI8_CPU_U | ATARI8_CPU_C;
+            b.ram[0x200] = bases[k] + off[mode];
+            uint16_t target = unofficial_operand(&b,mode,false);
+            b.ram[target] = 0x81;
+            unsigned n = clocks[mode];
+            step(&c,&b,n);
+            CHECK(c.a == acc[k] && b.ram[target] == mem[k]);
+            CHECK((c.p & (ATARI8_CPU_N | ATARI8_CPU_V | ATARI8_CPU_Z | ATARI8_CPU_C)) == flags[k]);
+            CHECK(b.trace[n-3] == target && b.trace[n-2] == target && b.trace[n-1] == target);
+            CHECK(!b.writes[n-3] && b.writes[n-2] && b.writes[n-1]);
+            CHECK(b.values[n-2] == 0x81 && b.values[n-1] == mem[k]);
+        }
+}
+
+static void test_unofficial_transfer(void)
+{
+    Bus b = {0};
+    Atari8Cpu c;
+    atari8_cpu_init(&c,read_bus,write_bus,&b,0x200);
+    const uint8_t lax_op[] = {0xa3,0xa7,0xaf,0xb3,0xb7,0xbf};
+    const unsigned modes[] = {0,1,2,3,4,5};
+    const unsigned clocks[] = {6,3,4,6,4,5};
+    for (unsigned k = 0; k < 6; ++k) {
+        c.pc = 0x200; c.x = c.y = 1; c.p = ATARI8_CPU_U | ATARI8_CPU_C;
+        b.ram[0x200] = lax_op[k];
+        uint16_t target = unofficial_operand(&b,modes[k],true);
+        b.ram[target] = 0x81;
+        step(&c,&b,clocks[k]);
+        CHECK(c.a == 0x81 && c.x == 0x81 && (c.p & ATARI8_CPU_N) && (c.p & ATARI8_CPU_C));
+    }
+    const uint8_t sax_op[] = {0x83,0x87,0x8f,0x97};
+    const unsigned sax_modes[] = {0,1,2,4};
+    const unsigned sax_clocks[] = {6,3,4,4};
+    for (unsigned k = 0; k < 4; ++k) {
+        c.pc = 0x200; c.a = 0x81; c.x = c.y = 1; c.p = ATARI8_CPU_U | ATARI8_CPU_V;
+        b.ram[0x200] = sax_op[k];
+        uint16_t target = unofficial_operand(&b,sax_modes[k],true);
+        b.ram[target] = 0xff;
+        step(&c,&b,sax_clocks[k]);
+        CHECK(b.ram[target] == 1 && c.a == 0x81 && c.x == 1);
+        CHECK(c.p == (ATARI8_CPU_U | ATARI8_CPU_V));
+    }
+}
+
+static void test_unofficial_nops(void)
+{
+    Bus b = {0};
+    Atari8Cpu c;
+    atari8_cpu_init(&c,read_bus,write_bus,&b,0x200);
+    static const struct { uint8_t op, len, cycles; } cases[] = {
+        {0x1a,1,2},{0x3a,1,2},{0x5a,1,2},{0x7a,1,2},{0xda,1,2},{0xfa,1,2},
+        {0x80,2,2},{0x82,2,2},{0x89,2,2},{0xc2,2,2},{0xe2,2,2},
+        {0x04,2,3},{0x44,2,3},{0x64,2,3},
+        {0x14,2,4},{0x34,2,4},{0x54,2,4},{0x74,2,4},{0xd4,2,4},{0xf4,2,4},
+        {0x0c,3,4},
+        {0x1c,3,5},{0x3c,3,5},{0x5c,3,5},{0x7c,3,5},{0xdc,3,5},{0xfc,3,5}
+    };
+    for (unsigned k=0;k<sizeof(cases)/sizeof(cases[0]);++k) {
+        c.pc=0x200; c.x=1; c.y=2; c.a=0x42; c.p=ATARI8_CPU_U | ATARI8_CPU_C;
+        b.ram[0x200]=cases[k].op; b.ram[0x201]=0xff; b.ram[0x202]=0x30;
+        step(&c,&b,cases[k].cycles);
+        CHECK(c.pc == 0x200u + cases[k].len);
+        CHECK(c.a==0x42 && c.x==1 && c.y==2 && c.p==(ATARI8_CPU_U | ATARI8_CPU_C));
+        for(unsigned i=0;i<b.count;++i) CHECK(!b.writes[i]);
+        if(cases[k].cycles==5) {
+            CHECK(b.trace[3]==0x3000 && b.trace[4]==0x3100);
+            c.pc=0x200; b.ram[0x201]=0x80;
+            step(&c,&b,4); CHECK(b.trace[3]==0x3081);
+        }
+    }
+}
+
+static void test_unofficial_immediate(void)
+{
+    Bus b = {0};
+    Atari8Cpu c;
+    atari8_cpu_init(&c,read_bus,write_bus,&b,0x200);
+    alu_case(&c,&b,0x0b,0xff,0x80,0);
+    CHECK(c.a==0x80 && (c.p & ATARI8_CPU_C) && (c.p & ATARI8_CPU_N));
+    alu_case(&c,&b,0x2b,0x0f,0xf0,ATARI8_CPU_C);
+    CHECK(c.a==0 && !(c.p & ATARI8_CPU_C) && (c.p & ATARI8_CPU_Z));
+    alu_case(&c,&b,0x4b,0xff,0x81,0);
+    CHECK(c.a==0x40 && (c.p & ATARI8_CPU_C));
+    c.x=0x0f;
+    alu_case(&c,&b,0xcb,0x05,0x06,ATARI8_CPU_D | ATARI8_CPU_C);
+    CHECK(c.x==0xff && c.a==5 && !(c.p & ATARI8_CPU_C) && (c.p & ATARI8_CPU_N));
+    alu_case(&c,&b,0xeb,0x10,1,ATARI8_CPU_D | ATARI8_CPU_C);
+    CHECK(c.a==9 && (c.p & ATARI8_CPU_C));
+}
+
 int main(void)
 {
     test_load_store(); test_stack(); test_branches();
     test_binary_alu(); test_decimal_alu(); test_logic_compare();
     test_modify(); test_interrupts();
-    puts("PASS: experimental Atari8 NMOS 6502 official instructions");
+    test_unofficial_compound(); test_unofficial_transfer();
+    test_unofficial_nops(); test_unofficial_immediate();
+    puts("PASS: experimental Atari8 NMOS 6502 official and stable undocumented subset");
     return 0;
 }
