@@ -1,8 +1,7 @@
 #include "atari8_pokey.h"
 #include <string.h>
 
-/* Each linked pair uses the low byte in the first channel. Only
- * the high channel's oscillator is implemented for linked timers. */
+/* Each linked pair uses the low byte in the first channel. */
 static bool linked(uint8_t ctl, unsigned ch)
 {
     return (ctl & (ch < 2 ? 0x10 : 0x08)) != 0;
@@ -16,11 +15,6 @@ static bool fast(uint8_t ctl, unsigned ch)
 static bool low_linked(uint8_t ctl, unsigned ch)
 {
     return !(ch & 1) && linked(ctl, ch);
-}
-
-static bool oscillator_audible(uint8_t audc)
-{
-    return !(audc & 0x10) && (audc & 0x0f);
 }
 
 static bool fast_timer(uint8_t ctl, unsigned ch)
@@ -106,23 +100,11 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
         if (!(reg & 1)) {
             p->audf[ch] = value;
         } else {
-            if (low_linked(p->audctl, ch) && oscillator_audible(value))
-                return false;
             p->audc[ch] = value;
         }
         return true;
     }
     if (reg == 8) {
-        /* Timer 1 underflows in a linked pair are not modeled yet. */
-        if ((value & 0x10) && (p->irq_enable & 1u))
-            return false;
-        /* The clock pulses of linked channel 3 are not modeled yet. */
-        if ((value & 0x0c) == 0x0c)
-            return false;
-        for (unsigned ch = 0; ch < 4; ch += 2) {
-            if (low_linked(value, ch) && oscillator_audible(p->audc[ch]))
-                return false;
-        }
         if (p->audctl != value) {
             uint8_t changed = p->audctl ^ value;
             p->audctl = value;
@@ -146,7 +128,7 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
     }
     if (reg == 14) {
         /* Only the three timer sources are implemented. */
-        if ((value & 0xf8) || ((value & 1u) && linked(p->audctl, 0)))
+        if (value & 0xf8)
             return false;
         p->irq_enable = value;
         /* Disabling a source acknowledges its pending interrupt. */
@@ -187,12 +169,18 @@ void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles)
             p->phase114 = 0;
         bool slow_tick = (p->audctl & 1) ? tick114 : tick28;
         for (unsigned ch = 0; ch < 4; ++ch) {
-            if (low_linked(p->audctl, ch))
-                continue;
             if (!fast_timer(p->audctl, ch) && !slow_tick)
                 continue;
             if (--p->counter[ch] == 0) {
-                p->counter[ch] = reload(p, ch);
+                if (low_linked(p->audctl, ch)) {
+                    /* No individual reload: the low byte wraps until the
+                     * high timer expires and reloads the whole pair. */
+                    p->counter[ch] = 256;
+                } else {
+                    p->counter[ch] = reload(p, ch);
+                    if ((ch & 1u) && linked(p->audctl, ch))
+                        p->counter[ch - 1] = reload(p, ch - 1);
+                }
                 /* Timer 1, 2 and 4 map to bits 0, 1 and 2.
                  * This milestone latches on the modeled timer event;
                  * actual IRQ propagation and STIMER latency are pending. */

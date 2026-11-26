@@ -119,8 +119,7 @@ Atari8SaprResult atari8_sapr_open(Atari8Sapr *s, const uint8_t *data,
     return ATARI8_SAPR_OK;
 }
 
-/* Frame writes are atomic with respect to playback. Clear outgoing
- * linked-low volume before changing AUDCTL; no artificial STIMER. */
+/* Frame writes are atomic with respect to playback; no artificial STIMER. */
 static bool apply(Atari8Core *core, const uint8_t *data)
 {
     Atari8Core next = *core;
@@ -128,8 +127,7 @@ static bool apply(Atari8Core *core, const uint8_t *data)
         uint16_t base = (uint16_t)(0xd200u + ch * 16u);
         const uint8_t *p = data + ch * 9u;
         for (unsigned i = 0; i < 8; i += 2) {
-            if (!atari8_core_write(&next, (uint16_t)(base + i), p[i])
-                || !atari8_core_write(&next, (uint16_t)(base + i + 1), 0))
+            if (!atari8_core_write(&next, (uint16_t)(base + i), p[i]))
                 return false;
         }
         if (!atari8_core_write(&next, (uint16_t)(base + 8), p[8]))

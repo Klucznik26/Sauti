@@ -2,26 +2,28 @@
 
 Experimental independent POKEY model: four pure-tone channels, volume-only,
 28/114 master-clock divisors, fast clocks on channels 1/3, and steady-state
-16-bit linked periods on channels 2/4. For the latter, the low-channel
-oscillator is not modeled: audible oscillator writes are rejected, while
-volume-only is allowed. Slow periods are N+1 selected ticks, fast periods
+16-bit linked periods on channels 2/4. Linked low timers continue to
+clock their waveforms and IRQ/filter paths: the first period is based on
+the low byte, later pulses are 256 ticks apart until the pair reloads.
+The fast high timer fires three modeled cycles after the final low pulse;
+slow linked pulses are approximated as simultaneous on the final tick.
+Slow periods are N+1 selected ticks, fast periods
 are N+4 (8-bit) or N+7 (16-bit) master cycles. Counter capacity includes
 65536 slow ticks and 65542 fast cycles. STIMER, initialization and AUDCTL
-mode transitions are simplified; exact low-counter events,
+mode transitions and exact timer pipeline/IRQ phase are simplified;
 analog output and CPU emulation are not implemented.
 IRQEN/IRQST now model latched timer 1/2/4 interrupts, active-low status,
 selective acknowledgment by disabling sources, and a level IRQ signal.
-Timer 3 does not generate an IRQ. Enabling IRQ1 with linked timers 1/2
-is rejected until low-counter underflows are modeled. Other IRQ sources
+Timer 3 does not generate an IRQ. Timer 1 also generates IRQs when
+linked to timer 2. Other IRQ sources
 (serial, keyboard and break) are not implemented and enabling them is
 rejected. IRQ assertions occur at modeled timer events, not yet at exact
 hardware propagation times. Tests cover masking, simultaneous pending
 sources, repeated reads, re-enabling, fast and linked high timers.
 High-pass XOR latches on channels 1/2 are clocked by timers 3/4.
 The roughly 1.5-cycle hardware propagation is rounded to two cycles;
-simultaneous events use the updated lower-channel waveform. The
-combination of filter 1 and linked timers 3/4 is rejected because
-linked low-timer pulses are not yet modeled. STIMER sets raw output
+simultaneous events use the updated lower-channel waveform. Linked
+timer 3 also clocks filter 1. STIMER sets raw output
 flip-flops to one, and channels 1/2 have inverted unfiltered polarity.
 Volume-only overrides the filter. Tests cover both filters, polarity,
 volume override, and the simplified propagation delay.
