@@ -149,9 +149,29 @@ static void test_overlong_player(void)
     CHECK(s.machine.master_cycles-start==2u*s.info.interval);
     CHECK(s.machine.frames==(uint64_t)2*s.info.interval*48000u/s.machine.pcm.clock_hz);
 }
+static void test_refresh(void)
+{
+    Atari8Sapb s;
+    uint8_t data[512], code[51];
+    size_t n=fixture(data,false,false);
+    CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    Atari8Machine *m=&s.machine;
+    memset(code,0xea,50);
+    code[50]=0x60;
+    CHECK(atari8_machine_load(m,0x2200,code,sizeof(code)));
+    unsigned align=(114u-(unsigned)(m->master_cycles%114u))%114u;
+    CHECK(atari8_machine_idle(m,align)==ATARI8_MACHINE_OK);
+    uint64_t start=m->master_cycles, cpu=m->cpu.cycles, stalls=m->refresh_stalls;
+    CHECK(atari8_machine_call(m,0x2200,200)==ATARI8_MACHINE_OK);
+    CHECK(m->cpu.cycles-cpu==106 && m->master_cycles-start==115);
+    CHECK(m->refresh_stalls-stalls==9);
+    stalls=m->refresh_stalls;
+    CHECK(atari8_machine_idle(m,114)==ATARI8_MACHINE_OK);
+    CHECK(m->refresh_stalls==stalls);
+}
 int main(void)
 {
-    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player();
+    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh();
     puts("PASS: experimental Atari8 SAP-B");
     return 0;
 }

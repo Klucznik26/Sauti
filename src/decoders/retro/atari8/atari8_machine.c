@@ -32,6 +32,22 @@ static void tick(Atari8Machine *m)
     }
 }
 
+/* ANTIC with display DMA disabled still refreshes DRAM at cycles
+ * 25,29,...,57 of each 114-cycle scanline. This first model stalls
+ * both bus directions; real write-cycle deferral is not modeled.
+ * Idle time and WSYNC already advance master time. */
+static void cpu_bus_tick(Atari8Machine *m)
+{
+    if (m->sap_host_scheduled) {
+        unsigned h = (unsigned)(m->master_cycles % 114u);
+        if (h >= 25u && h <= 57u && (h - 25u) % 4u == 0) {
+            tick(m);
+            ++m->refresh_stalls;
+        }
+    }
+    tick(m);
+}
+
 static void io_fault(Atari8Machine *m, uint16_t a, bool writing)
 {
     m->status = ATARI8_MACHINE_IO;
@@ -45,7 +61,7 @@ static void io_fault(Atari8Machine *m, uint16_t a, bool writing)
 static uint8_t bus_read(void *context, uint16_t a)
 {
     Atari8Machine *m = context;
-    tick(m);
+    cpu_bus_tick(m);
     if (m->status != ATARI8_MACHINE_OK)
         return 0xff;
     if (!io_address(a))
@@ -82,7 +98,7 @@ static uint8_t bus_read(void *context, uint16_t a)
 static void bus_write(void *context, uint16_t a, uint8_t value)
 {
     Atari8Machine *m = context;
-    tick(m);
+    cpu_bus_tick(m);
     if (m->status != ATARI8_MACHINE_OK)
         return;
     if (!io_address(a)) {

@@ -42,6 +42,7 @@ typedef struct {
     uint8_t console_latch, fault_value;
     /* Set only by SAP host-scheduled playback before guest execution. */
     bool sap_host_scheduled;
+    uint64_t refresh_stalls; /* CPU-only DRAM refresh delays in SAP profile */
     uint8_t antic_nmien, antic_nmist;
     Atari8Trace trace[ATARI8_TRACE_SIZE], first_zero;
     Atari8Trace before_zero[ATARI8_TRACE_SIZE];

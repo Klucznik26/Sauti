@@ -327,3 +327,23 @@ rejects nonreturning calls. This is a compatibility policy for music
 not conforming to the ideal timing contract, not verified equivalence
 to ASAP scheduling. Six absolute JMP $0000 failures remain under
 investigation; no special treatment of those jumps is introduced.
+
+Pending comparison after f04fd9d: 7 regression tests passed.
+Zador_II and Decision_in_the_Desert now render 15 s (onsets 1 vs 20 ms
+and 201 vs 202 ms respectively). Seven files still fail, including
+six JMP $0000 cases. SAP execution specification requires nine
+refresh cycles per scanline even with display DMA off. SAP-profile
+CPU bus accesses now stall at phases 25,29,...,57 (documented ANTIC
+refresh slots); audio/master time continues, CPU cycles exclude
+stalls. Both reads and writes stall in this approximation; real
+write-cycle deferral is not modeled. No refresh is added during
+CPU-idle or WSYNC time. General restricted machine is unchanged.
+Regression: 106 CPU cycles span 115 master cycles on an aligned line.
+The external comparison script now prints renderer deadline counts
+and, on budget failure, original segment ranges, entry-point bytes
+and possible absolute stores to a failing JMP operand. These pattern
+matches are not proof of execution. No guest image is altered or
+copied into the repository. Sources:
+https://asap.sourceforge.net/sap-format.html (Timing) and Altirra
+Hardware Reference Manual (Memory refresh DMA). The effect on
+real songs and the seven remaining failures needs validation.

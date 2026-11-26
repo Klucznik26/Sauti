@@ -4,6 +4,7 @@ import argparse
 import csv
 from pathlib import Path
 import subprocess
+import re
 import tempfile
 import wave
 
@@ -19,6 +20,55 @@ def inspect(path):
                       if any(data[i:i+channels*2])),None)
         onset = "silence" if first is None else f"onset {first/(channels*2*rate):.3f}s"
         return f"{channels}ch {frames/rate:.3f}s {onset}"
+
+def inspect_image(src, message):
+    raw=src.read_bytes()
+    off=raw.find(b"\xff\xff")
+    if off<0:
+        return
+    ram=bytearray(65536)
+    present=bytearray(65536)
+    pos=off
+    blocks=[]
+    while pos<len(raw):
+        if raw[pos:pos+2]==b"\xff\xff":
+            pos+=2
+        if pos+4>len(raw):
+            return
+        lo=int.from_bytes(raw[pos:pos+2],"little")
+        hi=int.from_bytes(raw[pos+2:pos+4],"little")
+        pos+=4
+        size=hi-lo+1
+        if size<=0 or pos+size>len(raw):
+            return
+        ram[lo:hi+1]=raw[pos:pos+size]
+        present[lo:hi+1]=b"\x01"*size
+        blocks.append(f"{lo:04X}-{hi:04X}")
+        pos+=size
+    print("Image blocks:",", ".join(blocks))
+    header=raw[:off].decode("ascii",errors="replace")
+    addresses={}
+    for tag,addr in re.findall(r"(?m)^(INIT|PLAYER) ([0-9A-Fa-f]+)\r?$",header):
+        addresses[tag]=int(addr,16)
+    match=re.search(r"first transition to \$0000 from PC=([0-9A-Fa-f]+)",message)
+    if match:
+        addresses["JUMP"]=int(match[1],16)
+    for label,addr in addresses.items():
+        if not 0<=addr<=65535:
+            continue
+        start=max(0,addr-8)
+        end=min(65536,addr+16)
+        print(f"{label} {addr:04X} original {start:04X}:",
+              " ".join(f"{ram[i]:02X}" if present[i] else "--" for i in range(start,end)))
+    if "JUMP" in addresses:
+        for target in (addresses["JUMP"]+1,addresses["JUMP"]+2):
+            if target>65535:
+                continue
+            candidates=[f"{i:04X}:{ram[i]:02X}" for i in range(65534)
+                        if ram[i] in (0x8c,0x8d,0x8e,0x99,0x9d)
+                        and all(present[i:i+3])
+                        and ram[i+1]==(target&255) and ram[i+2]==target>>8]
+            print(f"Candidate stores to {target:04X}:",", ".join(candidates) or "none")
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
@@ -56,8 +106,12 @@ def main():
                     if run.returncode:
                         msg=(run.stderr+run.stdout).strip()
                         print(label+": "+msg,flush=True)
+                        if label=="Sauti" and "machine status 4" in msg:
+                            inspect_image(src,msg)
                     else:
                         print(label+": "+inspect(output),flush=True)
+                        if label=="Sauti" and run.stdout.strip():
+                            print(run.stdout.strip(),flush=True)
                 except (OSError,EOFError,wave.Error,subprocess.TimeoutExpired) as e:
                     print(label+": "+str(e),flush=True)
 
