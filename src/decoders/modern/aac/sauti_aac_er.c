@@ -19,7 +19,7 @@ static int get(const uint8_t *data,size_t length,size_t *pos,unsigned width,uint
 }
 
 unsigned sauti_aac_er_frame_samples(const SautiAacErConfig *c){
-    if(!c || (c->aot!=SAUTI_AAC_AOT_ER_LD && c->aot!=SAUTI_AAC_AOT_ER_ELD) || c->rate_index<3u || c->rate_index>12u ||
+    if(!c || (c->aot!=SAUTI_AAC_AOT_ER_LD && c->aot!=SAUTI_AAC_AOT_ER_ELD) || c->rate_index>12u ||
        c->channel_config<1u || c->channel_config>2u || c->frame480>1u)return 0u;
     return c->frame480?480u:512u;
 }

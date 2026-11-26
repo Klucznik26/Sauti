@@ -198,13 +198,13 @@ static const uint16_t swb_offset_480_24[31] = {
       0,   4,   8,  12,  16,  20,  24,  28,  32,  36,  40,  44,  52,  60,  68,  80,
      92, 104, 120, 140, 164, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480
 };
-static const uint16_t *const ld512_offsets[13]={NULL,NULL,NULL,swb_offset_512_48,swb_offset_512_48,swb_offset_512_32,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24};
-static const unsigned char ld512_count[13]={0,0,0,36,36,37,31,31,31,31,31,31,31};
-static const uint16_t *const ld480_offsets[13]={NULL,NULL,NULL,swb_offset_480_48,swb_offset_480_48,swb_offset_480_32,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24};
-static const unsigned char ld480_count[13]={0,0,0,35,35,37,30,30,30,30,30,30,30};
+static const uint16_t *const ld512_offsets[13]={swb_offset_512_48,swb_offset_512_48,swb_offset_512_48,swb_offset_512_48,swb_offset_512_48,swb_offset_512_32,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24,swb_offset_512_24};
+static const unsigned char ld512_count[13]={36,36,36,36,36,37,31,31,31,31,31,31,31};
+static const uint16_t *const ld480_offsets[13]={swb_offset_480_48,swb_offset_480_48,swb_offset_480_48,swb_offset_480_48,swb_offset_480_48,swb_offset_480_32,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24,swb_offset_480_24};
+static const unsigned char ld480_count[13]={35,35,35,35,35,37,30,30,30,30,30,30,30};
 /* tns_max_bands of the low-delay layouts (ISO/IEC 14496-3, same source as above) */
-static const unsigned char tns_max_512[13]={0,0,0,31,32,37,31,31,31,31,31,31,31};
-static const unsigned char tns_max_480[13]={0,0,0,31,32,37,30,30,30,30,30,30,30};
+static const unsigned char tns_max_512[13]={31,31,31,31,32,37,31,31,31,31,31,31,31};
+static const unsigned char tns_max_480[13]={31,31,31,31,32,37,30,30,30,30,30,30,30};
 
 int sauti_aac_band_offsets(unsigned sample_rate_index,unsigned short_window,
                            const uint16_t **offsets,unsigned *count){

@@ -110,3 +110,7 @@ Skrypt `scripts/test_iso_conformance_vs_ffmpeg.py KATALOG [REGEX]` dekoduje `com
 **Weryfikacja:** `tests/test_aac_lcw.c` (PCE, 12 i 48 kanałów, miejsca wg tagów, odmowy, składnia CCE, **arytmetyka sprzężenia: element sprzężony = element z przeskalowanym widmem, trzy punkty sprzężenia, znak elementu wzmocnienia**; 9 mutantów lcw zabite, 1 równoważny) oraz pliki ISO: `al00..al08` (z `sf`), `am00..am07`, `ap01..05`.
 **Wyjaśnione:** `al03*` — FFmpeg odbiega w 22 ramkach, nasz wynik = faad2 (wzorzec wiarygodny dla LC); `am06`, `al16sf` 89 – 99 dB (Main / zmiennoprzecinkowe szczegóły).
 **Otwarte w zestawie:** 105 plików SBR (`al_sbr_*`, `al960_sbr_*`: HE-AAC 960 i niestandardowe konfiguracje SBR — odrzucane), `als_*` (MPEG-4 ALS), `ab*` / `ac*` / `ce*` / `sy*` (BSAC / TwinVQ / CELP / audio strukturalne, nie AAC-LC).
+
+### LD / ELD: 64, 88,2 i 96 kHz oraz 7,35 kHz (2026-11-26)
+**64 / 88,2 / 96 kHz: ZROBIONE.** Koder FDK koduje LD i ELD (512 i 480, mono i stereo, bez SBR) na tych częstotliwościach, a dekoder FDK je dekoduje; FDK używa tablic pasm 48 kHz dla indeksów 0..2 (TNS max 31) i Sauti robi to samo (`sauti_aac_bands.c`, bramka `sauti_aac_er.c`). Pomiar wobec FDK (`fdk_sweep_hi.py`, 24 konfiguracje): ELD 88,5 – 90,8 dB, LD 67,3 – 79,7 dB (LD niżej z powodu stałego przecinka FDK, jak przy niskich częstotliwościach).
+**7,35 kHz: nie do zmierzenia** — koder FDK odrzuca 7350 Hz (`init failed`), więc brak wzorca; dekoder przyjmuje ją tą samą regułą co 8 kHz (tablice 24 kHz), bez pomiaru.

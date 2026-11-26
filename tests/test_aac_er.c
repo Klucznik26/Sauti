@@ -114,7 +114,7 @@ static void test_asc(void) {
     CHECK(sauti_aac_er_asc_parse(x.b, (x.n + 7) / 8, &a) == 1 && a.aot == 39, "ELD extension with a payload is skipped");
     { SautiAacErConfig c = { 23, 3, 0, 1 };
       CHECK(sauti_aac_er_frame_samples(&c) == 512, "LD 512 samples"); c.frame480 = 1; CHECK(sauti_aac_er_frame_samples(&c) == 480, "LD 480 samples");
-      c.frame480 = 0; c.aot = 2; CHECK(sauti_aac_er_frame_samples(&c) == 0, "AOT 2"); c.aot = 39; c.rate_index = 2; CHECK(sauti_aac_er_frame_samples(&c) == 0, "64 kHz");
+      c.frame480 = 0; c.aot = 2; CHECK(sauti_aac_er_frame_samples(&c) == 0, "AOT 2"); c.aot = 39; c.rate_index = 2; CHECK(sauti_aac_er_frame_samples(&c) == 512, "64 kHz uses the 48 kHz band tables (as FDK; ELD 89 - 91 dB vs FDK at 64 / 88.2 / 96 kHz)"); c.rate_index = 13; CHECK(sauti_aac_er_frame_samples(&c) == 0, "index 13");
       c.rate_index = 8; CHECK(sauti_aac_er_frame_samples(&c) == 512, "16 kHz (24 kHz band tables, as FDK)"); c.rate_index = 12; CHECK(sauti_aac_er_frame_samples(&c) == 512, "7.35 kHz"); c.rate_index = 13; CHECK(sauti_aac_er_frame_samples(&c) == 0, "rate index 13"); c.rate_index = 3; c.channel_config = 0; CHECK(sauti_aac_er_frame_samples(&c) == 0, "0 channels");
       c.channel_config = 3; CHECK(sauti_aac_er_frame_samples(&c) == 0, "3 channels (not supported yet)"); c.channel_config = 1; c.frame480 = 2; CHECK(sauti_aac_er_frame_samples(&c) == 0, "frame480 2");
       CHECK(sauti_aac_er_frame_samples(NULL) == 0, "NULL config"); }
