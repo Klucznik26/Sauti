@@ -20,6 +20,7 @@ unsigned sauti_aac_lcn_frame_samples(const SautiAacLcnConfig *c){
         if(c->ltp)return c->frame960?0u:1024u;
         return c->frame960?960u:1024u;
     }
+    if(c->ssr)return (c->main||c->ltp||c->frame960||c->rate_index>12u)?0u:1024u;                        /* AAC SSR: 1024 lines, its own tools */
     if(c->main && c->ltp)return 0u;
     if(c->frame960 && !c->main)return 0u;                                   /* LC 960 has its own configuration, LTP has no 960 variant */
     if(c->main)return c->rate_index<=11u?(c->frame960?960u:1024u):0u;        /* no PRED_SFB_MAX for 7350 Hz */
@@ -28,7 +29,7 @@ unsigned sauti_aac_lcn_frame_samples(const SautiAacLcnConfig *c){
 }
 void sauti_aac_lcn_state_init(SautiAacLcnState *state){
     memset(state,0,sizeof(*state));
-    for(unsigned c=0;c<2;c++){(void)sauti_aac_lc_synthesis_init(&state->channel[c],0u);sauti_aac_pred_reset(&state->pred[c]);sauti_aac_ltp_reset(&state->ltp[c]);}
+    for(unsigned c=0;c<2;c++){(void)sauti_aac_lc_synthesis_init(&state->channel[c],0u);sauti_aac_pred_reset(&state->pred[c]);sauti_aac_ltp_reset(&state->ltp[c]);sauti_aac_ssr_state_init(&state->ssr[c]);}
 }
 /* data_stream_element(): tag(4), data_byte_align_flag(1), count(8) [+ esc_count(8)], optional byte alignment, count bytes */
 static int skip_dse(const uint8_t *data,size_t length,size_t *pos){
@@ -85,7 +86,9 @@ int sauti_aac_lcn_element(const SautiAacLcnConfig *cfg,unsigned idx,unsigned id,
         if(status==1 && (!dequantize(mono,idx,pns_seed,spectral) ||
                (cfg->main && ch[0].pred && !predict_mono(ch[0].pred,mono,idx,spectral)) ||
                (cfg->ltp && ch[0].ltp && !sauti_aac_ltp_apply(ch[0].ltp,&mono->ics,idx,ch[0].syn->previous_shape,mono->tns_present?&mono->tns:NULL,spectral)) ||
-               !sauti_aac_lc_synthesis_spectral(ch[0].syn,&mono->ics,mono->tns_present?&mono->tns:NULL,idx,spectral,out[0]))){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;status=0;}
+               !(SAUTI_AAC_IDX_IS_SSR(idx) && ch[0].ssr
+                   ? sauti_aac_lc_synthesis_spectral_ssr(ch[0].syn,ch[0].ssr,&mono->ics,mono->tns_present?&mono->tns:NULL,idx,spectral,mono->gain_present?&mono->gain:NULL,out[0])
+                   : sauti_aac_lc_synthesis_spectral(ch[0].syn,&mono->ics,mono->tns_present?&mono->tns:NULL,idx,spectral,out[0])))){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;status=0;}
         if(status==1 && cfg->ltp && ch[0].ltp)sauti_aac_ltp_update(ch[0].ltp,out[0],ch[0].syn->overlap);
         free(mono);
     }else if(id==1u){
@@ -106,7 +109,9 @@ int sauti_aac_lcn_element(const SautiAacLcnConfig *cfg,unsigned idx,unsigned id,
                 if(!sauti_aac_ltp_apply(ch[c].ltp,&cpe->channel[c].ics,idx,ch[c].syn->previous_shape,cpe->channel[c].tns_present?&cpe->channel[c].tns:NULL,spectral[c])){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;status=0;break;}
         if(status==1)
             for(unsigned c=0;c<2;c++)
-                if(!sauti_aac_lc_synthesis_spectral(ch[c].syn,&cpe->channel[c].ics,cpe->channel[c].tns_present?&cpe->channel[c].tns:NULL,idx,spectral[c],out[c])){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;status=0;break;}
+                if(!(SAUTI_AAC_IDX_IS_SSR(idx) && ch[c].ssr
+                       ? sauti_aac_lc_synthesis_spectral_ssr(ch[c].syn,ch[c].ssr,&cpe->channel[c].ics,cpe->channel[c].tns_present?&cpe->channel[c].tns:NULL,idx,spectral[c],cpe->channel[c].gain_present?&cpe->channel[c].gain:NULL,out[c])
+                       : sauti_aac_lc_synthesis_spectral(ch[c].syn,&cpe->channel[c].ics,cpe->channel[c].tns_present?&cpe->channel[c].tns:NULL,idx,spectral[c],out[c]))){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;status=0;break;}
         if(status==1 && cfg->ltp && ch[0].ltp && ch[1].ltp)for(unsigned c=0;c<2;c++)sauti_aac_ltp_update(ch[c].ltp,out[c],ch[c].syn->overlap);
         free(cpe);
     }else{*reason=SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;return -1;}
@@ -115,6 +120,7 @@ int sauti_aac_lcn_element(const SautiAacLcnConfig *cfg,unsigned idx,unsigned id,
 }
 unsigned sauti_aac_lcn_index(const SautiAacLcnConfig *cfg){
     if(cfg->er)return SAUTI_AAC_IDX(cfg->rate_index,cfg->frame960?SAUTI_AAC_LAYOUT_960:SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_ER_FLAG|(cfg->ltp?SAUTI_AAC_IDX_LTP_FLAG:0u);
+    if(cfg->ssr)return SAUTI_AAC_IDX(cfg->rate_index,SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_SSR_FLAG;
     return cfg->main?(SAUTI_AAC_IDX(cfg->rate_index,cfg->frame960?SAUTI_AAC_LAYOUT_960:SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_MAIN_FLAG):cfg->ltp?(SAUTI_AAC_IDX(cfg->rate_index,SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_LTP_FLAG):SAUTI_AAC_IDX(cfg->rate_index,SAUTI_AAC_LAYOUT_960);
 }
 static int lcn_decode_impl(const SautiAacLcnConfig *cfg,SautiAacLcnState *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,const uint8_t adts_header[7],unsigned adts_crc,SautiAacLcnSbr *sbr);
@@ -160,7 +166,7 @@ static int lcn_decode_impl(const SautiAacLcnConfig *cfg,SautiAacLcnState *state,
         if(id==4u){if(!skip_dse(au,length,&pos))return 0;continue;}
         }
         if(done || (channels==1u && id!=0u) || (channels==2u && id!=1u)){*reason=SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;return -1;}
-        SautiAacLcnChannel ch[2]={{&next.channel[0],&next.pred[0],&next.ltp[0]},{&next.channel[1],&next.pred[1],&next.ltp[1]}};
+        SautiAacLcnChannel ch[2]={{&next.channel[0],&next.pred[0],&next.ltp[0],&next.ssr[0]},{&next.channel[1],&next.pred[1],&next.ltp[1],&next.ssr[1]}};
         uint32_t seed=next.channel[0].pns_seed;
         status=sauti_aac_lcn_element(cfg,idx,id,au,length,at,&pos,ch,&seed,out,reason,adts_header,adts_crc);
         if(status!=1)return status;

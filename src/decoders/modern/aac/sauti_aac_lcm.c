@@ -72,6 +72,7 @@ int sauti_aac_lcm_decode(const SautiAacLcnConfig *cfg,SautiAacLcmState *state,co
                 ch[k].syn=&next->syn[used+k];
                 ch[k].pred=cfg->main?&next->u.pred[used+k]:NULL;
                 ch[k].ltp=cfg->ltp?&next->u.ltp[used+k]:NULL;
+                ch[k].ssr=NULL;
             }
             if(need==1u){ch[1]=ch[0];}                                       /* unused */
             status=sauti_aac_lcn_element(cfg,idx,id,au,length,at,&pos,ch,&seed,out,reason,NULL,0u);

@@ -52,7 +52,11 @@ static int channel_parse(const uint8_t *data,size_t length,size_t *pos,
             return 0;
     }
     if(!get(data,length,pos,1,&v))return 0;
-    if(v){*reason=SAUTI_AAC_REASON_GAIN_CONTROL;return -1;}
+    if(v){                                                                           /* gain_control_data_present: AAC SSR parses it, every other profile refuses */
+        if(!SAUTI_AAC_IDX_IS_SSR(rate)){*reason=SAUTI_AAC_REASON_GAIN_CONTROL;return -1;}
+        if(!sauti_aac_ssr_gain_parse(data,length,pos,ch->ics.window_sequence,&ch->gain)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
+        ch->gain_present=1u;
+    }
     if(SAUTI_AAC_IDX_IS_ER(rate) && tns_flag && !sauti_aac_tns_parse(data,length,pos,&ch->ics,&ch->tns))return 0;      /* ER syntax: tns_data follows the gain_control_data_present flag */
     for(unsigned i=0;i<ch->sections.section_count;i++)
         if(ch->sections.sections[i].codebook>=14u && !allow_intensity){

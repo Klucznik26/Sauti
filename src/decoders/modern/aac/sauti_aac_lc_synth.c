@@ -68,6 +68,23 @@ int sauti_aac_lc_synthesis_spectral(SautiAacLcSynthesis *state,
     if(!transition_ok && state->transition_violations<UINT32_MAX)state->transition_violations++;
     return 1;
 }
+int sauti_aac_lc_synthesis_spectral_ssr(SautiAacLcSynthesis *state,SautiAacSsrState *ssr,const SautiAacIcsInfo *ics,const SautiAacTnsData *tns,
+                                        unsigned sample_rate_index,const float spectral_input[1024],const SautiAacSsrGain *gain,float pcm[1024]){
+    if(!state || !ssr || !ics || !spectral_input || !pcm || SAUTI_AAC_IDX_RATE(sample_rate_index)>=13u ||
+       SAUTI_AAC_IDX_LAYOUT(sample_rate_index)!=SAUTI_AAC_LAYOUT_1024 || state->initialized!=1u ||
+       state->previous_shape>1u || ics->window_shape>1u || ics->window_sequence>3u)
+        return 0;
+    for(unsigned i=0;i<1024;i++)if(!isfinite(spectral_input[i]))return 0;
+    float spectral[1024];
+    memcpy(spectral,spectral_input,sizeof spectral);
+    if(tns && !sauti_aac_tns_apply(tns,ics,sample_rate_index,spectral))return 0;
+    const unsigned transition_ok=valid_transition(state->previous_sequence,ics->window_sequence);
+    if(!sauti_aac_ssr_synthesis(ssr,ics->window_sequence,state->previous_shape,ics->window_shape,spectral,gain,pcm))return 0;
+    state->previous_sequence=ics->window_sequence;
+    state->previous_shape=ics->window_shape;
+    if(!transition_ok && state->transition_violations<UINT32_MAX)state->transition_violations++;
+    return 1;
+}
 static int synth_internal(int allow_pns,const SautiAacTnsData *tns,
                                 SautiAacLcSynthesis *state,
                                 unsigned sample_rate_index,

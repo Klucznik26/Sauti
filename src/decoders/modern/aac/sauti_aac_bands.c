@@ -2,6 +2,7 @@
  * Numeric tables validated against FFmpeg libavcodec/aactab.c
  * (LGPL-2.1-or-later); no FFmpeg linkage or runtime dependency.
  * Licensing of bundled numeric data needs review before distribution. */
+#include "sauti_aac_ssr.h"
 #include "sauti_aac_bands.h"
 #include "sauti_aac_layout.h"
 #include <stddef.h>
@@ -229,6 +230,7 @@ unsigned sauti_aac_tns_max_bands(unsigned sample_rate_index,unsigned short_windo
     static const unsigned char max_short[13]={9,9,10,14,14,14,14,14,14,14,14,14,14};
     const unsigned layout=SAUTI_AAC_IDX_LAYOUT(sample_rate_index),rate=SAUTI_AAC_IDX_RATE(sample_rate_index);
     if(rate>=13 || short_window>1)return 0;
+    if(SAUTI_AAC_IDX_IS_SSR(sample_rate_index))return rate<12u?sauti_aac_ssr_tns_max_bands[rate][short_window]:0u;       /* AAC SSR: its own TNS_MAX_BANDS columns */
     if(layout==SAUTI_AAC_LAYOUT_1024 || layout==SAUTI_AAC_LAYOUT_960)return short_window?max_short[rate]:max_long[rate];   /* 960 uses the 1024 / 128 limits (as FFmpeg) */
     if(short_window)return 0;
     return layout==SAUTI_AAC_LAYOUT_512?tns_max_512[rate]:layout==SAUTI_AAC_LAYOUT_480?tns_max_480[rate]:0u;

@@ -138,14 +138,14 @@ AAC_HUFFMAN_ASM := $(OBJDIR)/sauti_aac_huffman.o
 AAC_SPECTRAL_SRC := src/decoders/modern/aac/sauti_aac_spectral.c
 AAC_TABLES_SRC := src/decoders/modern/aac/sauti_aac_tables.c
 AAC_SCALEFACTORS_SRC := src/decoders/modern/aac/sauti_aac_scalefactors.c
-AAC_BANDS_SRC := src/decoders/modern/aac/sauti_aac_bands.c
+AAC_BANDS_SRC := src/decoders/modern/aac/sauti_aac_bands.c src/decoders/modern/aac/sauti_aac_ssr_tables.c
 AAC_SPECTRAL_DATA_SRC := src/decoders/modern/aac/sauti_aac_spectral_data.c
 AAC_DEQUANT_SRC := src/decoders/modern/aac/sauti_aac_dequant.c
 AAC_DEQUANT_ASM := $(OBJDIR)/sauti_aac_dequant.o
 AAC_IMDCT_SRC := src/decoders/modern/aac/sauti_aac_imdct.c
 AAC_IMDCT_ASM := $(OBJDIR)/sauti_aac_imdct.o
 AAC_WINDOW_SRC := src/decoders/modern/aac/sauti_aac_window.c
-AAC_LC_SYNTH_SRC := src/decoders/modern/aac/sauti_aac_lc_synth.c
+AAC_LC_SYNTH_SRC := src/decoders/modern/aac/sauti_aac_lc_synth.c src/decoders/modern/aac/sauti_aac_ssr.c
 AAC_LC_FRAME_SRC := src/decoders/modern/aac/sauti_aac_lc_frame.c $(AAC_ADTS_CRC_SRC)
 AAC_PNS_SRC := src/decoders/modern/aac/sauti_aac_pns.c
 AAC_TNS_SRC := src/decoders/modern/aac/sauti_aac_tns.c
@@ -1682,6 +1682,10 @@ $(OBJDIR)/sauti_usac_gen: tools/sauti_usac_gen.c src/decoders/modern/aac/sauti_u
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_usac_gen.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
 $(OBJDIR)/sauti_er_cli: tools/sauti_er_cli.c include/sauti_aac_er.h $(AAC_NATIVE_ADAPTER_DEPS) | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_er_cli.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
+$(OBJDIR)/sauti_ssr_probe: tools/sauti_ssr_probe.c include/sauti_aac_ssr.h $(AAC_NATIVE_ADAPTER_DEPS) src/sauti_decoder.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_ssr_probe.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
+.PHONY: ssr-probe
+ssr-probe: $(OBJDIR)/sauti_ssr_probe
 $(OBJDIR)/sauti_aac_adapter_cli: tools/sauti_aac_adapter_cli.c include/sauti_decoder_aac_native.h $(AAC_NATIVE_ADAPTER_DEPS) src/sauti_decoder.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -Iinclude -o $@ tools/sauti_aac_adapter_cli.c src/sauti_decoder.c $(AAC_NATIVE_ADAPTER_DEPS) -lm -no-pie
 

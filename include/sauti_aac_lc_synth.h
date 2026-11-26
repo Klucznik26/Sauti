@@ -2,6 +2,7 @@
 #define SAUTI_AAC_LC_SYNTH_H
 #include "sauti_aac_dequant.h"
 #include "sauti_aac_tns.h"
+#include "sauti_aac_ssr.h"
 #include <stdint.h>
 
 /* Per-channel synthesis state. Reset at each new independent stream/seek.
@@ -37,6 +38,16 @@ int sauti_aac_lc_synthesis_spectral(SautiAacLcSynthesis *state,
                                     unsigned sample_rate_index,
                                     const float spectral[1024],
                                     float pcm[1024]);
+/* AAC SSR: the same as sauti_aac_lc_synthesis_spectral (inverse TNS first) with the gain control filter bank (sauti_aac_ssr.h) instead of the plain IMDCT + window + overlap-add; `ssr` is the
+ * per-channel state of that filter bank, `gain` the gain_control_data() of the frame (NULL = absent).  The window shape / sequence history stays in `state`.  1 ok, 0 invalid arguments. */
+int sauti_aac_lc_synthesis_spectral_ssr(SautiAacLcSynthesis *state,
+                                        SautiAacSsrState *ssr,
+                                        const SautiAacIcsInfo *ics,
+                                        const SautiAacTnsData *tns,
+                                        unsigned sample_rate_index,
+                                        const float spectral[1024],
+                                        const SautiAacSsrGain *gain,
+                                        float pcm[1024]);
 
 /* Native AAC-LC mono synthesis with both PNS and decoded TNS. */
 int sauti_aac_lc_synthesis_frame_tns(SautiAacLcSynthesis *state,

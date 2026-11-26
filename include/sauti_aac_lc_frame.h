@@ -1,5 +1,6 @@
 #ifndef SAUTI_AAC_LC_FRAME_H
 #define SAUTI_AAC_LC_FRAME_H
+#include "sauti_aac_ssr.h"
 #include "sauti_aac_lc_synth.h"
 #include "sauti_aac_headers.h"
 #include "sauti_aac_tns.h"
@@ -36,6 +37,8 @@ typedef struct {
     uint32_t global_gain;
     unsigned tns_present;
     SautiAacTnsData tns;
+    unsigned gain_present;                  /* AAC SSR: gain_control_data() of this channel was present */
+    SautiAacSsrGain gain;
 } SautiAacLcMonoData;
 int sauti_aac_lc_mono_parse(const uint8_t *raw,size_t length,
                            size_t *bit_offset,unsigned sample_rate_index,

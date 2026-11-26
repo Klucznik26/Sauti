@@ -20,6 +20,9 @@
  * starts with its 4-bit instance tag, and tns_data follows the gain_control_data_present flag */
 #define SAUTI_AAC_IDX_ER_FLAG 0x40000u
 #define SAUTI_AAC_IDX_IS_ER(idx) (((unsigned)(idx) & SAUTI_AAC_IDX_ER_FLAG) != 0u)
+/* bit 19: AAC SSR (object type 3): ics_info like AAC-LC, gain_control_data() after the TNS flag, SSR TNS limits, and the 4-band gain control filter bank instead of the plain IMDCT (sauti_aac_ssr.h) */
+#define SAUTI_AAC_IDX_SSR_FLAG 0x80000u
+#define SAUTI_AAC_IDX_IS_SSR(idx) (((unsigned)(idx) & SAUTI_AAC_IDX_SSR_FLAG) != 0u)
 /* Length of one transform window of the layout in `idx`: the stride of the natural [window][line] spectrum layout of short windows and the number of lines of a long window. */
 static inline unsigned sauti_aac_layout_window_len(unsigned idx, unsigned short_window) {
     switch (SAUTI_AAC_IDX_LAYOUT(idx)) {

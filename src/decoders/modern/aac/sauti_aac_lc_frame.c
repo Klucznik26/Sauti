@@ -82,7 +82,11 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
         }
     } /* tns_data_present (ER syntax: the data follows the gain_control_data_present flag) */
     if(!read(raw,length,&pos,1,&flag))return 0;
-    if(flag){*reason=SAUTI_AAC_REASON_GAIN_CONTROL;return -1;} /* gain_control_data_present */
+    if(flag){                                                                       /* gain_control_data_present: AAC SSR parses it, every other profile refuses */
+        if(!SAUTI_AAC_IDX_IS_SSR(rate_index)){*reason=SAUTI_AAC_REASON_GAIN_CONTROL;return -1;}
+        if(!sauti_aac_ssr_gain_parse(raw,length,&pos,next.ics.window_sequence,&next.gain)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
+        next.gain_present=1u;
+    }
     if(er && tns_flag && !sauti_aac_tns_parse(raw,length,&pos,&next.ics,&next.tns)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
     for(unsigned i=0;i<next.sections.section_count;i++)
         if(next.sections.sections[i].codebook>=14u){*reason=SAUTI_AAC_REASON_INTENSITY;return -1;}
