@@ -410,3 +410,24 @@ tempo fidelity remains unverified. Next diagnostic: obtain reference
 CPU trace using the external asapscan tool and compare the first
 PLAYER call, including the branch-table target at music offset $06F8.
 No CPU or player changes, guest data, or reference source included.
+
+### Chromatics: external reference trace evidence
+
+The user supplied the first 300000 instruction trace lines from their
+separately built ASAP asapscan -c on Chromatics.sap. Analysis finds 45
+entries at PLAYER $9969, 45 synthetic JSRs from $D200 and 186950 BRK
+instructions at $0000. The first call starts at trace line 63392;
+ASAP schedules the next call at line 73221 before the previous call
+returns (SP $EB before the synthetic JSR, $E9 at PLAYER; initial PLAYER
+SP $FD). At line 73381 the guest executes JMP $0000 from $97C5,
+followed by BRK at line 73382. Repeated calls occur despite this
+broken control flow. The guest violates the TYPE B requirement that
+PLAYER return via RTS (https://asap.sourceforge.net/sap-format.html).
+Sauti's bounded non-reentrant scheduler detects the failure rather
+than reproducing abandoned call frames and repeated BRK dispatch.
+Reference PCM onset alone does not establish valid playback; check
+per-second energy via the existing external comparison utility.
+Keep the budget failure visible; do not count the file as rendered or
+silently patch its data. No trace, guest bytes or reference code added.
+Archive result remains 3823/3824. This evidence does not establish that
+all SAP-B files are correct or that every other track matches hardware.
