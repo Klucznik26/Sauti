@@ -299,7 +299,8 @@ static void test_streaminfo_fields(void) {
         if (r == MAKTABASAUTI_OK) { static float out[4096]; size_t got; uint64_t act; (void)maktabasauti_decoder_read(d, out, 500, MAKTABASAUTI_FORMAT_F32, &got); (void)maktabasauti_decoder_seek(d, 7, MAKTABASAUTI_SEEK_EXACT, &act); (void)maktabasauti_decoder_read(d, out, 500, MAKTABASAUTI_FORMAT_F32, &got); maktabasauti_decoder_close(d); }
         else CHECK(!d && s.closed == 0, "streaminfo %zu: failed open must leave the input with the caller", k);
         CHECK(m.live == 0 && m.bad == 0, "streaminfo %zu: leak", k);
-        CHECK(m.peak < (size_t)(5u << 20), "streaminfo %zu: memory peak %zu", k, m.peak);
+        /* the worst case grew with FLAC multichannel (8 channels of 65535 samples): 5.9 MB, bounded by 8 MiB */
+        CHECK(m.peak < (size_t)(8u << 20), "streaminfo %zu: memory peak %zu", k, m.peak);
     }
 }
 static void test_tiny_and_probe(void) {

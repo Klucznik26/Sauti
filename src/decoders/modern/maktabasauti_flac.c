@@ -46,7 +46,21 @@ typedef struct {
 } flac_t;
 
 static uint32_t be24(const uint8_t *p) { return ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2]; }
-static uint64_t default_mask(uint32_t ch) { return ch == 1u ? MAKTABASAUTI_LAYOUT_MONO : (ch == 2u ? MAKTABASAUTI_LAYOUT_STEREO : 0u); }
+/* the FLAC channel assignments of the format specification (3: L R C; 4: FL FR BL BR; 5: FL FR FC BL BR; 6: 5.1; 7: FL FR FC LFE BC SL SR; 8: 7.1), the same order as the WAVE mask */
+static uint64_t default_mask(uint32_t ch) {
+    const uint64_t lr = MAKTABASAUTI_CH_FL | MAKTABASAUTI_CH_FR;
+    switch (ch) {
+    case 1u: return MAKTABASAUTI_LAYOUT_MONO;
+    case 2u: return MAKTABASAUTI_LAYOUT_STEREO;
+    case 3u: return lr | MAKTABASAUTI_CH_FC;
+    case 4u: return lr | MAKTABASAUTI_CH_BL | MAKTABASAUTI_CH_BR;
+    case 5u: return lr | MAKTABASAUTI_CH_FC | MAKTABASAUTI_CH_BL | MAKTABASAUTI_CH_BR;
+    case 6u: return MAKTABASAUTI_LAYOUT_5_1;
+    case 7u: return lr | MAKTABASAUTI_CH_FC | MAKTABASAUTI_CH_LFE | MAKTABASAUTI_CH_BC | MAKTABASAUTI_CH_SL | MAKTABASAUTI_CH_SR;
+    case 8u: return MAKTABASAUTI_LAYOUT_7_1;
+    default: return 0u;
+    }
+}
 
 /* ---- wywolania zwrotne dr_flac ---- */
 static int64_t logical_pos(const flac_t *v) { return (int64_t)v->in_pos - (int64_t)(v->have - v->at); }
@@ -192,7 +206,7 @@ static maktabasauti_result_t MAKTABASAUTI_CALL flac_open(const maktabasauti_code
     rate = ((uint32_t)si[18] << 12) | ((uint32_t)si[19] << 4) | (si[20] >> 4);
     ch = (uint32_t)((si[20] >> 1) & 7u) + 1u;
     bps = ((uint32_t)(si[20] & 1u) << 4 | (si[21] >> 4)) + 1u;
-    if (rate == 0 || ch > 2u || bps < 4u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
+    if (rate == 0 || ch > 8u || bps < 4u) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     need = need_bytes(maxbs, ch, bps);
     v = (flac_t *)h->alloc(h->user, sizeof *v);
     if (!v) return MAKTABASAUTI_E_NO_MEMORY;
@@ -215,7 +229,7 @@ static maktabasauti_result_t MAKTABASAUTI_CALL flac_open(const maktabasauti_code
     memset(&ac, 0, sizeof ac); ac.pUserData = v; ac.onMalloc = cb_malloc; ac.onFree = cb_free;
     v->f = drflac_open(cb_read, cb_seek, cb_tell, v, &ac);
     if (!v->f) { r = v->blocked ? MAKTABASAUTI_E_WOULD_BLOCK : MAKTABASAUTI_E_UNSUPPORTED_FORMAT; free_all(h, v); return r; }
-    if (v->f->sampleRate == 0 || v->f->channels < 1 || v->f->channels > 2) { free_all(h, v); return MAKTABASAUTI_E_UNSUPPORTED_FORMAT; }
+    if (v->f->sampleRate == 0 || v->f->channels < 1 || v->f->channels > 8) { free_all(h, v); return MAKTABASAUTI_E_UNSUPPORTED_FORMAT; }
     if (v->fast) {                                                                                      /* zuzyj z wejscia dokladnie to, co dr_flac przeczytal z prefiksu; reszta bufora to kopia tego, co zostaje w wejsciu */
         size_t used = v->at;
         while (used) {
