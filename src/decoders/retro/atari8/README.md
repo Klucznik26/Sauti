@@ -94,3 +94,16 @@ Build the original synthetic listening demo:
     ./build/demo_atari8_wav build/atari8-demo.wav
 
 No production build or decoder registry changes in this milestone.
+
+SAP-R experimental reader: CRLF header ending in an empty line, 9 bytes
+per mono interval or 18 bytes (left then right register group) per stereo
+interval. Default FASTPLAY 312 PAL / 262 NTSC, each scanline 114 cycles.
+The empty-line boundary is confirmed against the public saprtools
+saprplay/test.sapr file (not included or copied). Stereo group order is
+a working assumption pending an external stereo fixture. Source:
+https://asap.sourceforge.net/sap-format.html .
+TIME is informational; payload length determines EOF, no repeat or seek.
+Only one song, no executable SAP types, no arbitrary tag extensions.
+Unmodeled POKEY modes are reported as unsupported, not silently rendered.
+The converter is a diagnostic tool, not a registered production decoder.
+No external decoder or player code is included.
