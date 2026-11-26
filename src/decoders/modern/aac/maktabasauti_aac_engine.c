@@ -788,6 +788,15 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
         core_reset(d);
         return up == P_OK ? MAKTABASAUTI_OK : MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
     }
+    if (hd.er && (hd.er_aot == 1u || hd.er_aot == 2u) && hd.config >= 3u && hd.config <= 7u && !hd.crc_present && !(hd.er_aot == 2u && !hd.er_480)) {     /* Main / LC 960 with a standard multichannel layout: the wide decoder takes the coupling channel elements the 8-channel one refuses (am05_96) */
+        aac_adts_hdr_t lh = hd; SautiAacLcwLayout lay;
+        memset(&lay, 0, sizeof lay); lay.channels = sauti_aac_lc_multi_config_channels(hd.config);
+        if (sauti_aac_lc_multi_output_map(hd.config, lay.map)) {
+            memset(&d->lcw_cfg, 0, sizeof d->lcw_cfg); d->lcw_cfg.rate_index = hd.rate_index; d->lcw_cfg.layout = lay; d->lcw_cfg.main = hd.er_aot == 1u; d->lcw_cfg.frame960 = hd.er_480; d->lcw_ready = 1u; d->lcw_adts = 1u;       /* frames keep the profile of the container: same_stream by the lcw variant */
+            lh.er_aot = hd.er_aot == 1u ? 101u : 100u;
+            { const maktabasauti_result_t lr = setup_lcw(d, &lh); if (lr == MAKTABASAUTI_OK) return lr; d->lcw_ready = 0u; d->lcw_adts = 0u; }
+        }
+    }
     if (hd.er && hd.er_aot == 102u) return setup_hem(d, &hd);
     if (hd.er && (hd.er_aot == 100u || hd.er_aot == 101u)) return setup_lcw(d, &hd);
     if (hd.er && hd.er_aot == 1u && hd.config == 0u && !hd.crc_present) {   /* AAC Main in ADTS with channel_configuration 0: the PCE in the stream (sauti_aac_lcw) */

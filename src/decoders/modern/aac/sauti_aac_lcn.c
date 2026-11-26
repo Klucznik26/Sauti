@@ -156,12 +156,12 @@ int sauti_aac_lcn_stage_element(const SautiAacLcnConfig *cfg,unsigned idx,unsign
     return status;
 }
 /* The individual_channel_stream of a coupling channel element (after its own header, at bit *pos): dequantised spectrum and the stage data (spectrum before TNS). */
-int sauti_aac_lcn_stage_cce(unsigned idx,const uint8_t *au,size_t length,size_t *pos,uint32_t *pns_seed,float spectral[1024],SautiAacLcnStage *st,SautiAacReason *reason){
+int sauti_aac_lcn_stage_cce(unsigned idx,SautiAacPredState *pred,const uint8_t *au,size_t length,size_t *pos,uint32_t *pns_seed,float spectral[1024],SautiAacLcnStage *st,SautiAacReason *reason){
     SautiAacLcMonoData *mono=(SautiAacLcMonoData *)calloc(1,sizeof(*mono));
     size_t p=*pos;
     if(!mono)return 0;
     int status=sauti_aac_lc_element_parse(au,length,&p,idx,8u,mono,reason);
-    if(status==1 && !dequantize(mono,idx,pns_seed,spectral)){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;status=0;}
+    if(status==1 && (!dequantize(mono,idx,pns_seed,spectral) || (pred && !predict_mono(pred,mono,idx,spectral)))){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;status=0;}      /* Main: the coupling channel has its own predictor state */
     if(status==1){stage_fill(st,&mono->ics,&mono->tns,mono->tns_present,&mono->factors);*pos=p;}
     free(mono);
     return status;

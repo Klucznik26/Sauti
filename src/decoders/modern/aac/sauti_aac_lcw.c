@@ -107,13 +107,15 @@ struct SautiAacLcw {
     unsigned char cce_used[SAUTI_AAC_LCW_MAX_CCE];
     SautiAacLcSynthesis *syn;                                                  /* [channels] */
     SautiAacPredState *pred;                                                   /* [channels], Main only */
+    SautiAacPredState *cce_pred;                                               /* [SAUTI_AAC_LCW_MAX_CCE], Main only: one per coupling channel tag */
 };
 static size_t state_size(const SautiAacLcwConfig *c){
-    return sizeof(SautiAacLcw)+(size_t)c->layout.channels*sizeof(SautiAacLcSynthesis)+(c->main?(size_t)c->layout.channels*sizeof(SautiAacPredState):0u);
+    return sizeof(SautiAacLcw)+(size_t)c->layout.channels*sizeof(SautiAacLcSynthesis)+(c->main?((size_t)c->layout.channels+SAUTI_AAC_LCW_MAX_CCE)*sizeof(SautiAacPredState):0u);
 }
 static void state_links(SautiAacLcw *s){
     s->syn=(SautiAacLcSynthesis *)(s+1);
     s->pred=s->cfg.main?(SautiAacPredState *)(s->syn+s->cfg.layout.channels):NULL;
+    s->cce_pred=s->pred?s->pred+s->cfg.layout.channels:NULL;
 }
 SautiAacLcw *sauti_aac_lcw_new(const SautiAacLcwConfig *config){
     if(!config||config->layout.channels<1u||config->layout.channels>SAUTI_AAC_LCW_MAX_CHANNELS||config->rate_index>(config->main?11u:12u)||(config->main&&config->frame960&&0))return NULL;
@@ -127,7 +129,7 @@ SautiAacLcw *sauti_aac_lcw_new(const SautiAacLcwConfig *config){
         (void)sauti_aac_lc_synthesis_init(&s->syn[c],0u);
         if(s->pred)sauti_aac_pred_reset(&s->pred[c]);
     }
-    for(unsigned c=0;c<SAUTI_AAC_LCW_MAX_CCE;c++)(void)sauti_aac_lc_synthesis_init(&s->cce_syn[c],0u);
+    for(unsigned c=0;c<SAUTI_AAC_LCW_MAX_CCE;c++){(void)sauti_aac_lc_synthesis_init(&s->cce_syn[c],0u);if(s->cce_pred)sauti_aac_pred_reset(&s->cce_pred[c]);}
     s->pns_seed=s->syn[0].pns_seed;
     return s;
 }
@@ -181,7 +183,7 @@ static int cce_parse(SautiAacLcw *s,const uint8_t *au,size_t length,size_t *pos,
     if(!get(au,length,pos,1,&domain))return 0;
     c->point+=(domain||c->point==2u)?1u:0u;
     if(!get(au,length,pos,1,&sign)||!get(au,length,pos,2,&scale))return 0;
-    int st=sauti_aac_lcn_stage_cce(s->idx,au,length,pos,seed,c->spectral,&c->st,reason);
+    int st=sauti_aac_lcn_stage_cce(s->idx,s->cce_pred&&c->tag<SAUTI_AAC_LCW_MAX_CCE?&s->cce_pred[c->tag]:NULL,au,length,pos,seed,c->spectral,&c->st,reason);
     if(st!=1)return st;
     SautiAacHuffNode nodes[512];
     const size_t node_count=sauti_aac_standard_tree_build(0,nodes,sizeof(nodes)/sizeof(nodes[0]));
