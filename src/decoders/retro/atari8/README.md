@@ -379,3 +379,19 @@ operand, RAM[0] and interrupt guards. Added synthetic regression
 for the installed-current-vector case and retained unrelated-vector
 negative regression. No claim of successful real-file render until
 retested. Chromatics remains a separate investigation.
+
+Pending comparison after fb2fbc7: seven regression tests passed.
+All six legacy VBI-chain cases now produce 15 s, each with 748
+calls/legacy returns, zero skipped deadlines and onset within 1 ms
+of ASAP. Only Chromatics remains unresolved in the pending list;
+3823/3824 is an incremental estimate, not a fresh full scan.
+Independent instruction-level probe of the supplied Chromatics file
+observed a non-returning command loop during the first PLAYER call:
+the guest's command interpreter repeatedly jumps to the same music
+offset ($06F8) without POKEY writes. The unmodified input contains
+that loop. More CPU budget is not a fix. Reference ASAP emits
+nonzero PCM, but its sustained signal and exact execution path are
+not yet established. No guest-specific or CPU changes introduced
+here. Comparison utility adds optional path filter, input SHA256
+and per-second PCM peak/RMS/nonzero counts to aid external
+reference diagnosis. Reference remains a separate executable.
