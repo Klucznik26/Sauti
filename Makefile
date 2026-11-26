@@ -2184,7 +2184,8 @@ MKS_LEGACY_SRC := src/decoders/retro/atari/maktabasauti_dvs.c src/decoders/retro
 MOD_ASM := $(OBJDIR)/maktabasauti_mod_mix.o
 $(MOD_ASM): src/decoders/retro/amiga/maktabasauti_mod_mix.asm | $(OBJDIR)
 	$(call ASM_OBJ,$<)
-MKS_DEPS = $(sort $(MKS_CORE_SRC) $(MKS_LEGACY_SRC) $(AAC_PLAYER_SRC) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_ASM) $(MOD_ASM))
+AAC_CONTAINERS_SRC := src/decoders/modern/aac/maktabasauti_aac_mkv.c src/decoders/modern/aac/maktabasauti_aac_ts.c    # Matroska and MPEG-2 TS containers of the AAC engine
+MKS_DEPS = $(sort $(MKS_CORE_SRC) $(MKS_LEGACY_SRC) $(AAC_CONTAINERS_SRC) $(AAC_PLAYER_SRC) $(AAC_PLAYER_ASM) $(AVR_ASM) $(DVSM_ASM) $(YM_ASM) $(MOD_ASM))
 # biblioteki zewnetrzne wlaczane do zrodel przez #include: zmiana ich pliku musi przebudowac testy (make nie widzi tego z samej listy zrodel)
 MKS_THIRD := $(wildcard third_party/minimp3/*.h third_party/stb/*.c third_party/dr_libs/*.h third_party/tml/*.h)
 MKS_INC := -Iinclude -Isrc/maktabasauti -Ithird_party -Ithird_party/dr_libs -Ithird_party/stb -Ithird_party/tml
@@ -2286,6 +2287,13 @@ $(OBJDIR)/test_aac_lcw: tests/test_aac_lcw.c include/sauti_aac_lcw.h src/decoder
 .PHONY: test-aac-lcw
 test-aac-lcw: $(OBJDIR)/test_aac_lcw
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_aac_lcw
+
+# AAC in Matroska / WebM and MPEG-2 TS (containers built in the test from tests/data/aac_tone_st.aac)
+$(OBJDIR)/test_aac_containers: tests/test_aac_containers.c src/decoders/modern/aac/maktabasauti_aac_mkv.c src/decoders/modern/aac/maktabasauti_aac_ts.c $(MKS_DEPS) $(MKS_THIRD) | $(OBJDIR)
+	$(CC) $(CFLAGS) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined $(MKS_INC) -o $@ tests/test_aac_containers.c $(MKS_DEPS) -lm -lpthread -no-pie
+.PHONY: test-aac-containers
+test-aac-containers: $(OBJDIR)/test_aac_containers
+	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_aac_containers
 .PHONY: test-aac-er
 test-aac-er: $(OBJDIR)/test_aac_er
 	ASAN_OPTIONS=detect_leaks=1 ./$(OBJDIR)/test_aac_er
@@ -2354,7 +2362,7 @@ $(OBJDIR)/fuzz_%: fuzz/fuzz_%.c fuzz/fuzz_common.h $(MKS_DEPS) $(MKS_THIRD) | $(
 # MemorySanitizer (niezainicjowane odczyty, ktorych ASan nie widzi): PELNY rejestr, takze AAC/AVR/DVSM/YM, bo jadra NASM (nieinstrumentowane przez MSan) sa zastapione przez src/portable
 # (te same wyniki bit w bit: test-portable-equivalence).  Wymaga clanga; zrodla w C kompiluje sam clang, zadnego obiektu z gcc/NASM.
 MKS_PORTABLE_SRC := $(sort $(wildcard $(SAUTI_PORTABLE_DIR)/*_portable.c))
-MKS_DEPS_C = $(sort $(filter-out %.o,$(MKS_CORE_SRC) $(MKS_LEGACY_SRC) $(AAC_PLAYER_SRC)) $(MKS_PORTABLE_SRC))   # bez obiektow NASM (listy zrodel AAC wymieniaja je obok zrodel C)
+MKS_DEPS_C = $(sort $(filter-out %.o,$(MKS_CORE_SRC) $(MKS_LEGACY_SRC) $(AAC_CONTAINERS_SRC) $(AAC_PLAYER_SRC)) $(MKS_PORTABLE_SRC))   # bez obiektow NASM (listy zrodel AAC wymieniaja je obok zrodel C)
 MSAN_FLAGS := -std=gnu11 -g -O1 -DSAUTI_QMF_DISABLE_ASM -ffp-contract=off -fsanitize-memory-track-origins=2 -fno-omit-frame-pointer
 MSAN_TARGETS := probe open container hostile_io
 $(OBJDIR)/fuzz_msan_%: fuzz/fuzz_%.c fuzz/fuzz_common.h $(MKS_DEPS_C) $(MKS_THIRD) | $(OBJDIR)

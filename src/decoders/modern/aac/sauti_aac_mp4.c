@@ -203,6 +203,7 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cc;info->frame480=0u;
     return 1;
 }
+int sauti_aac_asc_info(const uint8_t *asc,size_t n,SautiAacMp4Info *info){return asc&&info&&n?parse_asc(asc,n,info):0;}
 /* iTunSMPB: ----/mean/name("iTunSMPB")/data(text): " 00000000 <priming> <remainder> <samples> ..." (hex fields).  Searched as bytes inside moov, bounded. */
 static int hex_field(const uint8_t *p,size_t n,size_t *pos,uint64_t *out){
     while(*pos<n&&p[*pos]==' ')(*pos)++;

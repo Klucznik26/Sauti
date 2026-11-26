@@ -170,19 +170,21 @@ static maktabasauti_result_t live_prepare(dec_t *d, mp4_priv_t *p) {
     if (!sauti_aac_mp4_index_has_fragments(p->idx) && sauti_aac_mp4_index_count(p->idx) == 0) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     return MAKTABASAUTI_OK;
 }
-static void wrap_adts(dec_t *d, const mp4_priv_t *p, uint32_t sz) {
+/* The access unit is already in d->frame + 7: the pseudo ADTS header in front of it (see aac_er_wrap) from the AudioSpecificConfig info of the container. */
+void aac_au_wrap(dec_t *d, const SautiAacMp4Info *mi, uint32_t sz) {
     const size_t l = 7u + sz;
-    if (p->mi.has_pce) { d->frame_len = aac_er_wrap(d->frame, p->mi.aot == 1u ? 101u : 100u, p->mi.rate_index, 0u, p->mi.frame480, sz); return; }
-    if (p->mi.aot == 1u || p->mi.aot == 3u || p->mi.aot == 4u || p->mi.aot == 17u || p->mi.aot == 19u || p->mi.aot == 23u || p->mi.aot == 39u || p->mi.aot == 42u || (p->mi.aot == 2u && p->mi.frame480)) { d->frame_len = aac_er_wrap(d->frame, p->mi.aot, p->mi.rate_index, p->mi.channel_config, p->mi.frame480, sz); return; }
+    if (mi->has_pce) { d->frame_len = aac_er_wrap(d->frame, mi->aot == 1u ? 101u : 100u, mi->rate_index, 0u, mi->frame480, sz); return; }
+    if (mi->aot == 1u || mi->aot == 3u || mi->aot == 4u || mi->aot == 17u || mi->aot == 19u || mi->aot == 23u || mi->aot == 39u || mi->aot == 42u || (mi->aot == 2u && mi->frame480)) { d->frame_len = aac_er_wrap(d->frame, mi->aot, mi->rate_index, mi->channel_config, mi->frame480, sz); return; }
     d->frame[0] = 0xff; d->frame[1] = 0xf1;
-    const unsigned cfg = (sz && (d->frame[7] >> 5) == 5u) ? 0u : p->mi.channel_config;     /* AU opens with a PCE: the layout is read from it (ADTS channel_configuration 0) */
-    d->frame[2] = (uint8_t)(0x40u | (p->mi.rate_index << 2) | ((cfg >> 2) & 1u));
+    const unsigned cfg = (sz && (d->frame[7] >> 5) == 5u) ? 0u : mi->channel_config;     /* AU opens with a PCE: the layout is read from it (ADTS channel_configuration 0) */
+    d->frame[2] = (uint8_t)(0x40u | (mi->rate_index << 2) | ((cfg >> 2) & 1u));
     d->frame[3] = (uint8_t)(((cfg & 3u) << 6) | ((l >> 11) & 3u));
     d->frame[4] = (uint8_t)(l >> 3);
     d->frame[5] = (uint8_t)(((l & 7u) << 5) | 0x1fu);
     d->frame[6] = 0xfc;
     d->frame_len = l;
 }
+static void wrap_adts(dec_t *d, const mp4_priv_t *p, uint32_t sz) { aac_au_wrap(d, &p->mi, sz); }
 static maktabasauti_result_t live_fetch(dec_t *d, mp4_priv_t *p) {
     const maktabasauti_host_t *h = d->host;
     for (;;) {
@@ -222,23 +224,24 @@ static maktabasauti_result_t live_fetch(dec_t *d, mp4_priv_t *p) {
 }
 
 /* USAC: the engine needs the UsacConfig of the stream (the access units carry no parameters); parsed again from the copy of the esds bytes that sauti_aac_mp4_index_new validated */
-static void usac_setup(dec_t *d, const mp4_priv_t *p) {
+static void usac_setup(dec_t *d, const SautiAacMp4Info *mi) {
     d->usac_ready = 0;
-    if (p->mi.aot == 42u && p->mi.asc_len && sauti_usac_asc_parse(p->mi.asc, p->mi.asc_len, &d->usac) == 1) { d->usac_ready = 1; d->usac_asc_len = p->mi.asc_len < sizeof d->usac_asc ? p->mi.asc_len : sizeof d->usac_asc; memcpy(d->usac_asc, p->mi.asc, d->usac_asc_len); }
+    if (mi->aot == 42u && mi->asc_len && sauti_usac_asc_parse(mi->asc, mi->asc_len, &d->usac) == 1) { d->usac_ready = 1; d->usac_asc_len = mi->asc_len < sizeof d->usac_asc ? mi->asc_len : sizeof d->usac_asc; memcpy(d->usac_asc, mi->asc, d->usac_asc_len); }
 }
-static void eld_setup(dec_t *d, const mp4_priv_t *p) {
+static void eld_setup(dec_t *d, const SautiAacMp4Info *mi) {
     d->lcw_ready = 0;
-    if (p->mi.has_pce) { memset(&d->lcw_cfg, 0, sizeof d->lcw_cfg); d->lcw_cfg.rate_index = p->mi.rate_index; d->lcw_cfg.frame960 = p->mi.frame480; d->lcw_cfg.main = p->mi.aot == 1u; d->lcw_cfg.layout = p->mi.pce; d->lcw_ready = 1; }
+    if (mi->has_pce) { memset(&d->lcw_cfg, 0, sizeof d->lcw_cfg); d->lcw_cfg.rate_index = mi->rate_index; d->lcw_cfg.frame960 = mi->frame480; d->lcw_cfg.main = mi->aot == 1u; d->lcw_cfg.layout = mi->pce; d->lcw_ready = 1; }
     d->eld_ready = 0;
-    if (p->mi.aot == 39u && p->mi.asc_len && sauti_aac_er_asc_parse(p->mi.asc, p->mi.asc_len, &d->eld_asc) == 1 && d->eld_asc.ld_sbr) d->eld_ready = 1;
+    if (mi->aot == 39u && mi->asc_len && sauti_aac_er_asc_parse(mi->asc, mi->asc_len, &d->eld_asc) == 1 && d->eld_asc.ld_sbr) d->eld_ready = 1;
 }
+void aac_au_setup(dec_t *d, const SautiAacMp4Info *mi) { usac_setup(d, mi); eld_setup(d, mi); }
 static maktabasauti_result_t mp4_prepare(dec_t *d) {
     const maktabasauti_host_t *h = d->host; mp4_priv_t *p; SautiAacMp4Alloc al; int64_t fsize, at; int pass;
     maktabasauti_result_t r;
     p = (mp4_priv_t *)h->alloc(h->user, sizeof *p);
     if (!p) return MAKTABASAUTI_E_NO_MEMORY;
     memset(p, 0, sizeof *p); d->cptr = p;
-    if (!d->seekable) { r = live_prepare(d, p); if (r == MAKTABASAUTI_OK) { usac_setup(d, p); eld_setup(d, p); } return r; }
+    if (!d->seekable) { r = live_prepare(d, p); if (r == MAKTABASAUTI_OK) { usac_setup(d, &p->mi); eld_setup(d, &p->mi); } return r; }
     al.user = (void *)h; al.alloc = a_alloc; al.free = a_free;
     fsize = h->size(h->user, d->rd);
     for (pass = 0; pass < 2; pass++) {                                                  /* 1: moov, 2: moof (po znalezieniu moov) */
@@ -272,7 +275,7 @@ static maktabasauti_result_t mp4_prepare(dec_t *d) {
     }
     if (!p->idx || sauti_aac_mp4_index_count(p->idx) == 0) return MAKTABASAUTI_E_UNSUPPORTED_FORMAT;
     p->pos = 0;
-    usac_setup(d, p); eld_setup(d, p);
+    usac_setup(d, &p->mi); eld_setup(d, &p->mi);
     return h->seek(h->user, d->rd, 0, 0) < 0 ? MAKTABASAUTI_E_NOT_SEEKABLE : MAKTABASAUTI_OK;
 }
 
@@ -327,16 +330,30 @@ static void mp4_release(dec_t *d) {
 
 static const aac_container_t mp4_container = { "mp4", mp4_fetch, mp4_resync, mp4_scan, NULL, NULL, mp4_release, mp4_prepare, mp4_seek_to, mp4_position, mp4_trim, 1 };
 
+/* the same codec descriptor takes the other containers that hold raw AAC access units or ADTS frames: Matroska / WebM (maktabasauti_aac_mkv.c) and MPEG-2 transport streams (maktabasauti_aac_ts.c) */
+extern const aac_container_t aac_mkv_container, aac_ts_container;
+int aac_mkv_probe(const uint8_t *p, size_t n);
+int aac_ts_probe(const uint8_t *p, size_t n);
 static int32_t MAKTABASAUTI_CALL mp4_probe(const maktabasauti_codec_t *self, const uint8_t *p, size_t n, const char *hint) {
     (void)self; (void)hint;
-    return (p && sauti_aac_mp4_probe(p, n)) ? 60 : 0;                                   /* ftyp: ALAC/inne odrzuci open */
+    if (!p) return 0;
+    if (sauti_aac_mp4_probe(p, n)) return 60;                                           /* ftyp: ALAC/inne odrzuci open */
+    if (aac_mkv_probe(p, n)) return 55;                                                 /* a Matroska file without an AAC track is refused by open */
+    if (aac_ts_probe(p, n)) return 55;
+    return 0;
 }
 static maktabasauti_result_t MAKTABASAUTI_CALL mp4_open(const maktabasauti_codec_t *self, const maktabasauti_host_t *host, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
+    uint8_t head[1100]; int64_t n = host->peek(host->user, rd, head, sizeof head);
+    if (n < 0) return (maktabasauti_result_t)n;
+    if (!sauti_aac_mp4_probe(head, (size_t)n)) {
+        if (aac_mkv_probe(head, (size_t)n)) return aac_eng_open(self, &aac_mkv_container, host, rd, info, state);
+        if (aac_ts_probe(head, (size_t)n)) return aac_eng_open(self, &aac_ts_container, host, rd, info, state);
+    }
     return aac_eng_open(self, &mp4_container, host, rd, info, state);
 }
 
 const maktabasauti_codec_t maktabasauti_aac_mp4_desc = {
-    sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "aac-mp4", "AAC in MP4/M4A/M4B (LC, HE-AAC v1/v2; also fragmented): indexed on seekable input, one-pass live on non-seekable input", "maktabasauti_aac",
+    sizeof(maktabasauti_codec_t), MAKTABASAUTI_ABI_VERSION, "aac-mp4", "AAC in MP4/M4A/M4B (LC, HE-AAC v1/v2; also fragmented): indexed on seekable input, one-pass live on non-seekable input; also Matroska / WebM and MPEG-2 TS", "maktabasauti_aac",
     MAKTABASAUTI_CODEC_FLAG_HAS_SEEK, 0u, NULL,
     mp4_probe, mp4_open, aac_eng_read, aac_eng_seek, aac_eng_reset, aac_eng_flush, NULL, aac_eng_last_error, aac_eng_get_info, aac_eng_close, { NULL }, { NULL }
 };

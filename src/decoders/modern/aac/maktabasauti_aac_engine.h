@@ -16,6 +16,7 @@
 #include "sauti_aac_he_ps_bridge.h"
 #include "sauti_aac_lc_multi.h"
 #include "sauti_aac_lcw.h"
+#include "sauti_aac_mp4.h"
 #include "sauti_aac_sbr_channel.h"
 #include "sauti_usac.h"
 #include <math.h>
@@ -163,6 +164,10 @@ typedef struct aac_container {
     int (*trim)(dec_t *d, uint64_t decoded_total, uint64_t *skip, uint64_t *avail);    /* NULL = bez przyciecia (gapless): ramki PCM do pominiecia na poczatku i dlugosc po przycieciu; 0 = odrzuc */
     int scan_without_seek;                                                             /* 1 = scan nie czyta wejscia (liczba z indeksu), wiec dziala tez na wejsciu nieprzewijalnym; brak = tylko przewijalne */
 } aac_container_t;
+
+/* Containers that hold raw access units + an AudioSpecificConfig (MP4, Matroska): the pseudo ADTS header and the per-stream configuration of the engine (maktabasauti_aac_mp4.c). */
+void aac_au_wrap(dec_t *d, const SautiAacMp4Info *mi, uint32_t sz);
+void aac_au_setup(dec_t *d, const SautiAacMp4Info *mi);
 
 /* silnik: ogolne funkcje opisu kodeka */
 maktabasauti_result_t aac_eng_open(const maktabasauti_codec_t *self, const aac_container_t *cont, const maktabasauti_host_t *host, maktabasauti_reader_t *rd,

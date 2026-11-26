@@ -44,6 +44,8 @@ typedef struct {
     void *(*alloc)(void *user,size_t size);
     void (*free)(void *user,void *ptr);                  /* ptr != NULL */
 } SautiAacMp4Alloc;
+/* AudioSpecificConfig of a container (MP4 esds, Matroska CodecPrivate) -> info; 0 = not an AAC configuration the engine decodes. */
+int sauti_aac_asc_info(const uint8_t *asc,size_t n,SautiAacMp4Info *info);
 typedef struct SautiAacMp4Index SautiAacMp4Index;
 /* Tworzy indeks z zawartosci pudelka `moov` (bez naglowka pudelka).  NULL = brak sciezki AAC / nieobslugiwane / blad (przyczyny jak w sauti_aac_mp4_to_adts).  `info` wypelnione jak tam
  * (bez sample_count; skip/duration z elst albo iTunSMPB). */

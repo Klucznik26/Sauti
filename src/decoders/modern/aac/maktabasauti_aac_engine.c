@@ -38,7 +38,7 @@ int aac_adts_parse_header(const uint8_t *p, size_t n, aac_adts_hdr_t *h) {
 
 int aac_same_stream(const dec_t *d, const aac_adts_hdr_t *h) {
     return h->rate_index == d->rate_index && h->config == d->config && h->raw_blocks == 1u && h->crc_present == d->crc_present &&
-           (h->er ? (d->variant == V_ER && h->er_aot == d->er_aot && h->er_480 == d->er_480) : (d->lcw_adts ? (d->variant == V_ER && d->er_aot == 100u) : d->variant != V_ER));
+           (d->lcw_adts ? (d->variant == V_ER && (d->er_aot == 100u || d->er_aot == 101u)) : h->er ? (d->variant == V_ER && h->er_aot == d->er_aot && h->er_480 == d->er_480) : d->variant != V_ER);
 }
 
 /* ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
@@ -482,7 +482,7 @@ static void fill_info(const dec_t *d, maktabasauti_stream_info_t *info) {
     info->total_frames = d->trimmed ? d->avail : (d->total_known ? d->known_frames * d->frame_pcm : MAKTABASAUTI_UNKNOWN_LENGTH);
     info->flags = d->seekable ? MAKTABASAUTI_STREAM_SEEKABLE : 0u;
     strcpy(info->codec_name, "aac"); strncpy(info->container_name, d->cont->name, sizeof info->container_name - 1u);
-    strcpy(info->codec_profile, d->variant == V_ER ? (d->er_aot == 42u ? "USAC" : d->er_aot == 39u ? "ELD" : (d->er_aot == 2u ? (d->he960 ? "HE-AAC" : "LC") : (d->er_aot == 1u ? "Main" : (d->er_aot == 3u ? "SSR" : (d->er_aot == 4u ? "LTP" : (d->er_aot == 17u ? "ER-LC" : (d->er_aot == 19u ? "ER-LTP" : "LD"))))))) : (d->variant >= V_HE_MONO ? "HE-AAC" : "LC"));
+    strcpy(info->codec_profile, d->variant == V_ER ? (d->er_aot == 42u ? "USAC" : d->er_aot == 39u ? "ELD" : (d->er_aot == 2u ? (d->he960 ? "HE-AAC" : "LC") : (d->er_aot == 1u || d->er_aot == 101u ? "Main" : (d->er_aot == 100u ? "LC" : (d->er_aot == 3u ? "SSR" : (d->er_aot == 4u ? "LTP" : (d->er_aot == 17u ? "ER-LC" : (d->er_aot == 19u ? "ER-LTP" : "LD")))))))) : (d->variant >= V_HE_MONO ? "HE-AAC" : "LC"));
 }
 
 maktabasauti_result_t MAKTABASAUTI_CALL aac_eng_get_info(const void *state, maktabasauti_stream_info_t *info) {
@@ -680,6 +680,13 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
         return up == P_OK ? MAKTABASAUTI_OK : MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
     }
     if (hd.er && (hd.er_aot == 100u || hd.er_aot == 101u)) return setup_lcw(d, &hd);
+    if (hd.er && hd.er_aot == 1u && hd.config == 0u && !hd.crc_present) {   /* AAC Main in ADTS with channel_configuration 0: the PCE in the stream (sauti_aac_lcw) */
+        aac_adts_hdr_t lh = hd; SautiAacLcwLayout lay;
+        if (sauti_aac_lcw_scan_pce(d->frame + 7u, d->frame_len - 7u, &lay) != 1) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+        memset(&d->lcw_cfg, 0, sizeof d->lcw_cfg); d->lcw_cfg.rate_index = hd.rate_index; d->lcw_cfg.layout = lay; d->lcw_cfg.main = 1u; d->lcw_cfg.frame960 = hd.er_480; d->lcw_ready = 1u; d->lcw_adts = 1u;
+        lh.er_aot = 101u;
+        return setup_lcw(d, &lh);
+    }
     if (hd.er) {                                                       /* AAC-LD / AAC-ELD: jeden wariant, bez wykrywania */
         SautiAacErConfig c; unsigned n;
         c.aot = hd.er_aot; c.rate_index = hd.rate_index; c.frame480 = hd.er_480; c.channel_config = hd.config;
