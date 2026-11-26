@@ -15,6 +15,7 @@
 #include "sauti_aac_he_adts_mono.h"
 #include "sauti_aac_he_ps_bridge.h"
 #include "sauti_aac_lc_multi.h"
+#include "sauti_aac_lcw.h"
 #include "sauti_aac_sbr_channel.h"
 #include "sauti_usac.h"
 #include <math.h>
@@ -22,6 +23,7 @@
 #include <string.h>
 
 #define ADTS_MAX_FRAME 8191u
+#define FRAME_BUF_MAX 49160u
 #define ADTS_HEADER_PEEK 9u
 #define HE_FRAME_PCM 2048u
 #define LC_FRAME_PCM 1024u
@@ -79,6 +81,7 @@ typedef struct {
         eldsbr_t eld;                                    /* V_ER z er_aot == 39 i eldsbr: ELD z SBR */
     } u;
     SautiUsacState *usac_hs;                             /* V_ER z er_aot == 42: USAC (xHE-AAC), sauti_usac: stan na stercie (ok. 250 KiB), kopiowany gleboko jak lcm */
+    SautiAacLcw *lcw;                                    /* V_ER z er_aot == 100 / 101: AAC-LC / Main z ukladem PCE i CCE (sauti_aac_lcw): stan na stercie (malloc), kopiowany gleboko */
     SautiAacLcmState *lcm;                               /* AAC Main / LTP wielokanalowy (sauti_aac_lcm): stan na stercie (230 KiB), kopiowany gleboko przy punktach kontrolnych (lcm_dup) */
     uint64_t frames_in;                                  /* ramki ADTS zdekodowane */
     uint64_t pcm_out;                                    /* bloki PCM wyprodukowane (LC: = frames_in; HE-PS: o jeden mniej, patrz he_produce) */
@@ -113,7 +116,8 @@ typedef struct {
     core_t cp0;                                          /* stan poczatkowy (blok 0) */
     checkpoint_t **cps; size_t cp_count, cp_cap; uint64_t cp_stride;
     size_t cp_max;
-    float cache[CACHE_FLOATS];
+    float *cache; size_t cache_cap;                      /* blok PCM ostatnio zdekodowanej ramki; CACHE_FLOATS, wiecej dla ukladow szerokich (lcw) */
+    SautiAacLcwConfig lcw_cfg; unsigned lcw_ready;       /* uklad PCE z ASC (kontener), er_aot 100 / 101 */
     size_t cache_pos, cache_len;                         /* ramki PCM w cache */
     uint64_t position;                                   /* ramki PCM wydane */
     int have_frame; size_t frame_len;
@@ -127,7 +131,7 @@ typedef struct {
     SautiAacSbrComplex scratch_qmf38[38u * 64u];
     SautiAacSbrComplex scratch_grid[SAUTI_AAC_SBR_CHANNEL_GRID];
     SautiAacSbrComplex scratch_g2[2][SAUTI_AAC_SBR_CHANNEL_GRID];
-    uint8_t frame[ADTS_MAX_FRAME + 16u];
+    uint8_t frame[FRAME_BUF_MAX + 16u];                   /* ADTS_MAX_FRAME dla ADTS; do 49152 B (64 kanaly x 6144 bit) dla jednostek dostepu ukladow PCE */
 } dec_t;
 
 /* ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- */

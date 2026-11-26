@@ -118,6 +118,60 @@ int sauti_aac_lcn_element(const SautiAacLcnConfig *cfg,unsigned idx,unsigned id,
     if(status==1)*pos=p;
     return status;
 }
+
+/* ---- staged element decoding (sauti_aac_lcw.h): the spectra of all elements first, then coupling, TNS and the filter bank ------------------------------------------------------------------------ */
+static void stage_fill(SautiAacLcnStage *st,const SautiAacIcsInfo *ics,const SautiAacTnsData *tns,unsigned tns_present,const SautiAacScaleFactors *factors){
+    st->ics=*ics;st->tns_present=tns_present;
+    if(tns_present)st->tns=*tns;
+    for(unsigned g=0;g<SAUTI_AAC_SF_GROUPS;g++)for(unsigned b=0;b<SAUTI_AAC_SF_BANDS;b++)st->band_zero[g][b]=factors->codebook[g][b]==0u;
+}
+int sauti_aac_lcn_stage_element(const SautiAacLcnConfig *cfg,unsigned idx,unsigned id,const uint8_t *au,size_t length,size_t at,size_t *pos,
+                                SautiAacLcnChannel ch[2],uint32_t *pns_seed,float spectral[2][1024],SautiAacLcnStage st[2],SautiAacReason *reason){
+    int status=0;
+    size_t p=at;
+    if(cfg->ltp||cfg->ssr||cfg->er){*reason=SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;return -1;}
+    if(id==0u||id==3u){
+        SautiAacLcMonoData *mono=(SautiAacLcMonoData *)calloc(1,sizeof(*mono));
+        if(!mono)return 0;
+        status=sauti_aac_lc_element_parse(au,length,&p,idx,id,mono,reason);
+        if(status==1 && (!dequantize(mono,idx,pns_seed,spectral[0]) || (cfg->main && ch[0].pred && !predict_mono(ch[0].pred,mono,idx,spectral[0])))){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;status=0;}
+        if(status==1)stage_fill(&st[0],&mono->ics,&mono->tns,mono->tns_present,&mono->factors);
+        free(mono);
+    }else if(id==1u){
+        SautiAacCpeData *cpe=(SautiAacCpeData *)calloc(1,sizeof(*cpe));
+        if(!cpe)return 0;
+        status=sauti_aac_lc_cpe_parse(au,length,&p,idx,cpe,reason);
+        if(status==1){
+            SautiAacPredState pair[2];
+            const int use_pred=cfg->main && ch[0].pred && ch[1].pred;
+            if(use_pred){memcpy(&pair[0],ch[0].pred,sizeof(pair[0]));memcpy(&pair[1],ch[1].pred,sizeof(pair[1]));}
+            status=sauti_aac_cpe_spectra_pred(cpe,idx,pns_seed,spectral,use_pred?pair:NULL,reason);
+            if(status==1 && use_pred){memcpy(ch[0].pred,&pair[0],sizeof(pair[0]));memcpy(ch[1].pred,&pair[1],sizeof(pair[1]));}
+        }
+        if(status==1)for(unsigned c=0;c<2;c++)stage_fill(&st[c],&cpe->channel[c].ics,&cpe->channel[c].tns,cpe->channel[c].tns_present,&cpe->channel[c].factors);
+        free(cpe);
+    }else{*reason=SAUTI_AAC_REASON_UNSUPPORTED_ELEMENT;return -1;}
+    if(status==1)*pos=p;
+    return status;
+}
+/* The individual_channel_stream of a coupling channel element (after its own header, at bit *pos): dequantised spectrum and the stage data (spectrum before TNS). */
+int sauti_aac_lcn_stage_cce(unsigned idx,const uint8_t *au,size_t length,size_t *pos,uint32_t *pns_seed,float spectral[1024],SautiAacLcnStage *st,SautiAacReason *reason){
+    SautiAacLcMonoData *mono=(SautiAacLcMonoData *)calloc(1,sizeof(*mono));
+    size_t p=*pos;
+    if(!mono)return 0;
+    int status=sauti_aac_lc_element_parse(au,length,&p,idx,8u,mono,reason);
+    if(status==1 && !dequantize(mono,idx,pns_seed,spectral)){*reason=SAUTI_AAC_REASON_INVALID_SYNTH;status=0;}
+    if(status==1){stage_fill(st,&mono->ics,&mono->tns,mono->tns_present,&mono->factors);*pos=p;}
+    free(mono);
+    return status;
+}
+int sauti_aac_lcn_stage_tns(const SautiAacLcnStage *st,unsigned idx,float spectral[1024]){
+    return !st->tns_present || sauti_aac_tns_apply(&st->tns,&st->ics,idx,spectral);
+}
+/* The filter bank of one channel (the TNS has been applied by the caller). */
+int sauti_aac_lcn_stage_synth(unsigned idx,SautiAacLcSynthesis *syn,const SautiAacLcnStage *st,const float spectral[1024],float out[1024]){
+    return sauti_aac_lc_synthesis_spectral(syn,&st->ics,NULL,idx,spectral,out);
+}
 unsigned sauti_aac_lcn_index(const SautiAacLcnConfig *cfg){
     if(cfg->er)return SAUTI_AAC_IDX(cfg->rate_index,cfg->frame960?SAUTI_AAC_LAYOUT_960:SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_ER_FLAG|(cfg->ltp?SAUTI_AAC_IDX_LTP_FLAG:0u);
     if(cfg->ssr)return SAUTI_AAC_IDX(cfg->rate_index,SAUTI_AAC_LAYOUT_1024)|SAUTI_AAC_IDX_SSR_FLAG;

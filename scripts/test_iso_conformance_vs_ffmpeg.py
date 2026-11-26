@@ -32,7 +32,7 @@ def one(f):                                                       # -> (status, 
     if g.returncode or not os.path.exists(t) or os.path.getsize(t) == 0: return 'SKIP', '%-24s FFmpeg cannot decode (%s)' % (n, g.stderr.strip().splitlines()[-1:] if g.stderr else '')
     a = np.fromfile(o, '<f4').reshape(-1, ch); b = np.fromfile(t, '<f4')
     if len(b) % ch: return 'SKIP', '%-24s FFmpeg channel count differs' % n
-    b = b.reshape(-1, ch); res = [best(a[:, c], b[:, c], 2600) for c in range(min(ch, 2))]; res = [x for x in res if x]
+    b = b.reshape(-1, ch); res = [best(a[:, c], b[:, c], 2600) for c in range(ch)]; res = [x for x in res if x]
     if not res: return 'LOW', '%-24s too short to compare' % n
     snr = min(x[0] for x in res); lag = res[0][1]; flag = 'OK' if snr >= MIN else 'LOW'
     for fn in (o, t):

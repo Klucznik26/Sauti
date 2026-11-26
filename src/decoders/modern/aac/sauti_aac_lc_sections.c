@@ -89,3 +89,16 @@ int sauti_aac_lc_sce_prefix_parse_idx(const uint8_t *data,size_t length,
     *bit_offset=pos;
     return 1;
 }
+/* global_gain, ics_info and section_data of an individual_channel_stream without element id and tag (the ICS of a coupling channel element). */
+int sauti_aac_lc_ics_prefix_parse_idx(const uint8_t *data,size_t length,size_t *bit_offset,unsigned idx,SautiAacScePrefix *out){
+    if(!data||!bit_offset||!out)return 0;
+    SautiAacScePrefix next;
+    memset(&next,0,sizeof(next));
+    size_t pos=*bit_offset;
+    if(!bits(data,length,&pos,8,&next.global_gain) ||
+       !sauti_aac_ics_info_parse_idx(data,length,&pos,idx,&next.ics) ||
+       !sauti_aac_lc_sections_parse(data,length,&pos,&next.ics,&next.sections))return 0;
+    *out=next;
+    *bit_offset=pos;
+    return 1;
+}

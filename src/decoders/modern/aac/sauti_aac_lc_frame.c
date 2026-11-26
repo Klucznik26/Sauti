@@ -26,8 +26,8 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
      * carrying an encoder identification string. Inspect each FIL
      * extension before skipping it; never discard SBR/PS or arbitrary
      * unknown extensions, which may alter output sample rate/content. */
-    const unsigned er=SAUTI_AAC_IDX_IS_ER(rate_index);
-    for(;!er;){
+    const unsigned er=SAUTI_AAC_IDX_IS_ER(rate_index),cce=element_id==8u;          /* 8: the ICS of a coupling channel element (no id, no tag) */
+    for(;!er&&!cce;){
         size_t probe=pos;
         uint32_t id=0;
         if(!read(raw,length,&probe,3,&id))return 0;
@@ -37,7 +37,7 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
         if(skipped==-1){*reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;return -1;}
         if(skipped!=1)return 0;
     }
-    if(!er){
+    if(!er&&!cce){
         size_t probe=pos;
         uint32_t first_id=0;
         if(!read(raw,length,&probe,3,&first_id))return 0;
@@ -47,7 +47,7 @@ static int mono_parse_ex(const uint8_t *raw,size_t length,
         }
     }
     SautiAacScePrefix sce;
-    if(!sauti_aac_lc_sce_prefix_parse_idx(raw,length,&pos,element_id,rate_index,&sce)){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
+    if(!(cce?sauti_aac_lc_ics_prefix_parse_idx(raw,length,&pos,rate_index,&sce):sauti_aac_lc_sce_prefix_parse_idx(raw,length,&pos,element_id,rate_index,&sce))){*reason=SAUTI_AAC_REASON_INVALID_SCE;return 0;}
     const uint16_t *offsets=NULL;unsigned count=0;
     if(!sauti_aac_band_offsets(rate_index,
                                sce.ics.window_sequence==2u,

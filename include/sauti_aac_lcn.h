@@ -46,4 +46,13 @@ unsigned sauti_aac_lcn_index(const SautiAacLcnConfig *config);       /* the pack
  * adts_header / adts_crc as in sauti_aac_lcn_decode_adts (NULL = no check). */
 int sauti_aac_lcn_element(const SautiAacLcnConfig *config,unsigned idx,unsigned id,const uint8_t *au,size_t length,size_t at,size_t *pos,
                           SautiAacLcnChannel ch[2],uint32_t *pns_seed,float out[2][1024],SautiAacReason *reason,const uint8_t *adts_header,unsigned adts_crc);
+/* Staged decoding for the wide multichannel decoder (sauti_aac_lcw.h): plain LC (1024 / 960 lines) and Main only.  `stage_element` parses an SCE / CPE / LFE and leaves the spectra before TNS (after
+ * dequantisation, PNS, M/S, intensity, Main prediction); `stage_cce` does that for the individual_channel_stream of a coupling channel element; `stage_tns` applies the TNS of a stage; `stage_synth`
+ * runs the filter bank (window, IMDCT, overlap-add) on spectra whose TNS has been applied.  1 / 0 / -1 as sauti_aac_lcn_element. */
+typedef struct { SautiAacIcsInfo ics; SautiAacTnsData tns; unsigned tns_present; uint8_t band_zero[SAUTI_AAC_SF_GROUPS][SAUTI_AAC_SF_BANDS]; } SautiAacLcnStage;
+int sauti_aac_lcn_stage_element(const SautiAacLcnConfig *config,unsigned idx,unsigned id,const uint8_t *au,size_t length,size_t at,size_t *pos,
+                                SautiAacLcnChannel ch[2],uint32_t *pns_seed,float spectral[2][1024],SautiAacLcnStage st[2],SautiAacReason *reason);
+int sauti_aac_lcn_stage_cce(unsigned idx,const uint8_t *au,size_t length,size_t *pos,uint32_t *pns_seed,float spectral[1024],SautiAacLcnStage *st,SautiAacReason *reason);
+int sauti_aac_lcn_stage_tns(const SautiAacLcnStage *st,unsigned idx,float spectral[1024]);
+int sauti_aac_lcn_stage_synth(unsigned idx,SautiAacLcSynthesis *syn,const SautiAacLcnStage *st,const float spectral[1024],float out[1024]);
 #endif

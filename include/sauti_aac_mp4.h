@@ -1,5 +1,6 @@
 #ifndef SAUTI_AAC_MP4_H
 #define SAUTI_AAC_MP4_H
+#include "sauti_aac_lcw.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -16,6 +17,8 @@ typedef struct {
     unsigned rate_index;          /* indeks czestotliwosci rdzenia (ADTS) */
     unsigned sample_rate;         /* czestotliwosc rdzenia, Hz */
     unsigned channel_config;      /* channel_configuration z ASC (0 = PCE w strumieniu) */
+    unsigned has_pce;             /* AOT 1 / 2 with channelConfiguration 0: the program_config_element of the ASC is in `pce` (decoded by sauti_aac_lcw) */
+    SautiAacLcwLayout pce;
     uint64_t sample_count;        /* liczba jednostek dostepu (po 1024 probki rdzenia) */
     uint64_t skip_samples;        /* z elst: probki do pominiecia na poczatku (czestotliwosc rdzenia) */
     uint64_t duration_samples;    /* z elst: dlugosc po przycieciu (0 = bez ograniczenia) */

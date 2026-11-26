@@ -349,7 +349,7 @@ static void test_lcm_config(void) {
         memset(&c, 0, sizeof c); c.rate_index = r; c.channel_config = cc; c.ltp = 1;
         CHECK(sauti_aac_lcm_channels(&c) == ((cc <= 7 && r <= 12) ? want[cc] : 0u), "multichannel rate %u config %u: %u", r, cc, sauti_aac_lcm_channels(&c));
         c.main = 1; c.ltp = 1; CHECK(sauti_aac_lcm_channels(&c) == 0u, "Main and LTP together");
-        memset(&c, 0, sizeof c); c.rate_index = r; c.channel_config = cc; CHECK(sauti_aac_lcm_channels(&c) == 0u, "neither Main nor LTP");
+        memset(&c, 0, sizeof c); c.rate_index = r; c.channel_config = cc; CHECK(sauti_aac_lcm_channels(&c) == ((cc <= 7 && r <= 12) ? want[cc] : 0u), "plain AAC-LC (the 960 layout of sauti_aac_lcn) rate %u config %u", r, cc);
     }
 }
 static void test_lcm_atomic(void) {

@@ -125,6 +125,14 @@ static unsigned ga_channel_config(const uint8_t *asc,size_t n,size_t *bit,unsign
     if(getbits(asc,n,bit,1)==0xffffffffu)return 0;
     return pce_standard_config(asc,n,bit);
 }
+/* GASpecificConfig after frameLengthFlag for channelConfiguration 0: dependsOnCoreCoder (+14 bits), extensionFlag, the program_config_element as a layout of sauti_aac_lcw (1 / 0 / -1). */
+static int ga_pce_layout(const uint8_t *asc,size_t n,size_t *bit,SautiAacLcwLayout *layout){
+    const unsigned core=getbits(asc,n,bit,1);
+    if(core==0xffffffffu)return 0;
+    if(core&&getbits(asc,n,bit,14)==0xffffffffu)return 0;
+    if(getbits(asc,n,bit,1)==0xffffffffu)return 0;
+    return sauti_aac_lcw_pce_parse(asc,n,bit,layout);
+}
 static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     size_t bit=0;
     unsigned aot=getbits(asc,n,&bit,5);
@@ -158,6 +166,12 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     }
     if(aot!=1u&&aot!=2u&&aot!=5u&&aot!=29u&&aot!=4u)return 0;                         /* Main, LC, albo HE/HEv2 (rdzen LC + SBR w FIL) */
     info->frame480=0u;
+    if(cc==0u&&(aot==1u||aot==2u)){                                           /* Main / LC with a program_config_element: any layout (sauti_aac_lcw) */
+        const unsigned flag=getbits(asc,n,&bit,1);
+        if(flag==0xffffffffu||ga_pce_layout(asc,n,&bit,&info->pce)!=1)return 0;
+        info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=0u;info->frame480=flag;info->has_pce=1u;
+        return 1;
+    }
     if(aot==1u||aot==4u){                                                    /* AAC Main / AAC LTP: 1024 linii (frameLengthFlag 1 nie jest obslugiwane), mono i stereo */
         const unsigned flag=getbits(asc,n,&bit,1);
         const unsigned cfg=ga_channel_config(asc,n,&bit,cc);
@@ -259,7 +273,7 @@ int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t 
         if(!have_esds||!parse_esds(esds,asc,&asc_len))continue;
         SautiAacMp4Info inf;memset(&inf,0,sizeof(inf));
         if(!parse_asc(asc,asc_len,&inf))continue;
-        if(inf.aot==1u||inf.aot==3u||inf.aot==4u||inf.aot==17u||inf.aot==19u||inf.aot==23u||inf.aot==39u||inf.aot==42u||(inf.aot==2u&&inf.frame480))continue;                              /* AAC-LD / ELD nie da sie zapisac jako ADTS (sciezka strumieniowa silnika owija je wlasnym naglowkiem) */
+        if(inf.aot==1u||inf.aot==3u||inf.aot==4u||inf.aot==17u||inf.aot==19u||inf.aot==23u||inf.aot==39u||inf.aot==42u||(inf.aot==2u&&inf.frame480)||inf.has_pce)continue;                              /* AAC-LD / ELD nie da sie zapisac jako ADTS (sciezka strumieniowa silnika owija je wlasnym naglowkiem) */
         /* Lista jednostek dostepu: z tablic probek (stbl) i z fragmentow (moof/trun) - plik moze miec jedno, drugie albo oba. */
         Sample *list=NULL;size_t nlist=0,caplist=0;
         {

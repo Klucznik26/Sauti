@@ -14,7 +14,7 @@ unsigned sauti_aac_lcm_frame_samples(const SautiAacLcnConfig *c){
     return (!c->main&&!c->ltp&&!c->er&&!c->ssr)?960u:1024u;
 }
 unsigned sauti_aac_lcm_channels(const SautiAacLcnConfig *c){
-    if(!c || c->channel_config<3u || c->channel_config>7u ||  (c->main && (c->ltp || c->er)) || (c->ssr && (c->main || c->ltp || c->er)) || (c->frame960 && (c->ltp || c->er || c->ssr)))return 0u;   /* plain LC in lcn is the 960 layout */
+    if(!c || c->channel_config<3u || c->channel_config>7u ||  (c->main && (c->ltp || c->er)) || (c->ssr && (c->main || c->ltp || c->er)) || (c->frame960 && (c->main || c->ltp || c->er || c->ssr)))return 0u;   /* plain LC in lcn is the 960 layout */
     if(c->main?c->rate_index>11u:c->rate_index>12u)return 0u;
     return sauti_aac_lc_multi_config_channels(c->channel_config);
 }

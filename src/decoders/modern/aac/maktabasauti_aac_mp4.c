@@ -172,6 +172,7 @@ static maktabasauti_result_t live_prepare(dec_t *d, mp4_priv_t *p) {
 }
 static void wrap_adts(dec_t *d, const mp4_priv_t *p, uint32_t sz) {
     const size_t l = 7u + sz;
+    if (p->mi.has_pce) { d->frame_len = aac_er_wrap(d->frame, p->mi.aot == 1u ? 101u : 100u, p->mi.rate_index, 0u, p->mi.frame480, sz); return; }
     if (p->mi.aot == 1u || p->mi.aot == 3u || p->mi.aot == 4u || p->mi.aot == 17u || p->mi.aot == 19u || p->mi.aot == 23u || p->mi.aot == 39u || p->mi.aot == 42u || (p->mi.aot == 2u && p->mi.frame480)) { d->frame_len = aac_er_wrap(d->frame, p->mi.aot, p->mi.rate_index, p->mi.channel_config, p->mi.frame480, sz); return; }
     d->frame[0] = 0xff; d->frame[1] = 0xf1;
     const unsigned cfg = (sz && (d->frame[7] >> 5) == 5u) ? 0u : p->mi.channel_config;     /* AU opens with a PCE: the layout is read from it (ADTS channel_configuration 0) */
@@ -195,7 +196,7 @@ static maktabasauti_result_t live_fetch(dec_t *d, mp4_priv_t *p) {
             continue;
         }
         (void)sauti_aac_mp4_index_get(p->idx, p->pos - p->base, &off, &sz);
-        if (sz == 0u || sz > 8184u) return MAKTABASAUTI_E_CORRUPT_DATA;
+        if (sz == 0u || sz > (p->mi.has_pce ? 49152u : 8184u)) return MAKTABASAUTI_E_CORRUPT_DATA;
         if (p->got == 0) {
             if (off < p->cur) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;                 /* dane przed biezaca pozycja: bez cofania nie do odczytania */
             if (off >= p->boundary && p->boundary != UINT64_MAX) {                        /* probka lezy w jeszcze nie przejrzanym pudelku (np. mdat po moof) */
@@ -226,6 +227,8 @@ static void usac_setup(dec_t *d, const mp4_priv_t *p) {
     if (p->mi.aot == 42u && p->mi.asc_len && sauti_usac_asc_parse(p->mi.asc, p->mi.asc_len, &d->usac) == 1) { d->usac_ready = 1; d->usac_asc_len = p->mi.asc_len < sizeof d->usac_asc ? p->mi.asc_len : sizeof d->usac_asc; memcpy(d->usac_asc, p->mi.asc, d->usac_asc_len); }
 }
 static void eld_setup(dec_t *d, const mp4_priv_t *p) {
+    d->lcw_ready = 0;
+    if (p->mi.has_pce) { memset(&d->lcw_cfg, 0, sizeof d->lcw_cfg); d->lcw_cfg.rate_index = p->mi.rate_index; d->lcw_cfg.frame960 = p->mi.frame480; d->lcw_cfg.main = p->mi.aot == 1u; d->lcw_cfg.layout = p->mi.pce; d->lcw_ready = 1; }
     d->eld_ready = 0;
     if (p->mi.aot == 39u && p->mi.asc_len && sauti_aac_er_asc_parse(p->mi.asc, p->mi.asc_len, &d->eld_asc) == 1 && d->eld_asc.ld_sbr) d->eld_ready = 1;
 }
@@ -278,7 +281,7 @@ static maktabasauti_result_t mp4_fetch(dec_t *d) {
     if (!p) return MAKTABASAUTI_E_INTERNAL;
     if (p->live) return live_fetch(d, p);
     if (!sauti_aac_mp4_index_get(p->idx, p->pos, &off, &sz)) return MAKTABASAUTI_EOF;
-    if (sz == 0u || sz > 8184u) return MAKTABASAUTI_E_CORRUPT_DATA;
+    if (sz == 0u || sz > (p->mi.has_pce ? 49152u : 8184u)) return MAKTABASAUTI_E_CORRUPT_DATA;
     if (off > (uint64_t)INT64_MAX || h->seek(h->user, d->rd, (int64_t)off, 0) < 0) return MAKTABASAUTI_E_CORRUPT_DATA;   /* pozycja poza plikiem */
     while (got < sz) {
         int64_t m = h->read(h->user, d->rd, d->frame + 7u + got, sz - got);
