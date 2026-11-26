@@ -7,7 +7,7 @@
 /* Experimental internal interface, not the public MaktabaSauti API. */
 typedef struct {
     uint8_t audf[4], audc[4], audctl;
-    uint16_t counter[4];
+    uint32_t counter[4];
     uint8_t output[4];
     uint32_t clock_hz;
     uint32_t phase28, phase114;

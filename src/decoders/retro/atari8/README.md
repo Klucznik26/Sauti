@@ -1,12 +1,16 @@
 # Atari8 research core
 
-Initial milestone: independent experimental POKEY model for four pure-tone
-channels, volume-only, and the 28/114 master-clock divisors. The internal
-interface is not registered as a decoder. The level is a linear digital sum,
-not PCM. STIMER and initialization are simplified; noise, joined counters,
-high clocks, filters, IRQs, exact register timing, analog output and CPU
-emulation are not implemented. Tests validate the stated subset, not
-hardware equivalence.
+Experimental independent POKEY model: four pure-tone channels, volume-only,
+28/114 master-clock divisors, fast clocks on channels 1/3, and steady-state
+16-bit linked periods on channels 2/4. For the latter, the low-channel
+oscillator is not modeled: audible oscillator writes are rejected, while
+volume-only is allowed. Slow periods are N+1 selected ticks, fast periods
+are N+4 (8-bit) or N+7 (16-bit) master cycles. Counter capacity includes
+65536 slow ticks and 65542 fast cycles. STIMER, initialization and AUDCTL
+mode transitions are simplified; exact low-counter events, noise, filters,
+IRQs, analog output, PCM and CPU emulation are not implemented.
+The internal interface is not registered as a decoder. Tests validate
+the stated subset, not hardware equivalence.
 
 Implementation policy: original code based on hardware and format
 documentation; ASAP and Altirra are external behavioral references only.
