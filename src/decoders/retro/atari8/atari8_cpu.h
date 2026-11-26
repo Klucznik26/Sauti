@@ -18,6 +18,7 @@ typedef struct {
     Atari8CpuWrite write;
     void *bus;
     bool stopped;
+    bool irq_line, nmi_line, nmi_pending;
     uint8_t bad_opcode;
 } Atari8Cpu;
 
@@ -25,7 +26,10 @@ typedef struct {
  * Callbacks must be non-null and remain valid. */
 void atari8_cpu_init(Atari8Cpu *c, Atari8CpuRead read, Atari8CpuWrite write,
                      void *bus, uint16_t entry);
-/* Execute one instruction. Returns cycles, or zero on unsupported opcode.
+/* IRQ is level-sensitive; NMI latches a rising assertion edge. */
+void atari8_cpu_set_irq(Atari8Cpu *c, bool asserted);
+void atari8_cpu_set_nmi(Atari8Cpu *c, bool asserted);
+/* Execute one instruction or service one interrupt. Returns cycles, or zero on unsupported opcode.
  * An unsupported opcode latches stopped; its fetch still consumes a cycle. */
 unsigned atari8_cpu_step(Atari8Cpu *c);
 #endif

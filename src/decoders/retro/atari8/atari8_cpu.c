@@ -156,6 +156,55 @@ static uint16_t address(Atari8Cpu *c, Mode mode, bool store)
     return 0;
 }
 
+typedef enum { ASL, ROL, LSR, ROR, DEC, INC } Modify;
+
+static uint8_t modify(Atari8Cpu *c, Modify kind, uint8_t v)
+{
+    unsigned carry = (c->p & ATARI8_CPU_C) != 0;
+    switch (kind) {
+    case ASL: flag(c, ATARI8_CPU_C, v & 128u); v = (uint8_t)(v << 1); break;
+    case ROL: flag(c, ATARI8_CPU_C, v & 128u); v = (uint8_t)((v << 1) | carry); break;
+    case LSR: flag(c, ATARI8_CPU_C, v & 1u); v >>= 1; break;
+    case ROR: flag(c, ATARI8_CPU_C, v & 1u); v = (uint8_t)((v >> 1) | (carry << 7)); break;
+    case DEC: --v; break;
+    case INC: ++v; break;
+    }
+    nz(c, v);
+    return v;
+}
+
+static void rmw(Atari8Cpu *c, Mode mode, Modify kind)
+{
+    uint16_t a = address(c, mode, true);
+    uint8_t old = rd(c, a);
+    /* NMOS bus writes the old value before the modified value. */
+    wr(c, a, old);
+    wr(c, a, modify(c, kind, old));
+}
+
+static void interrupt_vector(Atari8Cpu *c, uint16_t vector, bool brk)
+{
+    push(c, (uint8_t)(c->pc >> 8));
+    push(c, (uint8_t)c->pc);
+    push(c, (uint8_t)((c->p & ~ATARI8_CPU_B) | ATARI8_CPU_U |
+                      (brk ? ATARI8_CPU_B : 0)));
+    c->p |= ATARI8_CPU_I;
+    uint16_t lo = rd(c, vector);
+    c->pc = (uint16_t)(lo | ((uint16_t)rd(c, (uint16_t)(vector + 1u)) << 8));
+}
+
+void atari8_cpu_set_irq(Atari8Cpu *c, bool asserted)
+{
+    c->irq_line = asserted;
+}
+
+void atari8_cpu_set_nmi(Atari8Cpu *c, bool asserted)
+{
+    if (asserted && !c->nmi_line)
+        c->nmi_pending = true;
+    c->nmi_line = asserted;
+}
+
 static void branch(Atari8Cpu *c, bool take)
 {
     unsigned raw = fetch(c);
@@ -187,6 +236,16 @@ unsigned atari8_cpu_step(Atari8Cpu *c)
     if (c->stopped)
         return 0;
     uint64_t before = c->cycles;
+    /* Instruction-boundary IRQ sampling; exact CLI/SEI/PLP timing and
+     * NMI vector hijacking are not modeled at this milestone. */
+    if (c->nmi_pending || (c->irq_line && !(c->p & ATARI8_CPU_I))) {
+        uint16_t vector = c->nmi_pending ? 0xfffa : 0xfffe;
+        c->nmi_pending = false;
+        (void)rd(c, c->pc);
+        (void)rd(c, c->pc);
+        interrupt_vector(c, vector, false);
+        return (unsigned)(c->cycles - before);
+    }
     uint8_t op = fetch(c);
     uint16_t a;
     uint8_t v;
@@ -303,6 +362,45 @@ unsigned atari8_cpu_step(Atari8Cpu *c)
     case 0xcc: compare(c, c->y, rd(c, address(c, ABS, false))); break;
     case 0x24: bit_test(c, rd(c, address(c, ZP, false))); break;
     case 0x2c: bit_test(c, rd(c, address(c, ABS, false))); break;
+    case 0x0a: (void)rd(c, c->pc); c->a = modify(c, ASL, c->a); break;
+    case 0x06: rmw(c, ZP, ASL); break;
+    case 0x16: rmw(c, ZPX, ASL); break;
+    case 0x0e: rmw(c, ABS, ASL); break;
+    case 0x1e: rmw(c, ABSX, ASL); break;
+    case 0x2a: (void)rd(c, c->pc); c->a = modify(c, ROL, c->a); break;
+    case 0x26: rmw(c, ZP, ROL); break;
+    case 0x36: rmw(c, ZPX, ROL); break;
+    case 0x2e: rmw(c, ABS, ROL); break;
+    case 0x3e: rmw(c, ABSX, ROL); break;
+    case 0x4a: (void)rd(c, c->pc); c->a = modify(c, LSR, c->a); break;
+    case 0x46: rmw(c, ZP, LSR); break;
+    case 0x56: rmw(c, ZPX, LSR); break;
+    case 0x4e: rmw(c, ABS, LSR); break;
+    case 0x5e: rmw(c, ABSX, LSR); break;
+    case 0x6a: (void)rd(c, c->pc); c->a = modify(c, ROR, c->a); break;
+    case 0x66: rmw(c, ZP, ROR); break;
+    case 0x76: rmw(c, ZPX, ROR); break;
+    case 0x6e: rmw(c, ABS, ROR); break;
+    case 0x7e: rmw(c, ABSX, ROR); break;
+    case 0xc6: rmw(c, ZP, DEC); break;
+    case 0xd6: rmw(c, ZPX, DEC); break;
+    case 0xce: rmw(c, ABS, DEC); break;
+    case 0xde: rmw(c, ABSX, DEC); break;
+    case 0xe6: rmw(c, ZP, INC); break;
+    case 0xf6: rmw(c, ZPX, INC); break;
+    case 0xee: rmw(c, ABS, INC); break;
+    case 0xfe: rmw(c, ABSX, INC); break;
+    case 0x00:
+        (void)fetch(c); /* BRK padding byte */
+        interrupt_vector(c, 0xfffe, true);
+        break;
+    case 0x40:
+        (void)rd(c, c->pc);
+        (void)rd(c, (uint16_t)(0x100u | c->sp));
+        c->p = (uint8_t)((pull(c) & ~ATARI8_CPU_B) | ATARI8_CPU_U);
+        a = pull(c);
+        c->pc = (uint16_t)(a | ((uint16_t)pull(c) << 8));
+        break;
     case 0xea: (void)rd(c, c->pc); break;
     case 0x4c: c->pc = fetch16(c); break;
     case 0x6c:

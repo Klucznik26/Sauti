@@ -7,17 +7,27 @@ typedef struct {
     uint8_t ram[65536];
     uint16_t trace[16];
     unsigned count;
+    bool writes[16];
+    uint8_t values[16];
 } Bus;
 static uint8_t read_bus(void *ctx, uint16_t a)
 {
     Bus *b = ctx;
-    if (b->count < 16) b->trace[b->count++] = a;
+    if (b->count < 16) {
+        b->trace[b->count] = a;
+        b->writes[b->count] = false;
+        b->values[b->count++] = b->ram[a];
+    }
     return b->ram[a];
 }
 static void write_bus(void *ctx, uint16_t a, uint8_t v)
 {
     Bus *b = ctx;
-    if (b->count < 16) b->trace[b->count++] = a;
+    if (b->count < 16) {
+        b->trace[b->count] = a;
+        b->writes[b->count] = true;
+        b->values[b->count++] = v;
+    }
     b->ram[a] = v;
 }
 static void step(Atari8Cpu *c, Bus *b, unsigned cycles)
@@ -192,10 +202,89 @@ static void test_logic_compare(void)
     CHECK(c.a == 3 && b.trace[3] == 0x3000 && b.trace[4] == 0x3100);
 }
 
+static void test_modify(void)
+{
+    Bus b = {0};
+    Atari8Cpu c;
+    atari8_cpu_init(&c,read_bus,write_bus,&b,0x200);
+    const uint8_t acc[] = {0x0a,0x2a,0x4a,0x6a};
+    for (unsigned k = 0; k < 4; ++k)
+        for (unsigned v = 0; v < 256; ++v)
+            for (unsigned carry = 0; carry < 2; ++carry) {
+                unsigned expected = k == 0 ? v * 2 : k == 1 ? v * 2 + carry :
+                                    k == 2 ? v / 2 : v / 2 + 128 * carry;
+                expected &= 255u;
+                unsigned out = k < 2 ? v / 128 : v % 2;
+                alu_case(&c,&b,acc[k],(uint8_t)v,0,(uint8_t)(carry | ATARI8_CPU_V));
+                CHECK(c.a == expected && !!(c.p & ATARI8_CPU_C) == out);
+                CHECK(!!(c.p & ATARI8_CPU_N) == (expected >= 128));
+                CHECK(!!(c.p & ATARI8_CPU_Z) == (expected == 0));
+                CHECK(c.p & ATARI8_CPU_V);
+            }
+    const uint8_t bases[] = {0,32,64,96,192,224};
+    const uint8_t offsets[] = {6,22,14,30};
+    const unsigned counts[] = {5,6,6,7};
+    for (unsigned k = 0; k < 6; ++k)
+        for (unsigned mode = 0; mode < 4; ++mode) {
+            c.pc = 0x200; c.x = 1; c.a = 0x42; c.p = ATARI8_CPU_U | ATARI8_CPU_C;
+            b.ram[0x200] = bases[k] + offsets[mode];
+            b.ram[0x201] = mode == 0 ? 0x80 : 0xff;
+            b.ram[0x202] = 0x30;
+            uint16_t target = mode == 0 ? 0x80 : mode == 1 ? 0 : mode == 2 ? 0x30ff : 0x3100;
+            b.ram[target] = 0x81;
+            static const uint8_t result[] = {2,3,0x40,0xc0,0x80,0x82};
+            step(&c,&b,counts[mode]);
+            unsigned n = counts[mode];
+            CHECK(b.trace[n-3] == target && b.trace[n-2] == target && b.trace[n-1] == target);
+            CHECK(!b.writes[n-3] && b.writes[n-2] && b.writes[n-1]);
+            CHECK(b.values[n-2] == 0x81 && b.values[n-1] == result[k]);
+            CHECK(b.ram[target] == result[k] && c.a == 0x42);
+            if (mode == 3) CHECK(b.trace[3] == 0x3000 && !b.writes[3]);
+        }
+}
+
+static void test_interrupts(void)
+{
+    Bus b = {0};
+    Atari8Cpu c;
+    atari8_cpu_init(&c,read_bus,write_bus,&b,0x200);
+    b.ram[0xfffe] = 0x00; b.ram[0xffff] = 0x40;
+    b.ram[0xfffa] = 0x00; b.ram[0xfffb] = 0x50;
+    b.ram[0x4000] = b.ram[0x5000] = 0x40;
+    b.ram[0x200] = 0; b.ram[0x202] = 0xea;
+    c.p = ATARI8_CPU_U | ATARI8_CPU_D | ATARI8_CPU_C;
+    step(&c,&b,7);
+    CHECK(c.pc == 0x4000 && c.sp == 0xfa);
+    CHECK(b.ram[0x1fd] == 2 && b.ram[0x1fc] == 2);
+    CHECK(b.ram[0x1fb] == (ATARI8_CPU_U | ATARI8_CPU_D | ATARI8_CPU_C | ATARI8_CPU_B));
+    CHECK((c.p & (ATARI8_CPU_I | ATARI8_CPU_D)) == (ATARI8_CPU_I | ATARI8_CPU_D));
+    step(&c,&b,6);
+    CHECK(c.pc == 0x202 && c.sp == 0xfd && !(c.p & (ATARI8_CPU_B | ATARI8_CPU_I)));
+    atari8_cpu_set_irq(&c,true);
+    step(&c,&b,7);
+    CHECK(c.pc == 0x4000 && !(b.ram[0x1fb] & ATARI8_CPU_B));
+    CHECK(b.trace[0] == 0x202 && b.trace[1] == 0x202);
+    atari8_cpu_set_irq(&c,false);
+    step(&c,&b,6); CHECK(c.pc == 0x202);
+    c.p |= ATARI8_CPU_I;
+    atari8_cpu_set_irq(&c,true);
+    step(&c,&b,2); CHECK(c.pc == 0x203);
+    b.ram[0x203] = 0xea;
+    atari8_cpu_set_nmi(&c,true);
+    step(&c,&b,7); CHECK(c.pc == 0x5000);
+    CHECK(!(b.ram[0x1fb] & ATARI8_CPU_B));
+    step(&c,&b,6); CHECK(c.pc == 0x203);
+    step(&c,&b,2); CHECK(c.pc == 0x204);
+    atari8_cpu_set_nmi(&c,false);
+    atari8_cpu_set_nmi(&c,true);
+    step(&c,&b,7); CHECK(c.pc == 0x5000);
+}
+
 int main(void)
 {
     test_load_store(); test_stack(); test_branches();
     test_binary_alu(); test_decimal_alu(); test_logic_compare();
-    puts("PASS: experimental Atari8 NMOS 6502 data/control/ALU subset");
+    test_modify(); test_interrupts();
+    puts("PASS: experimental Atari8 NMOS 6502 official instructions");
     return 0;
 }

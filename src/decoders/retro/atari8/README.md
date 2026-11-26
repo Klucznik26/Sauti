@@ -127,7 +127,15 @@ all official addressing modes. NMOS BCD adjustment and flag behavior are
 implemented; binary ADC/SBC tests exhaust 262144 input combinations and
 valid BCD tests exhaust 40000 combinations, with selected NMOS flag and
 invalid-digit cases. Full invalid-BCD external validation is pending.
-Shifts, memory RMW, BRK/RTI, IRQ/NMI and undocumented opcodes are pending; no Atari bus integration yet. No copied CPU code.
+All 151 official opcodes are now implemented, including ASL/LSR/ROL/ROR,
+INC/DEC, BRK and RTI. NMOS memory RMW emits old and new bus writes.
+IRQ level and NMI assertion edges are serviced at instruction boundaries;
+precise interrupt polling delays, vector hijacking, hardware RESET,
+undocumented opcodes and Atari bus integration remain pending.
+No copied CPU code.
 Reference: https://www.dusted.dk/pages/c64/C64-programming/files/6502%20Instruction%20Set.html
-Tests use original synthetic instructions and bus traces. External
-functional suite will be run after the official opcode set is complete.
+Tests use original synthetic instructions and bus traces. An external
+functional runner accepts the unmodified 64 KiB Klaus Dormann NMOS
+6502_functional_test.bin from the separate test checkout (entry $0400,
+success trap $3469 for the distributed binary). External test data is
+not bundled. See https://github.com/Klaus2m5/6502_65C02_functional_tests .
