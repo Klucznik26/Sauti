@@ -30,6 +30,14 @@ at master-clock speed with per-channel sample delays. The 9/17-bit modes
 currently use separate free-running registers; hardware mode switching,
 SKCTL initialization and absolute phase are not modeled. Tests check
 full periods, short sequences up to cyclic rotation and waveform gating.
+The sound subsystem now contains one or two POKEYs with a common
+master-cycle advance and independent register, filter and timer state.
+In stereo, address bit A4 selects the primary ($D200) or secondary
+($D210) chip in the $D2xx page; mono mirrors all 16 registers throughout
+the page. The primary chip supplies left audio and CPU IRQ; the secondary
+supplies right audio and its IRQ is not routed to the CPU in the standard
+stereo modification. No analog mixing, PCM, or nonstandard stereo wiring
+is implemented. Chip limitations above apply to both instances.
 The internal interface is not registered as a decoder. Tests validate
 the stated subset, not hardware equivalence.
 
@@ -51,5 +59,13 @@ Standalone test (from repository root):
       src/decoders/retro/atari8/atari8_pokey.c tests/test_atari8_pokey.c \
       -o build/test_atari8_pokey
     ./build/test_atari8_pokey
+
+Stereo subsystem test:
+
+    cc -std=c99 -Wall -Wextra -Werror -pedantic -O2 \
+      src/decoders/retro/atari8/atari8_pokey.c \
+      src/decoders/retro/atari8/atari8_core.c tests/test_atari8_core.c \
+      -o build/test_atari8_core
+    ./build/test_atari8_core
 
 No production build or decoder registry changes in this milestone.
