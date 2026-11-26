@@ -8,6 +8,7 @@
 typedef struct {
     uint8_t audf[4], audc[4], audctl;
     uint32_t counter[4];
+    uint8_t irq_enable, irq_pending; /* active-high internal masks */
     uint8_t output[4]; /* raw waveform flip-flops */
     uint8_t filter_latch[2], filter_sample[2], filter_delay[2];
     uint32_t clock_hz;
@@ -19,6 +20,9 @@ typedef struct {
 void atari8_pokey_reset(Atari8Pokey *p, bool ntsc);
 /* Unsupported writes return false without changing state. */
 bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value);
+/* Only IRQST (register 14) is currently readable. */
+bool atari8_pokey_read(const Atari8Pokey *p, uint8_t reg, uint8_t *value);
+bool atari8_pokey_irq(const Atari8Pokey *p);
 void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles);
 /* Linear digital level 0..60, not PCM. */
 uint8_t atari8_pokey_level(const Atari8Pokey *p);

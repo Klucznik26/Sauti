@@ -254,6 +254,92 @@ static void test_polarity(void)
     CHECK(atari8_pokey_level(&p) == 30);
 }
 
+static void check_irq(const Atari8Pokey *p, uint8_t expected)
+{
+    uint8_t value = 0;
+    CHECK(atari8_pokey_read(p, 14, &value));
+    CHECK(value == expected);
+    CHECK(atari8_pokey_irq(p) == (expected != 255u));
+    CHECK(atari8_pokey_read(p, 14, &value));
+    CHECK(value == expected);
+}
+
+static void test_irq_latches(unsigned divider)
+{
+    Atari8Pokey p;
+    atari8_pokey_reset(&p, false);
+    check_irq(&p, 0xff);
+    CHECK(atari8_pokey_write(&p, 8, divider == 114));
+    CHECK(atari8_pokey_write(&p, 0, 1));
+    CHECK(atari8_pokey_write(&p, 2, 2));
+    CHECK(atari8_pokey_write(&p, 4, 0)); /* timer 3: no IRQ */
+    CHECK(atari8_pokey_write(&p, 6, 3));
+    CHECK(atari8_pokey_write(&p, 9, 0));
+    CHECK(atari8_pokey_write(&p, 14, 7));
+    atari8_pokey_step(&p, divider * 2 - 1);
+    check_irq(&p, 0xff);
+    atari8_pokey_step(&p, 1);
+    check_irq(&p, 0xfe);
+    atari8_pokey_step(&p, divider);
+    check_irq(&p, 0xfc);
+    atari8_pokey_step(&p, divider);
+    check_irq(&p, 0xf8);
+    CHECK(atari8_pokey_write(&p, 9, 0));
+    check_irq(&p, 0xf8); /* STIMER is not IRQ acknowledgment. */
+    CHECK(atari8_pokey_write(&p, 14, 6));
+    check_irq(&p, 0xf9);
+    CHECK(atari8_pokey_write(&p, 14, 4));
+    check_irq(&p, 0xfb);
+    CHECK(atari8_pokey_write(&p, 14, 0));
+    check_irq(&p, 0xff);
+    atari8_pokey_step(&p, divider * 12);
+    check_irq(&p, 0xff);
+    CHECK(atari8_pokey_write(&p, 14, 7));
+    check_irq(&p, 0xff); /* no retroactive IRQ for disabled events */
+    atari8_pokey_step(&p, divider * 2);
+    check_irq(&p, 0xfe);
+    atari8_pokey_reset(&p, true);
+    check_irq(&p, 0xff);
+    CHECK(p.irq_enable == 0);
+}
+
+static void test_irq_fast_and_linked(void)
+{
+    Atari8Pokey p;
+    atari8_pokey_reset(&p, false);
+    CHECK(atari8_pokey_write(&p, 8, 0x40));
+    CHECK(atari8_pokey_write(&p, 0, 9));
+    CHECK(atari8_pokey_write(&p, 9, 0));
+    CHECK(atari8_pokey_write(&p, 14, 1));
+    atari8_pokey_step(&p, 12);
+    check_irq(&p, 0xff);
+    atari8_pokey_step(&p, 1);
+    check_irq(&p, 0xfe);
+    CHECK(!atari8_pokey_write(&p, 8, 0x50));
+    CHECK(!atari8_pokey_write(&p, 14, 0xff));
+    check_irq(&p, 0xfe);
+    CHECK(p.audctl == 0x40 && p.irq_enable == 1);
+    CHECK(atari8_pokey_write(&p, 14, 0));
+    CHECK(atari8_pokey_write(&p, 8, 0x78)); /* both linked, fast */
+    CHECK(!atari8_pokey_write(&p, 14, 1));
+    CHECK(atari8_pokey_write(&p, 0, 1));
+    CHECK(atari8_pokey_write(&p, 2, 1));
+    CHECK(atari8_pokey_write(&p, 4, 2));
+    CHECK(atari8_pokey_write(&p, 6, 1));
+    CHECK(atari8_pokey_write(&p, 14, 6));
+    CHECK(atari8_pokey_write(&p, 9, 0));
+    atari8_pokey_step(&p, 263);
+    check_irq(&p, 0xff);
+    atari8_pokey_step(&p, 1);
+    check_irq(&p, 0xfd);
+    atari8_pokey_step(&p, 1);
+    check_irq(&p, 0xf9);
+    uint8_t v = 42;
+    CHECK(!atari8_pokey_read(&p, 0, &v));
+    CHECK(v == 42);
+    CHECK(!atari8_pokey_read(&p, 14, NULL));
+}
+
 int main(void)
 {
     for (unsigned f = 0; f < 256; ++f) {
@@ -272,6 +358,9 @@ int main(void)
             test_link(low, values[i], 114);
         }
     }
+    test_irq_latches(28);
+    test_irq_latches(114);
+    test_irq_fast_and_linked();
     test_filter(0);
     test_filter(1);
     test_polarity();

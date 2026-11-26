@@ -113,6 +113,9 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
         return true;
     }
     if (reg == 8) {
+        /* Timer 1 underflows in a linked pair are not modeled yet. */
+        if ((value & 0x10) && (p->irq_enable & 1u))
+            return false;
         /* The clock pulses of linked channel 3 are not modeled yet. */
         if ((value & 0x0c) == 0x0c)
             return false;
@@ -141,7 +144,30 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
         restart_timers(p);
         return true;
     }
+    if (reg == 14) {
+        /* Only the three timer sources are implemented. */
+        if ((value & 0xf8) || ((value & 1u) && linked(p->audctl, 0)))
+            return false;
+        p->irq_enable = value;
+        /* Disabling a source acknowledges its pending interrupt. */
+        p->irq_pending &= value;
+        return true;
+    }
     return false;
+}
+
+bool atari8_pokey_read(const Atari8Pokey *p, uint8_t reg, uint8_t *value)
+{
+    if (reg != 14 || !value)
+        return false;
+    /* IRQST is active low; reading does not acknowledge. */
+    *value = (uint8_t)~p->irq_pending;
+    return true;
+}
+
+bool atari8_pokey_irq(const Atari8Pokey *p)
+{
+    return p->irq_pending != 0;
 }
 
 void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles)
@@ -167,6 +193,11 @@ void atari8_pokey_step(Atari8Pokey *p, uint32_t cycles)
                 continue;
             if (--p->counter[ch] == 0) {
                 p->counter[ch] = reload(p, ch);
+                /* Timer 1, 2 and 4 map to bits 0, 1 and 2.
+                 * This milestone latches on the modeled timer event;
+                 * actual IRQ propagation and STIMER latency are pending. */
+                static const uint8_t timer_irq[4] = {1, 2, 0, 4};
+                p->irq_pending |= p->irq_enable & timer_irq[ch];
                 clock_waveform(p, ch);
                 if (ch >= 2 && filter_enabled(p->audctl, ch - 2)) {
                     p->filter_sample[ch - 2] = p->output[ch - 2];

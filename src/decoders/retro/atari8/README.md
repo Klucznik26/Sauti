@@ -8,7 +8,15 @@ volume-only is allowed. Slow periods are N+1 selected ticks, fast periods
 are N+4 (8-bit) or N+7 (16-bit) master cycles. Counter capacity includes
 65536 slow ticks and 65542 fast cycles. STIMER, initialization and AUDCTL
 mode transitions are simplified; exact low-counter events,
-IRQs, analog output, PCM and CPU emulation are not implemented.
+analog output, PCM and CPU emulation are not implemented.
+IRQEN/IRQST now model latched timer 1/2/4 interrupts, active-low status,
+selective acknowledgment by disabling sources, and a level IRQ signal.
+Timer 3 does not generate an IRQ. Enabling IRQ1 with linked timers 1/2
+is rejected until low-counter underflows are modeled. Other IRQ sources
+(serial, keyboard and break) are not implemented and enabling them is
+rejected. IRQ assertions occur at modeled timer events, not yet at exact
+hardware propagation times. Tests cover masking, simultaneous pending
+sources, repeated reads, re-enabling, fast and linked high timers.
 High-pass XOR latches on channels 1/2 are clocked by timers 3/4.
 The roughly 1.5-cycle hardware propagation is rounded to two cycles;
 simultaneous events use the updated lower-channel waveform. The
