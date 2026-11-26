@@ -190,11 +190,19 @@ static void test_legacy_vbi_chain(void)
     CHECK(s.machine.sap_vbi_returns==1 && s.machine.cpu.sp==sp);
     CHECK(s.machine.ram[0]==0 && s.machine.ram[0x2106]==0 && s.machine.ram[0x2107]==0);
     CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK && s.machine.sap_vbi_returns==2);
+    /* The current VVBLKI can already point at PLAYER while the
+     * saved previous vector (the JMP operand) remains uninstalled. */
+    CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    s.machine.ram[0x224]=0x00;
+    s.machine.ram[0x225]=0x21;
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+    CHECK(s.machine.sap_vbi_returns==1 && s.machine.cpu.sp==sp);
+    CHECK(s.machine.ram[0x225]==0x21);
     /* Identical null jump without a VBI installer is still an error. */
     CHECK(atari8_sapb_open(&s,data,original,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
     CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME);
     CHECK(s.machine.status==ATARI8_MACHINE_BUDGET && !s.machine.sap_vbi_returns);
-    /* A nonzero old VBI vector does not qualify for host adaptation. */
+    /* An unrelated current VBI vector does not qualify. */
     CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
     s.machine.ram[0x224]=1;
     CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME && !s.machine.sap_vbi_returns);

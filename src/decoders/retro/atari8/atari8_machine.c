@@ -225,11 +225,12 @@ Atari8MachineResult atari8_machine_idle(Atari8Machine *m, uint32_t cycles)
  * uninstalled previous VBI vector instead of executing RTS.
  * Accept only a recognized chain site and an intact host stack frame.
  * This is a host ABI adaptation, never a change to the CPU instruction. */
-static bool sap_vbi_return(const Atari8Machine *m, uint8_t sp)
+static bool sap_vbi_return(const Atari8Machine *m, uint8_t sp, uint16_t entry)
 {
+    uint16_t vector = (uint16_t)(m->ram[0x224] | ((uint16_t)m->ram[0x225] << 8));
     if (!m->sap_host_scheduled || m->cpu.pc != 0 ||
         m->cpu.sp != (uint8_t)(sp-2u) || !m->trace_count ||
-        m->ram[0x224] || m->ram[0x225] || m->ram[0] ||
+        (vector != 0 && vector != entry) || m->ram[0] ||
         m->ram[0x100u | sp] != 0xff ||
         m->ram[0x100u | (uint8_t)(sp-1u)] != 0xfe)
         return false;
@@ -269,7 +270,7 @@ Atari8MachineResult atari8_machine_call(Atari8Machine *m, uint16_t entry,
             break;
         if (m->cpu.pc == 0xffffu && m->cpu.sp == sp)
             return ATARI8_MACHINE_OK;
-        if (sap_vbi_return(m,sp)) {
+        if (sap_vbi_return(m,sp,entry)) {
             /* Consume the synthetic host frame without executing
              * arbitrary zero-page data. As with host call setup, no
              * guest instruction or bus cycles are fabricated. */

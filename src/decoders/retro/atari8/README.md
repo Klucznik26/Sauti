@@ -367,3 +367,15 @@ independent instruction-level probe are not stored in the repository.
 Chromatics also loops in its first PLAYER call; its cause remains
 open. No claim of waveform fidelity or complete archive validation.
 Reference: https://asap.sourceforge.net/sap-format.html (TYPE B).
+
+Pending comparison after 7009ca1: all seven synthetic tests passed,
+but all six real VBI chain failures remained. Independent execution
+probe of Tinory_Quest_Morning confirmed that after INIT, VVBLKI is
+the current PLAYER address ($9569), while the saved previous JMP
+operand is $0000. The previous guard incorrectly conflated these
+two values. Permit current VVBLKI to equal the current host call
+entry (or zero); retain all existing recognized-site, stack, zero
+operand, RAM[0] and interrupt guards. Added synthetic regression
+for the installed-current-vector case and retained unrelated-vector
+negative regression. No claim of successful real-file render until
+retested. Chromatics remains a separate investigation.
