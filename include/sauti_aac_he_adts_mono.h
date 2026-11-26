@@ -29,6 +29,7 @@ typedef struct {
     SautiAacLcSynthesis core;
     SautiAacSbrPayloadState sbr;
     uint64_t frames;
+    uint32_t downsampled;          /* SBR output at the core rate (the tables are built for the core rate); set by the caller once, survives resets only if the caller sets it again */
 } SautiAacHeAdtsMonoState;
 
 /* Resets a whole independent mono stream. 0/1 success/failure. */

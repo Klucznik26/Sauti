@@ -17,6 +17,8 @@ typedef struct {
     unsigned rate_index;          /* indeks czestotliwosci rdzenia (ADTS) */
     unsigned sample_rate;         /* czestotliwosc rdzenia, Hz */
     unsigned channel_config;      /* channel_configuration z ASC (0 = PCE w strumieniu) */
+    unsigned sbr_downsampled;     /* explicit SBR signalling with the extension sampling frequency equal to the core rate: the SBR output has the core rate (32-band synthesis) */
+    unsigned sbr_explicit;        /* the AudioSpecificConfig signals SBR explicitly (AOT 5 / 29 or the 0x2b7 extension) */
     unsigned has_pce;             /* AOT 1 / 2 with channelConfiguration 0: the program_config_element of the ASC is in `pce` (decoded by sauti_aac_lcw) */
     SautiAacLcwLayout pce;
     uint64_t sample_count;        /* liczba jednostek dostepu (po 1024 probki rdzenia) */

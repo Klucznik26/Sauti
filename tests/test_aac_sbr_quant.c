@@ -300,11 +300,11 @@ static void test_value_limits(void) {
                                         &g,&t,&c,0,0,&state,&frame));
     assert(pos==0 && memcmp(&state,&old,sizeof(state))==0 &&
            memcmp(&frame,&prior,sizeof(frame))==0);
-    /* 5-bit noise start=31 exceeds the permitted range 0..30. */
+    /* 5-bit noise start=31 is valid (the reference decoders take it), but a further positive delta exceeds 31. */
     b=(Bits){0};
     freq_env(&b,1,0,8,3,0);
     freq_env(&b,1,0,8,3,0);
-    freq_noise(&b,0,2,31,0);
+    freq_noise(&b,0,2,31,1);
     freq_noise(&b,0,2,0,0);
     pos=0;
     assert(!sauti_aac_sbr_quant_decode(b.bytes,bytes_used(&b),&pos,
@@ -353,7 +353,7 @@ static void test_ld_time_delta_across_modes(void) {
     ld_across_modes(1u,&accepted);
     assert(accepted);
     ld_across_modes(0u,&accepted);
-    assert(!accepted);
+    assert(accepted);                                                  /* classic grids too: FDK takes the stored values as they are */
 }
 
 int main(void) {

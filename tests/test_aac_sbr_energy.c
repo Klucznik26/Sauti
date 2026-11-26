@@ -178,7 +178,7 @@ static void test_fail_closed(void) {
     q.env[1][0]=128u;
     REJECT(sauti_aac_sbr_energy_dequant(&q,&g,&t,1,0,&out));
     q.env[1][0]=0u;
-    q.noise[1][0]=31u;
+    q.noise[1][0]=32u;
     REJECT(sauti_aac_sbr_energy_dequant(&q,&g,&t,1,0,&out));
     q.noise[1][0]=0u;
     t.low[1]=17u; /* 17 is not the middle high boundary 20. */

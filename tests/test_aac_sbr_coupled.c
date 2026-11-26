@@ -176,7 +176,7 @@ static void test_errors_keep_both_outputs(void) {
     balance.env[1][7]=128;
     REJECT(&level,&balance,&grid,&tables,1,&l,&r);
     balance.env[1][7]=0;
-    level.noise[0][0]=31;
+    level.noise[0][0]=32;
     REJECT(&level,&balance,&grid,&tables,1,&l,&r);
     level.noise[0][0]=0;
     grid.freq_res[1]=2;

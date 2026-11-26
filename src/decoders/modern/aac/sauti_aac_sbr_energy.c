@@ -93,7 +93,7 @@ int sauti_aac_sbr_energy_dequant(const SautiAacSbrQuantFrame *quant,
     for (unsigned e = 0; e < grid->noise_count; ++e) {
         for (unsigned b = 0; b < tables->n_noise; ++b) {
             const unsigned q = quant->noise[e][b];
-            if (q > 30u) return 0;
+            if (q > 31u) return 0;
             const double val = ldexp(1.0, 6 - (int)q);
             if (!isfinite(val) || val <= 0.0) return 0;
             next.noise_factor[e][b] = val;
@@ -120,7 +120,7 @@ static int coupled_frame_valid(const SautiAacSbrQuantFrame *q,
     }
     for (unsigned e = 0; e < g->noise_count; ++e)
         for (unsigned b = 0; b < t->n_noise; ++b)
-            if (q->noise[e][b] > 30u) return 0;
+            if (q->noise[e][b] > 31u) return 0;
     return 1;
 }
 

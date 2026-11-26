@@ -13,6 +13,7 @@ typedef struct {
     SautiAacLcSynthesis core[2];
     SautiAacSbrPayloadCpeState sbr;
     uint64_t frames;
+    uint32_t downsampled;          /* as SautiAacHeAdtsMonoState */
 } SautiAacHeAdtsCpeState;
 
 int sauti_aac_he_adts_cpe_init(SautiAacHeAdtsCpeState *state);

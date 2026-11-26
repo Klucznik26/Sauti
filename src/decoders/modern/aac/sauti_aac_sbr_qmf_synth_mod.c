@@ -114,3 +114,47 @@ int sauti_aac_sbr_qmf_synth_64(
     *state=staged;
     return 1;
 }
+
+/* ---- 32-band synthesis for SBR at the core rate ("downsampled" SBR, ISO/IEC 14496-3 4.6.18.4): the same structure as the 64-band bank on half the size.  The modulation has 64 values per slot,
+ * V[n] = -(1/64) Re(sum(k = 0..31, X[k] exp(+i pi (k + 0.5)(2n + 1) / 64))), the window is the 640-coefficient prototype taken at every second tap (c[2i]), 32 output samples per slot. */
+int sauti_aac_sbr_qmf_synth_32(const SautiAacSbrComplex *bands,size_t stride,unsigned slots,float *output,SautiAacSbrQmfSynthWindowState *state){
+    if(!bands||!output||!state||slots<1u||slots>SAUTI_AAC_SBR_QMF_MOD_MAX_SLOTS||stride<32u||state->ready>1u||state->head>=10u)return 0;
+    static double cs[32][64],sn[32][64];
+    static int init;
+    if(!init){
+        for(unsigned k=0;k<32u;k++)for(unsigned n=0;n<64u;n++){
+            const double ph=3.14159265358979323846*((double)k+0.5)*(double)(2u*n+1u)/64.0;
+            cs[k][n]=cos(ph);sn[k][n]=sin(ph);
+        }
+        init=1;
+    }
+    SautiAacSbrQmfSynthWindowState next=*state;
+    float stage[SAUTI_AAC_SBR_QMF_MOD_MAX_SLOTS*32u];
+    for(unsigned t=0;t<slots;t++){
+        float v[64];
+        for(unsigned n=0;n<64u;n++){
+            double sum=0.0;
+            for(unsigned k=0;k<32u;k++){
+                const SautiAacSbrComplex *x=&bands[(size_t)t*stride+k];
+                if(!isfinite(x->re)||!isfinite(x->im))return 0;
+                sum+=(double)x->re*cs[k][n]-(double)x->im*sn[k][n];
+            }
+            v[n]=(float)(-sum/64.0);
+        }
+        if(next.ready)next.head=(next.head+9u)%10u;else{next.ready=1u;next.head=0u;}
+        memcpy(next.history[next.head],v,sizeof v);
+        for(unsigned n=0;n<32u;n++){
+            double sum=0.0;
+            for(unsigned j=0;j<10u;j++){
+                float c;
+                const unsigned ix=(next.head+j)%10u;
+                if(!sauti_aac_sbr_qmf_synth_window_coefficient(2u*(j*32u+n),&c))return 0;
+                sum+=(double)c*(double)next.history[ix][(j&1u)?32u+n:n];
+            }
+            stage[(size_t)t*32u+n]=(float)sum;
+        }
+    }
+    memcpy(output,stage,(size_t)slots*32u*sizeof(float));
+    *state=next;
+    return 1;
+}

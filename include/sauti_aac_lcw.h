@@ -41,4 +41,9 @@ unsigned sauti_aac_lcw_channels(const SautiAacLcw *state);
 /* One access unit (raw_data_block) -> interleaved float PCM, frame_samples x channels, output order.  Atomic: on failure the state and `pcm` are unchanged.  1 decoded, 0 malformed, -1 valid
  * but not supported (reason). */
 int sauti_aac_lcw_decode(SautiAacLcw *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason);
+/* The same for HE-AAC (SBR): an SBR extension (type 13 / 14) in a fill element is not refused but reported, with the channel element (type, tag, first slot) it follows; the core PCM is the plain core
+ * signal at the core rate in the output order.  `bits` includes the 4-bit type nibble (as SautiAacFillInfo); positions are in `au`.  An element without an item carries no SBR in this access unit. */
+typedef struct { unsigned elem_type,tag,slot,ext_type; size_t start_bit,bits; } SautiAacLcwSbrItem;
+typedef struct { unsigned count; SautiAacLcwSbrItem item[SAUTI_AAC_LCW_MAX_CHANNELS]; } SautiAacLcwSbr;
+int sauti_aac_lcw_decode_sbr(SautiAacLcw *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,SautiAacLcwSbr *sbr);
 #endif

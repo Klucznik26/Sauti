@@ -230,7 +230,7 @@ static int channel_frame_impl(SautiAacSbrChannel *ch,const float *core,const Sau
         if(!sauti_aac_sbr_qmf_analyze_24(core,768u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;
     }else if(ch->analysis_bands==16u){
         if(!sauti_aac_sbr_qmf_analyze_16(core,1024u,SLOTS,low,SLOTS*32u,&next->analysis))return 0;
-    }else if(!sauti_aac_sbr_qmf_analyze_32(core,core_len,SLOTS,32u,low,SLOTS*32u,&next->analysis))return 0;
+    }else if(!(ch->downsampled?sauti_aac_sbr_qmf_analyze_32_downsampled:sauti_aac_sbr_qmf_analyze_32)(core,core_len,SLOTS,32u,low,SLOTS*32u,&next->analysis))return 0;
     SautiAacSbrComplex xlow[(SLOTS_MAX+14u)*32u];
     SautiUsacHbeCx xpv[(14u+64u)*64u];                /* transposer output of the frame, with the HIST slots before it */
     const SautiAacSbrComplex *lowsrc=low;
@@ -618,6 +618,14 @@ int sauti_aac_sbr_channel_synthesize(SautiAacSbrChannel *ch,
         if(!ch->frame_slots || !(N==64u?sauti_aac_sbr_qmf_synth_ld64(grid,64u,ch->frame_slots,pcm,&ls):sauti_aac_sbr_qmf_synth_ld(grid,64u,ch->frame_slots,pcm,&ls)))return 0;
         for(unsigned i=0u;i<ch->frame_slots*N;i++)if(!isfinite(pcm[i]))return 0;
         ch->ld_synth=ls;
+        return 1;
+    }
+    if(ch->downsampled){
+        SautiAacSbrQmfSynthWindowState sy=ch->synth;
+        const unsigned sl=ch->frame_slots?ch->frame_slots:SAUTI_AAC_SBR_CHANNEL_SLOTS;
+        if(!sauti_aac_sbr_qmf_synth_32(grid,64u,sl,pcm,&sy))return 0;
+        for(unsigned i=0u;i<sl*32u;i++)if(!isfinite(pcm[i]))return 0;
+        ch->synth=sy;
         return 1;
     }
     SautiAacSbrQmfSynthWindowState synth=ch->synth;

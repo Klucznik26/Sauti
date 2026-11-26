@@ -256,7 +256,7 @@ static void for_targets(const Cce *c,const Seen *seen,unsigned nseen,unsigned po
         }else index+=1u+(c->sel[i]==3u);
     }
 }
-int sauti_aac_lcw_decode(SautiAacLcw *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason){
+static int lcw_decode(SautiAacLcw *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,SautiAacLcwSbr *sbr){
     SautiAacReason local=SAUTI_AAC_REASON_INVALID_SCE;
     if(!reason)reason=&local;
     *reason=SAUTI_AAC_REASON_INVALID_SCE;
@@ -275,11 +275,24 @@ int sauti_aac_lcw_decode(SautiAacLcw *state,const uint8_t *au,size_t length,floa
     if(!next||!spectral||!out||!stage||!seen||!cce||!cce_present||!slot_used){status=0;goto done;}
     {
     size_t pos=0;unsigned used=0,nseen=0,ncce=0;uint32_t seed=next->pns_seed;
+    unsigned have_last=0,last_done=0,last_type=0,last_tag=0,last_slot=0;
+    if(sbr)sbr->count=0;
     for(;;){
         size_t at=pos;uint32_t id=0;
         if(!get(au,length,&pos,3,&id)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;goto fail0;}
         if(id==7u)break;
         if(id==4u){if(!skip_dse(au,length,&pos)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;goto fail0;}continue;}
+        if(id==6u&&sbr){                                                       /* HE-AAC: the SBR extension belongs to the channel element before it */
+            SautiAacFillInfo fi;
+            if(!sauti_aac_fill_parse(au,length,&pos,&fi)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;goto fail0;}
+            if(fi.payload_bytes&&(fi.extension_type==13u||fi.extension_type==14u)){
+                if(!have_last||sbr->count>=SAUTI_AAC_LCW_MAX_CHANNELS||last_done){*reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;status=-1;goto done;}
+                SautiAacLcwSbrItem *it=&sbr->item[sbr->count++];
+                it->elem_type=last_type;it->tag=last_tag;it->slot=last_slot;it->ext_type=fi.extension_type;it->start_bit=fi.extension_start_bit;it->bits=fi.extension_bits;
+                last_done=1u;
+            }
+            continue;
+        }
         if(id==6u){
             const int sk=sauti_aac_fill_skip_non_sbr(au,length,&pos,NULL);
             if(sk==-1){*reason=SAUTI_AAC_REASON_UNSUPPORTED_FIL;status=-1;goto done;}
@@ -317,6 +330,7 @@ int sauti_aac_lcw_decode(SautiAacLcw *state,const uint8_t *au,size_t length,floa
             for(unsigned k=0;k<need;k++)slot_used[slot+k]=1u;
             seen[nseen].type=(uint8_t)(id==1u?1u:0u);seen[nseen].tag=(uint8_t)tag;seen[nseen].slot=(uint8_t)slot;seen[nseen].present=(id!=3u);nseen++;
             used+=need;
+            have_last=1u;last_done=0u;last_type=id==1u?1u:id==3u?3u:0u;last_tag=tag;last_slot=slot;
         }
     }
     while(pos&7u){uint32_t pad=1;if(!get(au,length,&pos,1,&pad)){*reason=SAUTI_AAC_REASON_INVALID_TRAILING;goto fail0;}}
@@ -356,4 +370,11 @@ fail0:
 done:
     free(next);free(spectral);free(out);free(stage);free(seen);free(cce);free(cce_present);free(slot_used);
     return status;
+}
+
+int sauti_aac_lcw_decode(SautiAacLcw *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason){
+    return lcw_decode(state,au,length,pcm,reason,NULL);
+}
+int sauti_aac_lcw_decode_sbr(SautiAacLcw *state,const uint8_t *au,size_t length,float *pcm,SautiAacReason *reason,SautiAacLcwSbr *sbr){
+    return sbr?lcw_decode(state,au,length,pcm,reason,sbr):0;
 }

@@ -133,6 +133,35 @@ static int ga_pce_layout(const uint8_t *asc,size_t n,size_t *bit,SautiAacLcwLayo
     if(getbits(asc,n,bit,1)==0xffffffffu)return 0;
     return sauti_aac_lcw_pce_parse(asc,n,bit,layout);
 }
+/* Backward compatible explicit SBR signalling after the GASpecificConfig of an AAC-LC ASC (cc != 0): syncExtensionType 0x2b7, extensionAudioObjectType 5, sbrPresentFlag, extensionSamplingFrequencyIndex.
+ * `bit` is the position of the frameLengthFlag already read.  Returns the extension index (0..12), or -1 when there is no explicit SBR signalling. */
+static int asc_sbr_ext_index(const uint8_t *asc,size_t n,size_t bit){
+    unsigned v=getbits(asc,n,&bit,1);                                     /* dependsOnCoreCoder */
+    if(v==0xffffffffu)return -1;
+    if(v&&getbits(asc,n,&bit,14)==0xffffffffu)return -1;
+    v=getbits(asc,n,&bit,1);                                              /* extensionFlag: the flags that follow it are not handled */
+    if(v!=0u)return -1;
+    if(getbits(asc,n,&bit,11)!=0x2b7u)return -1;
+    if(getbits(asc,n,&bit,5)!=5u)return -1;
+    if(getbits(asc,n,&bit,1)!=1u)return -1;
+    v=getbits(asc,n,&bit,4);
+    return v<13u?(int)v:-1;
+}
+/* The SBR extension that follows a program_config_element (`bit` just after the element's last list): byte_alignment, comment_field_bytes and the comment, then the 0x2b7 sync, AOT 5, sbrPresentFlag and the extension
+ * sampling frequency index; -1 when there is no explicit SBR signalling. */
+static int asc_sbr_ext_at(const uint8_t *asc,size_t n,size_t bit){
+    if(getbits(asc,n,&bit,11)!=0x2b7u)return -1;
+    if(getbits(asc,n,&bit,5)!=5u)return -1;
+    if(getbits(asc,n,&bit,1)!=1u)return -1;
+    const unsigned v=getbits(asc,n,&bit,4);
+    return v!=0xffffffffu&&v<13u?(int)v:-1;
+}
+static int asc_sbr_ext_after_pce(const uint8_t *asc,size_t n,size_t bit){
+    bit=(bit+7u)&~(size_t)7u;
+    const unsigned len=getbits(asc,n,&bit,8);
+    if(len==0xffffffffu)return -1;
+    return asc_sbr_ext_at(asc,n,bit+(size_t)len*8u);
+}
 static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     size_t bit=0;
     unsigned aot=getbits(asc,n,&bit,5);
@@ -166,10 +195,25 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     }
     if(aot!=1u&&aot!=2u&&aot!=5u&&aot!=29u&&aot!=4u)return 0;                         /* Main, LC, albo HE/HEv2 (rdzen LC + SBR w FIL) */
     info->frame480=0u;
+    if(cc==0u&&aot==2u){                                                      /* LC with a program_config_element that is a standard layout and an explicit SBR extension: HE-AAC with that channel configuration (the element tags do not matter) */
+        size_t at=bit;
+        const unsigned flag=getbits(asc,n,&at,1);
+        if(flag==0u){
+            const unsigned cfg=ga_channel_config(asc,n,&at,0u);
+            const int eri=cfg>=1u&&cfg<=2u?asc_sbr_ext_after_pce(asc,n,at):-1;      /* more channels: the PCE layout (element order by tag, as lcw) */
+            if(eri>=0){
+                info->aot=2u;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cfg;info->frame480=0u;
+                if((int)ri==eri)info->sbr_downsampled=1u;
+                info->sbr_explicit=1u;
+                return 1;
+            }
+        }
+    }
     if(cc==0u&&(aot==1u||aot==2u)){                                           /* Main / LC with a program_config_element: any layout (sauti_aac_lcw) */
         const unsigned flag=getbits(asc,n,&bit,1);
         if(flag==0xffffffffu||ga_pce_layout(asc,n,&bit,&info->pce)!=1)return 0;
         info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=0u;info->frame480=flag;info->has_pce=1u;
+        if(aot==2u&&flag==0u){const int eri=asc_sbr_ext_at(asc,n,bit);if(eri>=0){info->sbr_explicit=1u;if((int)ri==eri)info->sbr_downsampled=1u;}}
         return 1;
     }
     if(aot==1u||aot==4u){                                                    /* AAC Main / AAC LTP: 1024 linii (frameLengthFlag 1 nie jest obslugiwane), mono i stereo */
@@ -180,9 +224,11 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
     }
     if(aot==2u){                                                              /* GASpecificConfig: frameLengthFlag 1 = 960 linii (tylko LC bez SBR) */
         const unsigned flag=getbits(asc,n,&bit,1);
+        const size_t after_flag=bit;
         const unsigned cfg=ga_channel_config(asc,n,&bit,cc);
         if(cfg<1u||cfg>7u)return 0;
         info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cfg;info->frame480=flag;
+        if(cc!=0u&&flag==0u){const int eri=asc_sbr_ext_index(asc,n,after_flag);if(eri>=0)info->sbr_explicit=1u;if((int)ri==eri)info->sbr_downsampled=1u;}     /* SBR output at the core rate */
         return 1;                                                             /* 960 multichannel goes through lcm */
     }
     if(aot==5u||aot==29u){                                                    /* jawny SBR: nastepna jest czestotliwosc wyjsciowa i AOT rdzenia */
@@ -198,6 +244,8 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
             info->aot=2u;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cfg;info->frame480=1u;return cfg<=2u;
         }
         info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cfg;info->frame480=0u;
+        info->sbr_explicit=1u;
+        if(eri==ri)info->sbr_downsampled=1u;                                  /* explicit extension rate = core rate */
         return 1;
     }
     info->aot=aot;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cc;info->frame480=0u;

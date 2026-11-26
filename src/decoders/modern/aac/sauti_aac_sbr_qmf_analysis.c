@@ -30,14 +30,15 @@ static int state_valid(const SautiAacSbrQmfAnalysisState *state) {
     return 1;
 }
 
-int sauti_aac_sbr_qmf_analyze_32(
+static int analyze_32_phase(
     const float *pcm,
     size_t pcm_count,
     unsigned slots,
     unsigned active_bands,
     SautiAacSbrComplex *output,
     size_t output_count,
-    SautiAacSbrQmfAnalysisState *state) {
+    SautiAacSbrQmfAnalysisState *state,
+    double phase_offset) {
     if(!pcm || !output || !state_valid(state) ||
        slots<1u || slots>SAUTI_AAC_SBR_QMF_ANALYSIS_SLOTS ||
        active_bands<1u ||
@@ -59,7 +60,7 @@ int sauti_aac_sbr_qmf_analyze_32(
     for(unsigned k=0;k<active_bands;k++)
         for(unsigned n=0;n<64u;n++){
             const double theta=(SAUTI_PI/64.0)*
-                    ((double)k+0.5)*(2.0*(double)n-0.5);
+                    ((double)k+0.5)*(2.0*(double)n-phase_offset);
             phase_re[k][n]=2.0*cos(theta);
             phase_im[k][n]=2.0*sin(theta);
         }
@@ -106,6 +107,30 @@ int sauti_aac_sbr_qmf_analyze_32(
     memcpy(output,staged,(size_t)slots*32u*sizeof(staged[0]));
     *state=next;
     return 1;
+}
+
+int sauti_aac_sbr_qmf_analyze_32(
+    const float *pcm,
+    size_t pcm_count,
+    unsigned slots,
+    unsigned active_bands,
+    SautiAacSbrComplex *output,
+    size_t output_count,
+    SautiAacSbrQmfAnalysisState *state) {
+    return analyze_32_phase(pcm,pcm_count,slots,active_bands,output,output_count,state,0.5);
+}
+
+/* SBR at the core rate ("downsampled"): the analysis bank has the phase offset 1 in place of 1/2 (exp(i pi/64 (k+0.5)(2n-1))), as the 32-band synthesis of
+ * sauti_aac_sbr_qmf_synth_32 needs for the pair to reconstruct (59 dB for a noise-like signal, against 17 dB with the offset 1/2). */
+int sauti_aac_sbr_qmf_analyze_32_downsampled(
+    const float *pcm,
+    size_t pcm_count,
+    unsigned slots,
+    unsigned active_bands,
+    SautiAacSbrComplex *output,
+    size_t output_count,
+    SautiAacSbrQmfAnalysisState *state) {
+    return analyze_32_phase(pcm,pcm_count,slots,active_bands,output,output_count,state,1.0);
 }
 
 /* 8:3 constants, both found against libxaac's decoder on real eSBR 8:3 streams (docs SBR-109), not copied from it: the gain is the 32-band factor 2 times 32/24 (the window of a bank with fewer bands sums to less: a 1 kHz tone goes
