@@ -111,11 +111,67 @@ static unsigned decode_block(adpcm_t *s, uint64_t b) {
     return n;
 }
 
-static int32_t MAKTABASAUTI_CALL adpcm_probe(const maktabasauti_codec_t *self, const uint8_t *p, size_t n, const char *hint) {
-    (void)self; (void)hint;
-    if (p && n >= 12u && ((!memcmp(p, "RIFF", 4) && !memcmp(p + 8, "WAVE", 4)) || (!memcmp(p, "FORM", 4) && !memcmp(p + 8, "AIFC", 4)))) return 40;
+static int32_t MAKTABASAUTI_CALL adpcm_probe(
+    const maktabasauti_codec_t *self,
+    const uint8_t *p, size_t n, const char *hint)
+{
+    size_t off = 12u;
+    (void)self;
+    (void)hint;
+
+    if (!p || n < 12u)
+        return 0;
+
+    if (memcmp(p, "RIFF", 4) ||
+        memcmp(p + 8, "WAVE", 4))
+        return 0;
+
+    while (off <= n && n - off >= 8u) {
+        const uint8_t *c = p + off;
+        uint32_t sz = le32(c + 4);
+        const uint8_t *b = c + 8;
+        size_t available = n - off - 8u;
+
+        if (!memcmp(c, "fmt ", 4)) {
+            unsigned tag;
+
+            if (sz < 16u || available < 16u)
+                return 0;
+
+            tag = le16(b);
+
+            if (tag == 0xfffeu) {
+                if (sz < 42u || available < 42u)
+                    return 0;
+
+                tag = le16(b + 24);
+            }
+
+            if (le16(b + 14) != 4u)
+                return 0;
+
+            return (tag == 2u || tag == 0x11u)
+                ? 40 : 0;
+        }
+
+        if (!memcmp(c, "data", 4))
+            return 0;
+
+        if ((size_t)sz > available)
+            return 0;
+
+        off += 8u + (size_t)sz;
+
+        if (sz & 1u) {
+            if (off == n)
+                return 0;
+            ++off;
+        }
+    }
+
     return 0;
 }
+
 static maktabasauti_result_t MAKTABASAUTI_CALL adpcm_open(const maktabasauti_codec_t *self, const maktabasauti_host_t *h, maktabasauti_reader_t *rd, maktabasauti_stream_info_t *info, void **state) {
     adpcm_t *s; size_t cap = 1u << 20, n = 0; uint8_t *buf; int wav; size_t off, end;
     (void)self; *state = NULL;
