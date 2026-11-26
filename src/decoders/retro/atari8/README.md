@@ -217,3 +217,13 @@ high busy bits of ALLPOT; no audio-register readback. Tests include
 indexed STA dummy reads, mono/stereo register mapping and scan timing.
 Reference: https://atariwiki.org/wiki/Wiki.jsp?page=AUDCTL and
 https://doczz.net/doc/1531988/altirra-hardware-reference-manual .
+
+ASMA follow-up: Atari_Style.sap rendered 720000 stereo PCM frames after
+the ALLPOT change (local user report). Corrected a stale test assertion
+that still expected POT0 reads to leave the result untouched; the invalid
+register 16 now tests this contract. The external archive scanner
+tests the first 100 sorted SAP-B files by default, one second of the
+default subsong each, with a bounded subprocess timeout and CSV report.
+It distinguishes valid nonzero WAV, silence, and error categories.
+This measures short-render compatibility only, not music fidelity.
+No external files are included.

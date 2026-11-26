@@ -335,6 +335,8 @@ static void test_irq_fast_and_linked(void)
     check_irq(&p, 0xf9);
     uint8_t v = 42;
     CHECK(atari8_pokey_read(&p, 0, &v) && v == 228);
+    v = 42;
+    CHECK(!atari8_pokey_read(&p, 16, &v));
     CHECK(v == 42);
     CHECK(!atari8_pokey_read(&p, 14, NULL));
 }

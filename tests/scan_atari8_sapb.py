@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""External ASMA compatibility scan; no music is copied into the repo."""
+import argparse
+from collections import Counter
+import csv
+from pathlib import Path
+import re
+import subprocess
+import tempfile
+import wave
+
+
+def is_sapb(path):
+    with path.open("rb") as stream:
+        header = stream.read(16386).split(b"\xff\xff", 1)[0]
+    return header.startswith(b"SAP\r\n") and b"TYPE B" in header.splitlines()
+
+
+def classify(message):
+    match = re.search(r"unsupported I/O (read|write) \$([0-9A-Fa-f]{4})", message)
+    if match:
+        return "I/O " + match[1] + " $" + match[2]
+    match = re.search(r"(INIT/parse|PLAYER) failed: SAP-B status (\d+)(?:, machine status (\d+))?", message)
+    if match:
+        return " ".join(x for x in match.groups() if x is not None)
+    return "other renderer failure"
+
+
+def inspect_wav(path, seconds):
+    with wave.open(str(path), "rb") as wav:
+        if (wav.getframerate() != 48000 or wav.getsampwidth() != 2
+                or wav.getnchannels() not in (1, 2)
+                or wav.getnframes() != 48000 * seconds):
+            return "invalid WAV"
+        # A nonzero sample is not evidence of accurate music.
+        data = wav.readframes(wav.getnframes())
+        if len(data) != wav.getnframes() * wav.getnchannels() * 2:
+            return "invalid WAV"
+        return "rendered nonzero" if any(data) else "rendered silence"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("archive", type=Path)
+    parser.add_argument("--renderer", type=Path, default=Path("build/render_atari8_sapb"))
+    parser.add_argument("--seconds", type=int, default=1, choices=range(1, 16), metavar="1..15")
+    parser.add_argument("--limit", type=int, default=100, help="0 tests all SAP-B files")
+    parser.add_argument("--report", type=Path, default=Path("build/sapb-scan.csv"))
+    args = parser.parse_args()
+    if args.limit < 0 or not args.archive.is_dir() or not args.renderer.is_file():
+        parser.error("invalid archive, renderer or limit")
+    renderer = args.renderer.resolve()
+    paths = sorted(p for p in args.archive.rglob("*")
+                   if p.is_file() and p.suffix.lower() == ".sap" and is_sapb(p))
+    selected = paths[:args.limit] if args.limit else paths
+    print(f"SAP-B files: {len(paths)}; testing {len(selected)} at {args.seconds}s each", flush=True)
+    if not selected:
+        return 1
+    counts = Counter()
+    args.report.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="sauti-sapb-") as tmp, args.report.open(
+            "w", newline="", encoding="utf-8") as report:
+        writer = csv.writer(report)
+        writer.writerow(["file", "result", "diagnostic"])
+        output = Path(tmp) / "test.wav"
+        for index, path in enumerate(selected, 1):
+            output.unlink(missing_ok=True)
+            message = ""
+            try:
+                proc = subprocess.run(
+                    [str(renderer), str(path), str(output), str(args.seconds)],
+                    capture_output=True, text=True, errors="replace", timeout=30)
+                message = (proc.stderr + proc.stdout).strip()
+                if proc.returncode:
+                    result = classify(message)
+                else:
+                    try:
+                        result = inspect_wav(output, args.seconds)
+                    except (OSError, EOFError, wave.Error):
+                        result = "invalid WAV"
+            except subprocess.TimeoutExpired:
+                result = "timeout"
+            counts[result] += 1
+            writer.writerow([str(path.relative_to(args.archive)), result, message])
+            report.flush()
+            if index % 25 == 0 or index == len(selected):
+                print(f"{index}/{len(selected)} completed", flush=True)
+    for result, count in counts.most_common():
+        print(f"{count:5}  {result}")
+    rendered = counts["rendered nonzero"] + counts["rendered silence"]
+    print(f"Rendered: {rendered}/{len(selected)}; not a sound-accuracy test")
+    print(f"Report: {args.report}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
