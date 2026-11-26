@@ -116,3 +116,15 @@ Only one song, no executable SAP types, no arbitrary tag extensions.
 Unmodeled POKEY modes are reported as unsupported, not silently rendered.
 The converter is a diagnostic tool, not a registered production decoder.
 No external decoder or player code is included.
+
+NMOS 6502 milestone 1: independent CPU state, callback bus, data transfer
+instructions (all official LDA/LDX/LDY/STA/STX/STY modes), transfers,
+index increment/decrement, flags, conditional branches, JMP/JSR/RTS,
+PHA/PHP/PLA/PLP and NOP. Each bus access counts a cycle, including
+documented dummy reads for the implemented subset. Unsupported opcodes
+stop explicitly. Deterministic entry is not a hardware RESET. Arithmetic,
+logic, comparisons, shifts, memory RMW, BRK/RTI, IRQ/NMI and undocumented
+opcodes are pending; no Atari bus integration yet. No copied CPU code.
+Reference: https://www.dusted.dk/pages/c64/C64-programming/files/6502%20Instruction%20Set.html
+Tests use original synthetic instructions and bus traces. External
+functional suite will be run after the official opcode set is complete.
