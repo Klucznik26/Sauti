@@ -1,0 +1,124 @@
+/* Standalone listening and compatibility diagnostic. No external decoder. */
+#include "../src/decoders/retro/atari8/atari8_sapb.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <inttypes.h>
+#include <errno.h>
+
+typedef struct {
+    FILE *file;
+    uint64_t frames, limit;
+    unsigned channels;
+    bool failed;
+} Output;
+
+static bool le(FILE *f, uint32_t value, unsigned bytes)
+{
+    for (unsigned i = 0; i < bytes; ++i)
+        if (fputc((int)((value >> (8u*i)) & 255u), f) == EOF)
+            return false;
+    return true;
+}
+
+static bool header(Output *out)
+{
+    FILE *f = out->file;
+    uint32_t bytes = (uint32_t)(out->limit * out->channels * 2u);
+    unsigned align = out->channels * 2u;
+    return fwrite("RIFF",1,4,f)==4 && le(f,36u+bytes,4)
+        && fwrite("WAVEfmt ",1,8,f)==8 && le(f,16,4)
+        && le(f,1,2) && le(f,out->channels,2)
+        && le(f,48000,4) && le(f,48000u*align,4)
+        && le(f,align,2) && le(f,16,2)
+        && fwrite("data",1,4,f)==4 && le(f,bytes,4);
+}
+
+static void sink(void *context, const int16_t frame[2])
+{
+    Output *out = context;
+    if (out->failed || out->frames >= out->limit)
+        return;
+    for (unsigned i=0; i<out->channels; ++i)
+        if (!le(out->file,(uint16_t)frame[i],2)) {
+            out->failed=true;
+            return;
+        }
+    ++out->frames;
+}
+
+static bool integer(const char *s, long low, long high, long *v)
+{
+    char *end;
+    errno=0;
+    long n=strtol(s,&end,10);
+    if (errno || end==s || *end || n<low || n>high)
+        return false;
+    *v=n;
+    return true;
+}
+
+static void diagnostic(const Atari8Sapb *s, const char *stage, Atari8SapbResult r)
+{
+    fprintf(stderr,"%s failed: SAP-B status %d",stage,(int)r);
+    if (r==ATARI8_SAPB_RUNTIME) {
+        const Atari8Machine *m=&s->machine;
+        fprintf(stderr,", machine status %d, PC=%04X, cycles=%" PRIu64,
+                (int)m->status,(unsigned)m->cpu.pc,m->master_cycles);
+        if (m->status==ATARI8_MACHINE_IO)
+            fprintf(stderr,", unsupported I/O %s $%04X",
+                m->fault_write?"write":"read",(unsigned)m->fault_address);
+        if (m->status==ATARI8_MACHINE_CPU_STOP)
+            fprintf(stderr,", stopped opcode $%02X",(unsigned)m->cpu.bad_opcode);
+    }
+    fputc('\n',stderr);
+}
+
+int main(int argc,char **argv)
+{
+    long seconds=15, song=-1;
+    if (argc<3 || argc>5 || (argc>=4 && !integer(argv[3],1,300,&seconds))
+        || (argc==5 && !integer(argv[4],-1,255,&song))) {
+        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [seconds 1..300] [song -1..255]\n",argv[0]);
+        return 2;
+    }
+    FILE *in=fopen(argv[1],"rb");
+    if (!in) { perror(argv[1]); return 2; }
+    if (fseek(in,0,SEEK_END)) { fclose(in); return 2; }
+    long n=ftell(in);
+    if (n<=0 || n>8L*1024*1024 || fseek(in,0,SEEK_SET)) {
+        fclose(in); return 2;
+    }
+    uint8_t *data=malloc((size_t)n);
+    if (!data) { fclose(in); return 2; }
+    bool ok=fread(data,1,(size_t)n,in)==(size_t)n;
+    if (fclose(in)) ok=false;
+    if (!ok) { free(data); return 2; }
+    Atari8Sapb s={0};
+    Output out={0};
+    Atari8SapbResult r=atari8_sapb_open(&s,data,(size_t)n,(int)song,48000,sink,&out);
+    free(data);
+    if (r!=ATARI8_SAPB_OK) { diagnostic(&s,"INIT/parse",r); return 1; }
+    out.channels=s.info.stereo?2u:1u;
+    out.limit=(uint64_t)seconds*48000u;
+    out.file=fopen(argv[2],"wb");
+    if (!out.file) { perror(argv[2]); return 2; }
+    ok=header(&out);
+    fprintf(stderr,"SAP-B %s, %u channel(s), song %u/%u (zero-based), interval %u cycles\n",
+        s.info.ntsc?"NTSC":"PAL",out.channels,
+        song<0?s.info.default_song:(unsigned)song,s.info.songs,s.info.interval);
+    while (ok && !out.failed && out.frames<out.limit) {
+        r=atari8_sapb_interval(&s);
+        if (r!=ATARI8_SAPB_OK) {
+            diagnostic(&s,"PLAYER",r);
+            ok=false;
+        }
+    }
+    if (fclose(out.file)) ok=false;
+    if (!ok || out.failed || out.frames!=out.limit) {
+        remove(argv[2]);
+        return 1;
+    }
+    printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " player calls\n",
+        out.frames,s.intervals);
+    return 0;
+}

@@ -192,3 +192,13 @@ Parser requires INIT and PLAYER addresses in loaded RAM segments.
 The interval callback is experimental, not yet registered in Sauti.
 Tests use original synthetic 6502 programs only. Format reference:
 https://asap.sourceforge.net/sap-format.html
+
+SAP-B listening diagnostic: tests/render_atari8_sapb.c writes standard
+16-bit little-endian PCM WAV directly at 48 kHz, mono or stereo. It takes
+an external SAP file, output path, duration (1..300 seconds, default 15)
+and optional zero-based song (-1 uses DEFSONG). The final interval is
+executed completely but output is capped at the requested sample count.
+Errors report the stage, CPU PC, machine status and unsupported I/O
+address; incomplete output is removed. Use a distinct output path.
+External music remains outside the repository, e.g. ASMA:
+https://asma.atari.org/ . No external decoder is linked.
