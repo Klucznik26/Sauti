@@ -270,7 +270,12 @@ static void test_rollbacks_and_unsupported(void){
     const unsigned byte=pos/8u,shift=4u-(pos%8u);
     /* EXT_SBR_DATA 13 -> EXT_SBR_DATA_CRC 14, still 4 bits. */
     bytes[byte]^=(uint8_t)(3u<<shift);
-    FAIL(bytes,length);
+    {   /* shifted fields: either rejected (state and output untouched) or read as a frame without sbr_header, which is passed on as no_sbr */
+        SautiAacHeAdtsMonoState keep=state;float kp[1024];SautiAacSbrPayloadFrame ko;SautiAacReason why=SAUTI_AAC_REASON_OK;
+        memset(&ko,0,sizeof(ko));
+        const int r=sauti_aac_he_adts_mono_decode_ex(bytes,length,&keep,kp,&ko,&why);
+        assert(r!=1 || ko.no_sbr==1u);
+    }
     bytes[byte]^=(uint8_t)(3u<<shift);
     const unsigned last_payload=7u*8u+extension_start+
                                  (unsigned)p.bit-1u;

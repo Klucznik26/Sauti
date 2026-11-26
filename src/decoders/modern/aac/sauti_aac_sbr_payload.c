@@ -64,6 +64,14 @@ static int ps_extension_parse(const uint8_t *data,size_t size,size_t *pos,
     return 1;
 }
 
+/* bs_sbr_crc_bits: the CRC runs from the first bit after itself up to the end of the syntax or, as the encoders of the ISO/IEC 14496-26 conformance streams (al_sbr_e_*) write it, up to the end of the
+ * extension including the zero bits that fill it to a byte.  Either region is accepted. */
+static int sbr_crc_ok(const uint8_t *packed,size_t len,size_t crc_start,size_t pos,size_t payload_bits,uint32_t received){
+    uint16_t calculated=0u;
+    if(sauti_aac_sbr_crc10_bits(packed,len,crc_start,pos-crc_start,&calculated) && calculated==received)return 1;
+    return payload_bits>pos && sauti_aac_sbr_crc10_bits(packed,len,crc_start,payload_bits-crc_start,&calculated) && calculated==received;
+}
+
 static int payload_parse_impl(
     const uint8_t *bytes,size_t bytes_count,
     size_t bit_start,size_t payload_bits,unsigned output_rate,
@@ -111,8 +119,11 @@ static int payload_parse_impl(
     if(v) {
         if(!sauti_aac_sbr_header_parse(packed,len,&pos,
                                       &next.header))return 0;
-    }else if(!state->initialized)
-        return 0;
+    }else if(!state->initialized){                     /* no header seen yet: SBR is not decoded (spec 4.6.18.3.1), the frame is passed on as `no_sbr` */
+        memset(out,0,sizeof(*out));
+        out->no_sbr=1u;
+        return 1;
+    }
     result.header=next.header;
     if(stage)*stage=SAUTI_SBR_PAYLOAD_TABLES;
     if(!sauti_aac_sbr_payload_build(&result.header,output_rate,&result.master,
@@ -197,16 +208,7 @@ static int payload_parse_impl(
 
     if(stage)*stage=SAUTI_SBR_PAYLOAD_PADDING;
     if(pos>payload_bits || payload_bits-pos>7u)return 0;
-    if(extension==14u){
-        uint16_t calculated=0u;
-        /* bs_sbr_crc_bits protects sbr_extension_data after itself, up to
-         * its syntactic end. The extension type and byte-alignment fill are
-         * outside that region. Check before committing differential state. */
-        if(!sauti_aac_sbr_crc10_bits(packed,len,crc_start,pos-crc_start,
-                                     &calculated) ||
-           calculated!=received_crc)
-            return 0;
-    }
+    if(extension==14u && !sbr_crc_ok(packed,len,crc_start,pos,payload_bits,received_crc))return 0;
     result.payload_data_bits=(uint32_t)pos;
     /* bs_fill_bits in this subset are required to be zero. */
     while(pos<payload_bits) {
@@ -362,7 +364,11 @@ int sauti_aac_sbr_payload_cpe_parse(
     SautiAacSbrPayloadCpeState next=*state;
     if(v){
         if(!sauti_aac_sbr_header_parse(packed,len,&pos,&next.header))return 0;
-    }else if(!state->initialized)return 0;
+    }else if(!state->initialized){                     /* no header seen yet: see the mono variant */
+        memset(out,0,sizeof(*out));
+        out->channel[0].no_sbr=out->channel[1].no_sbr=1u;
+        return 1;
+    }
     SautiAacSbrMaster master;
     SautiAacSbrTables tables;
     SautiAacSbrPatches patches;
@@ -432,12 +438,7 @@ int sauti_aac_sbr_payload_cpe_parse(
     }
     if(!bits(packed,len,&pos,1u,&v) || v || pos>payload_bits ||
        payload_bits-pos>7u)return 0;
-    if(extension==14u){
-        uint16_t calculated=0u;
-        if(!sauti_aac_sbr_crc10_bits(packed,len,crc_start,pos-crc_start,
-                                     &calculated) || calculated!=received_crc)
-            return 0;
-    }
+    if(extension==14u && !sbr_crc_ok(packed,len,crc_start,pos,payload_bits,received_crc))return 0;
     const uint32_t data_bits=(uint32_t)pos;
     while(pos<payload_bits)
         if(!bits(packed,len,&pos,1u,&v) || v)return 0;

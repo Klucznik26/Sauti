@@ -120,7 +120,7 @@ int sauti_aac_he_adts_cpe_decode_ex(
     const int synthesized=sauti_aac_lc_cpe_synthesize(
         &cpe,rate,next.core,rendered,reason);
     if(synthesized!=1)return synthesized;
-    next.frames++;
+    if(!side.channel[0].no_sbr)next.frames++;                      /* frames counts the frames that carried SBR (state->sbr.frames); one before the first sbr_header does not */
     *state=next;memcpy(pcm,rendered,sizeof(rendered));*payload=side;
     *reason=SAUTI_AAC_REASON_OK;
     return 1;

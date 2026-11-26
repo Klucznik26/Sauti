@@ -31,6 +31,7 @@ def one(f):                                                       # -> (status, 
     g = subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', f, '-f', 'f32le', '-acodec', 'pcm_f32le', t], capture_output=True, text=True)
     if g.returncode or not os.path.exists(t) or os.path.getsize(t) == 0: return 'SKIP', '%-24s FFmpeg cannot decode (%s)' % (n, g.stderr.strip().splitlines()[-1:] if g.stderr else '')
     a = np.fromfile(o, '<f4').reshape(-1, ch); b = np.fromfile(t, '<f4')
+    if ch == 1 and len(b) % 2 == 0 and len(b) // 2 == len(a): b = b.reshape(-1, 2)[:, :1]           # FFmpeg "treats HE-AAC mono as stereo": the same signal in both channels
     if len(b) % ch: return 'SKIP', '%-24s FFmpeg channel count differs' % n
     b = b.reshape(-1, ch); res = [best(a[:, c], b[:, c], 2600) for c in range(ch)]; res = [x for x in res if x]
     if not res: return 'LOW', '%-24s too short to compare' % n

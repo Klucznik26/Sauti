@@ -75,6 +75,8 @@ int sauti_aac_sbr_channel_frame(SautiAacSbrChannel *ch,const float core[1024],
 int sauti_aac_sbr_channel_frame_low(SautiAacSbrChannel *ch,const SautiAacSbrComplex *low,const SautiAacSbrPayloadFrame *f,SautiAacSbrComplex grid[]);   /* stereoConfigIndex 3: the low band is given (slots * 32), the QMF analysis state is not touched */
 
 /* 32 slots of the grid -> 2048 PCM samples at twice the core rate (4:1: 64 slots -> 4096 samples; the grid and pcm buffers are twice as large). */
+/* The frame of a stream that has not sent an sbr_header yet (SautiAacSbrPayloadFrame.no_sbr): core signal through the low band, high band silent.  1 / 0. */
+int sauti_aac_sbr_channel_core_only(SautiAacSbrChannel *ch,const float core[1024],SautiAacSbrComplex grid[]);
 int sauti_aac_sbr_channel_synthesize(SautiAacSbrChannel *ch,
                                      const SautiAacSbrComplex grid[],
                                      float pcm[]);

@@ -311,13 +311,22 @@ static void test_atomic_failure_modes(void) {
     b.data[0]=(uint8_t)(12u<<4u)|(b.data[0]&0x0fu);
     REJECT(b.data,sizeof(b.data),0u,b.bit,48000u);
     b.data[0]=(uint8_t)(14u<<4u)|(b.data[0]&0x0fu);
-    REJECT(b.data,sizeof(b.data),0u,b.bit,48000u);
+    {   /* a CRC type on a payload without CRC bits: the shifted fields read as a frame without header (no_sbr) or are rejected, and the state does not change either way */
+        SautiAacSbrPayloadState before=state;SautiAacSbrPayloadFrame nf;
+        const int r=sauti_aac_sbr_payload_sce_parse(b.data,sizeof(b.data),0u,b.bit,48000u,&state,&nf);
+        assert(r==0 || nf.no_sbr==1u);
+        assert(memcmp(&before,&state,sizeof(state))==0);
+    }
     b.data[0]=(uint8_t)orig;
 
     Bits without_header;
     payload(&without_header,&hdr,&tab,0u,0u,0u);
-    REJECT(without_header.data,sizeof(without_header.data),
-           0u,without_header.bit,48000u);
+    {   /* no sbr_header seen yet: not an error, the frame is reported as no_sbr and the state stays untouched (SBR starts at the first header) */
+        SautiAacSbrPayloadState before=state;SautiAacSbrPayloadFrame nf;
+        memset(&nf,0x5a,sizeof(nf));
+        assert(sauti_aac_sbr_payload_sce_parse(without_header.data,sizeof(without_header.data),0u,without_header.bit,48000u,&state,&nf)==1);
+        assert(nf.no_sbr==1u && nf.tables.kx==0u && memcmp(&before,&state,sizeof(state))==0);
+    }
     Bits wrong_extension=b;
     /* Locate bs_extended_data bit using actual syntax rather than a
      * hardcoded offset. The last content bit before zero-pad. */

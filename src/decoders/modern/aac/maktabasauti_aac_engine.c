@@ -323,6 +323,11 @@ static prod_t decode_he(dec_t *d) {
         SautiAacSbrComplex *grid = d->scratch_grid;
         r = sauti_aac_he_adts_mono_temporal_decode_ex(d->frame, d->frame_len, &s->mono, core, &payload, &reason);
         if (r != 1) return r < 0 ? P_UNSUPPORTED : P_FAIL;
+        if (payload.no_sbr) {                                              /* no sbr_header yet: the core signal alone */
+            if (!sauti_aac_sbr_channel_core_only(&s->channel[0], core, grid) || !sauti_aac_sbr_channel_synthesize(&s->channel[0], grid, d->cache)) return P_FAIL;
+            if (d->ps_mode) { unsigned i; for (i = HE_FRAME_PCM; i-- > 0u;) { d->cache[2u * i + 1u] = d->cache[i]; d->cache[2u * i] = d->cache[i]; } }
+            return all_finite(d->cache, (size_t)HE_FRAME_PCM * (d->ps_mode ? 2u : 1u)) ? P_OK : P_FAIL;
+        }
         if (d->ps_mode) {
             if (!payload.has_ps) {
                 if (!s->pending_payload.has_ps) return P_FAIL;           /* nie ma czego powtorzyc */
@@ -353,7 +358,7 @@ static prod_t decode_he(dec_t *d) {
         if (r != 1) return r < 0 ? P_UNSUPPORTED : P_FAIL;
         for (i = 0; i < 1024u; i++) { c[0][i] = core2[2u * i]; c[1][i] = core2[2u * i + 1u]; }
         for (k = 0; k < 2u; k++)
-            if (!sauti_aac_sbr_channel_frame(&s->channel[k], c[k], &pl.channel[k], g2[k]) || !sauti_aac_sbr_channel_synthesize(&s->channel[k], g2[k], pcm2[k])) return P_FAIL;
+            if (!(pl.channel[k].no_sbr ? sauti_aac_sbr_channel_core_only(&s->channel[k], c[k], g2[k]) : sauti_aac_sbr_channel_frame(&s->channel[k], c[k], &pl.channel[k], g2[k])) || !sauti_aac_sbr_channel_synthesize(&s->channel[k], g2[k], pcm2[k])) return P_FAIL;
         for (i = 0; i < HE_FRAME_PCM; i++) { d->cache[2u * i] = pcm2[0][i]; d->cache[2u * i + 1u] = pcm2[1][i]; }
         return all_finite(d->cache, (size_t)HE_FRAME_PCM * 2u) ? P_OK : P_FAIL;
     }
@@ -647,6 +652,29 @@ static uint64_t default_mask(unsigned channels) {
 
 /* wariant wg PIERWSZEJ ramki (z d->frame, naglowek hd), w kolejnosci starego rejestru; probne dekodowanie na swiezym stanie, potem stan wraca do poczatkowego.  Uzywane przy otwarciu
  * i przy zmianie parametrow w srodku strumienia (E_FORMAT_CHANGED).  Ustawia czestotliwosc, kanaly, rozmiar bloku PCM i wariant; OK albo E_UNSUPPORTED_FEATURE. */
+/* The first frames of an HE-AAC stream may carry no sbr_header (and so no PS data): whether the stream is HE-AAC v2 shows only in a later frame.  The next frames are decoded on a scratch state
+ * (the container position is restored afterwards); 1 = parametric stereo found, 0 = none (or not found within the first 400 frames), -1 = the container cannot go back. */
+static int he_lookahead_ps(dec_t *d) {
+    const maktabasauti_host_t *h = d->host;
+    SautiAacHeAdtsMonoState *tmp = (SautiAacHeAdtsMonoState *)h->alloc(h->user, sizeof *tmp);
+    uint8_t *save = (uint8_t *)h->alloc(h->user, sizeof d->frame);
+    int64_t pos0 = d->cont->position ? d->cont->position(d) : h->tell(h->user, d->rd);
+    size_t save_len = d->frame_len; int found = 0, n;
+    if (!tmp || !save || pos0 < 0) { if (tmp) h->free(h->user, tmp); if (save) h->free(h->user, save); return 0; }
+    memcpy(save, d->frame, sizeof d->frame);
+    memcpy(tmp, &d->core.u.he.mono, sizeof *tmp);                                  /* the freshly reset state of the variant */
+    for (n = 0; n < 400 && !found; n++) {
+        float core[1024]; SautiAacSbrPayloadFrame pl; SautiAacReason why = SAUTI_AAC_REASON_OK; int r;
+        if (n > 0 && d->cont->fetch(d) != MAKTABASAUTI_OK) break;
+        r = sauti_aac_he_adts_mono_temporal_decode_ex(d->frame, d->frame_len, tmp, core, &pl, &why);
+        if (r != 1) break;
+        if (!pl.no_sbr && pl.has_ps) found = 1;
+    }
+    memcpy(d->frame, save, sizeof d->frame); d->frame_len = save_len;
+    h->free(h->user, tmp); h->free(h->user, save);
+    if (d->cont->seek_to ? d->cont->seek_to(d, pos0) != MAKTABASAUTI_OK : h->seek(h->user, d->rd, pos0, 0) < 0) return -1;
+    return found;
+}
 static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
     const aac_adts_hdr_t hd = *hdp; prod_t pr = P_FAIL; variant_t chosen = V_LC_STEREO;
     d->rate_index = hd.rate_index; d->core_rate = hd.rate; d->config = hd.config; d->crc_present = hd.crc_present;
@@ -748,6 +776,7 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
                 float core1[1024]; SautiAacSbrPayloadFrame payload1; SautiAacReason why = SAUTI_AAC_REASON_OK;
                 if (sauti_aac_he_adts_mono_temporal_decode_ex(d->frame, d->frame_len, &d->core.u.he.mono, core1, &payload1, &why) != 1) { pr = P_FAIL; continue; }
                 if (payload1.has_ps) { d->ps_mode = 1; d->out_channels = 2u; }
+                else if (payload1.no_sbr && d->seekable) { const int la = he_lookahead_ps(d); if (la < 0) return MAKTABASAUTI_E_CORRUPT_DATA; if (la) { d->ps_mode = 1; d->out_channels = 2u; } }
                 core_reset(d);
             }
             pr = order[k] <= V_LC_MULTI ? decode_lc(d) : decode_he(d);

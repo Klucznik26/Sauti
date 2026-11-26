@@ -68,6 +68,7 @@ typedef struct {
     SautiUsacHbeFrame hbe;      /* eSBR harmonic transposer fields of this frame (all zero = classic patching) */
     SautiUsacPvcFrame pvc;      /* eSBR PVC frame (pvc.active): the envelope comes from the predictor; env_edges / grid describe the SBR time grid */
     uint32_t payload_data_bits; /* bits consumed, excluding pad to byte */
+    uint32_t no_sbr;            /* 1: the stream has not sent an sbr_header yet, this frame carries nothing to decode (everything else is zero): the decoder outputs the core signal through the QMF banks with silent high band, like FFmpeg */
 } SautiAacSbrPayloadFrame;
 
 /* output_rate: SBR output rate (twice the AAC-LC core sample rate).

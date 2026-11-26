@@ -580,6 +580,27 @@ static int channel_frame_impl(SautiAacSbrChannel *ch,const float *core,const Sau
     return 1;
 }
 
+/* No sbr_header has been received yet: the core signal alone goes through the analysis and the synthesis bank (all 32 low bands, the high band silent) with the same delay as a decoded frame, so
+ * that the first real frame joins without a break.  Classic 2:1 (32 slots, 32 analysis bands) only. */
+int sauti_aac_sbr_channel_core_only(SautiAacSbrChannel *ch,const float core[1024],SautiAacSbrComplex grid[]){
+    if(!ch || !core || !grid || ch->ready!=1u || ch->ld || ch->analysis_bands==16u || ch->analysis_bands==24u)return 0;
+    const unsigned SLOTS=ch->frame_slots?ch->frame_slots:SAUTI_AAC_SBR_CHANNEL_SLOTS,HIST=2u+6u;
+    const unsigned core_len=ch->frame_slots?ch->frame_slots*32u:1024u;
+    for(unsigned i=0u;i<core_len;i++)if(!isfinite(core[i]))return 0;
+    SautiAacSbrChannel staged=*ch;
+    SautiAacSbrComplex low[SLOTS_MAX*32u],xlow[(SLOTS_MAX+14u)*32u];
+    if(!sauti_aac_sbr_qmf_analyze_32(core,core_len,SLOTS,32u,low,SLOTS*32u,&staged.analysis))return 0;
+    memcpy(xlow,staged.low_history,(size_t)HIST*32u*sizeof(SautiAacSbrComplex));
+    memcpy(xlow+(size_t)HIST*32u,low,(size_t)SLOTS*32u*sizeof(SautiAacSbrComplex));
+    memset(grid,0,sizeof(SautiAacSbrComplex)*SAUTI_AAC_SBR_CHANNEL_GRID);
+    for(unsigned i=0u;i<SLOTS;i++){
+        SautiAacSbrComplex *row=grid+(size_t)i*64u;
+        for(unsigned k=0u;k<32u;k++)row[k]=xlow[(size_t)(i+2u)*32u+k];
+    }
+    memcpy(staged.low_history,xlow+(size_t)SLOTS*32u,(size_t)HIST*32u*sizeof(SautiAacSbrComplex));
+    *ch=staged;
+    return 1;
+}
 int sauti_aac_sbr_channel_synthesize(SautiAacSbrChannel *ch,
                                      const SautiAacSbrComplex grid[],
                                      float pcm[]){
