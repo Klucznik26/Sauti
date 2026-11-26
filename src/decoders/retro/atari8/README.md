@@ -284,3 +284,15 @@ not intended for a general Atari emulator. Reference:
 https://asap.sourceforge.net/sap-format.html (Execution Model).
 Stereo regression now also asserts that the generated left and right
 sample streams differ for the synthetic dual-POKEY fixture.
+
+ASMA retry4 (ddc6c16): 19 nonzero, 9 silent, 10 failed of 38;
+seven regression tests passed. Eight budget failures (six at PC=0000),
+one parser unsupported and one SKCTL $20. Do not increase the budget
+or suppress IRQ without diagnosis. Machine records the last 16
+instruction-boundary snapshots and first transition to PC=0000 during
+a host call; renderer prints these on budget failures. Snapshot opcode
+is backing RAM, not an extra bus read; IRQ/NMI flags are sampled before
+CPU stepping. A new external comparison script checks pending entries
+against an installed ASAP executable, prints unsupported header and
+first nonzero sample at up to 60 seconds. This is onset/compatibility
+diagnostics, not waveform fidelity; no external player code imported.

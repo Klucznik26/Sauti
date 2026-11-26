@@ -17,6 +17,15 @@ typedef enum {
  * Do not reenter or modify the machine from the callback. */
 typedef void (*Atari8MachineSink)(void *, const int16_t frame[2]);
 
+/* Diagnostic snapshots at instruction boundaries, before CPU execution. */
+#define ATARI8_TRACE_SIZE 16u
+typedef struct {
+    uint16_t pc, irq_vector;
+    uint8_t opcode, sp, p;
+    bool irq, nmi;
+    uint64_t cycle;
+} Atari8Trace;
+
 /* Internal music-player machine. Do not move or copy after init:
  * CPU bus callbacks refer to this object. */
 typedef struct {
@@ -34,6 +43,9 @@ typedef struct {
     /* Set only by SAP host-scheduled playback before guest execution. */
     bool sap_host_scheduled;
     uint8_t antic_nmien, antic_nmist;
+    Atari8Trace trace[ATARI8_TRACE_SIZE], first_zero;
+    unsigned trace_next, trace_count;
+    bool entered_zero;
 } Atari8Machine;
 
 bool atari8_machine_init(Atari8Machine *m, bool ntsc, bool stereo,

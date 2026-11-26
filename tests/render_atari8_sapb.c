@@ -57,6 +57,13 @@ static bool integer(const char *s, long low, long high, long *v)
     return true;
 }
 
+static void trace_line(const Atari8Trace *t)
+{
+    fprintf(stderr," PC=%04X op=%02X SP=%02X P=%02X IRQ=%u NMI=%u vec=%04X cycle=%" PRIu64,
+            (unsigned)t->pc,(unsigned)t->opcode,(unsigned)t->sp,(unsigned)t->p,
+            (unsigned)t->irq,(unsigned)t->nmi,(unsigned)t->irq_vector,t->cycle);
+}
+
 static void diagnostic(const Atari8Sapb *s, const char *stage, Atari8SapbResult r)
 {
     fprintf(stderr,"%s failed: SAP-B status %d",stage,(int)r);
@@ -69,6 +76,19 @@ static void diagnostic(const Atari8Sapb *s, const char *stage, Atari8SapbResult 
                 m->fault_write?"write":"read",(unsigned)m->fault_address);
             if (m->fault_write)
                 fprintf(stderr," value=$%02X",(unsigned)m->fault_value);
+        }
+        if (m->status==ATARI8_MACHINE_BUDGET) {
+            fprintf(stderr,"; completed calls=%" PRIu64,(uint64_t)s->intervals);
+            if (m->entered_zero) {
+                fputs("; first transition to $0000 from",stderr);
+                trace_line(&m->first_zero);
+            }
+            fputs("; recent instructions:",stderr);
+            for (unsigned j=0;j<m->trace_count;++j) {
+                unsigned i=(m->trace_next+ATARI8_TRACE_SIZE-m->trace_count+j)%ATARI8_TRACE_SIZE;
+                trace_line(&m->trace[i]);
+                fputc(';',stderr);
+            }
         }
         if (m->status==ATARI8_MACHINE_CPU_STOP)
             fprintf(stderr,", stopped opcode $%02X",(unsigned)m->cpu.bad_opcode);

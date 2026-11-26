@@ -158,10 +158,24 @@ static void test_absent_expansion(void)
     CHECK(atari8_machine_call(&m,0x2000,100)==ATARI8_MACHINE_IO);
     CHECK(m.fault_address==0xd20f && m.fault_write && m.fault_value==0x0b);
 }
+static void test_trace(void)
+{
+    Atari8Machine m;
+    static const uint8_t code[]={0x4c,0,0};
+    CHECK(atari8_machine_init(&m,false,false,48000,false,NULL,NULL));
+    CHECK(atari8_machine_load(&m,0x2000,code,sizeof(code)));
+    CHECK(atari8_machine_call(&m,0x2000,200)==ATARI8_MACHINE_BUDGET);
+    CHECK(m.entered_zero && m.first_zero.pc==0x2000);
+    CHECK(m.first_zero.opcode==0x4c && m.first_zero.cycle==0);
+    CHECK(m.first_zero.irq_vector==0 && !m.first_zero.irq);
+    CHECK(m.trace_count==ATARI8_TRACE_SIZE);
+    CHECK(m.trace[(m.trace_next+ATARI8_TRACE_SIZE-1)%ATARI8_TRACE_SIZE].pc==0);
+}
 int main(void)
 {
     test_audio(false); test_audio(true); test_bus_cycle(); test_faults();
     test_indexed_pokey_store(); test_headless_video(); test_absent_expansion();
+    test_trace();
     puts("PASS: experimental Atari8 CPU/RAM/POKEY machine");
     return 0;
 }
