@@ -1096,3 +1096,14 @@ SAP types. Explicit --linear-mix preserves the previous renderer
 baseline; --nonlinear-mix is an alias for the new default. Added
 assertions for default selection. Final regression and byte-for-byte
 comparison against previously rendered SAP-R PCM pending.
+
+### SAP metadata
+
+Local 5c49ac1 and c12bb6f: all seven strict C99 regression tests PASS.
+TIME metadata now exposed for each B/C/D/S subsong and for R; absent,
+valid (including zero), and malformed are distinct, and LOOP is recorded
+only for valid syntax. No change to EOF/loop policy. R still uses
+payload length to determine EOF. NAME/AUTHOR/DATE are retained in
+owned NUL-terminated 256-byte fields with present/truncated flags.
+Existing printable-ASCII and quoting rules remain; repeated text tags
+use the last value. Text field regressions are pending local execution.
