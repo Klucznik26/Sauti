@@ -1137,3 +1137,23 @@ nonzero lengths. Repeat restarts the complete song, not a native loop
 point; TIME LOOP remains informational. Errors are not treated as EOF.
 Repeat and seek tests for all five types are pending local execution.
 This is still an internal interface, not production registry integration.
+
+Local bf5417b: all seven strict C99 regression executables PASS,
+including common stream whole-song repeat across B/C/D/R/S.
+
+### Sanitizer audit (2026-11-27)
+
+Local 517f9aa deterministic fuzz harness, GCC ASan/UBSan with leak
+checking and halt-on-error: PASS, 55,621 parser cases (1,654 executable
+and 1,438 register inputs accepted) and 2,500 runtime cases. All 500
+runtime opens per type succeeded. Fault observations B/C/D/R/S:
+228/280/150/0/138 (observations, not unique failing inputs). No sanitizer
+or leak reports. Guest errors from mutated instructions are expected.
+
+Added separate Clang libFuzzer parser harness checking format-specific
+structural and metadata invariants, intended for a local ASMA/SAP-R
+corpus. No third-party samples committed. Coverage-guided run pending;
+full regression suite under sanitizers also pending. These tests do
+not establish production safety, in particular replay seeks are still
+linear in position and need a resource/cancellation policy in the
+public adapter. No automatic alternate scheduler fallback enabled.
