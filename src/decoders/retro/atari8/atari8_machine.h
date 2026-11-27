@@ -39,6 +39,8 @@ typedef struct {
     Atari8Core core;
     Atari8Pcm pcm;
     uint64_t master_cycles, frames;
+    bool limit_output;
+    uint64_t output_limit; /* sink only; frames still counts generated PCM */
     Atari8PokeyProfile *pokey_profile;
     Atari8MachineSink sink;
     void *sink_context;
