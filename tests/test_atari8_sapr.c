@@ -130,8 +130,70 @@ static void test_text_metadata(void)
     CHECK(info.metadata.date.present && !strcmp(info.metadata.date.value,"1995"));
 }
 
+static void test_seek(bool stereo, bool nonlinear)
+{
+    const char *header=stereo ?
+        "SAP\r\nTYPE R\r\nSTEREO\r\nNTSC\r\nFASTPLAY 78\r\n\r\n" :
+        "SAP\r\nTYPE R\r\nFASTPLAY 78\r\n\r\n";
+    enum { registers=12, capacity=4096 };
+    uint8_t data[512];
+    size_t h=strlen(header), stride=stereo ? 18u : 9u;
+    memcpy(data,header,h);
+    memset(data+h,0,registers*stride);
+    for (unsigned i=0;i<registers;++i) {
+        uint8_t *p=data+h+i*stride;
+        p[0]=(uint8_t)(31u+i*7u);
+        p[1]=(uint8_t)((i&1u)?0xaf:0x8c);
+        p[2]=17; p[3]=0x48;
+        if(stereo) {
+            p[9]=(uint8_t)(93u-i*3u);
+            p[10]=0xa7; p[11]=21; p[12]=0x89;
+        }
+    }
+    Atari8Sapr s;
+    uint32_t rate=44100;
+    CHECK(atari8_sapr_open(&s,data,h+registers*stride,rate)==ATARI8_SAPR_OK);
+    s.nonlinear_mix=nonlinear;
+    uint64_t total=(uint64_t)registers*78u*114u*rate/s.pcm.clock_hz;
+    CHECK(total>200 && total<capacity && atari8_sapr_length(&s)==total);
+    CHECK(atari8_sapr_tell(&s)==0);
+    int16_t reference[capacity][2], sample[2];
+    for(uint64_t i=0;i<total;++i) {
+        CHECK(atari8_sapr_next(&s,reference[i])==ATARI8_SAPR_OK);
+        CHECK(atari8_sapr_tell(&s)==i+1);
+    }
+    CHECK(atari8_sapr_next(&s,sample)==ATARI8_SAPR_EOF);
+    const uint64_t targets[]={0,17,total/2,total-1,31,total,0};
+    for(unsigned k=0;k<sizeof(targets)/sizeof(targets[0]);++k) {
+        uint64_t target=targets[k];
+        CHECK(atari8_sapr_seek(&s,target)==ATARI8_SAPR_OK);
+        CHECK(atari8_sapr_tell(&s)==target && s.nonlinear_mix==nonlinear);
+        CHECK(atari8_sapr_seek(&s,total+1)==ATARI8_SAPR_BAD_FORMAT);
+        CHECK(atari8_sapr_tell(&s)==target);
+        if(target==total) {
+            CHECK(atari8_sapr_next(&s,sample)==ATARI8_SAPR_EOF);
+        } else {
+            uint64_t end=target+37<total ? target+37 : total;
+            for(uint64_t i=target;i<end;++i) {
+                CHECK(atari8_sapr_next(&s,sample)==ATARI8_SAPR_OK);
+                CHECK(sample[0]==reference[i][0] && sample[1]==reference[i][1]);
+            }
+        }
+    }
+    CHECK(atari8_sapr_seek(&s,0)==ATARI8_SAPR_OK);
+    for(uint64_t i=0;i<total;++i) {
+        CHECK(atari8_sapr_next(&s,sample)==ATARI8_SAPR_OK);
+        CHECK(sample[0]==reference[i][0] && sample[1]==reference[i][1]);
+    }
+    CHECK(atari8_sapr_next(&s,sample)==ATARI8_SAPR_EOF);
+}
+
 int main(void)
 {
+    test_seek(false,false);
+    test_seek(false,true);
+    test_seek(true,false);
+    test_seek(true,true);
     test_text_metadata();
     test_time_metadata();
     CHECK(atari8_pokey_curve[0]==0 && atari8_pokey_curve[60]==65535u);
