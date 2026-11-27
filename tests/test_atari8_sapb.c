@@ -1,4 +1,5 @@
 #include "../src/decoders/retro/atari8/atari8_sapb.h"
+#include "../src/decoders/retro/atari8/atari8_sapb_stream.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -652,8 +653,129 @@ static void test_declared_eof(void)
     }
 }
 
+typedef struct {
+    int16_t samples[2048][2];
+    size_t n;
+} StreamReference;
+
+static void capture_reference(void *ctx,const int16_t frame[2])
+{
+    StreamReference *r=ctx;
+    CHECK(r->n<2048u);
+    r->samples[r->n][0]=frame[0];
+    r->samples[r->n][1]=frame[1];
+    ++r->n;
+}
+
+static void check_stream(const uint8_t *data,size_t n,int song,bool restart)
+{
+    Atari8Sapb low;
+    StreamReference ref={0};
+    CHECK(atari8_sapb_open_mode(&low,data,n,song,44100,capture_reference,&ref,restart)==ATARI8_SAPB_OK);
+    CHECK(atari8_sapb_enable_declared_eof(&low));
+    Atari8SapbResult r=ATARI8_SAPB_OK;
+    for(unsigned i=0;i<20 && r==ATARI8_SAPB_OK;++i)
+        r=atari8_sapb_interval(&low);
+    CHECK(r==ATARI8_SAPB_EOF && ref.n==1102u);
+    Atari8SapbStream *s=NULL;
+    uint8_t owned_test[512];
+    CHECK(n<=sizeof(owned_test));
+    memcpy(owned_test,data,n);
+    CHECK(atari8_sapb_stream_open(&s,owned_test,n,song,44100,true,restart)==ATARI8_SAPB_OK);
+    memset(owned_test,0,sizeof(owned_test));
+    uint64_t length;
+    CHECK(atari8_sapb_stream_length(s,&length) && length==ref.n);
+    CHECK(atari8_sapb_stream_info(s)->type==low.info.type);
+    CHECK(atari8_sapb_stream_tell(s)==0);
+    int16_t pcm[97][2];
+    size_t got;
+    CHECK(atari8_sapb_stream_read(s,NULL,0,&got)==ATARI8_SAPB_OK && !got);
+    size_t pos=0;
+    do {
+        r=atari8_sapb_stream_read(s,pcm,97,&got);
+        CHECK(got<=ref.n-pos);
+        CHECK(!memcmp(pcm,ref.samples+pos,got*sizeof(*pcm)));
+        pos+=got;
+        CHECK(atari8_sapb_stream_tell(s)==pos);
+    } while(r==ATARI8_SAPB_OK);
+    CHECK(r==ATARI8_SAPB_EOF && pos==ref.n);
+    const uint64_t targets[]={0,17,1000,31,1102,1101,0};
+    for(unsigned k=0;k<sizeof(targets)/sizeof(targets[0]);++k) {
+        uint64_t target=targets[k];
+        CHECK(atari8_sapb_stream_seek(s,target)==ATARI8_SAPB_OK);
+        CHECK(atari8_sapb_stream_tell(s)==target);
+        CHECK(atari8_sapb_stream_seek(s,length+1)==ATARI8_SAPB_BAD_FORMAT);
+        CHECK(atari8_sapb_stream_tell(s)==target);
+        size_t expected=length-target<97u ? (size_t)(length-target) : 97u;
+        r=atari8_sapb_stream_read(s,pcm,97,&got);
+        CHECK(got==expected && r==(expected<97u?ATARI8_SAPB_EOF:ATARI8_SAPB_OK));
+        CHECK(!memcmp(pcm,ref.samples+target,got*sizeof(*pcm)));
+    }
+    atari8_sapb_stream_close(s);
+}
+
+static void test_stream(void)
+{
+    uint8_t data[512];
+    for(unsigned stereo=0;stereo<2;++stereo) {
+        size_t n=fixture(data,stereo!=0,stereo!=0);
+        Atari8SapbInfo info;
+        CHECK(atari8_sapb_parse(data,n,&info)==ATARI8_SAPB_OK);
+        static const char tags[]="TIME 00:00\r\nTIME 00:60\r\nTIME 00:00.025 LOOP\r\n";
+        size_t pos=info.binary_offset,len=sizeof(tags)-1;
+        memmove(data+pos+len,data+pos,n-pos);
+        memcpy(data+pos,tags,len); n+=len;
+        check_stream(data,n,-1,false);
+        check_stream(data,n,-1,true);
+        Atari8SapbStream *s=NULL;
+        size_t got; int16_t pcm[1][2]; uint64_t length;
+        CHECK(atari8_sapb_stream_open(&s,data,n,0,48000,true,false)==ATARI8_SAPB_OK);
+        CHECK(atari8_sapb_stream_length(s,&length) && !length);
+        CHECK(atari8_sapb_stream_read(s,pcm,1,&got)==ATARI8_SAPB_EOF && !got);
+        atari8_sapb_stream_close(s);
+        CHECK(atari8_sapb_stream_open(&s,data,n,1,48000,true,false)==ATARI8_SAPB_OK);
+        CHECK(!atari8_sapb_stream_length(s,&length));
+        CHECK(atari8_sapb_stream_read(s,pcm,1,&got)==ATARI8_SAPB_OK && got==1);
+        atari8_sapb_stream_close(s);
+    }
+    const char *headers[]={
+        "SAP\r\nTYPE C\r\nMUSIC 2000\r\nPLAYER 2000\r\nTIME 00:00.025\r\n",
+        "SAP\r\nTYPE D\r\nINIT 2000\r\nTIME 00:00.025\r\n",
+        "SAP\r\nTYPE S\r\nINIT 2000\r\nTIME 00:00.025\r\n",
+        "SAP\r\nTYPE D\r\nINIT 2000\r\nPLAYER 2100\r\nTIME 00:00.025\r\n"
+    };
+    const uint8_t ccode[]={0xff,0xff,0,0x20,11,0x20,
+        0xea,0xea,0xea,0x60,0xea,0xea,0xa9,0xaf,0x8d,1,0xd2,0x60};
+    const uint8_t loop[]={0xff,0xff,0,0x20,7,0x20,
+        0xa9,0xaf,0x8d,1,0xd2,0x4c,5,0x20};
+    const uint8_t player[]={0,0x21,0,0x21,0x60};
+    for(unsigned k=0;k<4;++k) {
+        size_t n=strlen(headers[k]), size=k?sizeof(loop):sizeof(ccode);
+        memcpy(data,headers[k],n);
+        memcpy(data+n,k?loop:ccode,size); n+=size;
+        if(k==3) { memcpy(data+n,player,sizeof(player)); n+=sizeof(player); }
+        check_stream(data,n,0,false);
+        if(k==3) check_stream(data,n,0,true);
+    }
+    /* Invalid source and a JAMming PLAYER: errors cannot be concealed
+     * by buffering or transactional seek. */
+    Atari8SapbStream *s=NULL;
+    CHECK(atari8_sapb_stream_open(&s,data,1,0,48000,true,false)==ATARI8_SAPB_BAD_FORMAT && !s);
+    size_t n=fixture(data,false,false);
+    data[n-8]=0x02;
+    CHECK(atari8_sapb_stream_open(&s,data,n,0,48000,false,false)==ATARI8_SAPB_OK);
+    CHECK(atari8_sapb_stream_seek(s,1000)==ATARI8_SAPB_RUNTIME);
+    CHECK(atari8_sapb_stream_tell(s)==0);
+    int16_t pcm[1000][2]; size_t got;
+    CHECK(atari8_sapb_stream_read(s,pcm,1000,&got)==ATARI8_SAPB_RUNTIME);
+    CHECK(atari8_sapb_stream_tell(s)==got);
+    CHECK(atari8_sapb_stream_read(s,pcm,1000,&got)==ATARI8_SAPB_RUNTIME && !got);
+    atari8_sapb_stream_close(s);
+}
+
 int main(void)
 {
+    test_stream();
     test_declared_eof();
     test_text_metadata();
     test_time_metadata();
