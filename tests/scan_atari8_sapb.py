@@ -10,10 +10,13 @@ import tempfile
 import wave
 
 
-def is_sap(path, kind):
+def is_sap(path, kind, without_player=False):
     with path.open("rb") as stream:
         header = stream.read(16386).split(b"\xff\xff", 1)[0]
-    return header.startswith(b"SAP\r\n") and ("TYPE " + kind).encode("ascii") in header.splitlines()
+    lines = header.splitlines()
+    return (header.startswith(b"SAP\r\n")
+            and ("TYPE " + kind).encode("ascii") in lines
+            and (not without_player or not any(line.startswith(b"PLAYER ") for line in lines)))
 
 
 def classify(message):
@@ -49,13 +52,17 @@ def main():
     parser.add_argument("--retry", type=Path, help="retry only non-success rows of a previous CSV report")
     parser.add_argument("--retry-frame-restart", action="store_true",
                         help="retry PLAYER budget failures with explicit legacy scheduler")
-    parser.add_argument("--type", choices=("B", "C"), default="B")
+    parser.add_argument("--type", choices=("B", "C", "D"), default="B")
+    parser.add_argument("--without-player", action="store_true",
+                        help="SAP-D only: scan files without optional PLAYER")
     args = parser.parse_args()
     if args.limit < 0 or not args.archive.is_dir() or not args.renderer.is_file():
         parser.error("invalid archive, renderer or limit")
+    if args.without_player and args.type != "D":
+        parser.error("--without-player requires --type D")
     renderer = args.renderer.resolve()
     paths = sorted(p for p in args.archive.rglob("*")
-                   if p.is_file() and p.suffix.lower() == ".sap" and is_sap(p, args.type))
+                   if p.is_file() and p.suffix.lower() == ".sap" and is_sap(p, args.type, args.without_player))
     if args.retry:
         if args.retry.resolve() == args.report.resolve():
             parser.error("retry and output reports must be different")
