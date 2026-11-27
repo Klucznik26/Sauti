@@ -1070,3 +1070,29 @@ and real SAP-R sample comparisons pending.
 Local 50a011e: all seven strict C99 regression executables PASS,
 including SAP-R mono/stereo in both mixing modes and exact DAC
 sample integration oracle. Real sample comparison remains pending.
+
+### SAP-R stereo music and default mixer (2026-11-27)
+
+A local ASAPSCAN PAL video-frame register dump of ASMA Bad Apple Stereo
+song 0 was converted to SAP-R using the diagnostic converter. 1500
+register frames (18 bytes each), 30.084s, exactly 1444021 stereo PCM
+frames at 48kHz in both mixers. Compared first 30s against original
+SAP-B rendered by external ASAP; 100ms per-channel RMS envelopes:
+
+| Mixer | L level dB | R level dB | L RMS r | R RMS r |
+|---|---:|---:|---:|---:|
+| Linear | -6.334 | -6.118 | .986002 | .949804 |
+| Nonlinear | -.446 | -.303 | .993252 | .977616 |
+
+No endpoint PCM samples in either Sauti render or ASAP reference.
+Swapped-channel correlations were lower (.818474/.849871 nonlinear),
+supporting left/right ordering for this generated stereo fixture.
+Video-frame snapshots lose within-frame writes; this is not a
+bit-exact comparison, not an independently authored stereo SAP-R file,
+and not physical hardware validation. Generated music stays local.
+
+Promote nonlinear mixing to the SAP-R open default, aligning all five
+SAP types. Explicit --linear-mix preserves the previous renderer
+baseline; --nonlinear-mix is an alias for the new default. Added
+assertions for default selection. Final regression and byte-for-byte
+comparison against previously rendered SAP-R PCM pending.
