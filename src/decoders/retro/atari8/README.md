@@ -1157,3 +1157,13 @@ full regression suite under sanitizers also pending. These tests do
 not establish production safety, in particular replay seeks are still
 linear in position and need a resource/cancellation policy in the
 public adapter. No automatic alternate scheduler fallback enabled.
+
+Local 6d85841 coverage-guided parser run (Clang libFuzzer with
+ASan/UBSan, local ASMA and generated SAP-R corpus): 1,000,000 runs
+completed in 12 seconds, average 83,333 executions/s, final cov=321,
+ft=958, active corpus=339/233 KiB, peak RSS=526 MB. No sanitizer or
+crash report in supplied final log. The log is a tail of the run,
+not a line-coverage report; coverage counters are not percentages.
+Combined with the previous deterministic harness: 1,058,121 executed
+cases (not necessarily distinct). Full regression suite under sanitizers
+and resource-bound policy for the public adapter remain pending.
