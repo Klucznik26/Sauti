@@ -10,10 +10,10 @@ import tempfile
 import wave
 
 
-def is_sapb(path):
+def is_sap(path, kind):
     with path.open("rb") as stream:
         header = stream.read(16386).split(b"\xff\xff", 1)[0]
-    return header.startswith(b"SAP\r\n") and b"TYPE B" in header.splitlines()
+    return header.startswith(b"SAP\r\n") and ("TYPE " + kind).encode("ascii") in header.splitlines()
 
 
 def classify(message):
@@ -49,12 +49,13 @@ def main():
     parser.add_argument("--retry", type=Path, help="retry only non-success rows of a previous CSV report")
     parser.add_argument("--retry-frame-restart", action="store_true",
                         help="retry PLAYER budget failures with explicit legacy scheduler")
+    parser.add_argument("--type", choices=("B", "C"), default="B")
     args = parser.parse_args()
     if args.limit < 0 or not args.archive.is_dir() or not args.renderer.is_file():
         parser.error("invalid archive, renderer or limit")
     renderer = args.renderer.resolve()
     paths = sorted(p for p in args.archive.rglob("*")
-                   if p.is_file() and p.suffix.lower() == ".sap" and is_sapb(p))
+                   if p.is_file() and p.suffix.lower() == ".sap" and is_sap(p, args.type))
     if args.retry:
         if args.retry.resolve() == args.report.resolve():
             parser.error("retry and output reports must be different")
@@ -63,7 +64,7 @@ def main():
                      if row["result"] != "rendered nonzero"}
         paths = [p for p in paths if str(p.relative_to(args.archive)) in retry]
     selected = paths[:args.limit] if args.limit else paths
-    print(f"SAP-B files: {len(paths)}; testing {len(selected)} at {args.seconds}s each", flush=True)
+    print(f"SAP-{args.type} files: {len(paths)}; testing {len(selected)} at {args.seconds}s each", flush=True)
     if not selected:
         return 1
     counts = Counter()
@@ -84,7 +85,7 @@ def main():
                 message = (proc.stderr + proc.stdout).strip()
                 if proc.returncode:
                     result = classify(message)
-                    if args.retry_frame_restart and result == "PLAYER 3 4":
+                    if args.type == "B" and args.retry_frame_restart and result == "PLAYER 3 4":
                         mode = "frame-restart"
                         output.unlink(missing_ok=True)
                         retry_proc = subprocess.run(

@@ -136,8 +136,8 @@ int main(int argc,char **argv)
     out.file=fopen(argv[2],"wb");
     if (!out.file) { perror(argv[2]); return 2; }
     ok=header(&out);
-    fprintf(stderr,"SAP-B %s, %u channel(s), song %u/%u (zero-based), interval %u cycles\n",
-        s.info.ntsc?"NTSC":"PAL",out.channels,
+    fprintf(stderr,"SAP-%c %s, %u channel(s), song %u/%u (zero-based), interval %u cycles\n",
+        s.info.type,s.info.ntsc?"NTSC":"PAL",out.channels,
         song<0?s.info.default_song:(unsigned)song,s.info.songs,s.info.interval);
     while (ok && !out.failed && out.frames<out.limit) {
         r=atari8_sapb_interval(&s);

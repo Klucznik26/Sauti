@@ -235,9 +235,50 @@ static void test_frame_restart(void)
     CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME);
     CHECK(s.machine.status==ATARI8_MACHINE_CPU_STOP);
 }
+static void test_sapc(void)
+{
+    uint8_t data[512];
+    const char *header="SAP\r\nTYPE C\r\nMUSIC 3456\r\nPLAYER 2000\r\nSONGS 3\r\nDEFSONG 2\r\n";
+    size_t n=strlen(header);
+    memcpy(data,header,n);
+    /* Independent synthetic C ABI fixture: entry table at $2000,
+     * init at $2003, tick at $2006. Init records arguments and call
+     * order. Tick increments a counter and drives primary POKEY. */
+    static const uint8_t code[]={
+        0xff,0xff,0x00,0x20,0x28,0x20,
+        0xea,0xea,0xea, 0x4c,0x09,0x20, 0x4c,0x19,0x20,
+        0x84,0x88,0xa4,0x90,0x99,0x80,0x00,0x8a,0x99,0x84,0x00,
+        0xe6,0x90,0x60,0xea,0xea,
+        0xe6,0x91,0xa5,0x91,0x8d,0x00,0xd2,
+        0xa9,0xaf,0x8d,0x01,0xd2,0x60,0xea,0xea,0xea,
+        0x56,0x34,0x56,0x34,0x42
+    };
+    memcpy(data+n,code,sizeof(code)); n+=sizeof(code);
+    Atari8Sapb s;
+    Atari8SapbInfo i;
+    CHECK(atari8_sapb_parse(data,n,&i)==ATARI8_SAPB_OK);
+    CHECK(i.type=='C' && i.music==0x3456 && i.player==0x2000);
+    CHECK(atari8_sapb_open(&s,data,n,-1,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    CHECK(s.machine.ram[0x90]==2 && s.machine.ram[0x80]==0x70 &&
+          s.machine.ram[0x81]==0 && s.machine.ram[0x84]==0x56 &&
+          s.machine.ram[0x85]==2 && s.machine.ram[0x88]==0x34);
+    CHECK(s.machine.frames==0);
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+    CHECK(s.machine.ram[0x91]==1 && s.machine.core.pokey[0].audf[0]==1);
+    CHECK(atari8_sapb_open(&s,data,n,1,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    CHECK(s.machine.ram[0x85]==1);
+    CHECK(atari8_sapb_open_mode(&s,data,n,0,48000,NULL,NULL,true)==ATARI8_SAPB_UNSUPPORTED);
+    /* Missing music image, wrong header and out-of-range entry table. */
+    CHECK(atari8_sapb_parse(data,n-5,&i)==ATARI8_SAPB_BAD_FORMAT);
+    memcpy(data+13,"INIT ",5);
+    CHECK(atari8_sapb_parse(data,n,&i)==ATARI8_SAPB_BAD_FORMAT);
+    memcpy(data+13,"MUSIC",5);
+    memcpy(data+32,"FFFD",4);
+    CHECK(atari8_sapb_parse(data,n,&i)!=ATARI8_SAPB_OK);
+}
 int main(void)
 {
-    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh(); test_legacy_vbi_chain(); test_frame_restart();
-    puts("PASS: experimental Atari8 SAP-B");
+    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh(); test_legacy_vbi_chain(); test_frame_restart(); test_sapc();
+    puts("PASS: experimental Atari8 SAP-B/C");
     return 0;
 }

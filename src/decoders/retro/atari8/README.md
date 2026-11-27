@@ -474,3 +474,25 @@ playback policy. This is a diagnostic policy, not automatic production
 fallback. Repeat the full scan with the flag to obtain one combined
 report. The legacy mode deliberately permits abandoning guest call
 frames; it must remain explicit until further validation.
+
+### SAP-B milestone and SAP-C initial implementation
+
+Complete user-run combined scan at df2ea28: 3824/3824 ASMA SAP-B
+files rendered (3814 nonzero standard, 9 silent standard, 1 nonzero
+frame-restart). Three seconds, default subsong. No conversion errors.
+Not an audio-accuracy, full-duration or all-subsong certification.
+Chromatics requires the explicit alternate policy; no production fallback
+or gain change is introduced. Before Sauti 1.0, a detailed licensing and
+provenance audit remains a release gate, including tables and dependencies.
+
+SAP-C (CMC calling convention) now shares the B parser, segment loader,
+CPU, POKEY and normal scheduler. Header MUSIC replaces INIT. Initialization
+uses PLAYER+3 twice: first A=$70, X/Y music address, then A=0 and X selected
+subsong. Recurring calls enter PLAYER+6. Entry arithmetic is bounded before
+narrowing; missing segments and incompatible header tags are rejected.
+Frame-restart remains B-only. Existing internal sapb names retained for
+compatibility, renderer prints the actual type. Synthetic tests cover ABI,
+subsong selection, tick and malformed input. Scanner --type C selects
+real C files without changing B default. No external player code or music
+included. Real C corpus and regression runs pending.
+Reference: https://asap.sourceforge.net/sap-format.html (TYPE C ABI).

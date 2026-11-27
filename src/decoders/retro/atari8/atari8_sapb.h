@@ -9,7 +9,8 @@ typedef enum {
 
 typedef struct {
     size_t binary_offset;
-    uint16_t init, player;
+    uint16_t init, player, music;
+    char type; /* B or C; player is the original header address. */
     unsigned songs, default_song;
     uint32_t interval;
     bool ntsc, stereo;
