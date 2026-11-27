@@ -221,6 +221,9 @@ Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
     if (!atari8_machine_init(&s->machine,info.ntsc,info.stereo,rate,true,NULL,NULL))
         return s->status = ATARI8_SAPB_UNSUPPORTED;
     s->machine.sap_host_scheduled = true;
+    /* Hardware-inspired analog saturation is the SAP playback default.
+     * Raw machine diagnostics retain linear PCM. */
+    s->machine.nonlinear_mix = true;
     r = segments(data,size,&info,&s->machine);
     if (r != ATARI8_SAPB_OK) return s->status = r;
     s->machine.cpu.a = (uint8_t)(song < 0 ? info.default_song : (unsigned)song);
