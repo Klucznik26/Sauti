@@ -51,12 +51,12 @@ static Atari8SapbResult segments(const uint8_t *data, size_t size,
                                 const Atari8SapbInfo *info, Atari8Machine *m)
 {
     size_t pos = info->binary_offset;
-    bool any = false, init = false, player = false, music = info->type!='C';
+    bool any = false, init = false, player = info->type=='D', music = info->type!='C';
     if (info->type=='C' && info->player>0xfff8u)
         return ATARI8_SAPB_UNSUPPORTED;
     unsigned entry_init=init_entry(info), entry_play=play_entry(info);
-    if (!valid_entry(info->player) || !valid_entry(entry_init) ||
-        !valid_entry(entry_play))
+    if (!valid_entry(entry_init) || (info->type!='D' &&
+        (!valid_entry(info->player) || !valid_entry(entry_play))))
         return ATARI8_SAPB_UNSUPPORTED;
     while (pos < size) {
         if (size - pos >= 2 && le16(data + pos) == 0xffffu)
@@ -122,7 +122,7 @@ Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
         if (eq(line,k,"TYPE")) {
             bit = TYPE;
             if (n != 1) return ATARI8_SAPB_BAD_FORMAT;
-            if (*a != 'B' && *a != 'C') return ATARI8_SAPB_UNSUPPORTED;
+            if (*a != 'B' && *a != 'C' && *a != 'D') return ATARI8_SAPB_UNSUPPORTED;
             x.type=(char)*a;
         } else if (eq(line,k,"INIT") || eq(line,k,"PLAYER") || eq(line,k,"MUSIC")) {
             bit = eq(line,k,"INIT") ? INIT : (eq(line,k,"PLAYER") ? PLAYER : MUSIC);
@@ -157,12 +157,20 @@ Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
         if (seen & bit) return ATARI8_SAPB_BAD_FORMAT;
         seen |= bit;
     }
-    if ((seen & (TYPE|PLAYER)) != (TYPE|PLAYER) ||
-        !x.binary_offset || x.default_song >= x.songs || times > x.songs)
+    if (!(seen & TYPE) || !x.binary_offset ||
+        x.default_song >= x.songs || times > x.songs)
         return ATARI8_SAPB_BAD_FORMAT;
-    if (x.type=='B' ? (!(seen & INIT) || (seen & MUSIC)) :
-                      (!(seen & MUSIC) || (seen & INIT)))
-        return ATARI8_SAPB_BAD_FORMAT;
+    if (x.type=='C') {
+        if (!(seen & PLAYER) || !(seen & MUSIC) || (seen & INIT))
+            return ATARI8_SAPB_BAD_FORMAT;
+    } else {
+        if (!(seen & INIT) || (seen & MUSIC) ||
+            (x.type=='B' && !(seen & PLAYER)))
+            return ATARI8_SAPB_BAD_FORMAT;
+        /* D1: periodic PLAYER injection is not implemented yet. */
+        if (x.type=='D' && (seen & PLAYER))
+            return ATARI8_SAPB_UNSUPPORTED;
+    }
     x.interval = (fast ? fast : (x.ntsc ? 262u : 312u)) * 114u;
     Atari8SapbResult r = segments(data,size,&x,NULL);
     if (r == ATARI8_SAPB_OK) *info = x;
@@ -218,6 +226,17 @@ Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
     r = segments(data,size,&info,&s->machine);
     if (r != ATARI8_SAPB_OK) return s->status = r;
     s->machine.cpu.a = (uint8_t)(song < 0 ? info.default_song : (unsigned)song);
+    if (info.type=='D') {
+        /* INIT is the running program, not a host subroutine. Audio
+         * begins at entry; preserve CPU and master phase across chunks. */
+        s->machine.cpu.pc = info.init;
+        s->machine.cpu.sp = 0xff;
+        s->machine.cpu.p = ATARI8_CPU_U;
+        s->next_deadline = 0;
+        s->machine.sink = sink;
+        s->machine.sink_context = context;
+        return s->status = ATARI8_SAPB_OK;
+    }
     if (frame_restart) {
         s->machine.cpu.sp = 0xff;
         s->machine.cpu.p = ATARI8_CPU_U | (s->machine.cpu.a ? 0 : ATARI8_CPU_Z);
@@ -313,6 +332,17 @@ Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s)
     if (!s) return ATARI8_SAPB_BAD_FORMAT;
     if (s->status != ATARI8_SAPB_OK) return s->status;
     if (s->frame_restart) return restart_interval(s);
+    if (s->info.type=='D') {
+        /* Absolute boundaries carry instruction/WSYNC overshoot into
+         * the next chunk instead of accumulating timing drift. */
+        s->next_deadline += s->info.interval;
+        while (s->machine.master_cycles < s->next_deadline) {
+            if (atari8_machine_step(&s->machine)!=ATARI8_MACHINE_OK)
+                return s->status=ATARI8_SAPB_RUNTIME;
+        }
+        ++s->intervals;
+        return ATARI8_SAPB_OK;
+    }
     uint64_t start = s->machine.master_cycles;
     /* Compatibility policy: finish an overlong call, never reenter it.
      * Skip elapsed deadlines and return to the original FASTPLAY grid.
