@@ -95,7 +95,9 @@ def main():
     p.add_argument("--only",help="case-insensitive substring of relative SAP path")
     p.add_argument("--all",action="store_true",help="compare every selected report row, including successful renders")
     p.add_argument("--stats",action="store_true",help="print per-second PCM peak and RMS")
-    p.add_argument("--frame-restart",action="store_true",help="opt in to experimental Sauti scheduler")
+    mode=p.add_mutually_exclusive_group()
+    mode.add_argument("--frame-restart",action="store_true",help="opt in to experimental Sauti scheduler for all rows")
+    mode.add_argument("--report-mode",action="store_true",help="use each row\u0027s recorded Sauti scheduler")
     a=p.parse_args()
     if not a.asap.is_file() or not a.renderer.is_file():
         p.error("ASAP or Sauti executable missing")
@@ -112,7 +114,14 @@ def main():
                 print("Invalid path:",r["file"],flush=True)
                 continue
             header=src.read_bytes().split(b"\xff\xff",1)[0]
-            print("\n"+r["file"],flush=True)
+            song=r.get("song")
+            if song is not None and (not re.fullmatch(r"[0-9]{1,3}",song) or int(song)>255):
+                p.error(f"invalid subsong in report: {r['file']}")
+            restart=a.frame_restart or (a.report_mode and r.get("mode")=="frame-restart")
+            if a.report_mode and r.get("mode") not in ("standard","frame-restart"):
+                p.error(f"invalid scheduler in report: {r['file']}")
+            print("\n"+r["file"]+(f" [song {song}]" if song is not None else "")+
+                  (" [frame-restart]" if restart else ""),flush=True)
             if a.stats:
                 print("SHA256:",hashlib.sha256(src.read_bytes()).hexdigest(),flush=True)
             if r["result"]=="INIT/parse 2":
@@ -122,11 +131,16 @@ def main():
                 output.unlink(missing_ok=True)
                 if label=="Sauti":
                     cmd=[str(exe.resolve()),str(src),str(output),str(a.seconds)]
-                    if a.frame_restart:
+                    if song is not None:
+                        cmd.append(song)
+                    if restart:
                         cmd.append("--frame-restart")
                 else:
                     cmd=[str(exe.resolve()),"-o",str(output),"-t",
-                         f"{a.seconds//60:02d}:{a.seconds%60:02d}","-R","48000",str(src)]
+                         f"{a.seconds//60:02d}:{a.seconds%60:02d}","-R","48000"]
+                    if song is not None:
+                        cmd.extend(["-s",song])
+                    cmd.append(str(src))
                 try:
                     run=subprocess.run(cmd,capture_output=True,text=True,errors="replace",timeout=60)
                     if run.returncode:
