@@ -687,3 +687,24 @@ frame may leak stack entries; count abandoned calls and compare sound
 with the reference, including full duration, before considering any
 production use. JAM and unsupported I/O still fail. Default D watchdog
 and B/C paths unchanged. New synthetic regression awaits local test.
+
+### SAP-D periodic IRQ entry correction
+
+Fedora at ab6ccec: regression PASS. Experimental frame injection
+rendered 15 seconds of all six formerly failing files. Lemmings and
+four Vaxeen files had nonzero PCM throughout all 15 one-second bins;
+75–117 abandoned calls each. Das Omen Intro had 740 abandoned calls
+and silence after the first second while ASAP remained active.
+Consequently rendering coverage is not equivalent to playback accuracy.
+RMS levels generally lower than ASAP; no gain adjustment made.
+
+Hypothesis from the pending IRQ trace: periodic service must be able
+to execute while INIT has a pending timer IRQ. Set I at entry in both
+D schedulers, restore interrupted flags on normal return, leave timer
+pending state untouched. Guest CLI can still enable IRQ. This models
+one aspect of an interrupt-like service, not cycle-exact NMI entry.
+The SAP specification does not explicitly prescribe PLAYER entry I.
+Synthetic pending-IRQ regression added. Retest Das Omen in standard
+mode first, then experiment with frame injection only if required;
+rescan the entire D corpus and retest the five compatibility files.
+No production fallback or fidelity claim yet.
