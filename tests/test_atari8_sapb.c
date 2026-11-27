@@ -54,6 +54,7 @@ static void test_play(bool stereo)
     CHECK(s.machine.ram[0x80]==7 && s.machine.core.pokey[0].audf[0]==7);
     CHECK(s.intervals==5 && s.machine.master_cycles-start==5u*i.interval);
     CHECK(c.frames==(uint64_t)5*i.interval*48000u/s.machine.pcm.clock_hz);
+    CHECK(s.machine.nonlinear_mix);
     CHECK(c.frames==s.machine.frames && c.left>0 && (stereo?c.right>0:c.right==0));
     if (stereo) CHECK(c.different>0);
     CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
