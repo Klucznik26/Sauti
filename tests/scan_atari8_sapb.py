@@ -51,11 +51,13 @@ def main():
     parser.add_argument("--report", type=Path, default=Path("build/sapb-scan.csv"))
     parser.add_argument("--retry", type=Path, help="retry only non-success rows of a previous CSV report")
     parser.add_argument("--retry-frame-restart", action="store_true",
-                        help="retry PLAYER budget failures with explicit legacy scheduler")
+                        help="retry B/D PLAYER budget failures with explicit experimental scheduler")
     parser.add_argument("--type", choices=("B", "C", "D"), default="B")
     parser.add_argument("--without-player", action="store_true",
                         help="SAP-D only: scan files without optional PLAYER")
     args = parser.parse_args()
+    if args.retry_frame_restart and args.type not in ("B", "D"):
+        parser.error("--retry-frame-restart requires --type B or D")
     if args.limit < 0 or not args.archive.is_dir() or not args.renderer.is_file():
         parser.error("invalid archive, renderer or limit")
     if args.without_player and args.type != "D":
@@ -92,7 +94,7 @@ def main():
                 message = (proc.stderr + proc.stdout).strip()
                 if proc.returncode:
                     result = classify(message)
-                    if args.type == "B" and args.retry_frame_restart and result == "PLAYER 3 4":
+                    if args.type in ("B", "D") and args.retry_frame_restart and result == "PLAYER 3 4":
                         mode = "frame-restart"
                         output.unlink(missing_ok=True)
                         retry_proc = subprocess.run(
