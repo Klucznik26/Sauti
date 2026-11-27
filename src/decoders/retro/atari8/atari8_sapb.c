@@ -148,8 +148,9 @@ Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
         } else if (eq(line,k,"AUTHOR") || eq(line,k,"NAME") || eq(line,k,"DATE")) {
             if (n < 2 || a[0] != '"' || a[n-1] != '"') return ATARI8_SAPB_BAD_FORMAT;
         } else if (eq(line,k,"TIME")) {
-            /* Metadata only in this milestone; no automatic loop/EOF. */
-            if (!n || ++times > 256u) return ATARI8_SAPB_BAD_FORMAT;
+            /* Preserve existing acceptance; expose optional metadata. */
+            if (!n || times >= 256u) return ATARI8_SAPB_BAD_FORMAT;
+            x.time[times++] = atari8_sap_time_parse(a,n);
         } else {
             return ATARI8_SAPB_UNSUPPORTED;
         }
