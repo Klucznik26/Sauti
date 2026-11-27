@@ -1018,3 +1018,22 @@ Keep the nonlinear option, not yet default. Song 3 remains an open
 fidelity issue despite improved overall level. Add wide-integrator
 regressions and a deterministic --sample selection to compare both
 mixers on a larger corpus including stereo and other SAP types.
+
+Deterministic 8-per-type sample (79a029c local report): all 31
+nonlinear renders match declared frame counts and have absolute
+relative RMS level difference below 1 dB. All mono. Linear SAP-B
+section and regression output absent from supplied log. Paired C/D/S
+rows: 19/23 improve full envelope correlation, 22/23 improve absolute
+level difference (one unchanged). Unweighted per-subsong means:
+
+| Type | Count | Linear RMS r | Nonlinear RMS r | Linear abs dB | Nonlinear abs dB |
+|---|---:|---:|---:|---:|---:|
+| B | 8 | missing | .980233 | missing | .4550 |
+| C | 8 | .963217 | .969107 | 6.2925 | .5100 |
+| D | 8 | .935453 | .970932 | 5.05125 | .54875 |
+| S | 7 | .871425 | .995983 | 1.45857 | .45429 |
+
+All seven ASMA S entries exceed .99 full-envelope correlation with
+nonlinear mix. Keep option and test stereo explicitly before changing
+default. --stereo-only selects STEREO header rows before --sample.
+No waveform equivalence or full regression success inferred.
