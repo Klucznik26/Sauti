@@ -1126,3 +1126,14 @@ LOOP is informational; no implicit repeat or automatic scheduler fallback.
 Seek is linear in target playback time; metadata pointer returned by
 stream_info is valid only until seek/close. The new pull layer is not
 registered in production MaktabaSauti. Its sample-exact tests are pending.
+
+Local 6deb509: all seven strict C99 regression executables PASS,
+including the buffered executable SAP pull layer and seek tests.
+
+Common atari8_sap_stream now dispatches B/C/D/S to the buffered layer
+and R to the register reader. It owns the input, exposes stable metadata,
+read/length/tell/seek/reset and opt-in whole-song repeat for known,
+nonzero lengths. Repeat restarts the complete song, not a native loop
+point; TIME LOOP remains informational. Errors are not treated as EOF.
+Repeat and seek tests for all five types are pending local execution.
+This is still an internal interface, not production registry integration.
