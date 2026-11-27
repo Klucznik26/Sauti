@@ -44,7 +44,7 @@ typedef struct {
     bool sap_host_scheduled;
     /* Continuous SAP-D headless hardware profile. */
     bool sap_continuous;
-    uint8_t pia_pactl, antic_dmactl;
+    uint8_t pia_pactl, pia_pbctl, pia_portb, pia_ddrb, antic_dmactl;
     uint64_t sap_pokey_audio_writes, sap_consol_writes, sap_consol_edges;
     /* SAP-B compatibility: recognized legacy VBI chain tails only. */
     uint8_t sap_vbi_tails[8192];
