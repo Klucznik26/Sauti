@@ -622,3 +622,20 @@ OS ROM, external banks, and PIA interrupts are not emulated. This is
 an explicitly limited compatibility model, not full XL/XE banking.
 Synthetic register readback and flat memory regression added.
 Retest both failed files and all regressions before claiming coverage.
+
+### SAP-D periodic PLAYER (experimental)
+
+Confirmed on Fedora at 2c74df9: all 94 no-PLAYER files render nonzero
+(3 seconds, 48 kHz, default subsong); SAP-B/C/D1 regression PASS.
+Sound fidelity remains unverified.
+
+TYPE D now accepts optional PLAYER, validates its loaded entry and
+runs it at absolute FASTPLAY boundaries starting at time zero before
+INIT. Save and restore CPU A/X/Y/P/SP/PC across the bounded host call;
+retain guest RAM, IRQ state, master cycles and audio evolution. A call
+must return via RTS; overlong calls skip elapsed deadlines, and an
+unreturned call faults within the existing watchdog budget. Host call
+setup is not cycle-exact interrupt-entry emulation. No new ROM, video,
+COVOX or source code from other players is included.
+Synthetic tests cover registers, timing, malformed data and watchdog.
+The full 751-file SAP-D corpus (657 with PLAYER) awaits local testing.
