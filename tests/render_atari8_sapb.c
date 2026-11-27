@@ -151,7 +151,10 @@ int main(int argc,char **argv)
         remove(argv[2]);
         return 1;
     }
-    printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " player calls, %" PRIu64 " skipped deadlines, %" PRIu64 " legacy VBI returns\n",
+    if (s.info.type=='D')
+        printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " continuous CPU chunks\n",out.frames,s.intervals);
+    else
+        printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " player calls, %" PRIu64 " skipped deadlines, %" PRIu64 " legacy VBI returns\n",
         out.frames,s.intervals,s.missed_intervals,s.machine.sap_vbi_returns);
     if (restart) printf("Abandoned calls: %" PRIu64 "\n",s.abandoned_calls);
     return 0;
