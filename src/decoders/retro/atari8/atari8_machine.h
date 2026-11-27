@@ -48,6 +48,7 @@ typedef struct {
     uint8_t console_latch, fault_value;
     /* Set only by SAP host-scheduled playback before guest execution. */
     bool sap_host_scheduled;
+    bool nonlinear_mix; /* experimental, selected before output begins */
     /* Continuous SAP-D headless hardware profile. */
     bool sap_continuous;
     uint8_t pia_pactl, pia_pbctl, pia_portb, pia_ddrb;
