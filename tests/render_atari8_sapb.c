@@ -10,7 +10,7 @@ typedef struct {
     FILE *file;
     uint64_t frames, limit;
     unsigned channels;
-    bool failed;
+    bool failed, nonzero;
 } Output;
 
 static bool le(FILE *f, uint32_t value, unsigned bytes)
@@ -39,11 +39,13 @@ static void sink(void *context, const int16_t frame[2])
     Output *out = context;
     if (out->failed || out->frames >= out->limit)
         return;
-    for (unsigned i=0; i<out->channels; ++i)
-        if (!le(out->file,(uint16_t)frame[i],2)) {
+    for (unsigned i=0; i<out->channels; ++i) {
+        if (frame[i]) out->nonzero=true;
+        if (out->file && !le(out->file,(uint16_t)frame[i],2)) {
             out->failed=true;
             return;
         }
+    }
     ++out->frames;
 }
 
@@ -107,13 +109,15 @@ int main(int argc,char **argv)
 {
     bool restart=argc>1 && !strcmp(argv[argc-1],"--frame-restart");
     if (restart) --argc;
+    bool no_wav=argc>1 && !strcmp(argv[argc-1],"--no-wav");
+    if (no_wav) --argc;
     bool milliseconds=argc>1 && !strcmp(argv[argc-1],"--milliseconds");
     if (milliseconds) --argc;
     long duration=milliseconds?15000:15, song=-1;
     if (argc<3 || argc>5 || (milliseconds && argc<4) ||
         (argc>=4 && !integer(argv[3],1,milliseconds?5999999L:300L,&duration))
         || (argc==5 && !integer(argv[4],-1,255,&song))) {
-        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [duration 1..300 s] [song -1..255] [--milliseconds (1..5999999 ms)] [--frame-restart]\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [duration 1..300 s] [song -1..255] [--milliseconds (1..5999999 ms)] [--no-wav] [--frame-restart]\n",argv[0]);
         return 2;
     }
     FILE *in=fopen(argv[1],"rb");
@@ -136,9 +140,11 @@ int main(int argc,char **argv)
     if (restart) fputs("Experimental frame-restart policy enabled\n",stderr);
     out.channels=s.info.stereo?2u:1u;
     out.limit=(uint64_t)duration*(milliseconds?48u:48000u);
-    out.file=fopen(argv[2],"wb");
-    if (!out.file) { perror(argv[2]); return 2; }
-    ok=header(&out);
+    if (!no_wav) {
+        out.file=fopen(argv[2],"wb");
+        if (!out.file) { perror(argv[2]); return 2; }
+        ok=header(&out);
+    }
     fprintf(stderr,"SAP-%c %s, %u channel(s), song %u/%u (zero-based), interval %u cycles\n",
         s.info.type,s.info.ntsc?"NTSC":"PAL",out.channels,
         song<0?s.info.default_song:(unsigned)song,s.info.songs,s.info.interval);
@@ -149,11 +155,14 @@ int main(int argc,char **argv)
             ok=false;
         }
     }
-    if (fclose(out.file)) ok=false;
+    if (out.file && fclose(out.file)) ok=false;
     if (!ok || out.failed || out.frames!=out.limit) {
-        remove(argv[2]);
+        if (!no_wav) remove(argv[2]);
         return 1;
     }
+    if (no_wav)
+        printf("PCM-CHECK frames=%" PRIu64 " channels=%u rate=48000 nonzero=%u\n",
+               out.frames,out.channels,out.nonzero?1u:0u);
     if (s.info.type=='S') {
         printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " SoftSynth RAM ticks, PC=%04X, clock=%02X/%02X\n",
             out.frames,s.intervals,(unsigned)s.machine.cpu.pc,
