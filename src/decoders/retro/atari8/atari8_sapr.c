@@ -110,6 +110,7 @@ Atari8SaprResult atari8_sapr_open(Atari8Sapr *s, const uint8_t *data,
         return r;
     memset(s, 0, sizeof(*s));
     s->info = info;
+    s->nonlinear_mix = true;
     atari8_core_reset(&s->core, info.ntsc, info.stereo);
     if (!atari8_pcm_init(&s->pcm, s->core.pokey[0].clock_hz, rate,
                          info.stereo ? 2u : 1u, true)) {
