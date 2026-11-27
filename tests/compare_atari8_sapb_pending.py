@@ -11,6 +11,7 @@ import hashlib
 import math
 import struct
 import statistics
+import random
 
 def inspect(path, stats=False):
     with wave.open(str(path), "rb") as w:
@@ -150,7 +151,10 @@ def main():
     mode.add_argument("--report-mode",action="store_true",help="use each row\u0027s recorded Sauti scheduler")
     p.add_argument("--pokey-profile",action="store_true",help="print Sauti playback register write histogram")
     p.add_argument("--nonlinear-mix",action="store_true",help="enable experimental POKEY saturation curve in Sauti")
+    p.add_argument("--sample",type=int,help="deterministic sample of matching rows (seed 6502)")
     a=p.parse_args()
+    if a.sample is not None and a.sample<1:
+        p.error("--sample must be positive")
     if not a.asap.is_file() or not a.renderer.is_file():
         p.error("ASAP or Sauti executable missing")
     root=a.archive.resolve()
@@ -159,6 +163,9 @@ def main():
               and (not a.only or a.only.casefold() in r["file"].casefold())]
     if not rows:
         p.error("no matching files")
+    if a.sample is not None and len(rows)>a.sample:
+        indices=sorted(random.Random(6502).sample(range(len(rows)),a.sample))
+        rows=[rows[i] for i in indices]
     with tempfile.TemporaryDirectory(prefix="sauti-reference-") as tmp:
         for r in rows:
             src=(root/r["file"]).resolve()
