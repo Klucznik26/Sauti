@@ -1,6 +1,7 @@
 #ifndef ATARI8_SAPB_H
 #define ATARI8_SAPB_H
 #include "atari8_machine.h"
+#include "atari8_sap_time.h"
 
 typedef enum {
     ATARI8_SAPB_OK = 0, ATARI8_SAPB_BAD_FORMAT,
@@ -14,6 +15,7 @@ typedef struct {
     unsigned songs, default_song;
     uint32_t interval;
     bool ntsc, stereo, has_player;
+    Atari8SapTime time[256]; /* indexed by zero-based subsong */
 } Atari8SapbInfo;
 
 /* Internal host-scheduled decoder; no allocation, do not copy after open. */
