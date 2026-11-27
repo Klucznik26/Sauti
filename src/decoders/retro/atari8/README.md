@@ -1000,3 +1000,21 @@ mix remain approximations. Legacy path stays the default; no change
 to CPU/POKEY digital scheduling. Select --nonlinear-mix in the renderer
 and both reference comparison scripts. First local regression and
 mixer/Microx comparisons pending; no claim of physical calibration.
+
+Local 44db740 comparison: all 25 mixer fixtures completed. At DAC
+volume 15, bias 0/15/30/45 normalized RMS now 100/55.74/27.34/13.41%
+(vs ASAP 100/52.75/22.71/11.90%). Absolute response is not calibrated.
+Microx all five exact-length results, unchanged CPU/write counters:
+
+| Song | Linear RMS r | Nonlinear RMS r | Linear relative dB | Nonlinear relative dB |
+|---|---:|---:|---:|---:|
+| 0 | .752651 | .799459 | -5.30 | -.67 |
+| 1 | .995567 | .995154 | -7.13 | -.52 |
+| 2 | .996657 | .998522 | -7.08 | -.96 |
+| 3 | .666772 | .563789 | -4.71 | -.63 |
+| 4 | .996800 | .999905 | -6.71 | -.61 |
+
+Keep the nonlinear option, not yet default. Song 3 remains an open
+fidelity issue despite improved overall level. Add wide-integrator
+regressions and a deterministic --sample selection to compare both
+mixers on a larger corpus including stereo and other SAP types.
