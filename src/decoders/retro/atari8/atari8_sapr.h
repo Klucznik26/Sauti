@@ -2,6 +2,7 @@
 #define ATARI8_SAPR_H
 #include "atari8_core.h"
 #include "atari8_pcm.h"
+#include "atari8_sap_time.h"
 #include <stddef.h>
 
 typedef enum {
@@ -17,6 +18,7 @@ typedef struct {
     size_t frame_count;
     uint32_t cycles_per_frame;
     bool ntsc, stereo;
+    Atari8SapTime time; /* informational; payload determines EOF */
 } Atari8SaprInfo;
 
 typedef struct {
