@@ -30,4 +30,7 @@ bool atari8_pcm_feed(Atari8Pcm *p, const uint8_t levels[2], int16_t frame[2]);
  * input scale midstream; select a single feed function after init. */
 bool atari8_pcm_feed_u16(Atari8Pcm *p, const uint16_t levels[2], int16_t frame[2]);
 
+/* Shared analog transfer table indexed by digital POKEY sum 0..60. */
+extern const uint16_t atari8_pokey_curve[61];
+
 #endif
