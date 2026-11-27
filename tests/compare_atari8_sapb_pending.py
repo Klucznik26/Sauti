@@ -150,7 +150,9 @@ def main():
     mode.add_argument("--frame-restart",action="store_true",help="opt in to experimental Sauti scheduler for all rows")
     mode.add_argument("--report-mode",action="store_true",help="use each row\u0027s recorded Sauti scheduler")
     p.add_argument("--pokey-profile",action="store_true",help="print Sauti playback register write histogram")
-    p.add_argument("--nonlinear-mix",action="store_true",help="enable experimental POKEY saturation curve in Sauti")
+    mix=p.add_mutually_exclusive_group()
+    mix.add_argument("--nonlinear-mix",action="store_true",help="explicitly select the default saturation curve")
+    mix.add_argument("--linear-mix",action="store_true",help="select legacy linear mixer")
     p.add_argument("--sample",type=int,help="deterministic sample of matching rows (seed 6502)")
     p.add_argument("--stereo-only",action="store_true",help="filter to SAP headers with STEREO before deterministic sampling")
     a=p.parse_args()
@@ -221,6 +223,8 @@ def main():
                         cmd.append("--pokey-profile")
                     if a.nonlinear_mix:
                         cmd.append("--nonlinear-mix")
+                    elif a.linear_mix:
+                        cmd.append("--linear-mix")
                 else:
                     cmd=[str(exe.resolve()),"-o",str(output),"-t",
                          (f"{ms//60000:02d}:{ms//1000%60:02d}.{ms%1000:03d}" if a.declared_duration else f"{a.seconds//60:02d}:{a.seconds%60:02d}"),"-R","48000"]
