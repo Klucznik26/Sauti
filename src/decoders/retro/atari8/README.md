@@ -577,3 +577,23 @@ Full-duration, all-subsong and sound-fidelity
 validation remain pending.
 
 Next milestone: SAP-D implementation.
+
+### SAP-D D1 — continuous INIT (experimental)
+
+Initial support for TYPE D without a PLAYER tag. INIT starts at the
+header address with A set to the selected subsong and I clear. PCM
+starts immediately; CPU state persists across absolute FASTPLAY chunks.
+The existing SAP timing profile retains DRAM refresh, WSYNC, VCOUNT,
+POKEY IRQ and disabled ANTIC NMI delivery. No periodic PLAYER calls
+are implemented yet; D files with PLAYER explicitly return unsupported.
+GTIA CONSOL audio and COVOX remain unimplemented. No external player
+code is included. Specification: https://asap.sourceforge.net/sap-format.html
+
+Synthetic regression and 94 no-PLAYER ASMA files await local validation.
+Build the existing renderer and tests, then run:
+
+    python3 tests/scan_atari8_sapb.py "$HOME/Sauti-tools/atari8/asma" \\
+        --type D --without-player --seconds 3 --limit 0 \\
+        --report build/sapd-d1-scan.csv
+
+Do not interpret successful WAV generation as accurate sound.
