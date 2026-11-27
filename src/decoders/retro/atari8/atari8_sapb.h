@@ -23,6 +23,7 @@ typedef struct {
     Atari8SapbResult status;
     uint64_t intervals, missed_intervals;
     bool frame_restart;
+    bool unwind_abandoned; /* diagnostic experiment; off by default */
     uint64_t next_deadline, abandoned_calls, continuous_player_calls;
 } Atari8Sapb;
 
