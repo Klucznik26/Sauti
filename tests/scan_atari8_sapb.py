@@ -47,6 +47,8 @@ def main():
     parser.add_argument("--limit", type=int, default=100, help="0 tests all SAP-B files")
     parser.add_argument("--report", type=Path, default=Path("build/sapb-scan.csv"))
     parser.add_argument("--retry", type=Path, help="retry only non-success rows of a previous CSV report")
+    parser.add_argument("--retry-frame-restart", action="store_true",
+                        help="retry PLAYER budget failures with explicit legacy scheduler")
     args = parser.parse_args()
     if args.limit < 0 or not args.archive.is_dir() or not args.renderer.is_file():
         parser.error("invalid archive, renderer or limit")
@@ -69,11 +71,12 @@ def main():
     with tempfile.TemporaryDirectory(prefix="sauti-sapb-") as tmp, args.report.open(
             "w", newline="", encoding="utf-8") as report:
         writer = csv.writer(report)
-        writer.writerow(["file", "result", "diagnostic"])
+        writer.writerow(["file", "result", "diagnostic", "mode"])
         output = Path(tmp) / "test.wav"
         for index, path in enumerate(selected, 1):
             output.unlink(missing_ok=True)
             message = ""
+            mode = "standard"
             try:
                 proc = subprocess.run(
                     [str(renderer), str(path), str(output), str(args.seconds)],
@@ -81,6 +84,26 @@ def main():
                 message = (proc.stderr + proc.stdout).strip()
                 if proc.returncode:
                     result = classify(message)
+                    if args.retry_frame_restart and result == "PLAYER 3 4":
+                        mode = "frame-restart"
+                        output.unlink(missing_ok=True)
+                        retry_proc = subprocess.run(
+                            [str(renderer), str(path), str(output),
+                             str(args.seconds), "--frame-restart"],
+                            capture_output=True, text=True, errors="replace", timeout=30)
+                        message += "\nFRAME-RESTART RETRY:\n" + (retry_proc.stderr + retry_proc.stdout).strip()
+                        if retry_proc.returncode:
+                            result = classify(retry_proc.stderr + retry_proc.stdout)
+                        else:
+                            try:
+                                result = inspect_wav(output, args.seconds)
+                            except (OSError, EOFError, wave.Error):
+                                result = "invalid WAV"
+                        # A silent retry does not establish recovered sound.
+                        if result == "rendered silence":
+                            result = "frame-restart silence (unverified)"
+                        if result == "rendered nonzero":
+                            result = "rendered nonzero (frame-restart)"
                 else:
                     try:
                         result = inspect_wav(output, args.seconds)
@@ -89,13 +112,14 @@ def main():
             except subprocess.TimeoutExpired:
                 result = "timeout"
             counts[result] += 1
-            writer.writerow([str(path.relative_to(args.archive)), result, message])
+            writer.writerow([str(path.relative_to(args.archive)), result, message, mode])
             report.flush()
             if index % 25 == 0 or index == len(selected):
                 print(f"{index}/{len(selected)} completed", flush=True)
     for result, count in counts.most_common():
         print(f"{count:5}  {result}")
-    rendered = counts["rendered nonzero"] + counts["rendered silence"]
+    rendered = (counts["rendered nonzero"] + counts["rendered silence"]
+                + counts["rendered nonzero (frame-restart)"])
     print(f"Rendered: {rendered}/{len(selected)}; not a sound-accuracy test")
     print(f"Report: {args.report}")
     return 0

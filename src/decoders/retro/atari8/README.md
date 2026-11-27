@@ -450,3 +450,27 @@ or guest-specific bytes are imported. Synthetic tests cover repeated
 abandonment, normal return and JAM. The regular 3823/3824 policy is
 unchanged. Use --frame-restart on the diagnostic renderer or comparison
 script; verify the real input before considering automatic selection.
+
+### Frame-restart real-file validation (5788a52)
+
+All seven user-run C regression suites PASS. Chromatics renders
+30 seconds / 1440000 mono PCM frames at 48000 Hz with the opt-in
+scheduler. Onset 84 ms in both Sauti and ASAP. Sauti executes 1496
+PLAYER calls, all abandoned at their deadline, zero skipped deadlines.
+All thirty one-second blocks contain nonzero output. Sauti RMS ranges
+589.68–1479.49 vs ASAP 1002.60–2766.53, with broadly similar changes
+in energy over time. Output level and waveform/tempo fidelity are not
+established; no gain correction is applied on the basis of one track.
+Combined observed file coverage: 3823 standard + 1 explicit legacy
+mode = 3824/3824, across separate runs and default subsongs. No claim
+of complete SAP-B conformance or all-subsong/audio fidelity.
+
+The optional scanner flag --retry-frame-restart retries only a PLAYER
+budget failure in a new process with the alternate scheduler. CSV
+retains the original failure, both diagnostics and a separate mode
+column; recovered nonzero output is counted separately. Silent retry
+is not classified as recovery. Standard scan remains unchanged in
+playback policy. This is a diagnostic policy, not automatic production
+fallback. Repeat the full scan with the flag to obtain one combined
+report. The legacy mode deliberately permits abandoning guest call
+frames; it must remain explicit until further validation.
