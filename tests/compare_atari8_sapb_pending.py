@@ -10,6 +10,7 @@ import wave
 import hashlib
 import math
 import struct
+import statistics
 
 def inspect(path, stats=False):
     with wave.open(str(path), "rb") as w:
@@ -35,6 +36,53 @@ def inspect(path, stats=False):
                 active=sum(x!=0 for x in samples)
                 result+=f"\n  {start/rate:5.1f}s peak={peak:5d} rms={rms:8.2f} nonzero={active}/{len(samples)}"
         return result
+
+def envelope(path, expected):
+    """Bounded-memory, one-second PCM RMS; final bin can be partial."""
+    with wave.open(str(path), "rb") as w:
+        channels = w.getnchannels()
+        if (channels not in (1, 2) or w.getsampwidth() != 2
+                or w.getframerate() != 48000 or w.getnframes() != expected):
+            raise ValueError(f"unexpected WAV shape: {channels}ch {w.getframerate()}Hz {w.getnframes()} frames; expected {expected}")
+        rms, energy, sizes = [], [], []
+        remaining = expected
+        while remaining:
+            frames = min(48000, remaining)
+            data = w.readframes(frames)
+            if len(data) != frames * channels * 2:
+                raise ValueError("truncated WAV")
+            samples = struct.unpack("<" + "h" * (frames * channels), data)
+            e = sum(x*x for x in samples)
+            energy.append(e)
+            sizes.append(len(samples))
+            rms.append(math.sqrt(e/len(samples)))
+            remaining -= frames
+        return channels, rms, energy, sizes
+
+
+def compare_envelopes(left, right):
+    if left[0] != right[0] or left[3] != right[3]:
+        raise ValueError("PCM shapes differ")
+    a, b = left[1], right[1]
+    ea, eb = sum(left[2]), sum(right[2])
+    gain = f"{10*math.log10(ea/eb):+.2f} dB" if ea and eb else "undefined"
+    print(f"RMS summary: {len(a)} bins; level {gain}; "
+          f"silent bins Sauti/ASAP {a.count(0)}/{b.count(0)}")
+    for name, lo, hi in (("full", 0, len(a)), ("last 10s", max(0,len(a)-10),len(a))):
+        x, y = a[lo:hi], b[lo:hi]
+        r = (f"{statistics.correlation(x,y):.6f}"
+             if len(x)>1 and min(x)!=max(x) and min(y)!=max(y) else "undefined")
+        print(f"  {name}: RMS correlation {r}")
+    # Large per-bin mismatches after removing the global energy ratio.
+    if ea and eb:
+        scale = math.sqrt(ea/eb)
+        ranked = sorted(((abs(x-scale*y), i, x, y) for i,(x,y) in enumerate(zip(a,b))),
+                        reverse=True)[:5]
+        for _, i, x, y in ranked:
+            print(f"  difference bin {i}s: RMS Sauti={x:.2f} ASAP={y:.2f}")
+    for i in range(max(0,len(a)-5),len(a)):
+        print(f"  tail {i}s: RMS Sauti={a[i]:.2f} ASAP={b[i]:.2f}")
+
 
 def inspect_image(src, message):
     raw=src.read_bytes()
@@ -92,6 +140,7 @@ def main():
     p.add_argument("--asap",required=True,type=Path)
     p.add_argument("--renderer",type=Path,default=Path("build/render_atari8_sapb"))
     p.add_argument("--seconds",type=int,default=15,choices=range(1,61))
+    p.add_argument("--declared-duration",action="store_true",help="compare exact positive duration_ms from full-duration CSV using streamed RMS summary")
     p.add_argument("--only",help="case-insensitive substring of relative SAP path")
     p.add_argument("--all",action="store_true",help="compare every selected report row, including successful renders")
     p.add_argument("--result",action="append",help="select exact CSV result (repeatable); overrides default pending filter")
@@ -127,34 +176,54 @@ def main():
                 print("SHA256:",hashlib.sha256(src.read_bytes()).hexdigest(),flush=True)
             if r["result"] in ("INIT/parse 2","duration unknown","zero duration","invalid TIME","too many TIME tags"):
                 print(header.decode("ascii",errors="replace").strip(),flush=True)
+            ms=a.seconds*1000
+            if a.declared_duration:
+                try:
+                    ms=int(r["duration_ms"])
+                    if not 1<=ms<=5999999:
+                        raise ValueError()
+                except (KeyError,TypeError,ValueError):
+                    p.error(f"invalid positive duration for {r['file']}")
+            summaries={}
             for label,exe in (("Sauti",a.renderer),("ASAP",a.asap)):
                 output=Path(tmp)/"out.wav"
                 output.unlink(missing_ok=True)
                 if label=="Sauti":
-                    cmd=[str(exe.resolve()),str(src),str(output),str(a.seconds)]
+                    cmd=[str(exe.resolve()),str(src),str(output),str(ms if a.declared_duration else a.seconds)]
                     if song is not None:
                         cmd.append(song)
+                    if a.declared_duration:
+                        cmd.append("--milliseconds")
                     if restart:
                         cmd.append("--frame-restart")
                 else:
                     cmd=[str(exe.resolve()),"-o",str(output),"-t",
-                         f"{a.seconds//60:02d}:{a.seconds%60:02d}","-R","48000"]
+                         (f"{ms//60000:02d}:{ms//1000%60:02d}.{ms%1000:03d}" if a.declared_duration else f"{a.seconds//60:02d}:{a.seconds%60:02d}"),"-R","48000"]
                     if song is not None:
                         cmd.extend(["-s",song])
                     cmd.append(str(src))
                 try:
-                    run=subprocess.run(cmd,capture_output=True,text=True,errors="replace",timeout=60)
+                    run=subprocess.run(cmd,capture_output=True,text=True,errors="replace",timeout=max(60,ms//1000*5+60))
                     if run.returncode:
                         msg=(run.stderr+run.stdout).strip()
                         print(label+": "+msg,flush=True)
                         if label=="Sauti" and "machine status 4" in msg:
                             inspect_image(src,msg)
                     else:
-                        print(label+": "+inspect(output,a.stats),flush=True)
+                        if a.declared_duration:
+                            summaries[label]=envelope(output,ms*48)
+                            print(f"{label}: {summaries[label][0]}ch {ms/1000:.3f}s; exact frame count",flush=True)
+                        else:
+                            print(label+": "+inspect(output,a.stats),flush=True)
                         if label=="Sauti" and run.stdout.strip():
                             print(run.stdout.strip(),flush=True)
-                except (OSError,EOFError,wave.Error,subprocess.TimeoutExpired) as e:
+                except (OSError,EOFError,ValueError,wave.Error,subprocess.TimeoutExpired) as e:
                     print(label+": "+str(e),flush=True)
+            if a.declared_duration and len(summaries)==2:
+                try:
+                    compare_envelopes(summaries["Sauti"],summaries["ASAP"])
+                except ValueError as e:
+                    print("Comparison: "+str(e),flush=True)
 
 if __name__=="__main__":
     main()
