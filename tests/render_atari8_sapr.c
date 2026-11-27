@@ -2,11 +2,14 @@
 #include "../src/decoders/retro/atari8/atari8_sapr.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int main(int argc, char **argv)
 {
+    bool nonlinear=argc==4 && !strcmp(argv[3],"--nonlinear-mix");
+    if (nonlinear) --argc;
     if (argc != 3) {
-        fprintf(stderr, "Usage: %s INPUT.sapr OUTPUT.pcm\n", argv[0]);
+        fprintf(stderr, "Usage: %s INPUT.sapr OUTPUT.pcm [--nonlinear-mix]\n", argv[0]);
         return 1;
     }
     FILE *in = fopen(argv[1], "rb");
@@ -25,6 +28,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "Invalid or unsupported SAP-R\n");
         free(data); return 1;
     }
+    s.nonlinear_mix=nonlinear;
     FILE *out = fopen(argv[2], "wb");
     if (!out) { perror(argv[2]); free(data); return 1; }
     unsigned channels = atari8_core_channels(&s.core);
