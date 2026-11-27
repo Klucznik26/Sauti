@@ -146,7 +146,9 @@ Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
             if (arg != len || k != len) return ATARI8_SAPB_BAD_FORMAT;
             if (bit == STEREO) x.stereo = true; else x.ntsc = true;
         } else if (eq(line,k,"AUTHOR") || eq(line,k,"NAME") || eq(line,k,"DATE")) {
-            if (n < 2 || a[0] != '"' || a[n-1] != '"') return ATARI8_SAPB_BAD_FORMAT;
+            Atari8SapText *field=eq(line,k,"NAME") ? &x.metadata.name :
+                (eq(line,k,"AUTHOR") ? &x.metadata.author : &x.metadata.date);
+            if (!atari8_sap_text_parse(field,a,n)) return ATARI8_SAPB_BAD_FORMAT;
         } else if (eq(line,k,"TIME")) {
             /* Preserve existing acceptance; expose optional metadata. */
             if (!n || times >= 256u) return ATARI8_SAPB_BAD_FORMAT;
