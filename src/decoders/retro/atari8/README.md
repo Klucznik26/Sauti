@@ -852,3 +852,30 @@ CSV's zero-based song index to both Sauti and external asapconv (-s,
 see https://asap.sourceforge.net/convert.html). Explicit --report-mode
 uses the recorded scheduler per row; existing default behavior is
 unchanged. No decoder changes. Full durations and production work remain.
+
+### Additional subsong reference checks and declared-duration scan
+
+Fedora at 2247577: eight pending non-default subsongs compared for
+60 seconds each, zero runtime errors. Vox Regis songs 1/2/3 (zero-based)
+Sauti/ASAP onsets 7.702/7.703, 7.701/7.701, 7.701/7.701 seconds.
+Greenmon/Hello/Ray song 1 entirely silent in both players for 60 s.
+Microx songs 3/4 experimental frame-restart: both onsets 20 ms;
+53/422 abandoned calls, no skipped deadlines. Song 3 has 46 silent
+one-second bins in both players. Pearson correlations of 60 RMS bins
+for the five non-silent comparisons .99950/.99976/.99928/.99885/.99575;
+aggregate Sauti/ASAP levels -6.72/-6.42/-6.48/-4.72/-6.75 dB.
+These metrics confirm progression and explain silence, not waveform
+fidelity or correctness of experimental stack behavior.
+
+Renderer accepts explicit --milliseconds (before optional
+--frame-restart), 1..5999999 ms, exact 48 frames/ms at 48 kHz.
+Default seconds CLI remains unchanged. Scanner --full-duration tests
+all subsongs including default, using per-song TIME tags in header
+order. LOOP is recorded but only the declared interval is rendered;
+missing, invalid or zero TIME are separate untested classifications.
+WAV validation reads bounded chunks. New CSV includes song,
+duration_ms and loop; resume validates the task prefix and metadata.
+Source: https://asap.sourceforge.net/sap-format.html (TIME).
+This is a diagnostic tool, not decoder EOF/loop/seek implementation.
+Start with a small pilot per type before the entire corpus; recompile
+the renderer first. New tool changes not yet locally tested.
