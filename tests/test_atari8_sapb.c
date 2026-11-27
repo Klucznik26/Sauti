@@ -553,8 +553,42 @@ static void test_time_metadata(void)
     CHECK(t.status==ATARI8_SAP_TIME_VALID && t.duration_ms==5999999u);
 }
 
+static void test_text_metadata(void)
+{
+    uint8_t data[1024];
+    size_t n=fixture(data,false,false);
+    Atari8SapbInfo info;
+    CHECK(atari8_sapb_parse(data,n,&info)==ATARI8_SAPB_OK);
+    CHECK(!info.metadata.name.present && !info.metadata.author.present &&
+          !info.metadata.date.present);
+    static const char tags[]="NAME \"Old\"\r\nAUTHOR \"Test author\"\r\nDATE \"1992\"\r\nNAME \"New title\"\r\n";
+    size_t pos=info.binary_offset,len=sizeof(tags)-1;
+    memmove(data+pos+len,data+pos,n-pos);
+    memcpy(data+pos,tags,len); n+=len;
+    Atari8Sapb s;
+    CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    memset(data,0,n);
+    CHECK(s.info.metadata.name.present && !s.info.metadata.name.truncated &&
+          !strcmp(s.info.metadata.name.value,"New title"));
+    CHECK(!strcmp(s.info.metadata.author.value,"Test author") &&
+          !strcmp(s.info.metadata.date.value,"1992"));
+    uint8_t long_value[302];
+    memset(long_value,'x',sizeof(long_value));
+    long_value[0]=long_value[301]='"';
+    Atari8SapText t;
+    CHECK(atari8_sap_text_parse(&t,long_value,sizeof(long_value)));
+    CHECK(t.present && t.truncated && strlen(t.value)==255u);
+    CHECK(atari8_sap_text_parse(&t,long_value,257u)==false);
+    long_value[256]='"';
+    CHECK(atari8_sap_text_parse(&t,long_value,257u));
+    CHECK(!t.truncated && strlen(t.value)==255u);
+    CHECK(atari8_sap_text_parse(&t,(const uint8_t*)"\"\"",2));
+    CHECK(t.present && !t.truncated && t.value[0]=='\0');
+}
+
 int main(void)
 {
+    test_text_metadata();
     test_time_metadata();
     test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh(); test_legacy_vbi_chain(); test_frame_restart(); test_sapc(); test_sapd(); test_saps();
     puts("PASS: experimental Atari8 SAP-B/C/D/S");
