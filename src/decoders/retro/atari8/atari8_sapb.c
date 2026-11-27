@@ -217,6 +217,7 @@ Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
     s->intervals = 0;
     s->missed_intervals = 0;
     s->frame_restart = frame_restart;
+    s->unwind_abandoned = false;
     s->next_deadline = s->abandoned_calls = s->continuous_player_calls = 0;
     if (!atari8_machine_init(&s->machine,info.ntsc,info.stereo,rate,true,NULL,NULL))
         return s->status = ATARI8_SAPB_UNSUPPORTED;
@@ -312,7 +313,12 @@ static Atari8SapbResult restart_interval(Atari8Sapb *s)
             break;
         }
     }
-    if (!returned) ++s->abandoned_calls;
+    if (!returned) {
+        ++s->abandoned_calls;
+        /* Experiment only: discard the abandoned synthetic stack frame.
+         * This may change guest behavior; compare against reference. */
+        if (s->unwind_abandoned) m->cpu.sp=sp;
+    }
     if (m->master_cycles<s->next_deadline &&
         atari8_machine_idle(m,(uint32_t)(s->next_deadline-m->master_cycles))!=ATARI8_MACHINE_OK)
         return s->status=ATARI8_SAPB_RUNTIME;
@@ -398,7 +404,12 @@ static Atari8SapbResult continuous_restart_interval(Atari8Sapb *s)
             returned=true;
         }
     }
-    if (!returned) ++s->abandoned_calls;
+    if (!returned) {
+        ++s->abandoned_calls;
+        /* Experiment only: discard the abandoned synthetic stack frame.
+         * This may change guest behavior; compare against reference. */
+        if (s->unwind_abandoned) m->cpu.sp=sp;
+    }
     while (m->master_cycles>=s->next_deadline+s->info.interval) {
         s->next_deadline+=s->info.interval;
         ++s->missed_intervals;
