@@ -110,6 +110,9 @@ Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
         size_t len = pos - start;
         const uint8_t *line = data + start;
         pos += 2;
+        /* Accept empty header lines. */
+        if (len == 0)
+            continue;
         size_t k = 0;
         while (k < len && line[k] != ' ') ++k;
         size_t arg = k < len ? k + 1 : k;

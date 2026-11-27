@@ -238,7 +238,7 @@ static void test_frame_restart(void)
 static void test_sapc(void)
 {
     uint8_t data[512];
-    const char *header="SAP\r\nTYPE C\r\nMUSIC 3456\r\nPLAYER 2000\r\nSONGS 3\r\nDEFSONG 2\r\n";
+    const char *header="SAP\r\nTYPE C\r\n\r\nMUSIC 3456\r\nPLAYER 2000\r\nSONGS 3\r\nDEFSONG 2\r\n";
     size_t n=strlen(header);
     memcpy(data,header,n);
     /* Independent synthetic C ABI fixture: entry table at $2000,
@@ -270,10 +270,10 @@ static void test_sapc(void)
     CHECK(atari8_sapb_open_mode(&s,data,n,0,48000,NULL,NULL,true)==ATARI8_SAPB_UNSUPPORTED);
     /* Missing music image, wrong header and out-of-range entry table. */
     CHECK(atari8_sapb_parse(data,n-5,&i)==ATARI8_SAPB_BAD_FORMAT);
-    memcpy(data+13,"INIT ",5);
+    memcpy(data+15,"INIT ",5);
     CHECK(atari8_sapb_parse(data,n,&i)==ATARI8_SAPB_BAD_FORMAT);
-    memcpy(data+13,"MUSIC",5);
-    memcpy(data+32,"FFFD",4);
+    memcpy(data+15,"MUSIC",5);
+    memcpy(data+34,"FFFD",4);
     CHECK(atari8_sapb_parse(data,n,&i)!=ATARI8_SAPB_OK);
 }
 int main(void)

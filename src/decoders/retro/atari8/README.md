@@ -543,3 +543,37 @@ Keep ASAP, ASMA and all external diagnostic/reference material outside
 the distribution and repository. Mandatory detailed licensing and
 provenance audit immediately before Sauti 1.0 release; resolve all
 license concerns before publishing. No decoder changes in this checkpoint.
+
+### SAP-B/C final rendering validation — 2026-11-27
+
+- SAP-B: 3824/3824 rendered (100%).
+- SAP-C: 1755/1755 rendered (100%).
+- Total: 5579/5579 rendered.
+- SAP-B: 9 initial silences, 1 frame-restart recovery.
+- SAP-C: 13 initial silences verified against ASAP.
+- Fixed empty header lines in Hcl5.sap.
+- All seven regression executables PASS.
+- Zero rendering failures.
+
+Scope: 3-second scans, 48 kHz, default subsong.
+Full-duration, all-subsong and sound-fidelity
+validation remain pending.
+
+Next milestone: SAP-D implementation.
+
+### SAP-B/C final rendering validation — 2026-11-27
+
+- SAP-B: 3824/3824 rendered (100%).
+- SAP-C: 1755/1755 rendered (100%).
+- Total: 5579/5579 rendered.
+- SAP-B: 9 initial silences, 1 frame-restart recovery.
+- SAP-C: 13 initial silences verified against ASAP.
+- Fixed empty header lines in Hcl5.sap.
+- All seven regression executables PASS.
+- Zero rendering failures.
+
+Scope: 3-second scans, 48 kHz, default subsong.
+Full-duration, all-subsong and sound-fidelity
+validation remain pending.
+
+Next milestone: SAP-D implementation.
