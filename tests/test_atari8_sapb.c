@@ -353,16 +353,47 @@ static void test_sapd(void)
     CHECK(atari8_sapb_open(&s,data,n,-1,48000,NULL,NULL)==ATARI8_SAPB_OK);
     CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME);
     CHECK(s.machine.fault_address==0xd400);
-    /* D with periodic PLAYER is explicitly out of scope for D1. */
-    const char *with_player="SAP\r\nTYPE D\r\nINIT 2000\r\nPLAYER 200C\r\n";
+    /* Periodic D PLAYER runs before the first INIT instruction,
+     * changes all registers/flags, writes RAM and returns via RTS.
+     * INIT must resume with its original registers and stack. */
+    const char *with_player="SAP\r\nTYPE D\r\nINIT 2000\r\nPLAYER 2100\r\nFASTPLAY 78\r\nSONGS 3\r\nDEFSONG 2\r\n";
+    static const uint8_t periodic[]={
+        0xff,0xff,0x00,0x20,0x04,0x20,
+        0x85,0x80,0x4c,0x02,0x20, /* INIT saves A then loops */
+        0x00,0x21,0x0b,0x21,
+        0xe6,0x81,0xa9,0x99,0xa2,0x88,0xa0,0x77,
+        0x38,0x78,0xf8,0x60
+    };
     n=strlen(with_player);
     memcpy(data,with_player,n);
-    memcpy(data+n,code,sizeof(code)); n+=sizeof(code);
-    CHECK(atari8_sapb_parse(data,n,&i)==ATARI8_SAPB_UNSUPPORTED);
+    memcpy(data+n,periodic,sizeof(periodic)); n+=sizeof(periodic);
+    CHECK(atari8_sapb_parse(data,n,&i)==ATARI8_SAPB_OK && i.has_player);
+    CHECK(atari8_sapb_open(&s,data,n,-1,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    s.machine.cpu.x=0x34; s.machine.cpu.y=0x56;
+    s.machine.cpu.p=ATARI8_CPU_U|ATARI8_CPU_V;
+    for(unsigned j=1;j<=5;++j) {
+        CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+        CHECK(s.continuous_player_calls==j && s.machine.ram[0x81]==j);
+        CHECK(s.machine.ram[0x80]==2 && s.machine.cpu.pc==0x2002);
+        CHECK(s.machine.cpu.a==2 && s.machine.cpu.x==0x34 &&
+              s.machine.cpu.y==0x56 && s.machine.cpu.sp==0xff);
+        CHECK(s.machine.cpu.p==(ATARI8_CPU_U|ATARI8_CPU_V));
+        CHECK(s.machine.master_cycles>=j*i.interval &&
+              s.machine.master_cycles<j*i.interval+114u);
+    }
+    CHECK(!s.missed_intervals);
+    CHECK(atari8_sapb_parse(data,n-1,&i)==ATARI8_SAPB_BAD_FORMAT);
+    /* A non-returning PLAYER faults rather than hanging/reentering. */
+    data[n-1]=0x4c;
+    data[n++]=0x0b; data[n++]=0x21;
+    data[strlen(with_player)+13]=0x0d; /* extend second segment */
+    CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME);
+    CHECK(s.machine.status==ATARI8_MACHINE_BUDGET);
 }
 int main(void)
 {
     test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh(); test_legacy_vbi_chain(); test_frame_restart(); test_sapc(); test_sapd();
-    puts("PASS: experimental Atari8 SAP-B/C/D1");
+    puts("PASS: experimental Atari8 SAP-B/C/D");
     return 0;
 }
