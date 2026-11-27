@@ -107,10 +107,13 @@ int main(int argc,char **argv)
 {
     bool restart=argc>1 && !strcmp(argv[argc-1],"--frame-restart");
     if (restart) --argc;
-    long seconds=15, song=-1;
-    if (argc<3 || argc>5 || (argc>=4 && !integer(argv[3],1,300,&seconds))
+    bool milliseconds=argc>1 && !strcmp(argv[argc-1],"--milliseconds");
+    if (milliseconds) --argc;
+    long duration=milliseconds?15000:15, song=-1;
+    if (argc<3 || argc>5 || (milliseconds && argc<4) ||
+        (argc>=4 && !integer(argv[3],1,milliseconds?5999999L:300L,&duration))
         || (argc==5 && !integer(argv[4],-1,255,&song))) {
-        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [seconds 1..300] [song -1..255] [--frame-restart]\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [duration 1..300 s] [song -1..255] [--milliseconds (1..5999999 ms)] [--frame-restart]\n",argv[0]);
         return 2;
     }
     FILE *in=fopen(argv[1],"rb");
@@ -132,7 +135,7 @@ int main(int argc,char **argv)
     if (r!=ATARI8_SAPB_OK) { diagnostic(&s,"INIT/parse",r); return 1; }
     if (restart) fputs("Experimental frame-restart policy enabled\n",stderr);
     out.channels=s.info.stereo?2u:1u;
-    out.limit=(uint64_t)seconds*48000u;
+    out.limit=(uint64_t)duration*(milliseconds?48u:48000u);
     out.file=fopen(argv[2],"wb");
     if (!out.file) { perror(argv[2]); return 2; }
     ok=header(&out);
