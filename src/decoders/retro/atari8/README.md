@@ -1055,3 +1055,14 @@ explicit alias of default. PCM scale is selected before audible
 output (B/C INIT audio discarded and integrator reset). New default
 regression and compatibility reruns pending; do not infer production
 readiness or physical analog calibration from envelope metrics.
+
+Local ad2c277 regression: all seven test executables PASS under
+C99 -Wall -Wextra -Werror -pedantic -O2 (core, CPU, machine, PCM,
+POKEY, SAP-B/C/D/S, SAP-R). Shared the same unmodified saturation
+LUT between machine and SAP-R paths. SAP-R still defaults to linear
+pending validation; its standalone renderer accepts --nonlinear-mix.
+Added tests for both modes in mono/stereo and exact per-sample
+comparison with a direct cycle-fed DAC oracle with independent
+left/right sequences. This is an integration oracle using the same
+PCM integrator, not a physical hardware reference. Regression rerun
+and real SAP-R sample comparisons pending.
