@@ -1194,3 +1194,30 @@ return a valid consumed prefix, and subsequent reads can resume.
 These are work-size bounds, not wall-clock deadlines or cancellation.
 Low-level diagnostic APIs are unchanged. Regression tests for the
 resource policy are pending local execution.
+
+### Session checkpoint: Face of the Galaxy scheduler transition
+
+Local e09c10f: diagnostic renderer built with strict C99. Face of the
+Galaxy song 0, 345.730s, nonlinear mixer, external ASAP comparison:
+
+| Scheduler | Full RMS r | Last 10s r | Relative level | Abandoned calls |
+|---|---:|---:|---:|---:|
+| Restart from open | .963728 | -.029649 | -.46 dB | 2221 |
+| Standard then switch after 729 calls | .948963 | -.386351 | -.41 dB | 2221 |
+
+Both rendered exactly 16,595,040 mono frames at 48kHz, 20,718 calls,
+zero skipped deadlines and zero silent one-second bins. Transition at
+PCM frame 583951, master cycle 21774253. In the 270–300s window the
+transition improves RMS r from .287572 to .946895, but 300–330s
+worsens from .517399 to -.104251. Reject promotion of the hybrid
+scheduler; retain --switch-after as a diagnostic only. No production
+emulator behavior changed. RMS envelopes do not establish fidelity.
+
+Session stop: user prefers to finish the Atari8 format family before
+MaktabaSauti integration. SAP remains experimental: 12 compatibility
+subsongs, detailed POKEY timing/noise and seek efficiency unresolved.
+Next SAP session: investigate phase/state divergence using targeted
+reference traces rather than another unvalidated global scheduler change.
+Then native Atari8 formats (RMT first), with shared Atari8 backend and
+family-level integration deferred until appropriate. Keep reference tools
+and music external. No additional local test requested at this checkpoint.
