@@ -149,6 +149,7 @@ def main():
     mode.add_argument("--frame-restart",action="store_true",help="opt in to experimental Sauti scheduler for all rows")
     mode.add_argument("--report-mode",action="store_true",help="use each row\u0027s recorded Sauti scheduler")
     p.add_argument("--pokey-profile",action="store_true",help="print Sauti playback register write histogram")
+    p.add_argument("--preserve-audctl-counters",action="store_true",help="experimental: do not reload counters or waveform flip-flops on AUDCTL changes during playback")
     a=p.parse_args()
     if not a.asap.is_file() or not a.renderer.is_file():
         p.error("ASAP or Sauti executable missing")
@@ -199,6 +200,8 @@ def main():
                         cmd.append("--frame-restart")
                     if a.pokey_profile:
                         cmd.append("--pokey-profile")
+                    if a.preserve_audctl_counters:
+                        cmd.append("--preserve-audctl-counters")
                 else:
                     cmd=[str(exe.resolve()),"-o",str(output),"-t",
                          (f"{ms//60000:02d}:{ms//1000%60:02d}.{ms%1000:03d}" if a.declared_duration else f"{a.seconds//60:02d}:{a.seconds%60:02d}"),"-R","48000"]
