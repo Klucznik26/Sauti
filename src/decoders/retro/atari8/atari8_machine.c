@@ -105,6 +105,9 @@ static uint8_t bus_read(void *context, uint16_t a)
         unsigned reg = a & 15u;
         if (m->sap_continuous && reg<=9u)
             return 0xff; /* write-only video registers and unused 6/8 */
+        /* No attached light pen, no beam latch event in this profile. */
+        if (m->sap_continuous && (reg==12u || reg==13u))
+            return 0xff; /* deterministic idle approximation */
         if (reg == 11)
             return (uint8_t)((m->master_cycles / 114u %
                               (m->ntsc ? 262u : 312u)) / 2u);
@@ -210,6 +213,31 @@ static void bus_write(void *context, uint16_t a, uint8_t value)
     if (m->sap_continuous && (a & 0xff00u)==0xd200u &&
         (a & 15u)<=8u)
         ++m->sap_pokey_audio_writes;
+    /* The SAP audio execution model requires POKEY timers but not
+     * keyboard/SIO events. Preserve all three timer enable bits;
+     * explicitly count requests for unmodeled external IRQ sources.
+     * Strict and B/C profiles still reject unsupported IRQEN bits. */
+    if (m->sap_continuous && (a & 0xff00u)==0xd200u) {
+        if ((a & 15u)==14u && (value & 0xf8u)) {
+            ++m->sap_non_timer_irq_requests;
+            value &= 7u;
+        }
+        /* SKCTL $23 selects a serial output clock with normal audio
+         * clocks running. In the disconnected SIO profile it has the
+         * same modeled audio behavior as $03; retain raw SKCTL below. */
+        if ((a & 15u)==15u && value==0x23u) {
+            unsigned chip=m->core.stereo && (a & 0x10u) ? 1u : 0u;
+            if (!atari8_core_write(&m->core,a,3u)) {
+                io_fault(m,a,true);
+                m->fault_value=value;
+                return;
+            }
+            m->core.pokey[chip].skctl=value;
+            ++m->sap_serial_clock_requests;
+            sync_irq(m);
+            return;
+        }
+    }
     if (!atari8_core_write(&m->core, a, value)) {
         io_fault(m, a, true);
         m->fault_value = value;
