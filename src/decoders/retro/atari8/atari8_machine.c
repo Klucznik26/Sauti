@@ -83,8 +83,19 @@ static uint8_t bus_read(void *context, uint16_t a)
         if (reg == 31) return (uint8_t)(15u & ~m->console_latch);
         return 0; /* unused GTIA read bits */
     }
-    if (m->sap_continuous && (a & 0xff03u)==0xd302u)
-        return m->pia_pactl;
+    if (m->sap_continuous) {
+        switch (a & 0xff03u) {
+        case 0xd301u:
+            /* Input pins are pulled high; bit 2 selects data vs DDR. */
+            return (m->pia_pbctl & 4u)
+                ? (uint8_t)((m->pia_portb & m->pia_ddrb) |
+                            (uint8_t)~m->pia_ddrb)
+                : m->pia_ddrb;
+        case 0xd302u: return m->pia_pactl;
+        case 0xd303u: return m->pia_pbctl;
+        default: break;
+        }
+    }
     if ((a & 0xff00u) == 0xd400u) {
         unsigned reg = a & 15u;
         if (m->sap_continuous && reg==0)
@@ -129,6 +140,19 @@ static void bus_write(void *context, uint16_t a, uint8_t value)
             m->console_latch = value & 15u;
         }
         return;
+    }
+    if (m->sap_continuous && (a & 0xff03u)==0xd301u) {
+        /* SAP has a flat 64 KiB RAM map, not XL/XE ROMs or extra banks.
+         * Preserve PIA state without remapping the guest music image. */
+        if (m->pia_pbctl & 4u) m->pia_portb = value;
+        else m->pia_ddrb = value;
+        return;
+    }
+    if (m->sap_continuous && (a & 0xff03u)==0xd303u) {
+        if (!(value & 1u) && ((value & 0x20u) || !(value & 8u))) {
+            m->pia_pbctl = value & 0x3fu;
+            return;
+        }
     }
     if (m->sap_continuous && (a & 0xff03u)==0xd302u) {
         /* Headless port A, no attached peripheral. Support control
@@ -192,6 +216,10 @@ bool atari8_machine_init(Atari8Machine *m, bool ntsc, bool stereo,
     }
     m->ntsc = ntsc;
     m->console_latch = 8; /* OS-style idle console */
+    /* Virtual XL-style port B with all RAM visible and no peripherals. */
+    m->pia_pbctl = 0x3c;
+    m->pia_ddrb = 0xff;
+    m->pia_portb = 0xfe;
     m->sink = sink;
     m->sink_context = context;
     atari8_cpu_init(&m->cpu, bus_read, bus_write, m, 0);
