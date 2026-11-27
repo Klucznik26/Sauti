@@ -151,8 +151,13 @@ int main(int argc,char **argv)
         remove(argv[2]);
         return 1;
     }
-    if (s.info.type=='D')
+    if (s.info.type=='D') {
         printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " continuous CPU chunks\n",out.frames,s.intervals);
+        printf("D audio writes: POKEY=%" PRIu64 " CONSOL=%" PRIu64 " edges=%" PRIu64 " PC=%04X IRQ=%02X SKCTL=%02X\n",
+            s.machine.sap_pokey_audio_writes,s.machine.sap_consol_writes,s.machine.sap_consol_edges,
+            (unsigned)s.machine.cpu.pc,(unsigned)s.machine.core.pokey[0].irq_enable,
+            (unsigned)s.machine.core.pokey[0].skctl);
+    }
     else
         printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " player calls, %" PRIu64 " skipped deadlines, %" PRIu64 " legacy VBI returns\n",
         out.frames,s.intervals,s.missed_intervals,s.machine.sap_vbi_returns);
