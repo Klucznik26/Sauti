@@ -610,3 +610,15 @@ full ANTIC or PIA emulation is claimed. B/C/R paths are unchanged.
 Renderer records POKEY audio writes, CONSOL writes/edges, CPU PC,
 IRQEN and SKCTL for diagnostics. Synthetic speaker test added.
 All changes await local compilation and corpus validation.
+
+### SAP-D D1 PORTB follow-up
+
+After CONSOL support: 92/94 no-PLAYER files rendered nonzero in a
+3-second scan, with no silent results and two PORTB faults (one read,
+one write). The SAP-D-only PIA model now supports PORTB/PBCTL data
+and direction registers with pulled-up inputs, initially FE/3C/FF
+(PORTB/PBCTL/DDRB). Memory remains flat 64 KiB as specified by SAP;
+OS ROM, external banks, and PIA interrupts are not emulated. This is
+an explicitly limited compatibility model, not full XL/XE banking.
+Synthetic register readback and flat memory regression added.
+Retest both failed files and all regressions before claiming coverage.
