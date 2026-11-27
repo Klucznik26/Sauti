@@ -425,6 +425,29 @@ static void test_sapd(void)
         CHECK(s.machine.cpu.a==2 && s.machine.cpu.sp==0xff);
     }
     CHECK(!s.abandoned_calls && !s.missed_intervals);
+    /* Pending timer IRQ must not preempt periodic service entry.
+     * The handler below acknowledges IRQEN, records its entry flags,
+     * and returns. The original INIT flags must be restored. */
+    static const uint8_t irq_player[]={
+        0x08,0x68,0x85,0x82, /* PHP, PLA, STA $82 */
+        0xa9,0,0x8d,0x0e,0xd2,
+        0xe6,0x81,0x60
+    };
+    for(unsigned mode=0;mode<2;++mode) {
+        CHECK(atari8_sapb_open_mode(&s,data,n,-1,48000,NULL,NULL,mode!=0)==ATARI8_SAPB_OK);
+        CHECK(atari8_machine_load(&s.machine,0x2100,irq_player,sizeof(irq_player)));
+        s.machine.ram[0x2200]=0x40; /* RTI without acknowledge */
+        s.machine.ram[0xfffe]=0;
+        s.machine.ram[0xffff]=0x22;
+        s.machine.core.pokey[0].irq_enable=1;
+        s.machine.core.pokey[0].irq_pending=1;
+        CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+        CHECK(s.machine.ram[0x82]&ATARI8_CPU_I);
+        CHECK(s.machine.ram[0x81]==1 && s.machine.ram[0x80]==2);
+        CHECK(!s.machine.core.pokey[0].irq_pending &&
+              !(s.machine.cpu.p&ATARI8_CPU_I));
+        CHECK(s.machine.cpu.sp==0xff && !s.abandoned_calls);
+    }
     CHECK(atari8_sapb_parse(data,n-1,&i)==ATARI8_SAPB_BAD_FORMAT);
     /* A non-returning PLAYER faults rather than hanging/reentering. */
     data[n-1]=0x4c;
