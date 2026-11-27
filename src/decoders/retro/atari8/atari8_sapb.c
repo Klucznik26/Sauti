@@ -343,6 +343,10 @@ static Atari8SapbResult continuous_interval(Atari8Sapb *s)
         uint64_t ceiling=(uint64_t)m->pcm.clock_hz*2u;
         if (budget>ceiling) budget=ceiling;
         if (budget<interval) budget=interval;
+        /* Enter the periodic service with IRQ masked, like an NMI
+         * handler. Guest CLI may enable IRQ again; do not clear the
+         * pending POKEY source. Restore the interrupted P on return. */
+        m->cpu.p |= ATARI8_CPU_I;
         if (atari8_machine_call(m,s->info.player,budget)!=ATARI8_MACHINE_OK)
             return s->status=ATARI8_SAPB_RUNTIME;
         m->cpu.pc=pc;
@@ -376,6 +380,8 @@ static Atari8SapbResult continuous_restart_interval(Atari8Sapb *s)
     uint16_t pc=m->cpu.pc;
     uint8_t a=m->cpu.a, x=m->cpu.x, y=m->cpu.y;
     uint8_t p=m->cpu.p, sp=m->cpu.sp;
+    /* Mask IRQ on service entry, not on the resumed INIT path. */
+    m->cpu.p |= ATARI8_CPU_I;
     /* A synthetic subroutine frame, without modifying guest code. */
     m->ram[0x100u | m->cpu.sp--]=0xff;
     m->ram[0x100u | m->cpu.sp--]=0xfe;
