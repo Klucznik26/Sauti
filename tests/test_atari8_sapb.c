@@ -306,6 +306,32 @@ static void test_sapd(void)
     CHECK(s.machine.ram[0x80]==2 && c.left>0 && s.intervals==5);
     CHECK(c.frames==s.machine.frames && s.machine.refresh_stalls>0);
     CHECK(atari8_sapb_open_mode(&s,data,n,0,48000,NULL,NULL,true)==ATARI8_SAPB_UNSUPPORTED);
+    /* Headless setup and real one-bit speaker transitions. No POKEY
+     * audio writes: the only sound source is CONSOL bit 3. */
+    static const uint8_t speaker[]={
+        0xff,0xff,0x00,0x20,0x1a,0x20,
+        0xa9,0,0x8d,0x00,0xd4,          /* DMACTL=0 */
+        0xa9,0x3c,0x8d,0x02,0xd3,      /* PACTL=3C */
+        0xa9,0,0x8d,0x1f,0xd0,         /* speaker on */
+        0x8d,0x0a,0xd4,                /* WSYNC */
+        0xa9,8,0x8d,0x1f,0xd0,         /* speaker off */
+        0x8d,0x0a,0xd4,                /* WSYNC */
+        0x4c,0x0a,0x20
+    };
+    n=strlen(header);
+    memcpy(data,header,n);
+    memcpy(data+n,speaker,sizeof(speaker)); n+=sizeof(speaker);
+    c=(Capture){0};
+    CHECK(atari8_sapb_open(&s,data,n,-1,48000,capture,&c)==ATARI8_SAPB_OK);
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+    CHECK(s.machine.pia_pactl==0x3c && s.machine.antic_dmactl==0);
+    CHECK(s.machine.sap_pokey_audio_writes==0 && s.machine.sap_consol_edges>0);
+    CHECK(c.left>0 && c.right==0);
+    /* Do not silently accept active graphics DMA. */
+    data[strlen(header)+7]=0x20;
+    CHECK(atari8_sapb_open(&s,data,n,-1,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME);
+    CHECK(s.machine.fault_address==0xd400);
     /* D with periodic PLAYER is explicitly out of scope for D1. */
     const char *with_player="SAP\r\nTYPE D\r\nINIT 2000\r\nPLAYER 200C\r\n";
     n=strlen(with_player);
