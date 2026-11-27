@@ -212,7 +212,8 @@ Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
     if (r != ATARI8_SAPB_OK) return s->status = r;
     if (song < -1 || (song >= 0 && (unsigned)song >= info.songs))
         return s->status = ATARI8_SAPB_BAD_FORMAT;
-    if (frame_restart && info.type!='B') return s->status=ATARI8_SAPB_UNSUPPORTED;
+    if (frame_restart && info.type!='B' &&
+        !(info.type=='D' && info.has_player)) return s->status=ATARI8_SAPB_UNSUPPORTED;
     s->info = info;
     s->intervals = 0;
     s->missed_intervals = 0;
@@ -364,12 +365,49 @@ static Atari8SapbResult continuous_interval(Atari8Sapb *s)
     return ATARI8_SAPB_OK;
 }
 
+/* Explicit D compatibility experiment: inject PLAYER at every grid
+ * boundary, even if a previous invocation transferred control and
+ * never returned. Unlike the B variant, continue executing guest code
+ * after a normal return. Do not reset the CPU, stack or IRQ state at
+ * deadlines; never clear an actual machine fault. */
+static Atari8SapbResult continuous_restart_interval(Atari8Sapb *s)
+{
+    Atari8Machine *m=&s->machine;
+    uint16_t pc=m->cpu.pc;
+    uint8_t a=m->cpu.a, x=m->cpu.x, y=m->cpu.y;
+    uint8_t p=m->cpu.p, sp=m->cpu.sp;
+    /* A synthetic subroutine frame, without modifying guest code. */
+    m->ram[0x100u | m->cpu.sp--]=0xff;
+    m->ram[0x100u | m->cpu.sp--]=0xfe;
+    m->cpu.pc=s->info.player;
+    ++s->continuous_player_calls;
+    s->next_deadline+=s->info.interval;
+    bool returned=false;
+    while (m->master_cycles<s->next_deadline) {
+        if (atari8_machine_step(m)!=ATARI8_MACHINE_OK)
+            return s->status=ATARI8_SAPB_RUNTIME;
+        if (!returned && m->cpu.pc==0xffffu && m->cpu.sp==sp) {
+            m->cpu.pc=pc;
+            m->cpu.a=a; m->cpu.x=x; m->cpu.y=y;
+            m->cpu.p=p;
+            returned=true;
+        }
+    }
+    if (!returned) ++s->abandoned_calls;
+    while (m->master_cycles>=s->next_deadline+s->info.interval) {
+        s->next_deadline+=s->info.interval;
+        ++s->missed_intervals;
+    }
+    ++s->intervals;
+    return ATARI8_SAPB_OK;
+}
+
 Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s)
 {
     if (!s) return ATARI8_SAPB_BAD_FORMAT;
     if (s->status != ATARI8_SAPB_OK) return s->status;
+    if (s->info.type=='D') return s->frame_restart ? continuous_restart_interval(s) : continuous_interval(s);
     if (s->frame_restart) return restart_interval(s);
-    if (s->info.type=='D') return continuous_interval(s);
     uint64_t start = s->machine.master_cycles;
     /* Compatibility policy: finish an overlong call, never reenter it.
      * Skip elapsed deadlines and return to the original FASTPLAY grid.
