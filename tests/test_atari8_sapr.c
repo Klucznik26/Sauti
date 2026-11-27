@@ -5,7 +5,7 @@
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL %d: %s\n", __LINE__, #x); exit(1); } } while (0)
 
-static void test_file(bool stereo, bool ntsc)
+static void test_file(bool stereo, bool ntsc, bool nonlinear)
 {
     uint8_t data[256];
     const char *header = stereo
@@ -29,6 +29,7 @@ static void test_file(bool stereo, bool ntsc)
     CHECK(info.stereo == stereo && info.ntsc == ntsc);
     CHECK(info.cycles_per_frame == (stereo ? 156u : 312u) * 114u);
     CHECK(atari8_sapr_open(&s, data, h + stride * 3, 48000) == ATARI8_SAPR_OK);
+    s.nonlinear_mix=nonlinear;
     uint64_t expected = (uint64_t)info.cycles_per_frame * 3u * 48000u
                       / s.core.pokey[0].clock_hz;
     unsigned count = 0, left = 0, right = 0;
@@ -50,8 +51,10 @@ static void test_file(bool stereo, bool ntsc)
 
 int main(void)
 {
-    test_file(false, false);
-    test_file(true, true);
+    test_file(false, false, false);
+    test_file(true, true, false);
+    test_file(false, false, true);
+    test_file(true, true, true);
     const uint8_t bad[] = "SAP\r\nTYPE R\r\nFASTPLAY 999999999999\r\n\r\n123456789";
     const uint8_t other[] = "SAP\r\nTYPE B\r\n";
     Atari8SaprInfo i;
