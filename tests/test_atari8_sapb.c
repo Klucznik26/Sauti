@@ -522,8 +522,40 @@ static void test_saps(void)
     CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME);
     CHECK(s.machine.status==ATARI8_MACHINE_CPU_STOP);
 }
+static void test_time_metadata(void)
+{
+    uint8_t data[512];
+    size_t n=fixture(data,false,false);
+    Atari8SapbInfo info;
+    CHECK(atari8_sapb_parse(data,n,&info)==ATARI8_SAPB_OK);
+    CHECK(info.time[0].status==ATARI8_SAP_TIME_ABSENT);
+    const char tags[]="TIME 1:02.3 LOOP\r\nTIME 00:00\r\nTIME 12:60\r\n";
+    size_t pos=info.binary_offset, len=sizeof(tags)-1;
+    memmove(data+pos+len,data+pos,n-pos);
+    memcpy(data+pos,tags,len); n+=len;
+    CHECK(atari8_sapb_parse(data,n,&info)==ATARI8_SAPB_OK);
+    CHECK(info.time[0].status==ATARI8_SAP_TIME_VALID &&
+          info.time[0].duration_ms==62300u && info.time[0].loop);
+    CHECK(info.time[1].status==ATARI8_SAP_TIME_VALID &&
+          info.time[1].duration_ms==0 && !info.time[1].loop);
+    CHECK(info.time[2].status==ATARI8_SAP_TIME_INVALID);
+    Atari8Sapb s;
+    CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
+    CHECK(s.info.time[0].duration_ms==62300u);
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+    static const char *const bad[]={"","123:00","0:0","0:60","0:01.",
+                                    "0:01.1234","0:01 LOOP ","-1:00"};
+    for (unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);++i)
+        CHECK(atari8_sap_time_parse((const uint8_t*)bad[i],strlen(bad[i])).status==
+              ATARI8_SAP_TIME_INVALID);
+    static const char max[]="99:59.999";
+    Atari8SapTime t=atari8_sap_time_parse((const uint8_t*)max,sizeof(max)-1);
+    CHECK(t.status==ATARI8_SAP_TIME_VALID && t.duration_ms==5999999u);
+}
+
 int main(void)
 {
+    test_time_metadata();
     test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh(); test_legacy_vbi_chain(); test_frame_restart(); test_sapc(); test_sapd(); test_saps();
     puts("PASS: experimental Atari8 SAP-B/C/D/S");
     return 0;
