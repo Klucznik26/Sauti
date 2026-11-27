@@ -100,7 +100,9 @@ def main():
     p.add_argument("--asap",required=True,type=Path)
     p.add_argument("--renderer",type=Path,default=Path("build/render_atari8_sapb"))
     p.add_argument("--out",type=Path,default=Path("build/pokey-reference"))
-    p.add_argument("--poly4-phase",action="store_true",help="run isolated phase sweep with spectral peaks")
+    mode=p.add_mutually_exclusive_group()
+    mode.add_argument("--poly4-phase",action="store_true",help="run isolated phase sweep with spectral peaks")
+    mode.add_argument("--mixer",action="store_true",help="measure relative DAC amplitude at different constant channel biases")
     a=p.parse_args()
     a.out.mkdir(parents=True,exist_ok=True)
     cases=[]
@@ -126,12 +128,30 @@ def main():
             for delay in range(phases):
                 cases.append((f"poly4_{period}_nop{delay:02}",0x50,
                               [(0,n&255),(2,n>>8),(3,0xcf)],(),poly4_rates(period),delay))
+    if a.mixer:
+        cases=[]
+        # One channel alternates 0/volume at the PAL player cadence.
+        # Other channels are constant DAC outputs; these shift total
+        # digital level without introducing additional AC signals.
+        for bias in (0,15,30,45):
+            for volume in (1,2,4,8,15):
+                regs=[(1,0x10)]
+                for ch in range(1,4):
+                    regs.append((2*ch+1,0x10|(15 if ch<=bias//15 else 0)))
+                cases.append((f"dac_bias{bias:02}_vol{volume:02}",0,regs,
+                              [(1,0x10,0x10|volume)],None,0))
+        # Independent zero-bias pure-tone amplitude sweep.
+        for volume in (1,2,4,8,15):
+            cases.append((f"tone_vol{volume:02}",0,[(0,31),(1,0xa0|volume)],
+                          (),clock/(2*28*32),0))
     print("case | expected Hz or allowed raw rising edges/s | Sauti crossings/s RMS | ASAP crossings/s RMS"
           +(" (plus FFT peak Hz per renderer)" if a.poly4_phase else ""),flush=True)
+    mixer_rows={}
     for name,ctl,regs,changes,expected,delay in cases:
         sap=a.out/(name+".sap")
         sap.write_bytes(fixture(ctl,regs,changes,delay))
         values=[]
+        amplitudes={}
         for label,exe in (("Sauti",a.renderer),("ASAP",a.asap)):
             wav=a.out/(name+"-"+label+".wav")
             wav.unlink(missing_ok=True)
@@ -140,11 +160,30 @@ def main():
             try:
                 subprocess.run(cmd,check=True,capture_output=True,text=True,timeout=60)
                 rms,hz,peak=measure(wav,a.poly4_phase)
+                amplitudes[label]=rms
                 values.append(f"{hz:8.1f} {rms:8.1f}"+(f" peak={peak:8.1f}" if peak is not None else ""))
             except (OSError,ValueError,wave.Error,subprocess.SubprocessError) as e:
                 values.append(f"ERROR {e}")
         target=f"{expected:.1f}" if isinstance(expected,(int,float)) else (expected or "-")
         print(f"{name:24} | {target:>10} | "+" | ".join(values),flush=True)
+        if a.mixer:
+            mixer_rows[name]=amplitudes
+    if a.mixer:
+        print("\nRelative DAC amplitude: same volume, bias 0 = 100% (per renderer)")
+        print("bias volume | Sauti % | ASAP %")
+        for bias in (0,15,30,45):
+            for vol in (1,2,4,8,15):
+                row=mixer_rows[f"dac_bias{bias:02}_vol{vol:02}"]
+                base=mixer_rows[f"dac_bias00_vol{vol:02}"]
+                values=[f"{100*row[k]/base[k]:8.2f}" if k in row and base.get(k,0)>0 else "N/A" for k in ("Sauti","ASAP")]
+                print(f"{bias:4} {vol:6} | "+" | ".join(values))
+        print("\nVolume response: zero bias, volume 15 = 100% (per renderer and signal type)")
+        for prefix in ("dac_bias00_vol","tone_vol"):
+            base=mixer_rows[prefix+"15"]
+            for vol in (1,2,4,8,15):
+                row=mixer_rows[prefix+f"{vol:02}"]
+                values=[f"{100*row[k]/base[k]:8.2f}" if k in row and base.get(k,0)>0 else "N/A" for k in ("Sauti","ASAP")]
+                print(f"{prefix}{vol:02} | "+" | ".join(values))
 
 if __name__=="__main__":
     main()
