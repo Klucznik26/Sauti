@@ -1037,3 +1037,21 @@ All seven ASMA S entries exceed .99 full-envelope correlation with
 nonlinear mix. Keep option and test stereo explicitly before changing
 default. --stereo-only selects STEREO header rows before --sample.
 No waveform equivalence or full regression success inferred.
+
+Stereo validation (b6b3427): paired deterministic 12 SAP-B subsongs,
+all exact stereo frame counts and zero skipped deadlines. Mean absolute
+relative RMS level difference 6.001667 -> 0.508333 dB; mean full
+one-second RMS envelope correlation .972506 -> .985761. All 12 improve
+level, 10 improve correlation. Train 3 song 3 (.979718 -> .976782) and
+Byzex (.945422 -> .941799) regress slightly in correlation. Arsantica End
+Theme improves .907006 -> .984348. Combined stereo RMS is not a
+channel-isolation or waveform test.
+
+Promote nonlinear mixing to the B/C/D/S SAP open default. Raw machine
+API remains linear; SAP-R has a separate linear PCM path and still
+needs independent nonlinear validation. Renderer and comparison
+scripts accept --linear-mix for old baseline, --nonlinear-mix as
+explicit alias of default. PCM scale is selected before audible
+output (B/C INIT audio discarded and integrator reset). New default
+regression and compatibility reruns pending; do not infer production
+readiness or physical analog calibration from envelope metrics.
