@@ -348,11 +348,26 @@ static void test_sapd(void)
     CHECK(s.machine.ram[0x82]==0xfe && s.machine.ram[0x83]==0xfd);
     CHECK(s.machine.ram[0x84]==0x0f && s.machine.ram[0x85]==0xf0);
     CHECK(s.machine.ram[0x86]==0x42 && s.machine.ram[0xe000]==0x42);
-    /* Do not silently accept active graphics DMA. */
-    data[strlen(header)+7]=0x20;
-    CHECK(atari8_sapb_open(&s,data,n,-1,48000,NULL,NULL)==ATARI8_SAPB_OK);
-    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME);
-    CHECK(s.machine.fault_address==0xd400);
+    /* Headless video configuration and disconnected PIA port A. */
+    static const uint8_t video_pia[]={
+        0xa9,0x34,0x8d,0x02,0xd4,       /* DLISTL */
+        0xa9,0x12,0x8d,0x03,0xd4,       /* DLISTH */
+        0xa9,0x20,0x8d,0x00,0xd4,       /* request display DMA */
+        0xad,0x02,0xd4,0x85,0x87,       /* write-only, open bus */
+        0xa9,0x38,0x8d,0x02,0xd3,       /* DDRA */
+        0xa9,0x0f,0x8d,0x00,0xd3,
+        0xad,0x00,0xd3,0x85,0x88,
+        0xa9,0x3c,0x8d,0x02,0xd3,       /* select data */
+        0xa9,0x05,0x8d,0x00,0xd3,
+        0xad,0x04,0xd3,0x85,0x89,       /* mirror, input pins high */
+        0x60
+    };
+    CHECK(atari8_machine_load(&s.machine,0x2300,video_pia,sizeof(video_pia)));
+    CHECK(atari8_machine_call(&s.machine,0x2300,1000)==ATARI8_MACHINE_OK);
+    CHECK(s.machine.antic_video[2]==0x34 && s.machine.antic_video[3]==0x12);
+    CHECK(s.machine.antic_dmactl==0x20 && s.machine.sap_video_dma_requests==1);
+    CHECK(s.machine.ram[0x87]==0xff && s.machine.ram[0x88]==0x0f &&
+          s.machine.ram[0x89]==0xf5);
     /* Periodic D PLAYER runs before the first INIT instruction,
      * changes all registers/flags, writes RAM and returns via RTS.
      * INIT must resume with its original registers and stack. */
