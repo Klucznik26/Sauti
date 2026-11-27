@@ -851,8 +851,79 @@ static void test_common_stream(void)
     atari8_sap_stream_close(s);
 }
 
+static void test_stream_limits(void)
+{
+    uint8_t data[512];
+    size_t n=fixture(data,false,false);
+    Atari8SapStream *s=NULL;
+    CHECK(atari8_sap_stream_open(&s,data,n,0,8000,true,false)==ATARI8_SAPB_OK);
+    CHECK(atari8_sap_stream_seek(s,UINT64_MAX)==ATARI8_SAPB_LIMIT);
+    CHECK(atari8_sap_stream_tell(s)==0);
+    int16_t pcm[256][2];
+    size_t got;
+    size_t oversized=ATARI8_SAP_STREAM_MAX_READ_FRAMES+1u;
+    int16_t (*large)[2]=malloc(oversized*sizeof(*large));
+    CHECK(large);
+    CHECK(atari8_sap_stream_read(s,large,oversized,&got)==ATARI8_SAPB_LIMIT && !got);
+    free(large);
+    CHECK(atari8_sap_stream_tell(s)==0);
+    CHECK(atari8_sap_stream_read(s,pcm,9,&got)==ATARI8_SAPB_OK && got==9);
+    atari8_sap_stream_set_seek_limit(s,5);
+    CHECK(atari8_sap_stream_seek(s,6)==ATARI8_SAPB_LIMIT);
+    CHECK(atari8_sap_stream_tell(s)==9);
+    CHECK(atari8_sap_stream_seek(s,5)==ATARI8_SAPB_OK);
+    CHECK(atari8_sap_stream_tell(s)==5);
+    atari8_sap_stream_set_seek_limit(s,0);
+    CHECK(atari8_sap_stream_reset(s)==ATARI8_SAPB_OK);
+    CHECK(atari8_sap_stream_seek(s,1)==ATARI8_SAPB_LIMIT);
+    atari8_sap_stream_close(s);
+
+    /* Finite executable song: repeat limit returns a recoverable prefix,
+     * never discards samples or turns a budget into EOF. */
+    static const char header[]="SAP\r\nTYPE B\r\nINIT 2000\r\nPLAYER 2001\r\nTIME 00:00.001 LOOP\r\n";
+    static const uint8_t code[]={255,255,0,32,6,32,0x60,0xa9,0xaf,0x8d,1,0xd2,0x60};
+    n=sizeof(header)-1;
+    memcpy(data,header,n);
+    memcpy(data+n,code,sizeof(code)); n+=sizeof(code);
+    CHECK(atari8_sap_stream_open(&s,data,n,0,8000,true,false)==ATARI8_SAPB_OK);
+    uint64_t len;
+    CHECK(atari8_sap_stream_length(s,&len) && len==8);
+    int16_t ref[8][2];
+    CHECK(atari8_sap_stream_read(s,ref,8,&got)==ATARI8_SAPB_OK && got==8);
+    CHECK(atari8_sap_stream_reset(s)==ATARI8_SAPB_OK);
+    atari8_sap_stream_set_seek_limit(s,2);
+    CHECK(atari8_sap_stream_seek(s,9)==ATARI8_SAPB_BAD_FORMAT);
+    CHECK(atari8_sap_stream_seek(s,3)==ATARI8_SAPB_LIMIT);
+    CHECK(atari8_sap_stream_set_repeat(s,true));
+    CHECK(atari8_sap_stream_read(s,pcm,200,&got)==ATARI8_SAPB_LIMIT);
+    CHECK(got==(ATARI8_SAP_STREAM_MAX_RESTARTS+1u)*8u);
+    CHECK(atari8_sap_stream_tell(s)==8u);
+    for(size_t i=0;i<got;++i) CHECK(!memcmp(pcm[i],ref[i%8u],sizeof(*pcm)));
+    size_t rest=200u-got;
+    CHECK(atari8_sap_stream_read(s,pcm,rest,&got)==ATARI8_SAPB_OK && got==rest);
+    for(size_t i=0;i<got;++i) CHECK(!memcmp(pcm[i],ref[i%8u],sizeof(*pcm)));
+    atari8_sap_stream_close(s);
+
+    /* Same policy on the R backend; payload length stays authoritative. */
+    static const char rheader[]="SAP\r\nTYPE R\r\nFASTPLAY 1\r\n\r\n";
+    n=sizeof(rheader)-1;
+    memcpy(data,rheader,n);
+    memset(data+n,0,27); n+=27;
+    CHECK(atari8_sap_stream_open(&s,data,n,0,8000,true,false)==ATARI8_SAPB_OK);
+    CHECK(atari8_sap_stream_length(s,&len) && len==1);
+    atari8_sap_stream_set_seek_limit(s,0);
+    CHECK(atari8_sap_stream_seek(s,1)==ATARI8_SAPB_LIMIT);
+    CHECK(atari8_sap_stream_seek(s,2)==ATARI8_SAPB_BAD_FORMAT);
+    CHECK(atari8_sap_stream_set_repeat(s,true));
+    CHECK(atari8_sap_stream_read(s,pcm,40,&got)==ATARI8_SAPB_LIMIT);
+    CHECK(got==ATARI8_SAP_STREAM_MAX_RESTARTS+1u);
+    CHECK(atari8_sap_stream_read(s,pcm,1,&got)==ATARI8_SAPB_OK && got==1);
+    atari8_sap_stream_close(s);
+}
+
 int main(void)
 {
+    test_stream_limits();
     test_common_stream();
     test_stream();
     test_declared_eof();
