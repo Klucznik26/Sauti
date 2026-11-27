@@ -586,8 +586,75 @@ static void test_text_metadata(void)
     CHECK(t.present && !t.truncated && t.value[0]=='\0');
 }
 
+static void test_declared_eof(void)
+{
+    uint8_t data[512];
+    Atari8Sapb s;
+    Atari8SapbInfo info;
+    for (unsigned stereo=0;stereo<2;++stereo) {
+        size_t n=fixture(data,stereo!=0,stereo!=0);
+        CHECK(atari8_sapb_open(&s,data,n,-1,48000,NULL,NULL)==ATARI8_SAPB_OK);
+        CHECK(!atari8_sapb_enable_declared_eof(&s));
+        CHECK(atari8_sapb_parse(data,n,&info)==ATARI8_SAPB_OK);
+        static const char tags[]="TIME 00:00\r\nTIME 00:60\r\nTIME 00:00.025 LOOP\r\n";
+        size_t pos=info.binary_offset,len=sizeof(tags)-1;
+        memmove(data+pos+len,data+pos,n-pos);
+        memcpy(data+pos,tags,len); n+=len;
+        for (unsigned mode=0;mode<2;++mode) {
+            Capture c={0};
+            CHECK(atari8_sapb_open_mode(&s,data,n,-1,44100,capture,&c,mode!=0)==ATARI8_SAPB_OK);
+            CHECK(s.selected_song==2 && atari8_sapb_enable_declared_eof(&s));
+            Atari8SapbResult r=ATARI8_SAPB_OK;
+            for(unsigned i=0;i<10 && r==ATARI8_SAPB_OK;++i)
+                r=atari8_sapb_interval(&s);
+            CHECK(r==ATARI8_SAPB_EOF && c.frames==1102u);
+            CHECK(atari8_sapb_output_frames(&s)==1102u);
+            uint64_t cycle=s.machine.master_cycles;
+            CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_EOF &&
+                  c.frames==1102u && s.machine.master_cycles==cycle);
+        }
+        Capture c={0};
+        CHECK(atari8_sapb_open(&s,data,n,0,48000,capture,&c)==ATARI8_SAPB_OK);
+        CHECK(atari8_sapb_enable_declared_eof(&s));
+        CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_EOF && !c.frames && !s.intervals);
+        CHECK(atari8_sapb_open(&s,data,n,1,48000,NULL,NULL)==ATARI8_SAPB_OK);
+        CHECK(!atari8_sapb_enable_declared_eof(&s));
+        CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK && s.machine.frames>0);
+        CHECK(!atari8_sapb_enable_declared_eof(&s));
+        CHECK(atari8_sapb_output_frames(&s)==s.machine.frames);
+        CHECK(atari8_sapb_open(&s,data,n,-1,48000,NULL,NULL)==ATARI8_SAPB_OK);
+        CHECK(atari8_sapb_enable_declared_eof(&s));
+        Atari8SapbResult r=ATARI8_SAPB_OK;
+        for(unsigned i=0;i<10 && r==ATARI8_SAPB_OK;++i)
+            r=atari8_sapb_interval(&s);
+        CHECK(r==ATARI8_SAPB_EOF && atari8_sapb_output_frames(&s)==1200u);
+    }
+    const char *headers[]={
+        "SAP\r\nTYPE C\r\nMUSIC 2000\r\nPLAYER 2000\r\nTIME 00:00.023\r\n",
+        "SAP\r\nTYPE D\r\nINIT 2000\r\nTIME 00:00.023\r\n",
+        "SAP\r\nTYPE S\r\nINIT 2000\r\nTIME 00:00.023\r\n"
+    };
+    const uint8_t ccode[]={0xff,0xff,0,0x20,6,0x20,0xea,0xea,0xea,0x60,0xea,0xea,0x60};
+    const uint8_t loop[]={0xff,0xff,0,0x20,2,0x20,0x4c,0,0x20};
+    for(unsigned k=0;k<3;++k) {
+        size_t n=strlen(headers[k]), size=k?sizeof(loop):sizeof(ccode);
+        memcpy(data,headers[k],n);
+        memcpy(data+n,k?loop:ccode,size); n+=size;
+        Capture c={0};
+        CHECK(atari8_sapb_open(&s,data,n,0,48000,capture,&c)==ATARI8_SAPB_OK);
+        CHECK(atari8_sapb_enable_declared_eof(&s));
+        Atari8SapbResult r=ATARI8_SAPB_OK;
+        for(unsigned i=0;i<10 && r==ATARI8_SAPB_OK;++i)
+            r=atari8_sapb_interval(&s);
+        CHECK(r==ATARI8_SAPB_EOF && c.frames==1104u);
+        CHECK(atari8_sapb_output_frames(&s)==1104u);
+        CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_EOF && c.frames==1104u);
+    }
+}
+
 int main(void)
 {
+    test_declared_eof();
     test_text_metadata();
     test_time_metadata();
     test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh(); test_legacy_vbi_chain(); test_frame_restart(); test_sapc(); test_sapd(); test_saps();
