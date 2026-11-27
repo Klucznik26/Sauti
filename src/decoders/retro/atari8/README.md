@@ -726,3 +726,27 @@ this option, and a 60-second reference comparison of the five
 remaining candidates before promoting any compatibility policy.
 RMS and onset alone do not establish fidelity; listen and compare
 waveforms/timing across complete tracks and subsongs separately.
+
+### SAP-D 60-second compatibility follow-up; SAP-S initial implementation
+
+Five remaining D candidates rendered 60 seconds each with explicit
+frame injection at ceee2aa/9411b0b, 2,880,000 mono frames each at 48 kHz,
+2,992 calls each, zero skipped deadlines and no entirely silent
+one-second bins. Lemmings Intro / Cygnus Lyrae / Poison / Star Pawns /
+Vaxeen 4U: abandoned calls 407 / 361 / 300 / 374 / 477; Pearson
+correlation of one-second RMS bins against ASAP .967 / .987 / .944 /
+.796 / .952; aggregate RMS differences -6.13 / -4.82 / -5.06 / -4.85 /
+-5.29 dB. These are not waveform fidelity metrics; no gain change or
+production fallback. Full D post-IRQ corpus scan still unreported.
+
+SAP-S is now parsed with required INIT and ignored optional PLAYER.
+It runs continuously in the existing headless audio profile. At each
+FASTPLAY boundary decrement byte $0045, increment $B07B only on zero
+result, with modulo-256 wrap. Default interval 78*114 cycles, explicit
+FASTPLAY honored. Initial RAM clock tick is placed at time zero and
+subsequent updates occur at instruction boundaries; exact timing and
+real files await comparison. No external player code incorporated.
+Source: https://asap.sourceforge.net/sap-format.html (TYPE S).
+Synthetic tests cover counter wrap, ignored PLAYER, default subsong,
+NTSC/FASTPLAY override, malformed segment and CPU stop. Scanner now
+supports --type S. No claim of real-file coverage until local tests.
