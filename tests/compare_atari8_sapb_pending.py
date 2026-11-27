@@ -148,6 +148,7 @@ def main():
     mode=p.add_mutually_exclusive_group()
     mode.add_argument("--frame-restart",action="store_true",help="opt in to experimental Sauti scheduler for all rows")
     mode.add_argument("--report-mode",action="store_true",help="use each row\u0027s recorded Sauti scheduler")
+    p.add_argument("--unwind-abandoned",action="store_true",help="experimental stack-pointer restoration on abandoned calls; requires restart mode")
     a=p.parse_args()
     if not a.asap.is_file() or not a.renderer.is_file():
         p.error("ASAP or Sauti executable missing")
@@ -168,6 +169,8 @@ def main():
             if song is not None and (not re.fullmatch(r"[0-9]{1,3}",song) or int(song)>255):
                 p.error(f"invalid subsong in report: {r['file']}")
             restart=a.frame_restart or (a.report_mode and r.get("mode")=="frame-restart")
+            if a.unwind_abandoned and not restart:
+                p.error("--unwind-abandoned requires frame-restart for every selected row")
             if a.report_mode and r.get("mode") not in ("standard","frame-restart"):
                 p.error(f"invalid scheduler in report: {r['file']}")
             print("\n"+r["file"]+(f" [song {song}]" if song is not None else "")+
@@ -196,6 +199,8 @@ def main():
                         cmd.append("--milliseconds")
                     if restart:
                         cmd.append("--frame-restart")
+                    if a.unwind_abandoned:
+                        cmd.append("--unwind-abandoned")
                 else:
                     cmd=[str(exe.resolve()),"-o",str(output),"-t",
                          (f"{ms//60000:02d}:{ms//1000%60:02d}.{ms%1000:03d}" if a.declared_duration else f"{a.seconds//60:02d}:{a.seconds%60:02d}"),"-R","48000"]
