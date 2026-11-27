@@ -119,7 +119,7 @@ bool atari8_pokey_write(Atari8Pokey *p, uint8_t reg, uint8_t value)
             }
             /* Simplified timer mode transition; noise selection alone
              * must not restart the frequency timers. */
-            if (changed & 0x79)
+            if ((changed & 0x79) && !p->preserve_audctl_counters)
                 restart_timers(p);
         }
         return true;
