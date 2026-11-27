@@ -26,4 +26,8 @@ bool atari8_pcm_init(Atari8Pcm *p, uint32_t clock_hz, uint32_t rate,
  * In mono the second input is ignored and second output is zero. */
 bool atari8_pcm_feed(Atari8Pcm *p, const uint8_t levels[2], int16_t frame[2]);
 
+/* Same integrator with unsigned 16-bit normalized input. Do not switch
+ * input scale midstream; select a single feed function after init. */
+bool atari8_pcm_feed_u16(Atari8Pcm *p, const uint16_t levels[2], int16_t frame[2]);
+
 #endif
