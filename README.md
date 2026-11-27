@@ -1,5 +1,18 @@
 # Sauti — assembly-first multiplatform audio visualization
 
+## Punkt wznowienia prac — Atari 8-bit (2026-11-27)
+
+**STOP: SAP, gałąź `feature/atari8`.** Ostatni eksperyment: `Face_of_the_Galaxy.sap`, subsong 0. Przełączenie harmonogramu po 729 wywołaniach PLAYER nie poprawiło ogólnej zgodności z ASAP (RMS r: 0.963728 → 0.948963; końcowe 10 s: −0.029649 → −0.386351). Nie wdrażać tej strategii jako domyślnej; pozostaje narzędziem diagnostycznym.
+
+- SAP-B/C/D/R/S: dekodowanie, metadane, EOF, seek, reset i jawne powtarzanie działają w testach.
+- Ostatnia regresja limitów zasobów: 7/7 PASS; wcześniejsze ASan/UBSan, TSan i 1 058 121 przypadków fuzzingu bez raportów sanitizerów.
+- Do rozwiązania: 12 trudnych subsongów B/D, dokładność czasowa POKEY i generatorów szumu, wydajność seek, pełny skan ASMA z mikserem nieliniowym.
+- **Następny krok:** ukierunkowane porównanie śladów CPU/POKEY z ASAP w celu zlokalizowania rozbieżności, bez kolejnej niezweryfikowanej globalnej zmiany harmonogramu. Następnie RMT i kolejne natywne formaty Atari8.
+- Integracja z MaktabaSauti dopiero po ukończeniu rodziny Atari8; planowany wspólny moduł `maktabasauti_atari8`. Nie integrować SAP osobno.
+
+Szczegóły i wyniki: [Atari8 README](src/decoders/retro/atari8/README.md) (checkpoint `d906358`) oraz [PROVENANCE](src/decoders/retro/atari8/PROVENANCE.md). Nie trzeba wykonywać kolejnej kompilacji po tym wpisie.
+
+
 **Stage 6: automatic oscilloscope gain and on-screen Peak/RMS meters in ASM.**
 The core remains independent of PipeWire, SDL2, Wayland and operating-system
 calls. There is no native AyoOS/Windows audio adapter yet.
