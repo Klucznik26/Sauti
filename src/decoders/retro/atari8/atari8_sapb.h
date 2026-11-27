@@ -6,7 +6,8 @@
 
 typedef enum {
     ATARI8_SAPB_OK = 0, ATARI8_SAPB_BAD_FORMAT,
-    ATARI8_SAPB_UNSUPPORTED, ATARI8_SAPB_RUNTIME, ATARI8_SAPB_EOF
+    ATARI8_SAPB_UNSUPPORTED, ATARI8_SAPB_RUNTIME, ATARI8_SAPB_EOF,
+    ATARI8_SAPB_LIMIT /* recoverable common-stream resource limit */
 } Atari8SapbResult;
 
 typedef struct {
