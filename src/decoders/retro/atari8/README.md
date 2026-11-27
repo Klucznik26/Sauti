@@ -708,3 +708,21 @@ Synthetic pending-IRQ regression added. Retest Das Omen in standard
 mode first, then experiment with frame injection only if required;
 rescan the entire D corpus and retest the five compatibility files.
 No production fallback or fidelity claim yet.
+
+### SAP-D IRQ correction confirmed; five compatibility candidates
+
+Fedora at 9411b0b: regression PASS. Das Omen Intro now renders 15 s
+in standard mode, 748 completed calls, no skipped deadlines, onset
+22 ms versus ASAP 20 ms, active signal in all fifteen one-second
+bins. Ten-file pending retry: five standard nonzero (including four
+known delayed-onset files) and five PLAYER budget failures. Combined
+historical coverage 746 standard / 751, pending full post-change scan.
+
+The scanner now accepts --retry-frame-restart for D as well as B,
+only on a standard PLAYER budget failure and only by explicit opt-in.
+It labels experimental results separately. No decoder default or
+production fallback changed. Run a complete 3-second D scan with
+this option, and a 60-second reference comparison of the five
+remaining candidates before promoting any compatibility policy.
+RMS and onset alone do not establish fidelity; listen and compare
+waveforms/timing across complete tracks and subsongs separately.
