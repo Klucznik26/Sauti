@@ -11,6 +11,22 @@ static void sync_irq(Atari8Machine *m)
     atari8_cpu_set_irq(&m->cpu, atari8_core_irq(&m->core));
 }
 
+/* Original quantized approximation to the hardware transfer curve
+ * documented by Avery Lee, Altirra Hardware Reference Manual, E.2.
+ * Uniform digital DAC weights for now. Normalize at total level 60;
+ * apply before averaging and AC coupling, not to output PCM.
+ * Curve: f(x)=x up to .14, else .14+(1-exp(-2.85*(x-.14)))/2.85.
+ * LUT generated from f(i/60)/f(1), not from emulator source. */
+static const uint16_t pokey_curve[61]={
+    0, 2371, 4742, 7114, 9485, 11856, 14227, 16598, 18970, 21321,
+    23572, 25718, 27765, 29716, 31578, 33353, 35045, 36659, 38198, 39666,
+    41066, 42401, 43673, 44887, 46045, 47148, 48201, 49205, 50162, 51075,
+    51945, 52775, 53567, 54322, 55041, 55728, 56382, 57007, 57602, 58170,
+    58711, 59227, 59719, 60189, 60636, 61063, 61470, 61859, 62229, 62582,
+    62918, 63239, 63546, 63837, 64116, 64381, 64634, 64876, 65106, 65326,
+    65535
+};
+
 static void tick(Atari8Machine *m)
 {
     uint8_t levels[2];
@@ -19,13 +35,27 @@ static void tick(Atari8Machine *m)
     /* CONSOL bit 3 drives the one-bit speaker (active low). D-only
      * experimental mix; relative analog gain needs reference testing.
      * Keep the PCM input within its documented 0..60 range. */
+    bool ready;
+    if (m->nonlinear_mix) {
+        uint16_t analog[2]={0,0};
+        for (unsigned ch=0; ch<(m->core.stereo ? 2u : 1u); ++ch) {
+            unsigned value=pokey_curve[levels[ch]];
+            /* GTIA is downstream of POKEY saturation; retain the
+             * provisional speaker gain, not a calibrated analog path. */
+            if (m->sap_continuous && !(m->console_latch & 8u))
+                value+=8738u;
+            analog[ch]=(uint16_t)(value>65535u ? 65535u : value);
+        }
+        ready=atari8_pcm_feed_u16(&m->pcm,analog,frame);
+    } else {
     if (m->sap_continuous && !(m->console_latch & 8u)) {
         for (unsigned ch=0; ch<(m->core.stereo ? 2u : 1u); ++ch) {
             unsigned level = levels[ch] + 8u;
             levels[ch] = (uint8_t)(level > 60u ? 60u : level);
         }
     }
-    bool ready = atari8_pcm_feed(&m->pcm, levels, frame);
+    ready = atari8_pcm_feed(&m->pcm, levels, frame);
+    }
     atari8_core_step(&m->core, 1);
     ++m->master_cycles;
     /* Approximate VBI status at scanline 248; independent of NMIEN.
