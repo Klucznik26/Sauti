@@ -158,6 +158,7 @@ int main(int argc,char **argv)
             s.machine.sap_pokey_audio_writes,s.machine.sap_consol_writes,s.machine.sap_consol_edges,
             (unsigned)s.machine.cpu.pc,(unsigned)s.machine.core.pokey[0].irq_enable,
             (unsigned)s.machine.core.pokey[0].skctl);
+        printf("D headless video DMA requests: %" PRIu64 "\n",s.machine.sap_video_dma_requests);
     }
     else
         printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " player calls, %" PRIu64 " skipped deadlines, %" PRIu64 " legacy VBI returns\n",
