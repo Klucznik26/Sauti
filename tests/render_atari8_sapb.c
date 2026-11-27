@@ -127,6 +127,17 @@ static void print_profile(const Atari8PokeyProfile *p, unsigned chips)
 
 int main(int argc,char **argv)
 {
+    /* Diagnostic only: switch scheduler at a caller-specified successful
+     * standard interval boundary, preserving RAM/CPU/PCM phase. */
+    long switch_after=-1;
+    static const char switch_prefix[]="--switch-after=";
+    if (argc>1 && !strncmp(argv[argc-1],switch_prefix,sizeof(switch_prefix)-1u)) {
+        if (!integer(argv[argc-1]+sizeof(switch_prefix)-1u,0,100000000L,&switch_after)) {
+            fputs("Invalid switch-after interval\n",stderr);
+            return 2;
+        }
+        --argc;
+    }
     bool nonlinear=true;
     if (argc>1 && !strcmp(argv[argc-1],"--linear-mix")) {
         nonlinear=false;
@@ -138,6 +149,10 @@ int main(int argc,char **argv)
     if (profile) --argc;
     bool restart=argc>1 && !strcmp(argv[argc-1],"--frame-restart");
     if (restart) --argc;
+    if (restart && switch_after>=0) {
+        fputs("--frame-restart and --switch-after are mutually exclusive\n",stderr);
+        return 2;
+    }
     bool no_wav=argc>1 && !strcmp(argv[argc-1],"--no-wav");
     if (no_wav) --argc;
     bool milliseconds=argc>1 && !strcmp(argv[argc-1],"--milliseconds");
@@ -146,7 +161,7 @@ int main(int argc,char **argv)
     if (argc<3 || argc>5 || (milliseconds && argc<4) ||
         (argc>=4 && !integer(argv[3],1,milliseconds?5999999L:300L,&duration))
         || (argc==5 && !integer(argv[4],-1,255,&song))) {
-        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [duration 1..300 s] [song -1..255] [--milliseconds (1..5999999 ms)] [--no-wav] [--frame-restart] [--pokey-profile] [--nonlinear-mix|--linear-mix]\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [duration 1..300 s] [song -1..255] [--milliseconds (1..5999999 ms)] [--no-wav] [--frame-restart] [--pokey-profile] [--nonlinear-mix|--linear-mix] [--switch-after=N]\n",argv[0]);
         return 2;
     }
     FILE *in=fopen(argv[1],"rb");
@@ -167,6 +182,10 @@ int main(int argc,char **argv)
     Atari8SapbResult r=atari8_sapb_open_mode(&s,data,(size_t)n,(int)song,48000,sink,&out,restart);
     free(data);
     if (r!=ATARI8_SAPB_OK) { diagnostic(&s,"INIT/parse",r); return 1; }
+    if (switch_after>=0 && s.info.type!='B') {
+        fputs("--switch-after is supported only for SAP-B diagnostics\n",stderr);
+        return 2;
+    }
     if (profile) s.machine.pokey_profile=&pokey_profile;
     /* B/C reset the PCM integrator after INIT; D/S have not run yet. */
     s.machine.nonlinear_mix=nonlinear;
@@ -182,7 +201,19 @@ int main(int argc,char **argv)
     fprintf(stderr,"SAP-%c %s, %u channel(s), song %u/%u (zero-based), interval %u cycles\n",
         s.info.type,s.info.ntsc?"NTSC":"PAL",out.channels,
         song<0?s.info.default_song:(unsigned)song,s.info.songs,s.info.interval);
+    bool switched=false;
     while (ok && !out.failed && out.frames<out.limit) {
+        if (!switched && switch_after>=0 && s.intervals==(uint64_t)switch_after) {
+            /* This is a new explicit diagnostic policy, not equivalent
+             * to restart-mode INIT. Anchor the restart grid at the
+             * current normal interval boundary; do not reinitialize
+             * or change any previously emitted samples. */
+            s.frame_restart=true;
+            s.next_deadline=s.machine.master_cycles;
+            switched=true;
+            printf("Scheduler switch: calls=%" PRIu64 " PCM-frame=%" PRIu64 " master-cycle=%" PRIu64 "\n",
+                   s.intervals,out.frames,s.machine.master_cycles);
+        }
         r=atari8_sapb_interval(&s);
         if (r!=ATARI8_SAPB_OK) {
             diagnostic(&s,"PLAYER",r);
@@ -217,6 +248,11 @@ int main(int argc,char **argv)
         printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " player calls, %" PRIu64 " skipped deadlines, %" PRIu64 " legacy VBI returns\n",
         out.frames,s.intervals,s.missed_intervals,s.machine.sap_vbi_returns);
     if (profile) print_profile(&pokey_profile,out.channels);
-    if (restart) printf("Abandoned calls: %" PRIu64 "\n",s.abandoned_calls);
+    if (restart || switched) printf("Abandoned calls: %" PRIu64 "\n",s.abandoned_calls);
+    if (switch_after>=0 && !switched) {
+        fputs("Requested scheduler switch was not reached\n",stderr);
+        if (!no_wav) remove(argv[2]);
+        return 1;
+    }
     return 0;
 }
