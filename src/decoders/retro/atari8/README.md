@@ -942,3 +942,34 @@ an unknown end time. All 8349 subsongs now have execution coverage:
 loop behavior and production API remain unverified. Next inspect the
 12 full-duration frame-restart rows, including late failures, before
 automatic fallback design. No decoder changes.
+
+### Full-duration compatibility comparison and rejected stack experiment
+
+All 12 frame-restart subsongs matched external ASAP's channel count
+and exact declared PCM frame count. One-second RMS envelopes (not
+waveform or note-level equivalence), user runs 1153959 and 05ee15e:
+
+| Subsong | Baseline full RMS r | Baseline tail r | Baseline relative dB | Restore-SP full RMS r |
+|---|---:|---:|---:|---:|
+| Chromatics | .944687 | .977252 | -6.77 | .944687 |
+| Face of the Galaxy | .937735 | -.012874 | -6.52 | .937735 |
+| Get Lucky | .967607 | .535404 | -6.52 | .967607 |
+| Graphic Demo 8 | .976316 | .954547 | -4.83 | .976316 |
+| Lemmings Intro | .932484 | .911238 | -6.01 | .838693 |
+| Microx 3 | .666772 | .669218 | -4.71 | .624632 |
+| Microx 4 | .996800 | .999969 | -6.71 | .801113 |
+| Vaxeen Cygnus Lyrae | .942756 | .849974 | -4.72 | .919005 |
+| Vaxeen Photographic | .958287 | .959410 | -4.32 | .952429 |
+| Vaxeen Poison | .953130 | .988483 | -4.74 | .947907 |
+| Vaxeen Star Pawns | .792967 | .906671 | -4.96 | .774648 |
+| Vaxeen 4U | .936785 | .997811 | -4.54 | .897776 |
+
+Restoring SP after abandoned calls leaves B reported metrics unchanged
+and degrades full-envelope correlation for every D row. Six D rows
+end at PC=$0000 in that experiment. Reject and remove the option;
+restore all four source/tool files to 1153959. No automatic fallback
+or global gain correction. Next run a paired control on Microx songs
+0,1,2 (standard vs frame-restart, same reference and duration), plus
+short Face of the Galaxy before the late budget failure. This tests
+whether differences are introduced by scheduler even when standard
+returns normally. It does not establish waveform fidelity.
