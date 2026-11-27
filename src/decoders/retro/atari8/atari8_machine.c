@@ -103,9 +103,8 @@ static uint8_t bus_read(void *context, uint16_t a)
     }
     if ((a & 0xff00u) == 0xd400u) {
         unsigned reg = a & 15u;
-        if (m->sap_continuous &&
-            (reg<=5u || reg==7u || reg==9u))
-            return 0xff; /* write-only video configuration */
+        if (m->sap_continuous && reg<=9u)
+            return 0xff; /* write-only video registers and unused 6/8 */
         if (reg == 11)
             return (uint8_t)((m->master_cycles / 114u %
                               (m->ntsc ? 262u : 312u)) / 2u);
