@@ -49,8 +49,59 @@ static void test_file(bool stereo, bool ntsc, bool nonlinear)
         CHECK(atari8_sapr_parse(data, n, &info) != ATARI8_SAPR_OK);
 }
 
+/* Toggle one left DAC against constant left bias. The right chip
+ * has a distinct DAC sequence. Compare every output sample with a
+ * direct per-cycle PCM oracle, independent of SAP-R frame application. */
+static void test_dac_mixer(bool nonlinear)
+{
+    static const char header[]="SAP\r\nTYPE R\r\nSTEREO\r\nFASTPLAY 78\r\n\r\n";
+    enum { count=32, stride=18 };
+    uint8_t data[sizeof(header)-1+count*stride];
+    const size_t h=sizeof(header)-1;
+    memcpy(data,header,h);
+    memset(data+h,0,count*stride);
+    for (unsigned i=0;i<count;++i) {
+        uint8_t *r=data+h+i*stride;
+        r[1]=(uint8_t)(0x10u+((i&1u)?15u:0u));
+        r[3]=r[5]=0x1f; /* left bias 30 */
+        r[10]=(uint8_t)(0x10u+((i&2u)?8u:0u));
+    }
+    Atari8Sapr s;
+    Atari8Pcm ref;
+    CHECK(atari8_sapr_open(&s,data,sizeof(data),48000)==ATARI8_SAPR_OK);
+    s.nonlinear_mix=nonlinear;
+    CHECK(atari8_pcm_init(&ref,1773447u,48000u,2,true));
+    unsigned frames=0;
+    for (unsigned i=0;i<count;++i) {
+        const uint8_t level[2]={(uint8_t)(30u+((i&1u)?15u:0u)),
+                                (uint8_t)((i&2u)?8u:0u)};
+        const uint16_t analog[2]={atari8_pokey_curve[level[0]],
+                                  atari8_pokey_curve[level[1]]};
+        for (uint32_t c=0;c<78u*114u;++c) {
+            int16_t expected[2],actual[2];
+            bool ready=nonlinear ? atari8_pcm_feed_u16(&ref,analog,expected)
+                                 : atari8_pcm_feed(&ref,level,expected);
+            if (ready) {
+                CHECK(atari8_sapr_next(&s,actual)==ATARI8_SAPR_OK);
+                CHECK(actual[0]==expected[0] && actual[1]==expected[1]);
+                ++frames;
+            }
+        }
+    }
+    int16_t end[2];
+    CHECK(frames==(uint64_t)count*78u*114u*48000u/1773447u);
+    CHECK(atari8_sapr_next(&s,end)==ATARI8_SAPR_EOF);
+}
+
 int main(void)
 {
+    CHECK(atari8_pokey_curve[0]==0 && atari8_pokey_curve[60]==65535u);
+    for (unsigned i=1;i<=60;++i)
+        CHECK(atari8_pokey_curve[i]>atari8_pokey_curve[i-1]);
+    CHECK(atari8_pokey_curve[60]-atari8_pokey_curve[45]<
+          atari8_pokey_curve[15]-atari8_pokey_curve[0]);
+    test_dac_mixer(false);
+    test_dac_mixer(true);
     test_file(false, false, false);
     test_file(true, true, false);
     test_file(false, false, true);
