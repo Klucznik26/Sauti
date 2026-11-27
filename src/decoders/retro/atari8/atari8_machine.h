@@ -48,6 +48,7 @@ typedef struct {
     uint8_t pia_porta, pia_ddra, antic_dmactl;
     uint8_t antic_video[16]; /* write-only headless video register latches */
     uint64_t sap_video_dma_requests;
+    uint64_t sap_non_timer_irq_requests, sap_serial_clock_requests;
     uint64_t sap_pokey_audio_writes, sap_consol_writes, sap_consol_edges;
     /* SAP-B compatibility: recognized legacy VBI chain tails only. */
     uint8_t sap_vbi_tails[8192];
