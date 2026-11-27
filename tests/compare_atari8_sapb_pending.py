@@ -93,6 +93,7 @@ def main():
     p.add_argument("--renderer",type=Path,default=Path("build/render_atari8_sapb"))
     p.add_argument("--seconds",type=int,default=15,choices=range(1,61))
     p.add_argument("--only",help="case-insensitive substring of relative SAP path")
+    p.add_argument("--all",action="store_true",help="compare every selected report row, including successful renders")
     p.add_argument("--stats",action="store_true",help="print per-second PCM peak and RMS")
     p.add_argument("--frame-restart",action="store_true",help="opt in to experimental Sauti scheduler")
     a=p.parse_args()
@@ -100,10 +101,10 @@ def main():
         p.error("ASAP or Sauti executable missing")
     root=a.archive.resolve()
     with a.report.open(newline="",encoding="utf-8") as f:
-        rows=[r for r in csv.DictReader(f) if r["result"]!="rendered nonzero"
+        rows=[r for r in csv.DictReader(f) if (a.all or r["result"]!="rendered nonzero")
               and (not a.only or a.only.casefold() in r["file"].casefold())]
     if not rows:
-        p.error("no matching pending files")
+        p.error("no matching files")
     with tempfile.TemporaryDirectory(prefix="sauti-reference-") as tmp:
         for r in rows:
             src=(root/r["file"]).resolve()
