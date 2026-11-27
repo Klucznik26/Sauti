@@ -103,6 +103,7 @@ def main():
     mode=p.add_mutually_exclusive_group()
     mode.add_argument("--poly4-phase",action="store_true",help="run isolated phase sweep with spectral peaks")
     mode.add_argument("--mixer",action="store_true",help="measure relative DAC amplitude at different constant channel biases")
+    p.add_argument("--nonlinear-mix",action="store_true",help="enable experimental POKEY saturation curve in Sauti")
     a=p.parse_args()
     a.out.mkdir(parents=True,exist_ok=True)
     cases=[]
@@ -157,6 +158,8 @@ def main():
             wav.unlink(missing_ok=True)
             cmd=([str(exe.resolve()),str(sap),str(wav),"4","0"] if label=="Sauti"
                  else [str(exe.resolve()),"-o",str(wav),"-t","00:04","-R","48000","-s","0",str(sap)])
+            if label=="Sauti" and a.nonlinear_mix:
+                cmd.append("--nonlinear-mix")
             try:
                 subprocess.run(cmd,check=True,capture_output=True,text=True,timeout=60)
                 rms,hz,peak=measure(wav,a.poly4_phase)
