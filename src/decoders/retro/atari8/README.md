@@ -829,3 +829,26 @@ cases are not new failures. No default fallback enabled. SAP-R tested
 separately. Basic SAP implementation milestone complete; production
 integration, complete durations, all subsongs, fidelity and detailed
 license/provenance audit remain open. No decoder changes.
+
+### All ASMA subsongs execution checkpoint
+
+Fedora at 14bb6ad, same decoder as full default-subsong regression:
+additional non-default subsongs, 3 seconds each at 48 kHz.
+
+| Type | Standard nonzero | Frame-restart nonzero | Silence | Total |
+|---|---:|---:|---:|---:|
+| B | 1295 | 0 | 3 | 1298 |
+| C | 661 | 0 | 3 | 664 |
+| D | 48 | 2 | 0 | 50 |
+| S | 0 | 0 | 0 | 0 |
+| Total | 2004 | 2 | 6 | 2012 |
+
+Combined default/non-default coverage: 8,349/8,349 rendered,
+8,309 standard nonzero, 8 explicit frame-restart nonzero, 32 silent
+at 3 seconds, zero runtime failures. This is not musical fidelity.
+The six additional silent entries and two compatibility entries
+require targeted reference checks. Comparison tool now passes the
+CSV's zero-based song index to both Sauti and external asapconv (-s,
+see https://asap.sourceforge.net/convert.html). Explicit --report-mode
+uses the recorded scheduler per row; existing default behavior is
+unchanged. No decoder changes. Full durations and production work remain.
