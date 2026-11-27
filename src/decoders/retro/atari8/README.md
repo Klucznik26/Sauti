@@ -926,3 +926,19 @@ Next: targeted 60-second reference comparison of unknown/zero TIME,
 review headers and all compatibility rows; production metadata,
 seek/loop, fidelity, security and provenance remain open. Comparator
 supports repeatable --result filter; no decoder changes.
+
+### Missing and zero TIME reference checkpoint
+
+Fedora at 398e68f: all ten entries excluded from positive-duration
+scan compared to external ASAP for 60 seconds. Seven unknown TIME
+entries rendered nonzero (B: Why Do You Dance With Me, Mission Failed
+Successfully, Unicum, Yo Ho; D: Veeblefetzer, Ataraxia, Silky Adventure).
+Reported onsets agree within 1 ms, zero skipped deadlines. Three C
+zero-TIME entries (Greenmon, Hello, Ray, song index 1) were silent in
+both renderers throughout 60 seconds. No runtime errors. Unknown TIME
+must remain distinct from zero TIME; these bounded tests cannot prove
+an unknown end time. All 8349 subsongs now have execution coverage:
+8339 at positive declared TIME, ten exceptions at 60 seconds. Fidelity,
+loop behavior and production API remain unverified. Next inspect the
+12 full-duration frame-restart rows, including late failures, before
+automatic fallback design. No decoder changes.
