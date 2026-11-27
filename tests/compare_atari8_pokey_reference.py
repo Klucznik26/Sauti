@@ -62,7 +62,7 @@ def main():
     # Expected steady-state pure tone frequencies from divider formula.
     clock=1773447
     for ctl,div in ((0,28),(1,114),(0x40,1)):
-        for n in (7,31,127):
+        for n in ((63,127,255) if div==1 else (7,31,127)):
             cases.append((f"tone_{ctl:02x}_{n}",ctl,[(0,n),(1,0xaf)],(),clock/(2*((n+4) if div==1 else div*(n+1)))))
     for ctl in (0x10,0x50,0x70):
         for n in (0x140,0x3a0,0x1234):
@@ -87,7 +87,8 @@ def main():
                 values.append(f"{hz:8.1f} {rms:8.1f}")
             except (OSError,ValueError,wave.Error,subprocess.SubprocessError) as e:
                 values.append(f"ERROR {e}")
-        print(f"{name:24} | {expected if expected is not None else '-':>10} | "+" | ".join(values),flush=True)
+        target=f"{expected:.1f}" if expected is not None else "-"
+        print(f"{name:24} | {target:>10} | "+" | ".join(values),flush=True)
 
 if __name__=="__main__":
     main()
