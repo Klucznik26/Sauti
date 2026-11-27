@@ -162,7 +162,14 @@ Atari8SaprResult atari8_sapr_next(Atari8Sapr *s, int16_t frame[2])
         }
         uint8_t level[2];
         atari8_core_levels(&s->core, level);
-        bool ready = atari8_pcm_feed(&s->pcm, level, frame);
+        bool ready;
+        if (s->nonlinear_mix) {
+            uint16_t analog[2]={atari8_pokey_curve[level[0]],
+                                atari8_pokey_curve[level[1]]};
+            ready=atari8_pcm_feed_u16(&s->pcm,analog,frame);
+        } else {
+            ready=atari8_pcm_feed(&s->pcm,level,frame);
+        }
         atari8_core_step(&s->core, 1);
         --s->remaining;
         if (ready)
