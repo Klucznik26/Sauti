@@ -8,6 +8,7 @@
 typedef struct {
     uint8_t audf[4], audc[4], audctl, skctl;
     uint32_t counter[4];
+    bool preserve_audctl_counters; /* opt-in transition experiment */
     uint8_t irq_enable, irq_pending; /* active-high internal masks */
     uint8_t output[4]; /* raw waveform flip-flops */
     uint8_t filter_latch[2], filter_sample[2], filter_delay[2];
