@@ -29,6 +29,7 @@ typedef struct {
     Atari8Pcm pcm;
     size_t next_frame;
     uint32_t remaining;
+    uint64_t position, total_frames; /* PCM frames, not register frames */
     Atari8SaprResult terminal;
     bool nonlinear_mix; /* default true; choose after open, before next */
 } Atari8Sapr;
@@ -38,4 +39,11 @@ Atari8SaprResult atari8_sapr_parse(const uint8_t *data, size_t size,
 Atari8SaprResult atari8_sapr_open(Atari8Sapr *s, const uint8_t *data,
                                   size_t size, uint32_t rate);
 Atari8SaprResult atari8_sapr_next(Atari8Sapr *s, int16_t frame[2]);
+/* Successful open required for these functions. Seek is sample-exact:
+ * forward playback discards PCM; backwards replay resets all state.
+ * Positions beyond the payload are rejected, state unchanged on error.
+ * Time cost is proportional to the replayed audio duration. */
+uint64_t atari8_sapr_tell(const Atari8Sapr *s);
+uint64_t atari8_sapr_length(const Atari8Sapr *s);
+Atari8SaprResult atari8_sapr_seek(Atari8Sapr *s, uint64_t position);
 #endif
