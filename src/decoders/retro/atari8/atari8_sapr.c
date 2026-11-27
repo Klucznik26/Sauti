@@ -29,7 +29,7 @@ Atari8SaprResult atari8_sapr_parse(const uint8_t *data, size_t size,
     if (!data || !info || size < 5 || memcmp(data, "SAP\r\n", 5))
         return ATARI8_SAPR_BAD_FORMAT;
     Atari8SaprInfo x = {0};
-    bool type = false, end = false, fast = false;
+    bool type = false, end = false, fast = false, time_seen = false;
     uint32_t scanlines = 0;
     size_t pos = 5;
     /* Bound header scanning independently of the binary payload. */
@@ -83,7 +83,14 @@ Atari8SaprResult atari8_sapr_parse(const uint8_t *data, size_t size,
                    || equal(line, key, "DATE")) {
             if (n < 2 || a[0] != '"' || a[n - 1] != '"')
                 return ATARI8_SAPR_BAD_FORMAT;
-        } else if (!equal(line, key, "TIME")) {
+        } else if (equal(line, key, "TIME")) {
+            if (time_seen) {
+                x.time = (Atari8SapTime){0, ATARI8_SAP_TIME_INVALID, false};
+            } else {
+                x.time = atari8_sap_time_parse(a,n);
+                time_seen = true;
+            }
+        } else {
             return ATARI8_SAPR_UNSUPPORTED;
         }
     }
