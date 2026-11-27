@@ -371,6 +371,23 @@ static void test_sapd(void)
     CHECK(s.machine.ram[0x87]==0xff && s.machine.ram[0x88]==0x0f &&
           s.machine.ram[0x89]==0xf5);
     CHECK(s.machine.ram[0x8a]==0xff && s.machine.ram[0x8b]==0xff);
+    /* Timer-only SAP profile: no external keyboard or SIO events. */
+    static const uint8_t headless_irq[]={
+        0xad,0x0c,0xd4,0x85,0x8c,
+        0xad,0x0d,0xd4,0x85,0x8d,
+        0xa9,0xfe,0x8d,0x0e,0xd2,
+        0xa9,0x23,0x8d,0x0f,0xd2,
+        0x60
+    };
+    s.machine.cpu.p |= ATARI8_CPU_I;
+    CHECK(atari8_machine_load(&s.machine,0x2400,headless_irq,sizeof(headless_irq)));
+    CHECK(atari8_machine_call(&s.machine,0x2400,1000)==ATARI8_MACHINE_OK);
+    CHECK(s.machine.ram[0x8c]==0xff && s.machine.ram[0x8d]==0xff);
+    CHECK(s.machine.core.pokey[0].irq_enable==6 &&
+          s.machine.core.pokey[0].skctl==0x23);
+    CHECK(s.machine.sap_non_timer_irq_requests==1 &&
+          s.machine.sap_serial_clock_requests==1);
+
     /* Periodic D PLAYER runs before the first INIT instruction,
      * changes all registers/flags, writes RAM and returns via RTS.
      * INIT must resume with its original registers and stack. */
