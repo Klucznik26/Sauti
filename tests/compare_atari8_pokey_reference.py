@@ -103,7 +103,9 @@ def main():
     mode=p.add_mutually_exclusive_group()
     mode.add_argument("--poly4-phase",action="store_true",help="run isolated phase sweep with spectral peaks")
     mode.add_argument("--mixer",action="store_true",help="measure relative DAC amplitude at different constant channel biases")
-    p.add_argument("--nonlinear-mix",action="store_true",help="enable experimental POKEY saturation curve in Sauti")
+    mix=p.add_mutually_exclusive_group()
+    mix.add_argument("--nonlinear-mix",action="store_true",help="explicitly select the default saturation curve")
+    mix.add_argument("--linear-mix",action="store_true",help="select legacy linear mixer")
     a=p.parse_args()
     a.out.mkdir(parents=True,exist_ok=True)
     cases=[]
@@ -160,6 +162,8 @@ def main():
                  else [str(exe.resolve()),"-o",str(wav),"-t","00:04","-R","48000","-s","0",str(sap)])
             if label=="Sauti" and a.nonlinear_mix:
                 cmd.append("--nonlinear-mix")
+            elif label=="Sauti" and a.linear_mix:
+                cmd.append("--linear-mix")
             try:
                 subprocess.run(cmd,check=True,capture_output=True,text=True,timeout=60)
                 rms,hz,peak=measure(wav,a.poly4_phase)
