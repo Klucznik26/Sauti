@@ -652,3 +652,18 @@ emulate graphics, full PIA interrupts, or prove original hardware
 sound fidelity. Existing POKEY IRQEN/SKCTL restrictions remain; do
 not mask unsupported audio modes. Test and rescan locally, then
 inspect remaining PLAYER budget faults, POKEY writes and silences.
+
+### SAP-D pending diagnostics: timer-only profile
+
+At 6d43ca3 the SAP-B/C/D test passed, but the 21-file retry still
+contained 17 runtime failures and four silent files. Five D406 faults
+advanced to D40C. Implement disconnected light-pen reads as FF (an
+idle approximation). D-only IRQEN accepts all masks but models only
+bits 0..2; non-timer requests are counted explicitly. SKCTL 23 uses
+normal modeled audio clocks without serial transfers, retaining its
+raw setting and counting the request. No complete SIO, keyboard or
+serial-complete IRQ semantics are claimed. Strict/B/C unchanged.
+Basis: SAP execution model, https://asap.sourceforge.net/sap-format.html
+Remaining watchdogs and silent outputs require comparison with ASAP;
+no watchdog suppression or forced PCM is introduced here.
+Local regression and retry results pending.
