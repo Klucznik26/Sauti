@@ -50,7 +50,7 @@ static void tick(Atari8Machine *m)
     sync_irq(m);
     if (ready) {
         ++m->frames;
-        if (m->sink)
+        if (m->sink && (!m->limit_output || m->frames <= m->output_limit))
             m->sink(m->sink_context, frame);
     }
 }
