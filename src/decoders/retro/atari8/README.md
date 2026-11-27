@@ -901,3 +901,28 @@ not measure fidelity. Continue B using sapb-duration-fast20.csv with
 --resume --limit 0, same renderer and duration policy. Other types
 use distinct reports; B/D only enable explicit frame-restart retry.
 No decoder changes. Full-duration coverage remains unverified.
+
+### Full declared-duration corpus checkpoint
+
+Fedora, PCM-only scanner, 20 workers, all 8,349 ASMA B/C/D/S
+subsongs enumerated. User reported the following final CSV counts:
+
+| Type | Standard nonzero | Frame-restart nonzero | Unknown TIME | Zero TIME | Total |
+|---|---:|---:|---:|---:|---:|
+| B | 5114 | 4 | 4 | 0 | 5122 |
+| C | 2416 | 0 | 0 | 3 | 2419 |
+| D | 790 | 8 | 3 | 0 | 801 |
+| S | 7 | 0 | 0 | 0 | 7 |
+| Total | 8327 | 12 | 7 | 3 | 8349 |
+
+All 8,339 positive declared durations rendered exact frame counts
+and nonzero PCM, with zero reported runtime failures. Ten entries
+without positive duration were not tested at full length (previous
+3-second coverage exists). Twelve compatibility rows versus eight
+in the 3-second scan; identify exact changed rows before implementing
+any automatic fallback. Do not infer correct audio from nonzero PCM.
+LOOP entries rendered one declared duration, not validated looping.
+Next: targeted 60-second reference comparison of unknown/zero TIME,
+review headers and all compatibility rows; production metadata,
+seek/loop, fidelity, security and provenance remain open. Comparator
+supports repeatable --result filter; no decoder changes.
