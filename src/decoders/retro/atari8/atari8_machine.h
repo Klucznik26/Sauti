@@ -26,6 +26,11 @@ typedef struct {
     uint64_t cycle;
 } Atari8Trace;
 
+/* Optional write histogram; caller owns storage, zero before use. */
+typedef struct {
+    uint64_t audctl[2][256], audc[2][4][16], skctl[2][256], stimer[2];
+} Atari8PokeyProfile;
+
 /* Internal music-player machine. Do not move or copy after init:
  * CPU bus callbacks refer to this object. */
 typedef struct {
@@ -34,6 +39,7 @@ typedef struct {
     Atari8Core core;
     Atari8Pcm pcm;
     uint64_t master_cycles, frames;
+    Atari8PokeyProfile *pokey_profile;
     Atari8MachineSink sink;
     void *sink_context;
     Atari8MachineResult status;
