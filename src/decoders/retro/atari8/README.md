@@ -794,3 +794,15 @@ adjustment. Clock progression is promising, but cycle-level fidelity
 and full-track playback remain unverified. No decoder changes.
 Next checkpoint: full post-change B/C/D/S corpus regression, all seven
 synthetic test executables, then duration/subsong and fidelity audit.
+
+### Full synthetic regression checkpoint
+
+Fedora at cb057f9: all seven test executables rebuilt with C99,
+-Wall -Wextra -Werror -pedantic -O2 and passed (core, cpu, machine,
+pcm, pokey, sapb, sapr). This covers all five implemented SAP types
+and mono/dual POKEY, not complete hardware or musical fidelity.
+Next: repeat the full ASMA B/C/D/S scans with the current decoder,
+explicit frame-restart retries for B/D only. Keep delayed-onset and
+experimental results separately classified. All subsongs, complete
+track durations, fidelity and provenance audit remain outstanding.
+No decoder code changed in this checkpoint.
