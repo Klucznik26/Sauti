@@ -117,8 +117,22 @@ static void test_time_metadata(void)
     CHECK(info.time.status==ATARI8_SAP_TIME_INVALID);
 }
 
+static void test_text_metadata(void)
+{
+    static const char header[]="SAP\r\nTYPE R\r\nNAME \"Stereo song\"\r\nAUTHOR \"\"\r\nDATE \"1995\"\r\n\r\n";
+    uint8_t data[sizeof(header)-1+9]={0};
+    memcpy(data,header,sizeof(header)-1);
+    Atari8SaprInfo info;
+    CHECK(atari8_sapr_parse(data,sizeof(data),&info)==ATARI8_SAPR_OK);
+    CHECK(info.metadata.name.present && !info.metadata.name.truncated &&
+          !strcmp(info.metadata.name.value,"Stereo song"));
+    CHECK(info.metadata.author.present && info.metadata.author.value[0]=='\0');
+    CHECK(info.metadata.date.present && !strcmp(info.metadata.date.value,"1995"));
+}
+
 int main(void)
 {
+    test_text_metadata();
     test_time_metadata();
     CHECK(atari8_pokey_curve[0]==0 && atari8_pokey_curve[60]==65535u);
     for (unsigned i=1;i<=60;++i)
