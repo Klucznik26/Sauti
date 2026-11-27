@@ -50,6 +50,8 @@ def main():
     parser.add_argument("--limit", type=int, default=100, help="0 tests all files of selected SAP type")
     parser.add_argument("--report", type=Path, default=Path("build/sapb-scan.csv"))
     parser.add_argument("--retry", type=Path, help="retry only non-success rows of a previous CSV report")
+    parser.add_argument("--resume", action="store_true",
+                        help="append missing rows to an existing report; use identical scan options and renderer")
     parser.add_argument("--retry-frame-restart", action="store_true",
                         help="retry B/D PLAYER budget failures with explicit experimental scheduler")
     parser.add_argument("--type", choices=("B", "C", "D", "S"), default="B")
@@ -73,17 +75,50 @@ def main():
                      if row["result"] != "rendered nonzero"}
         paths = [p for p in paths if str(p.relative_to(args.archive)) in retry]
     selected = paths[:args.limit] if args.limit else paths
-    print(f"SAP-{args.type} files: {len(paths)}; testing {len(selected)} at {args.seconds}s each", flush=True)
-    if not selected:
+    total = len(selected)
+    if not total:
+        print("No matching files", flush=True)
         return 1
     counts = Counter()
+    fields = ["file", "result", "diagnostic", "mode"]
+    completed = 0
+    append = args.resume and args.report.exists()
+    if append:
+        expected = [str(p.relative_to(args.archive)) for p in selected]
+        try:
+            with args.report.open("rb") as raw:
+                if raw.seek(0, 2) == 0:
+                    raise ValueError("empty report")
+                raw.seek(-1, 2)
+                if raw.read(1) != b"\n":
+                    raise ValueError("incomplete last CSV row")
+            with args.report.open(newline="", encoding="utf-8") as previous:
+                reader = csv.reader(previous, strict=True)
+                if next(reader, None) != fields:
+                    raise ValueError("unexpected CSV header")
+                for row in reader:
+                    if (len(row) != len(fields) or completed >= total
+                            or row[0] != expected[completed] or not row[1]
+                            or row[3] not in ("standard", "frame-restart")
+                            or (row[3] == "frame-restart" and not args.retry_frame_restart)):
+                        raise ValueError("report does not match the selected scan prefix")
+                    counts[row[1]] += 1
+                    completed += 1
+        except (OSError, UnicodeError, ValueError, csv.Error) as exc:
+            parser.error(f"cannot resume: {exc}; original report preserved")
+        selected = selected[completed:]
+        print(f"Resuming: {completed}/{total} already recorded; "
+              f"{len(selected)} remaining. Keep the original renderer and scan options.", flush=True)
+    print(f"SAP-{args.type} files: {len(paths)}; testing {len(selected)} at {args.seconds}s each", flush=True)
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="sauti-sapb-") as tmp, args.report.open(
-            "w", newline="", encoding="utf-8") as report:
+            "a" if append else "w", newline="", encoding="utf-8") as report:
         writer = csv.writer(report)
-        writer.writerow(["file", "result", "diagnostic", "mode"])
+        if not append:
+            writer.writerow(fields)
+            report.flush()
         output = Path(tmp) / "test.wav"
-        for index, path in enumerate(selected, 1):
+        for index, path in enumerate(selected, completed + 1):
             output.unlink(missing_ok=True)
             message = ""
             mode = "standard"
@@ -124,13 +159,13 @@ def main():
             counts[result] += 1
             writer.writerow([str(path.relative_to(args.archive)), result, message, mode])
             report.flush()
-            if index % 25 == 0 or index == len(selected):
-                print(f"{index}/{len(selected)} completed", flush=True)
+            if index % 25 == 0 or index == total:
+                print(f"{index}/{total} completed", flush=True)
     for result, count in counts.most_common():
         print(f"{count:5}  {result}")
     rendered = (counts["rendered nonzero"] + counts["rendered silence"]
                 + counts["rendered nonzero (frame-restart)"])
-    print(f"Rendered: {rendered}/{len(selected)}; not a sound-accuracy test")
+    print(f"Rendered: {rendered}/{total}; not a sound-accuracy test")
     print(f"Report: {args.report}")
     return 0
 
