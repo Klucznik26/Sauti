@@ -105,8 +105,30 @@ static void diagnostic(const Atari8Sapb *s, const char *stage, Atari8SapbResult 
     fputc('\n',stderr);
 }
 
+static void print_profile(const Atari8PokeyProfile *p, unsigned chips)
+{
+    for (unsigned c=0;c<chips;++c) {
+        printf("POKEY chip %u playback register writes (INIT excluded for B/C):\n",c);
+        printf("  AUDCTL:");
+        for (unsigned v=0;v<256;++v)
+            if (p->audctl[c][v]) printf(" %02X=%" PRIu64,v,p->audctl[c][v]);
+        printf("\n  SKCTL:");
+        for (unsigned v=0;v<256;++v)
+            if (p->skctl[c][v]) printf(" %02X=%" PRIu64,v,p->skctl[c][v]);
+        printf("\n  STIMER: %" PRIu64 "\n",p->stimer[c]);
+        for (unsigned ch=0;ch<4;++ch) {
+            printf("  AUDC%u high nibble:",ch+1u);
+            for (unsigned v=0;v<16;++v)
+                if (p->audc[c][ch][v]) printf(" %X=%" PRIu64,v,p->audc[c][ch][v]);
+            putchar('\n');
+        }
+    }
+}
+
 int main(int argc,char **argv)
 {
+    bool profile=argc>1 && !strcmp(argv[argc-1],"--pokey-profile");
+    if (profile) --argc;
     bool restart=argc>1 && !strcmp(argv[argc-1],"--frame-restart");
     if (restart) --argc;
     bool no_wav=argc>1 && !strcmp(argv[argc-1],"--no-wav");
@@ -117,7 +139,7 @@ int main(int argc,char **argv)
     if (argc<3 || argc>5 || (milliseconds && argc<4) ||
         (argc>=4 && !integer(argv[3],1,milliseconds?5999999L:300L,&duration))
         || (argc==5 && !integer(argv[4],-1,255,&song))) {
-        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [duration 1..300 s] [song -1..255] [--milliseconds (1..5999999 ms)] [--no-wav] [--frame-restart]\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [duration 1..300 s] [song -1..255] [--milliseconds (1..5999999 ms)] [--no-wav] [--frame-restart] [--pokey-profile]\n",argv[0]);
         return 2;
     }
     FILE *in=fopen(argv[1],"rb");
@@ -134,9 +156,11 @@ int main(int argc,char **argv)
     if (!ok) { free(data); return 2; }
     Atari8Sapb s={0};
     Output out={0};
+    Atari8PokeyProfile pokey_profile={0};
     Atari8SapbResult r=atari8_sapb_open_mode(&s,data,(size_t)n,(int)song,48000,sink,&out,restart);
     free(data);
     if (r!=ATARI8_SAPB_OK) { diagnostic(&s,"INIT/parse",r); return 1; }
+    if (profile) s.machine.pokey_profile=&pokey_profile;
     if (restart) fputs("Experimental frame-restart policy enabled\n",stderr);
     out.channels=s.info.stereo?2u:1u;
     out.limit=(uint64_t)duration*(milliseconds?48u:48000u);
@@ -182,6 +206,7 @@ int main(int argc,char **argv)
     else
         printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " player calls, %" PRIu64 " skipped deadlines, %" PRIu64 " legacy VBI returns\n",
         out.frames,s.intervals,s.missed_intervals,s.machine.sap_vbi_returns);
+    if (profile) print_profile(&pokey_profile,out.channels);
     if (restart) printf("Abandoned calls: %" PRIu64 "\n",s.abandoned_calls);
     return 0;
 }
