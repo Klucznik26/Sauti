@@ -879,3 +879,25 @@ Source: https://asap.sourceforge.net/sap-format.html (TIME).
 This is a diagnostic tool, not decoder EOF/loop/seek implementation.
 Start with a small pilot per type before the entire corpus; recompile
 the renderer first. New tool changes not yet locally tested.
+
+### Parallel PCM-only duration pilot
+
+Fedora at 05c4aaa, ASUS i7-12700H, first 20 SAP-B subsongs at
+individual declared TIME, explicit B frame-restart retry enabled,
+--no-wav. All five runs: 20/20 nonzero, no failures.
+
+| Jobs | Wall seconds | User CPU seconds |
+|---:|---:|---:|
+| 4 | 85.548 | 213.167 |
+| 8 | 51.341 | 220.557 |
+| 12 | 43.891 | 225.295 |
+| 16 | 33.074 | 241.294 |
+| 20 | 25.821 | 263.324 |
+
+20 workers fastest in this pilot (3.31x relative to 4), not a
+sustained-load benchmark. PCM-only mode checks frame count, channels,
+sample rate and nonzero status without WAV serialization; this does
+not measure fidelity. Continue B using sapb-duration-fast20.csv with
+--resume --limit 0, same renderer and duration policy. Other types
+use distinct reports; B/D only enable explicit frame-restart retry.
+No decoder changes. Full-duration coverage remains unverified.
