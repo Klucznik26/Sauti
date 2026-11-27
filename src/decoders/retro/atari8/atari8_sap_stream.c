@@ -8,6 +8,7 @@ struct Atari8SapStream {
     Atari8Sapr reg;
     uint8_t *source; /* R only; executable backend owns its input */
     bool repeat;
+    uint64_t seek_limit;
 };
 
 static Atari8SapbResult map_r(Atari8SaprResult r)
@@ -69,6 +70,7 @@ Atari8SapbResult atari8_sap_stream_open(Atari8SapStream **out,
         return r;
     }
     s->info.rate=rate;
+    s->seek_limit=(uint64_t)rate*ATARI8_SAP_STREAM_DEFAULT_SEEK_SECONDS;
     *out=s;
     return ATARI8_SAPB_OK;
 }
@@ -101,9 +103,18 @@ uint64_t atari8_sap_stream_tell(const Atari8SapStream *s)
     return s->exec ? atari8_sapb_stream_tell(s->exec) : atari8_sapr_tell(&s->reg);
 }
 
+void atari8_sap_stream_set_seek_limit(Atari8SapStream *s,uint64_t max_frames)
+{
+    if (s) s->seek_limit=max_frames;
+}
+
 Atari8SapbResult atari8_sap_stream_seek(Atari8SapStream *s,uint64_t position)
 {
     if (!s) return ATARI8_SAPB_BAD_FORMAT;
+    uint64_t length;
+    if (atari8_sap_stream_length(s,&length) && position>length)
+        return ATARI8_SAPB_BAD_FORMAT;
+    if (position>s->seek_limit) return ATARI8_SAPB_LIMIT;
     return s->exec ? atari8_sapb_stream_seek(s->exec,position)
         : map_r(atari8_sapr_seek(&s->reg,position));
 }
@@ -143,13 +154,17 @@ Atari8SapbResult atari8_sap_stream_read(Atari8SapStream *s,
     *produced=0;
     if (!s || (!out && capacity) || capacity>SIZE_MAX/sizeof(*out))
         return ATARI8_SAPB_BAD_FORMAT;
+    if (capacity>ATARI8_SAP_STREAM_MAX_READ_FRAMES) return ATARI8_SAPB_LIMIT;
     bool just_reset=false;
+    unsigned restarts=0;
     while (*produced<capacity) {
         size_t got;
         Atari8SapbResult r=read_once(s,out+*produced,capacity-*produced,&got);
         *produced+=got;
         if (r!=ATARI8_SAPB_EOF || !s->repeat) return r;
         if (!got && just_reset) return ATARI8_SAPB_RUNTIME;
+        if (restarts>=ATARI8_SAP_STREAM_MAX_RESTARTS) return ATARI8_SAPB_LIMIT;
+        ++restarts;
         r=atari8_sap_stream_reset(s);
         if (r!=ATARI8_SAPB_OK) return r;
         just_reset=true;
