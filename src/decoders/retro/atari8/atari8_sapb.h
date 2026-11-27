@@ -30,7 +30,8 @@ Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
                                    Atari8SapbInfo *info);
 /* song=-1 selects DEFSONG. All data is copied to machine RAM.
  * B/C INIT advances hardware but its PCM output is discarded.
- * D/S INIT runs continuously and contributes to PCM. */
+ * D/S INIT runs continuously and contributes to PCM.
+ * B/C/D/S default to nonlinear POKEY mixing. */
 Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
                                   size_t size, int song, uint32_t rate,
                                   Atari8MachineSink sink, void *context);
