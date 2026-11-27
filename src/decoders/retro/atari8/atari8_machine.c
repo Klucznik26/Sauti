@@ -210,6 +210,15 @@ static void bus_write(void *context, uint16_t a, uint8_t value)
     }
     if ((a & 0xff00u) == 0xd100u || a >= 0xd500u)
         return; /* no expansion device to receive the write */
+    if (m->pokey_profile && (a & 0xff00u)==0xd200u) {
+        Atari8PokeyProfile *p=m->pokey_profile;
+        unsigned chip=m->core.stereo && (a & 0x10u) ? 1u : 0u;
+        unsigned reg=a & 15u;
+        if (reg<8u && (reg & 1u)) ++p->audc[chip][reg/2u][value>>4];
+        else if (reg==8u) ++p->audctl[chip][value];
+        else if (reg==9u) ++p->stimer[chip];
+        else if (reg==15u) ++p->skctl[chip][value];
+    }
     if (m->sap_continuous && (a & 0xff00u)==0xd200u &&
         (a & 15u)<=8u)
         ++m->sap_pokey_audio_writes;
