@@ -127,6 +127,8 @@ static void print_profile(const Atari8PokeyProfile *p, unsigned chips)
 
 int main(int argc,char **argv)
 {
+    bool nonlinear=argc>1 && !strcmp(argv[argc-1],"--nonlinear-mix");
+    if (nonlinear) --argc;
     bool profile=argc>1 && !strcmp(argv[argc-1],"--pokey-profile");
     if (profile) --argc;
     bool restart=argc>1 && !strcmp(argv[argc-1],"--frame-restart");
@@ -139,7 +141,7 @@ int main(int argc,char **argv)
     if (argc<3 || argc>5 || (milliseconds && argc<4) ||
         (argc>=4 && !integer(argv[3],1,milliseconds?5999999L:300L,&duration))
         || (argc==5 && !integer(argv[4],-1,255,&song))) {
-        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [duration 1..300 s] [song -1..255] [--milliseconds (1..5999999 ms)] [--no-wav] [--frame-restart] [--pokey-profile]\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [duration 1..300 s] [song -1..255] [--milliseconds (1..5999999 ms)] [--no-wav] [--frame-restart] [--pokey-profile] [--nonlinear-mix]\n",argv[0]);
         return 2;
     }
     FILE *in=fopen(argv[1],"rb");
@@ -161,6 +163,9 @@ int main(int argc,char **argv)
     free(data);
     if (r!=ATARI8_SAPB_OK) { diagnostic(&s,"INIT/parse",r); return 1; }
     if (profile) s.machine.pokey_profile=&pokey_profile;
+    /* B/C reset the PCM integrator after INIT; D/S have not run yet. */
+    s.machine.nonlinear_mix=nonlinear;
+    if (nonlinear) puts("Experimental hardware saturation curve enabled");
     if (restart) fputs("Experimental frame-restart policy enabled\n",stderr);
     out.channels=s.info.stereo?2u:1u;
     out.limit=(uint64_t)duration*(milliseconds?48u:48000u);
