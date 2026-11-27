@@ -973,3 +973,30 @@ or global gain correction. Next run a paired control on Microx songs
 short Face of the Galaxy before the late budget failure. This tests
 whether differences are introduced by scheduler even when standard
 returns normally. It does not establish waveform fidelity.
+
+### POKEY diagnostics and analog mixing experiment
+
+Microx songs 0/1/2: standard and frame-restart reported identical
+RMS metrics (.752651/.995567/.996657), POKEY write counts, and zero
+abandoned calls in restart mode. AUDCTL no-reset experiment was
+rejected (songs 0 and 3 worsened to .734507/.570444); reverted.
+Synthetic SAP-B fixtures confirm steady-state divider frequencies;
+slow 6.8 Hz tone has matching FFT peak despite misleading crossing
+count. POLY4 phase sweep yielded mathematically allowed families in
+Sauti, while ASAP selected a fixed family for the tested NOP delays.
+No hardware phase correction inferred from that comparison alone.
+
+Mixer test f16447c: constant other-channel bias 0/15/30/45 with
+volume-15 DAC modulation: relative RMS Sauti 100/100/100/100%,
+ASAP 100/52.75/22.71/11.90%. Hardware saturation is independently
+documented in Avery Lee, Altirra Hardware Reference Manual, appendix E.2
+(https://www.virtualdub.org/downloads/Altirra%20Hardware%20Reference%20Manual.pdf).
+An opt-in 61-entry, normalized 16-bit LUT implements the published
+piecewise exponential transfer approximation on the instantaneous
+sum of four digital levels, before cycle integration. Generated from
+the mathematical specification; no external emulator code/table used.
+Uniform DAC weights, existing single DC blocker and provisional GTIA
+mix remain approximations. Legacy path stays the default; no change
+to CPU/POKEY digital scheduling. Select --nonlinear-mix in the renderer
+and both reference comparison scripts. First local regression and
+mixer/Microx comparisons pending; no claim of physical calibration.
