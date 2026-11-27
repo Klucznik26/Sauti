@@ -667,3 +667,23 @@ Basis: SAP execution model, https://asap.sourceforge.net/sap-format.html
 Remaining watchdogs and silent outputs require comparison with ASAP;
 no watchdog suppression or forced PCM is introduced here.
 Local regression and retry results pending.
+
+### SAP-D pending PLAYER compatibility experiment
+
+Fedora at cd17365: regression PASS; all 11 remaining I/O failures
+resolved in the 21-file retry. Four initially silent tracks produce
+PCM by 7.505 seconds; their onset differs from external ASAP by
+6–12 ms in the 15-second comparison. Combined scan/retry coverage:
+745/751 files rendered, six PLAYER watchdog failures remain.
+Five traces show non-returning guest execution (including sample loops
+and stack resets); one shows an unacknowledged timer IRQ loop.
+
+Experimental --frame-restart now also accepts D with PLAYER. Inject a
+new call on the absolute FASTPLAY grid; restore saved registers on a
+matching RTS, otherwise retain live guest registers and stack at the
+next deadline. This is a separate explicit diagnostic policy, not a
+claim of hardware equivalence or a default fallback. An unfinished
+frame may leak stack entries; count abandoned calls and compare sound
+with the reference, including full duration, before considering any
+production use. JAM and unsupported I/O still fail. Default D watchdog
+and B/C paths unchanged. New synthetic regression awaits local test.
