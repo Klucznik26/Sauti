@@ -217,6 +217,7 @@ Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
     if (frame_restart && info.type!='B' &&
         !(info.type=='D' && info.has_player)) return s->status=ATARI8_SAPB_UNSUPPORTED;
     s->info = info;
+    s->selected_song = song < 0 ? info.default_song : (unsigned)song;
     s->intervals = 0;
     s->missed_intervals = 0;
     s->frame_restart = frame_restart;
@@ -229,7 +230,7 @@ Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
     s->machine.nonlinear_mix = true;
     r = segments(data,size,&info,&s->machine);
     if (r != ATARI8_SAPB_OK) return s->status = r;
-    s->machine.cpu.a = (uint8_t)(song < 0 ? info.default_song : (unsigned)song);
+    s->machine.cpu.a = (uint8_t)s->selected_song;
     if (info.type=='D' || info.type=='S') {
         s->machine.sap_continuous = true;
         /* INIT is the running program, not a host subroutine. Audio
@@ -430,7 +431,7 @@ static Atari8SapbResult softsynth_interval(Atari8Sapb *s)
     return ATARI8_SAPB_OK;
 }
 
-Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s)
+static Atari8SapbResult run_interval(Atari8Sapb *s)
 {
     if (!s) return ATARI8_SAPB_BAD_FORMAT;
     if (s->status != ATARI8_SAPB_OK) return s->status;
@@ -457,4 +458,39 @@ Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s)
     s->missed_intervals += periods - 1u;
     ++s->intervals;
     return ATARI8_SAPB_OK;
+}
+
+bool atari8_sapb_enable_declared_eof(Atari8Sapb *s)
+{
+    if (!s || s->status != ATARI8_SAPB_OK || s->intervals ||
+        s->machine.frames || s->selected_song >= s->info.songs ||
+        s->selected_song >= 256u)
+        return false;
+    const Atari8SapTime *t = &s->info.time[s->selected_song];
+    if (t->status != ATARI8_SAP_TIME_VALID)
+        return false;
+    s->machine.output_limit = (uint64_t)t->duration_ms * s->machine.pcm.rate / 1000u;
+    s->machine.limit_output = true;
+    return true;
+}
+
+uint64_t atari8_sapb_output_frames(const Atari8Sapb *s)
+{
+    if (!s) return 0;
+    const Atari8Machine *m = &s->machine;
+    return m->limit_output && m->frames > m->output_limit
+        ? m->output_limit : m->frames;
+}
+
+Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s)
+{
+    if (!s) return ATARI8_SAPB_BAD_FORMAT;
+    if (s->status != ATARI8_SAPB_OK) return s->status;
+    Atari8Machine *m = &s->machine;
+    if (m->limit_output && m->frames >= m->output_limit)
+        return s->status = ATARI8_SAPB_EOF;
+    Atari8SapbResult r = run_interval(s);
+    if (r == ATARI8_SAPB_OK && m->limit_output && m->frames >= m->output_limit)
+        return s->status = ATARI8_SAPB_EOF;
+    return r;
 }
