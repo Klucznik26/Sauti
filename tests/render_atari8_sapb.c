@@ -107,8 +107,11 @@ static void diagnostic(const Atari8Sapb *s, const char *stage, Atari8SapbResult 
 
 int main(int argc,char **argv)
 {
+    bool unwind=argc>1 && !strcmp(argv[argc-1],"--unwind-abandoned");
+    if (unwind) --argc;
     bool restart=argc>1 && !strcmp(argv[argc-1],"--frame-restart");
     if (restart) --argc;
+    if (unwind && !restart) { fputs("--unwind-abandoned requires --frame-restart\n",stderr); return 2; }
     bool no_wav=argc>1 && !strcmp(argv[argc-1],"--no-wav");
     if (no_wav) --argc;
     bool milliseconds=argc>1 && !strcmp(argv[argc-1],"--milliseconds");
@@ -117,7 +120,7 @@ int main(int argc,char **argv)
     if (argc<3 || argc>5 || (milliseconds && argc<4) ||
         (argc>=4 && !integer(argv[3],1,milliseconds?5999999L:300L,&duration))
         || (argc==5 && !integer(argv[4],-1,255,&song))) {
-        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [duration 1..300 s] [song -1..255] [--milliseconds (1..5999999 ms)] [--no-wav] [--frame-restart]\n",argv[0]);
+        fprintf(stderr,"Usage: %s INPUT.sap OUTPUT.wav [duration 1..300 s] [song -1..255] [--milliseconds (1..5999999 ms)] [--no-wav] [--frame-restart] [--unwind-abandoned]\n",argv[0]);
         return 2;
     }
     FILE *in=fopen(argv[1],"rb");
@@ -137,6 +140,8 @@ int main(int argc,char **argv)
     Atari8SapbResult r=atari8_sapb_open_mode(&s,data,(size_t)n,(int)song,48000,sink,&out,restart);
     free(data);
     if (r!=ATARI8_SAPB_OK) { diagnostic(&s,"INIT/parse",r); return 1; }
+    s.unwind_abandoned=unwind;
+    if (unwind) fputs("Experimental abandoned-stack unwind enabled\n",stderr);
     if (restart) fputs("Experimental frame-restart policy enabled\n",stderr);
     out.channels=s.info.stereo?2u:1u;
     out.limit=(uint64_t)duration*(milliseconds?48u:48000u);
