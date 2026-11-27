@@ -94,6 +94,7 @@ def main():
     p.add_argument("--seconds",type=int,default=15,choices=range(1,61))
     p.add_argument("--only",help="case-insensitive substring of relative SAP path")
     p.add_argument("--all",action="store_true",help="compare every selected report row, including successful renders")
+    p.add_argument("--result",action="append",help="select exact CSV result (repeatable); overrides default pending filter")
     p.add_argument("--stats",action="store_true",help="print per-second PCM peak and RMS")
     mode=p.add_mutually_exclusive_group()
     mode.add_argument("--frame-restart",action="store_true",help="opt in to experimental Sauti scheduler for all rows")
@@ -103,7 +104,7 @@ def main():
         p.error("ASAP or Sauti executable missing")
     root=a.archive.resolve()
     with a.report.open(newline="",encoding="utf-8") as f:
-        rows=[r for r in csv.DictReader(f) if (a.all or r["result"]!="rendered nonzero")
+        rows=[r for r in csv.DictReader(f) if (r["result"] in a.result if a.result else (a.all or r["result"]!="rendered nonzero"))
               and (not a.only or a.only.casefold() in r["file"].casefold())]
     if not rows:
         p.error("no matching files")
@@ -124,7 +125,7 @@ def main():
                   (" [frame-restart]" if restart else ""),flush=True)
             if a.stats:
                 print("SHA256:",hashlib.sha256(src.read_bytes()).hexdigest(),flush=True)
-            if r["result"]=="INIT/parse 2":
+            if r["result"] in ("INIT/parse 2","duration unknown","zero duration","invalid TIME","too many TIME tags"):
                 print(header.decode("ascii",errors="replace").strip(),flush=True)
             for label,exe in (("Sauti",a.renderer),("ASAP",a.asap)):
                 output=Path(tmp)/"out.wav"
