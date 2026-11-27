@@ -51,11 +51,11 @@ static Atari8SapbResult segments(const uint8_t *data, size_t size,
                                 const Atari8SapbInfo *info, Atari8Machine *m)
 {
     size_t pos = info->binary_offset;
-    bool any = false, init = false, player = info->type=='D', music = info->type!='C';
+    bool any = false, init = false, player = !info->has_player, music = info->type!='C';
     if (info->type=='C' && info->player>0xfff8u)
         return ATARI8_SAPB_UNSUPPORTED;
     unsigned entry_init=init_entry(info), entry_play=play_entry(info);
-    if (!valid_entry(entry_init) || (info->type!='D' &&
+    if (!valid_entry(entry_init) || (info->has_player &&
         (!valid_entry(info->player) || !valid_entry(entry_play))))
         return ATARI8_SAPB_UNSUPPORTED;
     while (pos < size) {
@@ -167,10 +167,8 @@ Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
         if (!(seen & INIT) || (seen & MUSIC) ||
             (x.type=='B' && !(seen & PLAYER)))
             return ATARI8_SAPB_BAD_FORMAT;
-        /* D1: periodic PLAYER injection is not implemented yet. */
-        if (x.type=='D' && (seen & PLAYER))
-            return ATARI8_SAPB_UNSUPPORTED;
     }
+    x.has_player = (seen & PLAYER) != 0;
     x.interval = (fast ? fast : (x.ntsc ? 262u : 312u)) * 114u;
     Atari8SapbResult r = segments(data,size,&x,NULL);
     if (r == ATARI8_SAPB_OK) *info = x;
@@ -219,7 +217,7 @@ Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
     s->intervals = 0;
     s->missed_intervals = 0;
     s->frame_restart = frame_restart;
-    s->next_deadline = s->abandoned_calls = 0;
+    s->next_deadline = s->abandoned_calls = s->continuous_player_calls = 0;
     if (!atari8_machine_init(&s->machine,info.ntsc,info.stereo,rate,true,NULL,NULL))
         return s->status = ATARI8_SAPB_UNSUPPORTED;
     s->machine.sap_host_scheduled = true;
@@ -328,22 +326,50 @@ static Atari8SapbResult restart_interval(Atari8Sapb *s)
     return ATARI8_SAPB_OK;
 }
 
+/* Suspend the running INIT at an instruction boundary. Preserve only
+ * architectural registers; IRQ state, cycles, memory and sound must
+ * continue evolving during the PLAYER call. The host call uses an RTS
+ * sentinel, with the same bounded, non-reentrant policy as B/C. */
+static Atari8SapbResult continuous_interval(Atari8Sapb *s)
+{
+    Atari8Machine *m=&s->machine;
+    uint32_t interval=s->info.interval;
+    if (s->info.has_player) {
+        uint16_t pc=m->cpu.pc;
+        uint8_t a=m->cpu.a, x=m->cpu.x, y=m->cpu.y;
+        uint8_t p=m->cpu.p, sp=m->cpu.sp;
+        uint64_t budget=(uint64_t)interval*8u;
+        uint64_t ceiling=(uint64_t)m->pcm.clock_hz*2u;
+        if (budget>ceiling) budget=ceiling;
+        if (budget<interval) budget=interval;
+        if (atari8_machine_call(m,s->info.player,budget)!=ATARI8_MACHINE_OK)
+            return s->status=ATARI8_SAPB_RUNTIME;
+        m->cpu.pc=pc;
+        m->cpu.a=a; m->cpu.x=x; m->cpu.y=y;
+        m->cpu.p=p; m->cpu.sp=sp;
+        ++s->continuous_player_calls;
+    }
+    /* First PLAYER is at time zero, before INIT. If a call or WSYNC
+     * crosses a scheduled boundary, skip it rather than reentering. */
+    s->next_deadline+=interval;
+    while (m->master_cycles>s->next_deadline) {
+        s->next_deadline+=interval;
+        if (s->info.has_player) ++s->missed_intervals;
+    }
+    while (m->master_cycles<s->next_deadline) {
+        if (atari8_machine_step(m)!=ATARI8_MACHINE_OK)
+            return s->status=ATARI8_SAPB_RUNTIME;
+    }
+    ++s->intervals;
+    return ATARI8_SAPB_OK;
+}
+
 Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s)
 {
     if (!s) return ATARI8_SAPB_BAD_FORMAT;
     if (s->status != ATARI8_SAPB_OK) return s->status;
     if (s->frame_restart) return restart_interval(s);
-    if (s->info.type=='D') {
-        /* Absolute boundaries carry instruction/WSYNC overshoot into
-         * the next chunk instead of accumulating timing drift. */
-        s->next_deadline += s->info.interval;
-        while (s->machine.master_cycles < s->next_deadline) {
-            if (atari8_machine_step(&s->machine)!=ATARI8_MACHINE_OK)
-                return s->status=ATARI8_SAPB_RUNTIME;
-        }
-        ++s->intervals;
-        return ATARI8_SAPB_OK;
-    }
+    if (s->info.type=='D') return continuous_interval(s);
     uint64_t start = s->machine.master_cycles;
     /* Compatibility policy: finish an overlong call, never reenter it.
      * Skip elapsed deadlines and return to the original FASTPLAY grid.
