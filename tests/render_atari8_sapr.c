@@ -6,10 +6,15 @@
 
 int main(int argc, char **argv)
 {
-    bool nonlinear=argc==4 && !strcmp(argv[3],"--nonlinear-mix");
-    if (nonlinear) --argc;
+    bool nonlinear=true;
+    if (argc==4 && !strcmp(argv[3],"--linear-mix")) {
+        nonlinear=false;
+        --argc;
+    } else if (argc==4 && !strcmp(argv[3],"--nonlinear-mix")) {
+        --argc;
+    }
     if (argc != 3) {
-        fprintf(stderr, "Usage: %s INPUT.sapr OUTPUT.pcm [--nonlinear-mix]\n", argv[0]);
+        fprintf(stderr, "Usage: %s INPUT.sapr OUTPUT.pcm [--nonlinear-mix|--linear-mix]\n", argv[0]);
         return 1;
     }
     FILE *in = fopen(argv[1], "rb");
@@ -33,6 +38,7 @@ int main(int argc, char **argv)
     if (!out) { perror(argv[2]); free(data); return 1; }
     unsigned channels = atari8_core_channels(&s.core);
     fprintf(stderr, "PCM 48000 Hz, %u channel(s), signed 16-bit little-endian\n", channels);
+    fprintf(stderr, "POKEY mixer: %s\n", nonlinear ? "nonlinear" : "legacy linear");
     Atari8SaprResult r;
     int16_t frame[2];
     while ((r = atari8_sapr_next(&s, frame)) == ATARI8_SAPR_OK) {
