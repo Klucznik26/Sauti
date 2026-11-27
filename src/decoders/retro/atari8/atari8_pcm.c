@@ -28,7 +28,8 @@ static int16_t signed_sample(double x)
     return (int16_t)(x >= 0.0 ? x + 0.5 : x - 0.5);
 }
 
-bool atari8_pcm_feed(Atari8Pcm *p, const uint8_t levels[2], int16_t frame[2])
+static bool feed_scaled(Atari8Pcm *p, const uint16_t levels[2],
+                        unsigned scale, int16_t frame[2])
 {
     /* Use integer time units: one cycle is rate units, one frame is
      * clock_hz units. Split the cycle exactly at a frame boundary. */
@@ -41,7 +42,7 @@ bool atari8_pcm_feed(Atari8Pcm *p, const uint8_t levels[2], int16_t frame[2])
     }
 
     uint32_t tail = p->rate - remaining;
-    uint64_t denominator = (uint64_t)p->clock_hz * 60u;
+    uint64_t denominator = (uint64_t)p->clock_hz * scale;
     for (unsigned ch = 0; ch < p->channels; ++ch) {
         uint64_t integral = p->area[ch] + (uint64_t)levels[ch] * remaining;
         uint64_t scaled = integral * 32767u;
@@ -60,4 +61,16 @@ bool atari8_pcm_feed(Atari8Pcm *p, const uint8_t levels[2], int16_t frame[2])
         frame[1] = 0;
     p->phase = tail;
     return true;
+}
+
+/* Preserve the exact legacy integer integrator and scaling. */
+bool atari8_pcm_feed(Atari8Pcm *p, const uint8_t levels[2], int16_t frame[2])
+{
+    uint16_t wide[2]={levels[0],p->channels==2 ? levels[1] : 0};
+    return feed_scaled(p,wide,60u,frame);
+}
+
+bool atari8_pcm_feed_u16(Atari8Pcm *p, const uint16_t levels[2], int16_t frame[2])
+{
+    return feed_scaled(p,levels,65535u,frame);
 }
