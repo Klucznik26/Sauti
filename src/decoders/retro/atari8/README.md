@@ -597,3 +597,16 @@ Build the existing renderer and tests, then run:
         --report build/sapd-d1-scan.csv
 
 Do not interpret successful WAV generation as accurate sound.
+
+### SAP-D D1 hardware follow-up
+
+Baseline: 94 no-PLAYER files, 4 nonzero, 86 silent, 3 DMACTL write
+faults and 1 PACTL write fault. The continuous profile now mixes the
+CONSOL bit-3 speaker with provisional gain (8 of 60 POKEY level units,
+clamped). Gain and waveform agreement are not yet validated. DMACTL
+writes are accepted only with display/player/missile DMA disabled;
+PACTL control is modeled without enabled external interrupts. No
+full ANTIC or PIA emulation is claimed. B/C/R paths are unchanged.
+Renderer records POKEY audio writes, CONSOL writes/edges, CPU PC,
+IRQEN and SKCTL for diagnostics. Synthetic speaker test added.
+All changes await local compilation and corpus validation.
