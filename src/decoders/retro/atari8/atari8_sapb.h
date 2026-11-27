@@ -10,7 +10,7 @@ typedef enum {
 typedef struct {
     size_t binary_offset;
     uint16_t init, player, music;
-    char type; /* B, C or D; player is the original header address. */
+    char type; /* B, C, D or S; PLAYER is ignored for S. */
     unsigned songs, default_song;
     uint32_t interval;
     bool ntsc, stereo, has_player;
@@ -30,7 +30,7 @@ Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
                                    Atari8SapbInfo *info);
 /* song=-1 selects DEFSONG. All data is copied to machine RAM.
  * B/C INIT advances hardware but its PCM output is discarded.
- * D INIT runs continuously and contributes to PCM. */
+ * D/S INIT runs continuously and contributes to PCM. */
 Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
                                   size_t size, int song, uint32_t rate,
                                   Atari8MachineSink sink, void *context);
@@ -42,9 +42,10 @@ Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
                                   Atari8MachineSink sink, void *context,
                                   bool frame_restart);
 /* B/C: call PLAYER; D: run INIT with optional periodic PLAYER.
+ * S: run INIT with periodic SoftSynth RAM clock.
  * Advance to the next FASTPLAY grid boundary.
  * Overlong calls skip elapsed deadlines, bounded by a watchdog.
- * intervals counts B/C calls or D chunks; missed_intervals counts skipped calls.
+ * intervals counts B/C calls or D/S chunks; missed_intervals counts skipped calls.
  * Duration and end-of-song policy are left to the caller. */
 Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s);
 #endif
