@@ -639,3 +639,16 @@ setup is not cycle-exact interrupt-entry emulation. No new ROM, video,
 COVOX or source code from other players is included.
 Synthetic tests cover registers, timing, malformed data and watchdog.
 The full 751-file SAP-D corpus (657 with PLAYER) awaits local testing.
+
+### SAP-D full corpus: headless hardware follow-up
+
+At a1efc06, Fedora SAP-B/C/D regression passed. Full SAP-D scan:
+751 files, 674 nonzero, 4 silent, 73 execution failures (3 s, 48 kHz,
+default subsong). Most faults were ANTIC video setup and PIA PORTA.
+This revision adds PORTA/DDRA and ANTIC video configuration latches
+for D only. Active graphics DMA requests are counted, not executed:
+the SAP timing profile keeps graphics DMA disabled. This does not
+emulate graphics, full PIA interrupts, or prove original hardware
+sound fidelity. Existing POKEY IRQEN/SKCTL restrictions remain; do
+not mask unsupported audio modes. Test and rescan locally, then
+inspect remaining PLAYER budget faults, POKEY writes and silences.
