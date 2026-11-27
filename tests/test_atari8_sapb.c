@@ -276,9 +276,46 @@ static void test_sapc(void)
     memcpy(data+34,"FFFD",4);
     CHECK(atari8_sapb_parse(data,n,&i)!=ATARI8_SAPB_OK);
 }
+static void test_sapd(void)
+{
+    uint8_t data[512];
+    const char *header="SAP\r\nTYPE D\r\nINIT 2000\r\nSONGS 3\r\nDEFSONG 2\r\n";
+    size_t n=strlen(header);
+    memcpy(data,header,n);
+    /* Save subsong, drive POKEY and repeatedly increment RAM without RTS. */
+    static const uint8_t code[]={
+        0xff,0xff,0x00,0x20,0x10,0x20,
+        0x85,0x80,0xa9,71,0x8d,0x00,0xd2,
+        0xa9,0xaf,0x8d,0x01,0xd2,
+        0xe6,0x81,0x4c,0x0c,0x20
+    };
+    memcpy(data+n,code,sizeof(code)); n+=sizeof(code);
+    Atari8Sapb s;
+    Atari8SapbInfo i;
+    Capture c={0};
+    CHECK(atari8_sapb_parse(data,n,&i)==ATARI8_SAPB_OK);
+    CHECK(i.type=='D' && i.init==0x2000 && i.default_song==2);
+    CHECK(atari8_sapb_open(&s,data,n,-1,48000,capture,&c)==ATARI8_SAPB_OK);
+    CHECK(s.machine.cpu.pc==0x2000 && s.machine.cpu.a==2);
+    CHECK(!(s.machine.cpu.p & ATARI8_CPU_I) && s.machine.frames==0);
+    for (unsigned j=1;j<=5;++j) {
+        CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+        CHECK(s.machine.master_cycles>=j*i.interval &&
+              s.machine.master_cycles<j*i.interval+114u);
+    }
+    CHECK(s.machine.ram[0x80]==2 && c.left>0 && s.intervals==5);
+    CHECK(c.frames==s.machine.frames && s.machine.refresh_stalls>0);
+    CHECK(atari8_sapb_open_mode(&s,data,n,0,48000,NULL,NULL,true)==ATARI8_SAPB_UNSUPPORTED);
+    /* D with periodic PLAYER is explicitly out of scope for D1. */
+    const char *with_player="SAP\r\nTYPE D\r\nINIT 2000\r\nPLAYER 200C\r\n";
+    n=strlen(with_player);
+    memcpy(data,with_player,n);
+    memcpy(data+n,code,sizeof(code)); n+=sizeof(code);
+    CHECK(atari8_sapb_parse(data,n,&i)==ATARI8_SAPB_UNSUPPORTED);
+}
 int main(void)
 {
-    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh(); test_legacy_vbi_chain(); test_frame_restart(); test_sapc();
-    puts("PASS: experimental Atari8 SAP-B/C");
+    test_play(false); test_play(true); test_bad(); test_host_antic(); test_shadow_load(); test_overlong_player(); test_refresh(); test_legacy_vbi_chain(); test_frame_restart(); test_sapc(); test_sapd();
+    puts("PASS: experimental Atari8 SAP-B/C/D1");
     return 0;
 }
