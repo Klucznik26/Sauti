@@ -81,7 +81,9 @@ Atari8SaprResult atari8_sapr_parse(const uint8_t *data, size_t size,
                 return ATARI8_SAPR_UNSUPPORTED;
         } else if (equal(line, key, "AUTHOR") || equal(line, key, "NAME")
                    || equal(line, key, "DATE")) {
-            if (n < 2 || a[0] != '"' || a[n - 1] != '"')
+            Atari8SapText *field=equal(line,key,"NAME") ? &x.metadata.name :
+                (equal(line,key,"AUTHOR") ? &x.metadata.author : &x.metadata.date);
+            if (!atari8_sap_text_parse(field,a,n))
                 return ATARI8_SAPR_BAD_FORMAT;
         } else if (equal(line, key, "TIME")) {
             if (time_seen) {
