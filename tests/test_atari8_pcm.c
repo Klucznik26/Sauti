@@ -100,6 +100,44 @@ static void test_core_audio(void)
     CHECK(nonzero > 1000 && silent > 1000);
 }
 
+/* Full-scale endpoints are exactly equivalent in both input scales,
+ * including fractional boundaries and DC removal. */
+static void test_wide_endpoints(uint32_t clock, uint32_t rate, bool dc)
+{
+    Atari8Pcm narrow, wide;
+    CHECK(atari8_pcm_init(&narrow,clock,rate,2,dc));
+    CHECK(atari8_pcm_init(&wide,clock,rate,2,dc));
+    unsigned frames=0;
+    for (uint32_t n=0;n<clock/10u;++n) {
+        uint8_t l[2]={(n/31u)%2u ? 60u : 0u,(n/107u)%2u ? 60u : 0u};
+        uint16_t w[2]={l[0] ? 65535u : 0u,l[1] ? 65535u : 0u};
+        int16_t a[2]={123,456}, b[2]={123,456};
+        bool x=atari8_pcm_feed(&narrow,l,a);
+        bool y=atari8_pcm_feed_u16(&wide,w,b);
+        CHECK(x==y);
+        CHECK(a[0]==b[0] && a[1]==b[1]);
+        if (x) ++frames;
+    }
+    CHECK(frames==(uint64_t)(clock/10u)*rate/clock);
+    CHECK(narrow.phase==wide.phase);
+}
+
+static void test_wide_constant(void)
+{
+    Atari8Pcm p;
+    CHECK(atari8_pcm_init(&p,1773447u,192000u,2,false));
+    const uint16_t level[2]={65535u,32768u};
+    int16_t frame[2];
+    unsigned frames=0;
+    for (uint32_t n=0;n<p.clock_hz;++n) {
+        if (atari8_pcm_feed_u16(&p,level,frame)) {
+            CHECK(frame[0]==32767 && frame[1]==16384);
+            ++frames;
+        }
+    }
+    CHECK(frames==192000u && p.phase==0 && p.area[0]==0 && p.area[1]==0);
+}
+
 int main(void)
 {
     Atari8Pcm p;
@@ -113,6 +151,9 @@ int main(void)
         test_constant(1773447u, rates[i]);
         test_constant(1789773u, rates[i]);
     }
+    test_wide_endpoints(1773447u,48000u,false);
+    test_wide_endpoints(1789773u,192000u,true);
+    test_wide_constant();
     test_fractional_boundary();
     test_dc();
     test_core_audio();
