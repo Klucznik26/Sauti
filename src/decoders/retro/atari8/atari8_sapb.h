@@ -10,10 +10,10 @@ typedef enum {
 typedef struct {
     size_t binary_offset;
     uint16_t init, player, music;
-    char type; /* B or C; player is the original header address. */
+    char type; /* B, C or D; player is the original header address. */
     unsigned songs, default_song;
     uint32_t interval;
-    bool ntsc, stereo;
+    bool ntsc, stereo, has_player;
 } Atari8SapbInfo;
 
 /* Internal host-scheduled decoder; no allocation, do not copy after open. */
@@ -23,13 +23,14 @@ typedef struct {
     Atari8SapbResult status;
     uint64_t intervals, missed_intervals;
     bool frame_restart;
-    uint64_t next_deadline, abandoned_calls;
+    uint64_t next_deadline, abandoned_calls, continuous_player_calls;
 } Atari8Sapb;
 
 Atari8SapbResult atari8_sapb_parse(const uint8_t *data, size_t size,
                                    Atari8SapbInfo *info);
 /* song=-1 selects DEFSONG. All data is copied to machine RAM.
- * INIT advances hardware but its PCM output is discarded. */
+ * B/C INIT advances hardware but its PCM output is discarded.
+ * D INIT runs continuously and contributes to PCM. */
 Atari8SapbResult atari8_sapb_open(Atari8Sapb *s, const uint8_t *data,
                                   size_t size, int song, uint32_t rate,
                                   Atari8MachineSink sink, void *context);
@@ -40,9 +41,10 @@ Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
                                   size_t size, int song, uint32_t rate,
                                   Atari8MachineSink sink, void *context,
                                   bool frame_restart);
-/* Call PLAYER and advance to the next FASTPLAY grid boundary.
+/* B/C: call PLAYER; D: run INIT with optional periodic PLAYER.
+ * Advance to the next FASTPLAY grid boundary.
  * Overlong calls skip elapsed deadlines, bounded by a watchdog.
- * intervals counts actual calls; missed_intervals counts skipped calls.
+ * intervals counts B/C calls or D chunks; missed_intervals counts skipped calls.
  * Duration and end-of-song policy are left to the caller. */
 Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s);
 #endif
