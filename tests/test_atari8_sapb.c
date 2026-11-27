@@ -327,6 +327,27 @@ static void test_sapd(void)
     CHECK(s.machine.pia_pactl==0x3c && s.machine.antic_dmactl==0);
     CHECK(s.machine.sap_pokey_audio_writes==0 && s.machine.sap_consol_edges>0);
     CHECK(c.left>0 && c.right==0);
+    /* PORTB: default flat RAM, data latch, mirrored address, DDR,
+     * pulled-up inputs and no changes to the guest memory map. */
+    static const uint8_t portb[]={
+        0xad,0x01,0xd3,0x85,0x82,       /* initial FE */
+        0xa9,0xfd,0x8d,0x01,0xd3,
+        0xad,0x05,0xd3,0x85,0x83,       /* mirrored FD */
+        0xa9,0x38,0x8d,0x03,0xd3,       /* select DDR */
+        0xa9,0x0f,0x8d,0x01,0xd3,
+        0xad,0x01,0xd3,0x85,0x84,
+        0xa9,0x3c,0x8d,0x03,0xd3,       /* select data */
+        0xa9,0,0x8d,0x01,0xd3,
+        0xad,0x01,0xd3,0x85,0x85,       /* input pins high */
+        0xad,0x00,0xe0,0x85,0x86,       /* same RAM */
+        0x60
+    };
+    s.machine.ram[0xe000]=0x42;
+    CHECK(atari8_machine_load(&s.machine,0x2200,portb,sizeof(portb)));
+    CHECK(atari8_machine_call(&s.machine,0x2200,1000)==ATARI8_MACHINE_OK);
+    CHECK(s.machine.ram[0x82]==0xfe && s.machine.ram[0x83]==0xfd);
+    CHECK(s.machine.ram[0x84]==0x0f && s.machine.ram[0x85]==0xf0);
+    CHECK(s.machine.ram[0x86]==0x42 && s.machine.ram[0xe000]==0x42);
     /* Do not silently accept active graphics DMA. */
     data[strlen(header)+7]=0x20;
     CHECK(atari8_sapb_open(&s,data,n,-1,48000,NULL,NULL)==ATARI8_SAPB_OK);
