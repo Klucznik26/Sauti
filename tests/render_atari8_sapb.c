@@ -151,7 +151,12 @@ int main(int argc,char **argv)
         remove(argv[2]);
         return 1;
     }
-    if (s.info.type=='D') {
+    if (s.info.type=='S') {
+        printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " SoftSynth RAM ticks, PC=%04X, clock=%02X/%02X\n",
+            out.frames,s.intervals,(unsigned)s.machine.cpu.pc,
+            (unsigned)s.machine.ram[0x45],(unsigned)s.machine.ram[0xb07b]);
+    }
+    else if (s.info.type=='D') {
         printf("Wrote %" PRIu64 " PCM frames at 48000 Hz, %" PRIu64 " continuous CPU chunks, %" PRIu64 " player calls, %" PRIu64 " skipped deadlines\n",
             out.frames,s.intervals,s.continuous_player_calls,s.missed_intervals);
         printf("D audio writes: POKEY=%" PRIu64 " CONSOL=%" PRIu64 " edges=%" PRIu64 " PC=%04X IRQ=%02X SKCTL=%02X\n",
