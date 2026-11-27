@@ -16,6 +16,15 @@ static void tick(Atari8Machine *m)
     uint8_t levels[2];
     int16_t frame[2];
     atari8_core_levels(&m->core, levels);
+    /* CONSOL bit 3 drives the one-bit speaker (active low). D-only
+     * experimental mix; relative analog gain needs reference testing.
+     * Keep the PCM input within its documented 0..60 range. */
+    if (m->sap_continuous && !(m->console_latch & 8u)) {
+        for (unsigned ch=0; ch<(m->core.stereo ? 2u : 1u); ++ch) {
+            unsigned level = levels[ch] + 8u;
+            levels[ch] = (uint8_t)(level > 60u ? 60u : level);
+        }
+    }
     bool ready = atari8_pcm_feed(&m->pcm, levels, frame);
     atari8_core_step(&m->core, 1);
     ++m->master_cycles;
@@ -74,8 +83,12 @@ static uint8_t bus_read(void *context, uint16_t a)
         if (reg == 31) return (uint8_t)(15u & ~m->console_latch);
         return 0; /* unused GTIA read bits */
     }
+    if (m->sap_continuous && (a & 0xff03u)==0xd302u)
+        return m->pia_pactl;
     if ((a & 0xff00u) == 0xd400u) {
         unsigned reg = a & 15u;
+        if (m->sap_continuous && reg==0)
+            return 0xff; /* write-only DMACTL */
         if (reg == 11)
             return (uint8_t)((m->master_cycles / 114u %
                               (m->ntsc ? 262u : 312u)) / 2u);
@@ -108,11 +121,30 @@ static void bus_write(void *context, uint16_t a, uint8_t value)
     if ((a & 0xff00u) == 0xd000u) {
         unsigned reg = a & 31u;
         /* No display or collision hardware in this music runtime. */
-        if (reg == 31) m->console_latch = value & 15u;
+        if (reg == 31) {
+            if (m->sap_continuous) {
+                ++m->sap_consol_writes;
+                if ((m->console_latch ^ value) & 8u) ++m->sap_consol_edges;
+            }
+            m->console_latch = value & 15u;
+        }
         return;
+    }
+    if (m->sap_continuous && (a & 0xff03u)==0xd302u) {
+        /* Headless port A, no attached peripheral. Support control
+         * writes without enabled CA1/CA2 interrupts. */
+        if (!(value & 1u) && ((value & 0x20u) || !(value & 8u))) {
+            m->pia_pactl = value & 0x3fu;
+            return;
+        }
     }
     if ((a & 0xff00u) == 0xd400u) {
         unsigned reg = a & 15u;
+        /* Accept only disabled display/player/missile DMA. */
+        if (m->sap_continuous && reg==0 && !(value & 0x2cu)) {
+            m->antic_dmactl = value & 0x3fu;
+            return;
+        }
         if (reg == 10) {
             /* Approximate WSYNC: suspend the CPU until the next
              * scanline boundary, keeping audio/master time running. */
@@ -134,6 +166,9 @@ static void bus_write(void *context, uint16_t a, uint8_t value)
     }
     if ((a & 0xff00u) == 0xd100u || a >= 0xd500u)
         return; /* no expansion device to receive the write */
+    if (m->sap_continuous && (a & 0xff00u)==0xd200u &&
+        (a & 15u)<=8u)
+        ++m->sap_pokey_audio_writes;
     if (!atari8_core_write(&m->core, a, value)) {
         io_fault(m, a, true);
         m->fault_value = value;
