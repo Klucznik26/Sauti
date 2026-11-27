@@ -806,3 +806,26 @@ explicit frame-restart retries for B/D only. Keep delayed-onset and
 experimental results separately classified. All subsongs, complete
 track durations, fidelity and provenance audit remain outstanding.
 No decoder code changed in this checkpoint.
+
+### Full ASMA regression checkpoint (2026-11-27)
+
+Fedora, decoder at cb057f9, scanner at b01f40b. All seven synthetic
+executables passed before corpus testing. Full ASMA scan at 48 kHz,
+3 seconds, default subsong, explicit frame-restart retries for B/D:
+
+| Type | Standard nonzero | Frame-restart nonzero | Silence | Runtime failures | Total |
+|---|---:|---:|---:|---:|---:|
+| B | 3814 | 1 | 9 | 0 | 3824 |
+| C | 1742 | 0 | 13 | 0 | 1755 |
+| D | 742 | 5 | 4 | 0 | 751 |
+| S | 7 | 0 | 0 | 0 | 7 |
+| Total | 6305 | 6 | 26 | 0 | 6337 |
+
+All 6,337 files rendered; this is execution coverage, not fidelity.
+D scan interrupted by operator; --resume validated 609 existing rows
+and completed the remaining 142, with aggregate counts intact.
+Previously investigated delayed onsets and experimental compatibility
+cases are not new failures. No default fallback enabled. SAP-R tested
+separately. Basic SAP implementation milestone complete; production
+integration, complete durations, all subsongs, fidelity and detailed
+license/provenance audit remain open. No decoder changes.
