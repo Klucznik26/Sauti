@@ -750,3 +750,19 @@ Source: https://asap.sourceforge.net/sap-format.html (TYPE S).
 Synthetic tests cover counter wrap, ignored PLAYER, default subsong,
 NTSC/FASTPLAY override, malformed segment and CPU stop. Scanner now
 supports --type S. No claim of real-file coverage until local tests.
+
+### SAP-S first real-file scan
+
+Fedora at 0980a33: SAP-B/C/D/S synthetic regression PASS. All seven
+SoftSynth ASMA files (Husak Jakub) rendered nonzero mono PCM for
+15 seconds, 720,000 frames per file at 48 kHz, 2,992 RAM clock ticks,
+8,892 master cycles per interval, no runtime failures. This confirms
+execution coverage, not correct musical progression or fidelity.
+The final $B07B value was zero in all seven reports; verify clock
+behavior and musical progression against the reference before release.
+Comparison tool now supports --all to include successful scan rows.
+Combined historical coverage of ASMA B/C/D/S: 6,337 files, including
+explicit experimental scheduler retries and delayed onsets. Final
+post-IRQ D full scan, all subsongs, longer playback and fidelity checks
+remain outstanding. SAP-R has separate tests outside this ASMA count.
+No decoder code changed in this checkpoint.
