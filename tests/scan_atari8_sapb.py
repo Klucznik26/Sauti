@@ -47,12 +47,12 @@ def main():
     parser.add_argument("archive", type=Path)
     parser.add_argument("--renderer", type=Path, default=Path("build/render_atari8_sapb"))
     parser.add_argument("--seconds", type=int, default=1, choices=range(1, 16), metavar="1..15")
-    parser.add_argument("--limit", type=int, default=100, help="0 tests all SAP-B files")
+    parser.add_argument("--limit", type=int, default=100, help="0 tests all files of selected SAP type")
     parser.add_argument("--report", type=Path, default=Path("build/sapb-scan.csv"))
     parser.add_argument("--retry", type=Path, help="retry only non-success rows of a previous CSV report")
     parser.add_argument("--retry-frame-restart", action="store_true",
                         help="retry B/D PLAYER budget failures with explicit experimental scheduler")
-    parser.add_argument("--type", choices=("B", "C", "D"), default="B")
+    parser.add_argument("--type", choices=("B", "C", "D", "S"), default="B")
     parser.add_argument("--without-player", action="store_true",
                         help="SAP-D only: scan files without optional PLAYER")
     args = parser.parse_args()
