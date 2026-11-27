@@ -74,3 +74,20 @@ bool atari8_pcm_feed_u16(Atari8Pcm *p, const uint16_t levels[2], int16_t frame[2
 {
     return feed_scaled(p,levels,65535u,frame);
 }
+
+/* Original quantized approximation to the hardware transfer curve
+ * documented by Avery Lee, Altirra Hardware Reference Manual, E.2.
+ * Uniform digital DAC weights for now. Normalize at total level 60;
+ * apply before averaging and AC coupling, not to output PCM.
+ * Curve: f(x)=x up to .14, else .14+(1-exp(-2.85*(x-.14)))/2.85.
+ * LUT generated from f(i/60)/f(1), not from emulator source. */
+const uint16_t atari8_pokey_curve[61]={
+    0, 2371, 4742, 7114, 9485, 11856, 14227, 16598, 18970, 21321,
+    23572, 25718, 27765, 29716, 31578, 33353, 35045, 36659, 38198, 39666,
+    41066, 42401, 43673, 44887, 46045, 47148, 48201, 49205, 50162, 51075,
+    51945, 52775, 53567, 54322, 55041, 55728, 56382, 57007, 57602, 58170,
+    58711, 59227, 59719, 60189, 60636, 61063, 61470, 61859, 62229, 62582,
+    62918, 63239, 63546, 63837, 64116, 64381, 64634, 64876, 65106, 65326,
+    65535
+};
+
