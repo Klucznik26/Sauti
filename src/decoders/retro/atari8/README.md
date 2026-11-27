@@ -1066,3 +1066,7 @@ comparison with a direct cycle-fed DAC oracle with independent
 left/right sequences. This is an integration oracle using the same
 PCM integrator, not a physical hardware reference. Regression rerun
 and real SAP-R sample comparisons pending.
+
+Local 50a011e: all seven strict C99 regression executables PASS,
+including SAP-R mono/stereo in both mixing modes and exact DAC
+sample integration oracle. Real sample comparison remains pending.
