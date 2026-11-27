@@ -2,6 +2,8 @@
 """External ASMA compatibility scan; no music is copied into the repo."""
 import argparse
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+import time
 import csv
 from pathlib import Path
 import re
@@ -88,6 +90,13 @@ def inspect_wav(path, seconds, *, frames=None):
         return "rendered nonzero" if active else "rendered silence"
 
 
+def inspect_pcm(message, expected):
+    matches = re.findall(r"(?m)^PCM-CHECK frames=(\d+) channels=([12]) rate=48000 nonzero=([01])$", message)
+    if len(matches) != 1 or int(matches[0][0]) != expected:
+        return "invalid PCM report"
+    return "rendered nonzero" if matches[0][2] == "1" else "rendered silence"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path)
@@ -101,6 +110,8 @@ def main():
                        help="render every subsong to its declared TIME (one declared length even for LOOP)")
     scope.add_argument("--other-subsongs", action="store_true",
                         help="test every non-default subsong (default already covered by corpus scan)")
+    parser.add_argument("--jobs", type=int, default=1, help="parallel renderer processes (1..32)")
+    parser.add_argument("--no-wav", action="store_true", help="validate rendered PCM directly, without WAV I/O")
     parser.add_argument("--resume", action="store_true",
                         help="append missing rows to an existing report; use identical scan options and renderer")
     parser.add_argument("--retry-frame-restart", action="store_true",
@@ -109,6 +120,8 @@ def main():
     parser.add_argument("--without-player", action="store_true",
                         help="SAP-D only: scan files without optional PLAYER")
     args = parser.parse_args()
+    if not 1 <= args.jobs <= 32:
+        parser.error("--jobs must be between 1 and 32")
     if args.retry_frame_restart and args.type not in ("B", "D"):
         parser.error("--retry-frame-restart requires --type B or D")
     if args.limit < 0 or not args.archive.is_dir() or not args.renderer.is_file():
@@ -195,77 +208,85 @@ def main():
              f"{'non-default subsongs' if args.other_subsongs else 'default subsongs'} at {args.seconds}s each"),
           flush=True)
     args.report.parent.mkdir(parents=True, exist_ok=True)
+    def render_task(task):
+        index, (path, song) = task
+        message = ""
+        mode = "standard"
+        ms, loop, reason = duration.get((path, song), (None, "", ""))
+        if reason:
+            return [str(path.relative_to(args.archive)), reason, "", mode,
+                    song, "" if ms is None else ms, loop]
+        output = Path(tmp) / f"test-{index}.wav"
+        cmd = [str(renderer), str(path), str(output),
+               str(ms if args.full_duration else args.seconds)]
+        if indexed:
+            cmd.append(str(song))
+        if args.full_duration:
+            cmd.append("--milliseconds")
+        if args.no_wav:
+            cmd.append("--no-wav")
+        timeout = max(30, (ms+999)//1000*5) if ms is not None else 30
+        frames = ms*48 if ms is not None else args.seconds*48000
+
+        def inspect_result(proc):
+            if args.no_wav:
+                return inspect_pcm(proc.stdout, frames)
+            try:
+                return inspect_wav(output, args.seconds, frames=frames)
+            except (OSError, EOFError, wave.Error):
+                return "invalid WAV"
+
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  errors="replace", timeout=timeout)
+            message = (proc.stderr + proc.stdout).strip()
+            if proc.returncode:
+                result = classify(message)
+                if args.type in ("B", "D") and args.retry_frame_restart and result == "PLAYER 3 4":
+                    mode = "frame-restart"
+                    output.unlink(missing_ok=True)
+                    retry_proc = subprocess.run(cmd + ["--frame-restart"],
+                        capture_output=True, text=True, errors="replace", timeout=timeout)
+                    message += "\nFRAME-RESTART RETRY:\n" + (retry_proc.stderr + retry_proc.stdout).strip()
+                    result = (classify(retry_proc.stderr + retry_proc.stdout)
+                              if retry_proc.returncode else inspect_result(retry_proc))
+                    if result == "rendered silence":
+                        result = "frame-restart silence (unverified)"
+                    if result == "rendered nonzero":
+                        result = "rendered nonzero (frame-restart)"
+            else:
+                result = inspect_result(proc)
+        except subprocess.TimeoutExpired:
+            result = "timeout"
+        finally:
+            output.unlink(missing_ok=True)
+        row = [str(path.relative_to(args.archive)), result, message, mode]
+        if indexed:
+            row.append(song)
+        if args.full_duration:
+            row.extend([ms, loop])
+        return row
+
+    started = time.monotonic()
+    print(f"Workers: {args.jobs}; PCM-only: {args.no_wav}", flush=True)
     with tempfile.TemporaryDirectory(prefix="sauti-sapb-") as tmp, args.report.open(
-            "a" if append else "w", newline="", encoding="utf-8") as report:
+            "a" if append else "w", newline="", encoding="utf-8") as report, \
+            ThreadPoolExecutor(max_workers=args.jobs) as pool:
         writer = csv.writer(report)
         if not append:
             writer.writerow(fields)
             report.flush()
-        output = Path(tmp) / "test.wav"
-        for index, (path, song) in enumerate(selected, completed + 1):
-            output.unlink(missing_ok=True)
-            message = ""
-            mode = "standard"
-            ms, loop, reason = duration.get((path, song), (None, "", ""))
-            if reason:
-                counts[reason] += 1
-                writer.writerow([str(path.relative_to(args.archive)), reason, "", mode,
-                                 song, "" if ms is None else ms, loop])
+        # Bounded batches, ordered writes and one CSV writer preserve the
+        # resume prefix. No concurrent access to a single temporary WAV.
+        for offset in range(0, len(selected), args.jobs):
+            batch = list(enumerate(selected[offset:offset+args.jobs], completed+offset+1))
+            for index, row in zip(range(completed+offset+1, completed+offset+1+len(batch)),
+                                  pool.map(render_task, batch)):
+                counts[row[1]] += 1
+                writer.writerow(row)
                 report.flush()
                 if index % 25 == 0 or index == total:
-                    print(f"{index}/{total} completed", flush=True)
-                continue
-            cmd = [str(renderer), str(path), str(output),
-                   str(ms if args.full_duration else args.seconds)]
-            if indexed:
-                cmd.append(str(song))
-            if args.full_duration:
-                cmd.append("--milliseconds")
-            timeout = max(30, (ms+999)//1000*5) if ms is not None else 30
-            frames = ms*48 if ms is not None else None
-            try:
-                proc = subprocess.run(
-                    cmd,
-                    capture_output=True, text=True, errors="replace", timeout=timeout)
-                message = (proc.stderr + proc.stdout).strip()
-                if proc.returncode:
-                    result = classify(message)
-                    if args.type in ("B", "D") and args.retry_frame_restart and result == "PLAYER 3 4":
-                        mode = "frame-restart"
-                        output.unlink(missing_ok=True)
-                        retry_proc = subprocess.run(
-                            cmd + ["--frame-restart"],
-                            capture_output=True, text=True, errors="replace", timeout=timeout)
-                        message += "\nFRAME-RESTART RETRY:\n" + (retry_proc.stderr + retry_proc.stdout).strip()
-                        if retry_proc.returncode:
-                            result = classify(retry_proc.stderr + retry_proc.stdout)
-                        else:
-                            try:
-                                result = inspect_wav(output, args.seconds, frames=frames)
-                            except (OSError, EOFError, wave.Error):
-                                result = "invalid WAV"
-                        # A silent retry does not establish recovered sound.
-                        if result == "rendered silence":
-                            result = "frame-restart silence (unverified)"
-                        if result == "rendered nonzero":
-                            result = "rendered nonzero (frame-restart)"
-                else:
-                    try:
-                        result = inspect_wav(output, args.seconds, frames=frames)
-                    except (OSError, EOFError, wave.Error):
-                        result = "invalid WAV"
-            except subprocess.TimeoutExpired:
-                result = "timeout"
-            counts[result] += 1
-            row = [str(path.relative_to(args.archive)), result, message, mode]
-            if indexed:
-                row.append(song)
-            if args.full_duration:
-                row.extend([ms, loop])
-            writer.writerow(row)
-            report.flush()
-            if index % 25 == 0 or index == total:
-                print(f"{index}/{total} completed", flush=True)
+                    print(f"{index}/{total} completed; {time.monotonic()-started:.1f}s elapsed", flush=True)
     for result, count in counts.most_common():
         print(f"{count:5}  {result}")
     rendered = (counts["rendered nonzero"] + counts["rendered silence"]
