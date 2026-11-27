@@ -496,3 +496,50 @@ subsong selection, tick and malformed input. Scanner --type C selects
 real C files without changing B default. No external player code or music
 included. Real C corpus and regression runs pending.
 Reference: https://asap.sourceforge.net/sap-format.html (TYPE C ABI).
+
+
+### Session checkpoint — 2026-11-27 (resume here)
+
+Branch: feature/atari8. Last tested code: 5c8c277.
+All seven regression executables PASS, including SAP-B/C.
+
+| Variant | Tested ASMA files | Nonzero | Silent | Failed |
+| --- | ---: | ---: | ---: | ---: |
+| SAP-B | 3824 | 3815 (1 frame-restart) | 9 | 0 |
+| SAP-C | 1755 | 1741 | 13 | 1 |
+
+Both scans used three seconds, 48 kHz, default subsong. SAP-B
+result is 3824/3824 (100%) with the explicit alternate scheduler
+for Chromatics; SAP-C is 1754/1755 (99.94%). This is render coverage,
+not full-duration, all-subsong, or waveform-fidelity validation.
+SAP-C silences have not yet been compared with ASAP. The one failure
+is INIT/parse 2 (unsupported); exact file/header not yet inspected.
+Local reports: build/sapb-complete-scan.csv and build/sapc-full-scan.csv.
+SAP-R has passed synthetic tests and a real mono listening test earlier.
+SAP-D and SAP-S remain to implement.
+
+Next session: identify the unsupported SAP-C file and compare all
+14 unresolved entries against the external ASAP executable at 15 s.
+Use the existing diagnostic script from the repository root:
+
+```sh
+python3 tests/compare_atari8_sapb_pending.py \
+    "$HOME/Sauti-tools/atari8/asma" \
+    build/sapc-full-scan.csv \
+    --asap "$HOME/Sauti-tools/atari8/asap/asapconv" \
+    --seconds 15
+```
+
+The current renderer already supports SAP-C. After resolving or
+documenting remaining cases, rerun C and B regressions before moving
+to SAP-D/S. Do not classify a nonzero waveform alone as correct music.
+Future work: compare audio levels, timing and timbre, mono/dual POKEY,
+full durations and all subsongs, then remaining native Atari formats.
+Listening test of Chromatics confirmed Sauti is quieter than ASAP;
+do not apply global gain based on a single file. Production integration
+and automatic fallback policy are still pending.
+
+Keep ASAP, ASMA and all external diagnostic/reference material outside
+the distribution and repository. Mandatory detailed licensing and
+provenance audit immediately before Sauti 1.0 release; resolve all
+license concerns before publishing. No decoder changes in this checkpoint.
