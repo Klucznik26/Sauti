@@ -417,6 +417,14 @@ static void test_sapd(void)
               s.machine.master_cycles<j*i.interval+114u);
     }
     CHECK(!s.missed_intervals);
+    CHECK(atari8_sapb_open_mode(&s,data,n,-1,48000,NULL,NULL,true)==ATARI8_SAPB_OK);
+    for(unsigned j=1;j<=5;++j) {
+        CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+        CHECK(s.continuous_player_calls==j && s.machine.ram[0x81]==j);
+        CHECK(s.machine.ram[0x80]==2 && s.machine.cpu.pc==0x2002);
+        CHECK(s.machine.cpu.a==2 && s.machine.cpu.sp==0xff);
+    }
+    CHECK(!s.abandoned_calls && !s.missed_intervals);
     CHECK(atari8_sapb_parse(data,n-1,&i)==ATARI8_SAPB_BAD_FORMAT);
     /* A non-returning PLAYER faults rather than hanging/reentering. */
     data[n-1]=0x4c;
@@ -425,6 +433,21 @@ static void test_sapd(void)
     CHECK(atari8_sapb_open(&s,data,n,0,48000,NULL,NULL)==ATARI8_SAPB_OK);
     CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME);
     CHECK(s.machine.status==ATARI8_MACHINE_BUDGET);
+    /* The explicit experimental scheduler permits unfinished calls,
+     * but retains guest state and advances a bounded amount of time. */
+    CHECK(atari8_sapb_open_mode(&s,data,n,0,48000,NULL,NULL,true)==ATARI8_SAPB_OK);
+    for(unsigned j=1;j<=3;++j) {
+        CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_OK);
+        CHECK(s.abandoned_calls==j && s.machine.ram[0x81]==j);
+        CHECK(s.machine.cpu.sp==(uint8_t)(0xffu-2u*j));
+    }
+    CHECK(s.machine.master_cycles>=3u*s.info.interval &&
+          s.machine.master_cycles<3u*s.info.interval+114u);
+    /* The alternate scheduler never swallows a CPU stop. */
+    data[strlen(with_player)+15]=0x02;
+    CHECK(atari8_sapb_open_mode(&s,data,n,0,48000,NULL,NULL,true)==ATARI8_SAPB_OK);
+    CHECK(atari8_sapb_interval(&s)==ATARI8_SAPB_RUNTIME);
+    CHECK(s.machine.status==ATARI8_MACHINE_CPU_STOP);
 }
 int main(void)
 {
