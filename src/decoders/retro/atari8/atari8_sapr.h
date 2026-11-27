@@ -26,6 +26,7 @@ typedef struct {
     size_t next_frame;
     uint32_t remaining;
     Atari8SaprResult terminal;
+    bool nonlinear_mix; /* choose immediately after open, before next */
 } Atari8Sapr;
 
 Atari8SaprResult atari8_sapr_parse(const uint8_t *data, size_t size,
