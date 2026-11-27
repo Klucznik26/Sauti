@@ -1167,3 +1167,12 @@ not a line-coverage report; coverage counters are not percentages.
 Combined with the previous deterministic harness: 1,058,121 executed
 cases (not necessarily distinct). Full regression suite under sanitizers
 and resource-bound policy for the public adapter remain pending.
+
+Local b5ac959: full strict C99 regression suite under GCC ASan/UBSan
+with leak detection: 7/7 PASS, no sanitizer reports.
+Added a pthread regression with 10 independent workers, all five SAP
+variants in mono/stereo, mixed rates and explicit B alternate scheduler.
+Each worker performs 20 open/read/seek/repeat/reset/close sessions and
+compares output to serial PCM. TSan execution pending. The concurrency
+contract is separate stream instances; concurrent calls on a single
+instance require caller synchronization.
