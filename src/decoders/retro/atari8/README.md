@@ -1107,3 +1107,22 @@ payload length to determine EOF. NAME/AUTHOR/DATE are retained in
 owned NUL-terminated 256-byte fields with present/truncated flags.
 Existing printable-ASCII and quoting rules remain; repeated text tags
 use the last value. Text field regressions are pending local execution.
+
+### Exact PCM EOF, seek and buffered reads
+
+Local 46d3bf4, 87aa51e and 52ea070: all seven strict C99 regression
+executables PASS at each checkpoint. Text metadata, optional B/C/D/S
+sample-exact declared EOF and SAP-R transactional replay seek are tested.
+
+New executable SAP pull layer (atari8_sapb_stream) owns an immutable
+source copy and a separately allocated immovable machine. It queues
+PCM emitted by a scheduler interval, supports arbitrary read sizes,
+reports the consumed position, exposes optional declared length and
+seeks by replay into a private replacement state. The old stream
+survives failed seeks. Mono frames are padded with a zero right sample.
+Buffer cap: one million stereo PCM frames; allocation failures report
+RUNTIME. Valid zero TIME yields EOF; unknown/invalid TIME is unbounded.
+LOOP is informational; no implicit repeat or automatic scheduler fallback.
+Seek is linear in target playback time; metadata pointer returned by
+stream_info is valid only until seek/close. The new pull layer is not
+registered in production MaktabaSauti. Its sample-exact tests are pending.
