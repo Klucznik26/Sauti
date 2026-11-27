@@ -152,6 +152,7 @@ def main():
     p.add_argument("--pokey-profile",action="store_true",help="print Sauti playback register write histogram")
     p.add_argument("--nonlinear-mix",action="store_true",help="enable experimental POKEY saturation curve in Sauti")
     p.add_argument("--sample",type=int,help="deterministic sample of matching rows (seed 6502)")
+    p.add_argument("--stereo-only",action="store_true",help="filter to SAP headers with STEREO before deterministic sampling")
     a=p.parse_args()
     if a.sample is not None and a.sample<1:
         p.error("--sample must be positive")
@@ -161,6 +162,17 @@ def main():
     with a.report.open(newline="",encoding="utf-8") as f:
         rows=[r for r in csv.DictReader(f) if (r["result"] in a.result if a.result else (a.all or r["result"]!="rendered nonzero"))
               and (not a.only or a.only.casefold() in r["file"].casefold())]
+    if a.stereo_only:
+        selected=[]
+        for r in rows:
+            src=(root/r["file"]).resolve()
+            if not src.is_relative_to(root) or not src.is_file():
+                continue
+            with src.open("rb") as stream:
+                header=stream.read(16384).split(b"\xff\xff",1)[0]
+            if b"STEREO" in header.splitlines():
+                selected.append(r)
+        rows=selected
     if not rows:
         p.error("no matching files")
     if a.sample is not None and len(rows)>a.sample:
