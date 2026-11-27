@@ -95,8 +95,31 @@ static void test_dac_mixer(bool nonlinear)
     CHECK(atari8_sapr_next(&s,end)==ATARI8_SAPR_EOF);
 }
 
+static void test_time_metadata(void)
+{
+    static const char header[]="SAP\r\nTYPE R\r\nTIME 00:01.25 LOOP\r\n\r\n";
+    uint8_t data[sizeof(header)-1+9]={0};
+    memcpy(data,header,sizeof(header)-1);
+    Atari8Sapr s;
+    CHECK(atari8_sapr_open(&s,data,sizeof(data),48000)==ATARI8_SAPR_OK);
+    CHECK(s.info.time.status==ATARI8_SAP_TIME_VALID &&
+          s.info.time.duration_ms==1250u && s.info.time.loop);
+    unsigned frames=0;
+    int16_t frame[2];
+    while (atari8_sapr_next(&s,frame)==ATARI8_SAPR_OK) ++frames;
+    CHECK(frames==(uint64_t)312u*114u*48000u/1773447u);
+    CHECK(s.terminal==ATARI8_SAPR_EOF);
+    static const char duplicate[]="SAP\r\nTYPE R\r\nTIME 00:01\r\nTIME 00:02\r\n\r\n";
+    uint8_t dup[sizeof(duplicate)-1+9]={0};
+    memcpy(dup,duplicate,sizeof(duplicate)-1);
+    Atari8SaprInfo info;
+    CHECK(atari8_sapr_parse(dup,sizeof(dup),&info)==ATARI8_SAPR_OK);
+    CHECK(info.time.status==ATARI8_SAP_TIME_INVALID);
+}
+
 int main(void)
 {
+    test_time_metadata();
     CHECK(atari8_pokey_curve[0]==0 && atari8_pokey_curve[60]==65535u);
     for (unsigned i=1;i<=60;++i)
         CHECK(atari8_pokey_curve[i]>atari8_pokey_curve[i-1]);
