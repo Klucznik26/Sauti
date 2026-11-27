@@ -85,6 +85,11 @@ static uint8_t bus_read(void *context, uint16_t a)
     }
     if (m->sap_continuous) {
         switch (a & 0xff03u) {
+        case 0xd300u:
+            return (m->pia_pactl & 4u)
+                ? (uint8_t)((m->pia_porta & m->pia_ddra) |
+                            (uint8_t)~m->pia_ddra)
+                : m->pia_ddra;
         case 0xd301u:
             /* Input pins are pulled high; bit 2 selects data vs DDR. */
             return (m->pia_pbctl & 4u)
@@ -98,8 +103,9 @@ static uint8_t bus_read(void *context, uint16_t a)
     }
     if ((a & 0xff00u) == 0xd400u) {
         unsigned reg = a & 15u;
-        if (m->sap_continuous && reg==0)
-            return 0xff; /* write-only DMACTL */
+        if (m->sap_continuous &&
+            (reg<=5u || reg==7u || reg==9u))
+            return 0xff; /* write-only video configuration */
         if (reg == 11)
             return (uint8_t)((m->master_cycles / 114u %
                               (m->ntsc ? 262u : 312u)) / 2u);
@@ -141,6 +147,11 @@ static void bus_write(void *context, uint16_t a, uint8_t value)
         }
         return;
     }
+    if (m->sap_continuous && (a & 0xff03u)==0xd300u) {
+        if (m->pia_pactl & 4u) m->pia_porta = value;
+        else m->pia_ddra = value;
+        return;
+    }
     if (m->sap_continuous && (a & 0xff03u)==0xd301u) {
         /* SAP has a flat 64 KiB RAM map, not XL/XE ROMs or extra banks.
          * Preserve PIA state without remapping the guest music image. */
@@ -164,9 +175,16 @@ static void bus_write(void *context, uint16_t a, uint8_t value)
     }
     if ((a & 0xff00u) == 0xd400u) {
         unsigned reg = a & 15u;
-        /* Accept only disabled display/player/missile DMA. */
-        if (m->sap_continuous && reg==0 && !(value & 0x2cu)) {
-            m->antic_dmactl = value & 0x3fu;
+        /* SAP timing assumes graphics DMA disabled, even when a rip
+         * carries original video setup. Record requests explicitly;
+         * do not run a display list or invent video bus stalls. */
+        if (m->sap_continuous &&
+            (reg<=5u || reg==7u || reg==9u)) {
+            m->antic_video[reg]=value;
+            if (reg==0) {
+                m->antic_dmactl = value & 0x3fu;
+                if (value & 0x2cu) ++m->sap_video_dma_requests;
+            }
             return;
         }
         if (reg == 10) {
@@ -217,6 +235,8 @@ bool atari8_machine_init(Atari8Machine *m, bool ntsc, bool stereo,
     m->ntsc = ntsc;
     m->console_latch = 8; /* OS-style idle console */
     /* Virtual XL-style port B with all RAM visible and no peripherals. */
+    m->pia_pactl = 0x3c;
+    m->pia_porta = 0xff;
     m->pia_pbctl = 0x3c;
     m->pia_ddrb = 0xff;
     m->pia_portb = 0xfe;
