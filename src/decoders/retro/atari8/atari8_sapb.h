@@ -6,7 +6,7 @@
 
 typedef enum {
     ATARI8_SAPB_OK = 0, ATARI8_SAPB_BAD_FORMAT,
-    ATARI8_SAPB_UNSUPPORTED, ATARI8_SAPB_RUNTIME
+    ATARI8_SAPB_UNSUPPORTED, ATARI8_SAPB_RUNTIME, ATARI8_SAPB_EOF
 } Atari8SapbResult;
 
 typedef struct {
@@ -25,6 +25,7 @@ typedef struct {
     Atari8Machine machine;
     Atari8SapbInfo info;
     Atari8SapbResult status;
+    unsigned selected_song;
     uint64_t intervals, missed_intervals;
     bool frame_restart;
     uint64_t next_deadline, abandoned_calls, continuous_player_calls;
@@ -51,6 +52,14 @@ Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
  * Advance to the next FASTPLAY grid boundary.
  * Overlong calls skip elapsed deadlines, bounded by a watchdog.
  * intervals counts B/C calls or D/S chunks; missed_intervals counts skipped calls.
- * Duration and end-of-song policy are left to the caller. */
+ * Unlimited by default; optional declared EOF limits delivered PCM. */
 Atari8SapbResult atari8_sapb_interval(Atari8Sapb *s);
+/* Opt in before the first interval. Missing/invalid TIME returns false.
+ * Valid zero duration is immediate EOF. LOOP remains informational.
+ * The last interval may generate extra internal samples, but the sink
+ * receives at most floor(TIME_ms * rate / 1000) frames. Genuine machine
+ * faults remain errors even in the final interval. */
+bool atari8_sapb_enable_declared_eof(Atari8Sapb *s);
+/* Delivered timeline length, also usable with a NULL sink. */
+uint64_t atari8_sapb_output_frames(const Atari8Sapb *s);
 #endif
