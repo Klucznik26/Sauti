@@ -1176,3 +1176,21 @@ Each worker performs 20 open/read/seek/repeat/reset/close sessions and
 compares output to serial PCM. TSan execution pending. The concurrency
 contract is separate stream instances; concurrent calls on a single
 instance require caller synchronization.
+
+Local efd690d: ThreadSanitizer PASS after installing missing system
+libtsan. 200 independent concurrent sessions on 10 threads, PCM
+compared with serial baselines, no TSan reports.
+
+### Common stream resource policy
+
+The common pull interface now rejects reads larger than 65,536 PCM
+frames, limits each repeating read to 16 song restarts, and defaults
+seek replay targets to 600 seconds at the selected sample rate.
+A caller may explicitly adjust the per-instance seek limit in frames.
+A zero seek budget still permits reset. Known out-of-range targets
+remain BAD_FORMAT. Resource rejection returns recoverable LIMIT,
+without altering position on rejected read/seek; repeat LIMIT may
+return a valid consumed prefix, and subsequent reads can resume.
+These are work-size bounds, not wall-clock deadlines or cancellation.
+Low-level diagnostic APIs are unchanged. Regression tests for the
+resource policy are pending local execution.
