@@ -766,3 +766,31 @@ explicit experimental scheduler retries and delayed onsets. Final
 post-IRQ D full scan, all subsongs, longer playback and fidelity checks
 remain outstanding. SAP-R has separate tests outside this ASMA count.
 No decoder code changed in this checkpoint.
+
+### SAP-S reference comparison (30 seconds)
+
+Fedora at 541a9a4 (decoder unchanged from 0980a33): all seven SAP-S
+files rendered 1,440,000 mono frames at 48 kHz, 5,984 clock ticks,
+no entirely silent one-second bins. Onsets match external ASAP at
+reported millisecond precision (1–5 ms). Pearson correlation of
+one-second RMS bins, all 30 / excluding the first bin, and aggregate
+RMS ratio in dB (Sauti relative to ASAP):
+
+| File | r (30 bins) | r (29 bins) | dB |
+|---|---:|---:|---:|
+| Aquanaut | .8413 | .9932 | +2.18 |
+| Do_You_Want_to_Dance_With | .8943 | .9977 | +1.86 |
+| Kim_Wilde | .8235 | .9967 | +2.13 |
+| Opanowanie_Swiata | .9815 | .9897 | +0.50 |
+| Ucieczka_w_Nicosc | .9628 | .9689 | -1.29 |
+| Wodospadem_Czasu | .9763 | .9984 | +1.19 |
+| Wsrod_Gwiazd_Nadziei | .9683 | .9881 | +1.24 |
+
+Computed from rounded RMS values in the local comparison report.
+Initial transients differ substantially in some files. These are
+energy-envelope measurements, not waveform or listening validation.
+The Sauti/ASAP level ratio differs across SAP types; no global gain
+adjustment. Clock progression is promising, but cycle-level fidelity
+and full-track playback remain unverified. No decoder changes.
+Next checkpoint: full post-change B/C/D/S corpus regression, all seven
+synthetic test executables, then duration/subsong and fidelity audit.
