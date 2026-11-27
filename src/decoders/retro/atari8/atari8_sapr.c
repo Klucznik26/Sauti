@@ -126,6 +126,24 @@ Atari8SaprResult atari8_sapr_open(Atari8Sapr *s, const uint8_t *data,
         s->terminal = ATARI8_SAPR_UNSUPPORTED;
         return s->terminal;
     }
+    /* Compute floor(register_frames * cycles * rate / clock) without
+     * overflowing intermediate multiplication. Reject unrepresentable
+     * timelines before exposing a successful playback state. */
+    uint64_t count = info.frame_count;
+    uint64_t scale = (uint64_t)info.cycles_per_frame * rate;
+    uint64_t clock = s->pcm.clock_hz;
+    uint64_t whole = count / clock, rem = count % clock;
+    if (whole > UINT64_MAX / scale ||
+        rem > UINT64_MAX / scale) {
+        s->terminal = ATARI8_SAPR_UNSUPPORTED;
+        return s->terminal;
+    }
+    uint64_t tail = rem * scale / clock;
+    if (whole * scale > UINT64_MAX - tail) {
+        s->terminal = ATARI8_SAPR_UNSUPPORTED;
+        return s->terminal;
+    }
+    s->total_frames = whole * scale + tail;
     return ATARI8_SAPR_OK;
 }
 
@@ -182,7 +200,52 @@ Atari8SaprResult atari8_sapr_next(Atari8Sapr *s, int16_t frame[2])
         }
         atari8_core_step(&s->core, 1);
         --s->remaining;
-        if (ready)
+        if (ready) {
+            ++s->position;
             return ATARI8_SAPR_OK;
+        }
     }
+}
+
+uint64_t atari8_sapr_tell(const Atari8Sapr *s)
+{
+    return s ? s->position : 0;
+}
+
+uint64_t atari8_sapr_length(const Atari8Sapr *s)
+{
+    return s ? s->total_frames : 0;
+}
+
+Atari8SaprResult atari8_sapr_seek(Atari8Sapr *s, uint64_t position)
+{
+    if (!s || position > s->total_frames || !s->pcm.rate)
+        return ATARI8_SAPR_BAD_FORMAT;
+    /* Core and PCM contain no self-referencing pointers. Replay on a
+     * private copy so unsupported register writes cannot corrupt the
+     * caller's current playback state. */
+    Atari8Sapr next = *s;
+    if (position < next.position ||
+        (next.terminal != ATARI8_SAPR_OK && next.terminal != ATARI8_SAPR_EOF)) {
+        atari8_core_reset(&next.core,next.info.ntsc,next.info.stereo);
+        if (!atari8_pcm_init(&next.pcm,next.core.pokey[0].clock_hz,next.pcm.rate,
+                             next.info.stereo ? 2u : 1u,true))
+            return ATARI8_SAPR_UNSUPPORTED;
+        next.position = next.next_frame = next.remaining = 0;
+        next.terminal = ATARI8_SAPR_OK;
+    }
+    int16_t frame[2];
+    while (next.position < position) {
+        Atari8SaprResult r = atari8_sapr_next(&next,frame);
+        if (r != ATARI8_SAPR_OK)
+            return r;
+    }
+    if (position == next.total_frames && next.terminal != ATARI8_SAPR_EOF) {
+        /* Validate any final cycles after the last complete PCM frame. */
+        Atari8SaprResult r = atari8_sapr_next(&next,frame);
+        if (r != ATARI8_SAPR_EOF)
+            return r == ATARI8_SAPR_OK ? ATARI8_SAPR_BAD_FORMAT : r;
+    }
+    *s = next;
+    return ATARI8_SAPR_OK;
 }
