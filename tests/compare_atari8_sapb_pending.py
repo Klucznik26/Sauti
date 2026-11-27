@@ -81,6 +81,13 @@ def compare_envelopes(left, right):
                         reverse=True)[:5]
         for _, i, x, y in ranked:
             print(f"  difference bin {i}s: RMS Sauti={x:.2f} ASAP={y:.2f}")
+    # Local windows expose deterioration hidden by whole-track averages.
+    for lo in range(0,len(a),30):
+        x,y=a[lo:lo+30],b[lo:lo+30]
+        r=(f"{statistics.correlation(x,y):.6f}" if len(x)>1 and min(x)!=max(x) and min(y)!=max(y) else "undefined")
+        ex,ey=sum(left[2][lo:lo+30]),sum(right[2][lo:lo+30])
+        db=f"{10*math.log10(ex/ey):+.2f} dB" if ex and ey else "undefined"
+        print(f"  window {lo:4d}-{lo+len(x):4d}s: RMS r={r}, level={db}")
     for i in range(max(0,len(a)-5),len(a)):
         print(f"  tail {i}s: RMS Sauti={a[i]:.2f} ASAP={b[i]:.2f}")
 
@@ -149,6 +156,7 @@ def main():
     mode=p.add_mutually_exclusive_group()
     mode.add_argument("--frame-restart",action="store_true",help="opt in to experimental Sauti scheduler for all rows")
     mode.add_argument("--report-mode",action="store_true",help="use each row\u0027s recorded Sauti scheduler")
+    mode.add_argument("--switch-after",type=int,help="diagnostic SAP-B transition after N successful standard intervals; select exactly one row")
     p.add_argument("--pokey-profile",action="store_true",help="print Sauti playback register write histogram")
     mix=p.add_mutually_exclusive_group()
     mix.add_argument("--nonlinear-mix",action="store_true",help="explicitly select the default saturation curve")
@@ -177,6 +185,8 @@ def main():
         rows=selected
     if not rows:
         p.error("no matching files")
+    if a.switch_after is not None and (not 0<=a.switch_after<=100000000 or len(rows)!=1):
+        p.error("--switch-after requires exactly one matching row and a valid nonnegative interval count")
     if a.sample is not None and len(rows)>a.sample:
         indices=sorted(random.Random(6502).sample(range(len(rows)),a.sample))
         rows=[rows[i] for i in indices]
@@ -225,6 +235,8 @@ def main():
                         cmd.append("--nonlinear-mix")
                     elif a.linear_mix:
                         cmd.append("--linear-mix")
+                    if a.switch_after is not None:
+                        cmd.append(f"--switch-after={a.switch_after}")
                 else:
                     cmd=[str(exe.resolve()),"-o",str(output),"-t",
                          (f"{ms//60000:02d}:{ms//1000%60:02d}.{ms%1000:03d}" if a.declared_duration else f"{a.seconds//60:02d}:{a.seconds%60:02d}"),"-R","48000"]
