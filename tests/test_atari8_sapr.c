@@ -29,6 +29,7 @@ static void test_file(bool stereo, bool ntsc, bool nonlinear)
     CHECK(info.stereo == stereo && info.ntsc == ntsc);
     CHECK(info.cycles_per_frame == (stereo ? 156u : 312u) * 114u);
     CHECK(atari8_sapr_open(&s, data, h + stride * 3, 48000) == ATARI8_SAPR_OK);
+    CHECK(s.nonlinear_mix);
     s.nonlinear_mix=nonlinear;
     uint64_t expected = (uint64_t)info.cycles_per_frame * 3u * 48000u
                       / s.core.pokey[0].clock_hz;
@@ -69,6 +70,7 @@ static void test_dac_mixer(bool nonlinear)
     Atari8Sapr s;
     Atari8Pcm ref;
     CHECK(atari8_sapr_open(&s,data,sizeof(data),48000)==ATARI8_SAPR_OK);
+    CHECK(s.nonlinear_mix);
     s.nonlinear_mix=nonlinear;
     CHECK(atari8_pcm_init(&ref,1773447u,48000u,2,true));
     unsigned frames=0;
