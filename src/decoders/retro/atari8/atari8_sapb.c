@@ -227,6 +227,7 @@ Atari8SapbResult atari8_sapb_open_mode(Atari8Sapb *s, const uint8_t *data,
     if (r != ATARI8_SAPB_OK) return s->status = r;
     s->machine.cpu.a = (uint8_t)(song < 0 ? info.default_song : (unsigned)song);
     if (info.type=='D') {
+        s->machine.sap_continuous = true;
         /* INIT is the running program, not a host subroutine. Audio
          * begins at entry; preserve CPU and master phase across chunks. */
         s->machine.cpu.pc = info.init;
