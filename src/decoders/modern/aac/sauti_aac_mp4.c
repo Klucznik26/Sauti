@@ -193,6 +193,12 @@ static int parse_asc(const uint8_t *asc,size_t n,SautiAacMp4Info *info){
         info->aot=3u;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=config;info->frame480=0u;
         return 1;
     }
+    if(aot==7u){                                                              /* TwinVQ: GASpecificConfig, 1 or 2 channels, 1024 or 960 lines; only the base layer is decoded */
+        const unsigned flag=getbits(asc,n,&bit,1);
+        if(flag==0xffffffffu||cc<1u||cc>2u||(getbits(asc,n,&bit,1)!=0u))return 0;      /* dependsOnCoreCoder = 0 */
+        info->aot=7u;info->rate_index=ri;info->sample_rate=rates[ri];info->channel_config=cc;info->frame480=flag;
+        return 1;
+    }
     if(aot!=1u&&aot!=2u&&aot!=5u&&aot!=29u&&aot!=4u)return 0;                         /* Main, LC, albo HE/HEv2 (rdzen LC + SBR w FIL) */
     info->frame480=0u;
     if(cc==0u&&aot==2u){                                                      /* LC with a program_config_element that is a standard layout and an explicit SBR extension: HE-AAC with that channel configuration (the element tags do not matter) */
@@ -322,7 +328,7 @@ int sauti_aac_mp4_to_adts(const uint8_t *data,size_t size,uint8_t **adts,size_t 
         if(!have_esds||!parse_esds(esds,asc,&asc_len))continue;
         SautiAacMp4Info inf;memset(&inf,0,sizeof(inf));
         if(!parse_asc(asc,asc_len,&inf))continue;
-        if(inf.aot==1u||inf.aot==3u||inf.aot==4u||inf.aot==17u||inf.aot==19u||inf.aot==23u||inf.aot==39u||inf.aot==42u||(inf.aot==2u&&inf.frame480)||inf.has_pce)continue;                              /* AAC-LD / ELD nie da sie zapisac jako ADTS (sciezka strumieniowa silnika owija je wlasnym naglowkiem) */
+        if(inf.aot==1u||inf.aot==3u||inf.aot==4u||inf.aot==17u||inf.aot==19u||inf.aot==23u||inf.aot==39u||inf.aot==42u||inf.aot==7u||(inf.aot==2u&&inf.frame480)||inf.has_pce)continue;                              /* AAC-LD / ELD nie da sie zapisac jako ADTS (sciezka strumieniowa silnika owija je wlasnym naglowkiem) */
         /* Lista jednostek dostepu: z tablic probek (stbl) i z fragmentow (moof/trun) - plik moze miec jedno, drugie albo oba. */
         Sample *list=NULL;size_t nlist=0,caplist=0;
         {

@@ -17,6 +17,7 @@
 #include "sauti_aac_lc_multi.h"
 #include "sauti_aac_lcw.h"
 #include "sauti_aac_he_multi.h"
+#include "sauti_aac_twinvq.h"
 #include "sauti_aac_mp4.h"
 #include "sauti_aac_sbr_channel.h"
 #include "sauti_usac.h"
@@ -83,6 +84,7 @@ typedef struct {
         eldsbr_t eld;                                    /* V_ER z er_aot == 39 i eldsbr: ELD z SBR */
     } u;
     SautiUsacState *usac_hs;                             /* V_ER z er_aot == 42: USAC (xHE-AAC), sauti_usac: stan na stercie (ok. 250 KiB), kopiowany gleboko jak lcm */
+    SautiAacTwinVq *tvq;                                 /* V_ER z er_aot == 103: TwinVQ (sauti_aac_twinvq), stan na stercie, kopiowany gleboko */
     SautiAacHeMulti *hm;                                 /* V_ER z er_aot == 102: HE-AAC w dowolnym ukladzie kanalow (sauti_aac_he_multi), stan na stercie, kopiowany gleboko */
     SautiAacLcw *lcw;                                    /* V_ER z er_aot == 100 / 101: AAC-LC / Main z ukladem PCE i CCE (sauti_aac_lcw): stan na stercie (malloc), kopiowany gleboko */
     SautiAacLcmState *lcm;                               /* AAC Main / LTP wielokanalowy (sauti_aac_lcm): stan na stercie (230 KiB), kopiowany gleboko przy punktach kontrolnych (lcm_dup) */
@@ -120,7 +122,7 @@ typedef struct {
     checkpoint_t **cps; size_t cp_count, cp_cap; uint64_t cp_stride;
     size_t cp_max;
     float *cache; size_t cache_cap;                      /* blok PCM ostatnio zdekodowanej ramki; CACHE_FLOATS, wiecej dla ukladow szerokich (lcw) */
-    SautiAacLcwConfig lcw_cfg; unsigned lcw_ready, lcw_adts, ssr_adts, sbr_down, hm_ready, hm_config, hm_adts;
+    SautiAacLcwConfig lcw_cfg; unsigned lcw_ready, lcw_adts, ssr_adts, sbr_down, hm_ready, hm_config, hm_adts; size_t tvq_first;
     unsigned ssr_bands;                                  /* AAC SSR: option aac.ssr_bands = 1..3 decodes only the lowest bands (scalable sampling rate: a low-passed signal at the full rate); 0 = all four */       /* uklad PCE z ASC (kontener), er_aot 100 / 101 */
     size_t cache_pos, cache_len;                         /* ramki PCM w cache */
     uint64_t position;                                   /* ramki PCM wydane */

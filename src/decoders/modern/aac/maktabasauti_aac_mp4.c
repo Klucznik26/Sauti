@@ -173,6 +173,7 @@ static maktabasauti_result_t live_prepare(dec_t *d, mp4_priv_t *p) {
 /* The access unit is already in d->frame + 7: the pseudo ADTS header in front of it (see aac_er_wrap) from the AudioSpecificConfig info of the container. */
 void aac_au_wrap(dec_t *d, const SautiAacMp4Info *mi, uint32_t sz) {
     const size_t l = 7u + sz;
+    if (mi->aot == 7u) { d->frame_len = aac_er_wrap(d->frame, 103u, mi->rate_index, mi->channel_config, mi->frame480, sz); return; }               /* TwinVQ */
     if (mi->sbr_explicit && (mi->has_pce || mi->channel_config >= 3u)) { d->frame_len = aac_er_wrap(d->frame, 102u, mi->rate_index, 0u, 0u, sz); return; }      /* HE-AAC multichannel */
     if (mi->has_pce) { d->frame_len = aac_er_wrap(d->frame, mi->aot == 1u ? 101u : 100u, mi->rate_index, 0u, mi->frame480, sz); return; }
     if (mi->aot == 1u || mi->aot == 3u || mi->aot == 4u || mi->aot == 17u || mi->aot == 19u || mi->aot == 23u || mi->aot == 39u || mi->aot == 42u || (mi->aot == 2u && mi->frame480)) { d->frame_len = aac_er_wrap(d->frame, mi->aot, mi->rate_index, mi->channel_config, mi->frame480, sz); return; }

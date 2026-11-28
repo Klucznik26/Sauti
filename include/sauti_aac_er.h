@@ -59,10 +59,10 @@ static inline size_t sauti_aac_er_wrap_header(uint8_t out[7],unsigned aot,unsign
     const size_t lf=l>8191u?8191u:l;                                                     /* the length field is 13 bits; the caller uses the returned length (wide layouts have longer access units) */
     out[0]=0xff;out[1]=0xf3;
     out[2]=(uint8_t)(((aot==2u?2u:((aot==1u||aot==3u||aot==4u||aot==17u||aot==19u)?3u:(aot==SAUTI_AAC_AOT_ER_ELD?1u:0u)))<<6)|(rate_index<<2)|((((aot==4u)?1u:((aot==1u||aot==17u||aot==19u)?0u:frame480))&1u)<<1)|((channel_config>>2)&1u));
-    out[3]=(uint8_t)(((channel_config&3u)<<6)|(((aot==1u||aot==17u||aot==100u||aot==101u)?(frame480&1u):0u)<<4)|((lf>>11)&3u));        /* Main with 960 lines: the `home` bit */
+    out[3]=(uint8_t)(((channel_config&3u)<<6)|(((aot==1u||aot==17u||aot==100u||aot==101u||aot==103u)?(frame480&1u):0u)<<4)|((lf>>11)&3u));        /* Main with 960 lines: the `home` bit */
     out[4]=(uint8_t)(lf>>3);
     out[5]=(uint8_t)(((lf&7u)<<5)|0x1fu);
-    out[6]=(uint8_t)(aot==17u?0x40u:(aot==19u?0x44u:(aot==42u?0x48u:(aot==3u?0x4cu:(aot==100u?0x50u:(aot==101u?0x54u:(aot==102u?0x58u:0xfcu)))))));                                          /* the buffer-fullness field carries the ER LC / ER LTP code (real values are 0x3f in the top six bits) */
+    out[6]=(uint8_t)(aot==17u?0x40u:(aot==19u?0x44u:(aot==42u?0x48u:(aot==3u?0x4cu:(aot==100u?0x50u:(aot==101u?0x54u:(aot==102u?0x58u:(aot==103u?0x5cu:0xfcu))))))));                                          /* the buffer-fullness field carries the ER LC / ER LTP code (real values are 0x3f in the top six bits) */
     return l;
 }
 

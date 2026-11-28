@@ -19,7 +19,8 @@ int aac_adts_parse_header(const uint8_t *p, size_t n, aac_adts_hdr_t *h) {
         else if (((p[6] >> 2) & 0x3fu) == 0x11u) { h->er_aot = 19u; h->er_480 = 0u; }                              /* ER AAC LTP */
         else if (((p[6] >> 2) & 0x3fu) == 0x13u) { h->er_aot = 3u; h->er_480 = 0u; }                              /* AAC SSR */
         else if (((p[6] >> 2) & 0x3fu) == 0x14u || ((p[6] >> 2) & 0x3fu) == 0x15u) { h->er_aot = ((p[6] >> 2) & 0x3fu) == 0x14u ? 100u : 101u; h->er_480 = (unsigned)(p[3] >> 4) & 1u; }
-        else if (((p[6] >> 2) & 0x3fu) == 0x16u) { h->er_aot = 102u; h->er_480 = 0u; }                              /* HE-AAC w ukladzie kanalow 3..7 albo PCE (sauti_aac_he_multi) */     /* AAC-LC / Main z ukladem PCE (sauti_aac_lcw): uklad jest w dec_t */
+        else if (((p[6] >> 2) & 0x3fu) == 0x16u) { h->er_aot = 102u; h->er_480 = 0u; }
+        else if (((p[6] >> 2) & 0x3fu) == 0x17u) { h->er_aot = 103u; h->er_480 = (unsigned)(p[3] >> 4) & 1u; }     /* TwinVQ: the `home` bit = 960 lines */                              /* HE-AAC w ukladzie kanalow 3..7 albo PCE (sauti_aac_he_multi) */     /* AAC-LC / Main z ukladem PCE (sauti_aac_lcw): uklad jest w dec_t */
         else if (((p[6] >> 2) & 0x3fu) == 0x12u) { h->er_aot = 42u; h->er_480 = 0u; }                              /* USAC (xHE-AAC): konfiguracja jest w dec_t, ramka niesie tylko jednostke dostepu */
         else if (h->er_aot == 1u && h->er_480) { h->er_aot = 4u; h->er_480 = 0u; }
         else if (h->er_aot == 1u) h->er_480 = (unsigned)(p[3] >> 4) & 1u;                                           /* Main: bit `home` = 960 linii */
@@ -63,7 +64,7 @@ static void lcn_config(const dec_t *d, SautiAacLcnConfig *lc, unsigned aot, unsi
     lc->frame960 = (aot == 1u || aot == 17u) && f960;
 }
 /* AAC Main / LTP wielokanalowy: stan na stercie hosta; kopia gleboka dla punktow kontrolnych i stanu poczatkowego */
-static void lcm_free(dec_t *d, core_t *c) { if (c->hm) sauti_aac_he_multi_free(c->hm); c->hm = NULL; if (c->lcw) sauti_aac_lcw_free(c->lcw); c->lcw = NULL; if (c->lcm) d->host->free(d->host->user, c->lcm); c->lcm = NULL; if (c->usac_hs) d->host->free(d->host->user, c->usac_hs); c->usac_hs = NULL; }
+static void lcm_free(dec_t *d, core_t *c) { if (c->tvq) sauti_aac_twinvq_free(c->tvq); c->tvq = NULL; if (c->hm) sauti_aac_he_multi_free(c->hm); c->hm = NULL; if (c->lcw) sauti_aac_lcw_free(c->lcw); c->lcw = NULL; if (c->lcm) d->host->free(d->host->user, c->lcm); c->lcm = NULL; if (c->usac_hs) d->host->free(d->host->user, c->usac_hs); c->usac_hs = NULL; }
 static SautiUsacState *usac_dup(dec_t *d, const SautiUsacState *src) {
     SautiUsacState *n;
     if (!src) return NULL;
@@ -93,6 +94,9 @@ static void core_reset(dec_t *d) {
         if (d->er_aot == 42u) {
             d->core.usac_hs = (SautiUsacState *)d->host->alloc(d->host->user, sizeof *d->core.usac_hs);
             if (d->core.usac_hs) sauti_usac_state_init(d->core.usac_hs, &d->usac);
+        }
+        else if (d->er_aot == 103u) {
+            d->core.tvq = d->tvq_first ? sauti_aac_twinvq_new(d->rate_index, d->config, d->er_480 ? 960u : 1024u, d->tvq_first) : NULL;
         }
         else if (d->er_aot == 102u) {
             d->core.hm = d->hm_ready ? sauti_aac_he_multi_new(&d->lcw_cfg, d->hm_config, d->core_rate, d->sbr_down) : NULL;
@@ -313,6 +317,12 @@ static prod_t decode_eldsbr(dec_t *d) {
 static prod_t decode_er(dec_t *d) {
     SautiAacErConfig c; SautiAacReason reason = SAUTI_AAC_REASON_OK; int r;
     if (d->er_aot == 42u) return decode_usac(d);
+    if (d->er_aot == 103u) {                                                 /* TwinVQ */
+        if (!d->core.tvq || d->crc_present) return d->crc_present ? P_UNSUPPORTED : P_FAIL;
+        r = sauti_aac_twinvq_decode(d->core.tvq, d->frame + 7u, d->frame_len - 7u, d->cache, &reason);
+        if (r == 1 && !all_finite(d->cache, (size_t)d->frame_pcm * d->out_channels)) r = 0;
+        return r == 1 ? P_OK : (r < 0 ? P_UNSUPPORTED : P_FAIL);
+    }
     if (d->er_aot == 102u) {                                                 /* HE-AAC z dowolnym ukladem kanalow */
         if (!d->core.hm || d->crc_present) return d->crc_present ? P_UNSUPPORTED : P_FAIL;
         r = sauti_aac_he_multi_decode(d->core.hm, d->frame + 7u, d->frame_len - 7u, d->cache, &reason);
@@ -419,7 +429,8 @@ static void checkpoint_maybe(dec_t *d) {
     cp->core.usac_hs = usac_dup(d, d->core.usac_hs);
     cp->core.lcw = sauti_aac_lcw_dup(d->core.lcw);
     cp->core.hm = sauti_aac_he_multi_dup(d->core.hm);
-    if ((d->core.hm && !cp->core.hm) || (d->core.lcw && !cp->core.lcw) || (d->core.lcm && !cp->core.lcm) || (d->core.usac_hs && !cp->core.usac_hs)) { lcm_free(d, &cp->core); d->host->free(d->host->user, cp); return; }     /* brak pamieci: bez punktu kontrolnego */
+    cp->core.tvq = sauti_aac_twinvq_dup(d->core.tvq);
+    if ((d->core.tvq && !cp->core.tvq) || (d->core.hm && !cp->core.hm) || (d->core.lcw && !cp->core.lcw) || (d->core.lcm && !cp->core.lcm) || (d->core.usac_hs && !cp->core.usac_hs)) { lcm_free(d, &cp->core); d->host->free(d->host->user, cp); return; }     /* brak pamieci: bez punktu kontrolnego */
     d->cps[d->cp_count++] = cp;
 }
 
@@ -491,6 +502,23 @@ static void drop_checkpoints(dec_t *d) {
 }
 
 static uint64_t default_mask(unsigned channels);
+static maktabasauti_result_t setup_tvq(dec_t *d, const aac_adts_hdr_t *hd) {
+    unsigned block = hd->er_480 ? 960u : 1024u;
+    if (hd->crc_present || hd->config < 1u || hd->config > 2u || d->frame_len < 11u) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
+    d->tvq_first = d->frame_len - 7u;
+    if (block * hd->config > d->cache_cap) {
+        float *bigger = (float *)d->host->alloc(d->host->user, (size_t)block * hd->config * sizeof(float));
+        if (!bigger) return MAKTABASAUTI_E_NO_MEMORY;
+        memset(bigger, 0, (size_t)block * hd->config * sizeof(float)); d->host->free(d->host->user, d->cache); d->cache = bigger; d->cache_cap = (size_t)block * hd->config;
+    }
+    d->variant = V_ER; d->er_aot = 103u; d->er_480 = hd->er_480;
+    d->core_channels = hd->config; d->out_channels = hd->config; d->ps_mode = 0; d->he960 = 0u; d->eldsbr = 0u;
+    d->frame_pcm = block; d->out_rate = d->core_rate;
+    core_reset(d);
+    if (!d->core.tvq || decode_er(d) != P_OK) { lcm_free(d, &d->core); d->tvq_first = 0; return MAKTABASAUTI_E_UNSUPPORTED_FEATURE; }
+    core_reset(d);
+    return MAKTABASAUTI_OK;
+}
 static maktabasauti_result_t setup_hem(dec_t *d, const aac_adts_hdr_t *hd) {
     SautiAacHeMulti *probe; size_t need; unsigned n, ch;
     if (!d->hm_ready || hd->crc_present || d->lcw_cfg.rate_index != hd->rate_index) return MAKTABASAUTI_E_UNSUPPORTED_FEATURE;
@@ -539,7 +567,7 @@ static void fill_info(const dec_t *d, maktabasauti_stream_info_t *info) {
     info->total_frames = d->trimmed ? d->avail : (d->total_known ? d->known_frames * d->frame_pcm : MAKTABASAUTI_UNKNOWN_LENGTH);
     info->flags = d->seekable ? MAKTABASAUTI_STREAM_SEEKABLE : 0u;
     strcpy(info->codec_name, "aac"); strncpy(info->container_name, d->cont->name, sizeof info->container_name - 1u);
-    strcpy(info->codec_profile, d->variant == V_ER ? (d->er_aot == 42u ? "USAC" : d->er_aot == 39u ? "ELD" : (d->er_aot == 2u ? (d->he960 ? "HE-AAC" : "LC") : (d->er_aot == 1u || d->er_aot == 101u ? "Main" : (d->er_aot == 102u ? "HE-AAC" : d->er_aot == 100u ? "LC" : (d->er_aot == 3u ? "SSR" : (d->er_aot == 4u ? "LTP" : (d->er_aot == 17u ? "ER-LC" : (d->er_aot == 19u ? "ER-LTP" : "LD")))))))) : (d->variant >= V_HE_MONO ? "HE-AAC" : "LC"));
+    strcpy(info->codec_profile, d->variant == V_ER ? (d->er_aot == 42u ? "USAC" : d->er_aot == 39u ? "ELD" : (d->er_aot == 2u ? (d->he960 ? "HE-AAC" : "LC") : (d->er_aot == 1u || d->er_aot == 101u ? "Main" : (d->er_aot == 103u ? "TwinVQ" : d->er_aot == 102u ? "HE-AAC" : d->er_aot == 100u ? "LC" : (d->er_aot == 3u ? "SSR" : (d->er_aot == 4u ? "LTP" : (d->er_aot == 17u ? "ER-LC" : (d->er_aot == 19u ? "ER-LTP" : "LD")))))))) : (d->variant >= V_HE_MONO ? "HE-AAC" : "LC"));
 }
 
 maktabasauti_result_t MAKTABASAUTI_CALL aac_eng_get_info(const void *state, maktabasauti_stream_info_t *info) {
@@ -614,6 +642,7 @@ static void restore_core(dec_t *d, const core_t *c) {
     d->core.usac_hs = usac_dup(d, c->usac_hs);
     d->core.lcw = sauti_aac_lcw_dup(c->lcw);
     d->core.hm = sauti_aac_he_multi_dup(c->hm);
+    d->core.tvq = sauti_aac_twinvq_dup(c->tvq);
     d->cache_pos = d->cache_len = 0; d->have_frame = 0; d->src_eof = 0; d->pend = MAKTABASAUTI_OK;
 }
 
@@ -797,6 +826,7 @@ static maktabasauti_result_t eng_classify(dec_t *d, const aac_adts_hdr_t *hdp) {
             { const maktabasauti_result_t lr = setup_lcw(d, &lh); if (lr == MAKTABASAUTI_OK) return lr; d->lcw_ready = 0u; d->lcw_adts = 0u; }
         }
     }
+    if (hd.er && hd.er_aot == 103u) return setup_tvq(d, &hd);
     if (hd.er && hd.er_aot == 102u) return setup_hem(d, &hd);
     if (hd.er && (hd.er_aot == 100u || hd.er_aot == 101u)) return setup_lcw(d, &hd);
     if (hd.er && hd.er_aot == 1u && hd.config == 0u && !hd.crc_present) {   /* AAC Main in ADTS with channel_configuration 0: the PCE in the stream (sauti_aac_lcw) */
@@ -951,7 +981,7 @@ maktabasauti_result_t aac_eng_open(const maktabasauti_codec_t *self, const aac_c
     }
     r = eng_classify(d, &hd);
     if (r != MAKTABASAUTI_OK) goto fail;
-    d->core.in_offset = 0; lcm_free(d, &d->cp0); d->cp0 = d->core; d->cp0.lcm = lcm_dup(d, d->core.lcm); d->cp0.usac_hs = usac_dup(d, d->core.usac_hs); d->cp0.lcw = sauti_aac_lcw_dup(d->core.lcw); d->cp0.hm = sauti_aac_he_multi_dup(d->core.hm);                                                          /* blok 0: ramka 0 jest jeszcze w d->frame (have_frame) */
+    d->core.in_offset = 0; lcm_free(d, &d->cp0); d->cp0 = d->core; d->cp0.lcm = lcm_dup(d, d->core.lcm); d->cp0.usac_hs = usac_dup(d, d->core.usac_hs); d->cp0.lcw = sauti_aac_lcw_dup(d->core.lcw); d->cp0.hm = sauti_aac_he_multi_dup(d->core.hm); d->cp0.tvq = sauti_aac_twinvq_dup(d->core.tvq);                                                          /* blok 0: ramka 0 jest jeszcze w d->frame (have_frame) */
     d->cp_stride = d->variant >= V_HE_MONO && d->variant != V_ER ? 256u : 64u;
     d->cp_max = CHECKPOINT_BUDGET / sizeof(checkpoint_t); if (d->cp_max > CHECKPOINT_MAX) d->cp_max = CHECKPOINT_MAX; if (d->cp_max < 4u) d->cp_max = 4u;
     d->cp_cap = d->cp_max;
